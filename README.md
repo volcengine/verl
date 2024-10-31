@@ -80,7 +80,7 @@ pip3 install flash-attn --no-build-isolation
 
 We recommend using FSDP backend to investigate, research and prototype different models, datasets and RL algorithms.
 
-The pros, cons and extension guide for using FSDP backend can be found in fsdp.md
+The pros, cons and extension guide for using FSDP backend can be found in [PyTorch FSDP Backend](https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html)
 
 **Megatron-LM**
 
@@ -88,7 +88,7 @@ For users who pursue better scalability, we recommend using Megatron-LM backend.
 
 Currently, we support Megatron-LM@core_v0.4.0 and we fix some internal issues of Megatron-LM. Here's the additional installation guide.
 
-The pros, cons and extension guide for using Megatron-LM backend can be found in megatron.md.
+The pros, cons and extension guide for using Megatron-LM backend can be found in [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/workers/megatron_workers.html)
 
 ```bash
 # FOR Megatron-LM Backend
