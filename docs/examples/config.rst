@@ -51,15 +51,6 @@ Data
   max_prompt_length. The users should increase the max_prompt_length if
   throwing the error.
 
-V1:
-
-- data.prompt_id_key: The field in the dataset where the prompt_id is
-  located
-- data.max_prompt_id_length: In data processing, the prompt_id will be
-  tokenized using the tokenizer and packaged with the prompt. This
-  specifies the maximum length of the tokenized prompt_id. **An error
-  will be reported if it’s not long enough**
-
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
