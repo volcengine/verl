@@ -2,7 +2,10 @@ set -x
 
 hdfs_path=hdfs://user/verl/experiments/gsm8k/deepseek-coder-6.7b-instruct/ # replace to your own hdfs/local path
 
-TORCHRUN -m verl.trainer.fsdp_sft_trainer \
+nproc_per_node=$1
+
+torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
+     -m verl.trainer.fsdp_sft_trainer \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.prompt_key=question \
