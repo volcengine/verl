@@ -1,0 +1,12 @@
+transformers 
+hydra-core 
+tensordict < 0.3.1
+numpy 
+pytest 
+deepspeed 
+pybind11 
+codetiming
+yapf
+wandb
+git+https://github.com/NVIDIA/TransformerEngine.git@stable
+# vllm==0.5.4 # vllm is installed in image building to avoid ray conflicts

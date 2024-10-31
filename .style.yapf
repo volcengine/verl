@@ -1,0 +1,5 @@
+[style]
+based_on_style = google
+column_limit = 120
+indent_width = 4
+split_arguments_when_comma_terminated: true

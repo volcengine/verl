@@ -1,0 +1,339 @@
+Config Explaination
+===================
+
+ppo_trainer.yaml for FSDP Backend
+---------------------------------
+
+Data
+~~~~
+
+.. code:: yaml
+
+   data:
+     tokenizer: null
+     train_files: ~/data/rlhf/gsm8k/train.parquet
+     val_files: ~/data/rlhf/gsm8k/test.parquet
+     prompt_key: prompt
+     max_prompt_length: 512
+     max_response_length: 512
+     train_batch_size: 1024
+     val_batch_size: 1312
+     return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
+     return_raw_chat: False
+
+- ``data.train_files``: Training set parquet. Can be a list or a single
+  file. The program will read all files into memory, so it can’t be too
+  large (< 100GB). The path can be either local path or HDFS path. For
+  HDFS path, we provide utils to download it to DRAM and convert the
+  HDFS path to local path.
+- ``data.val_files``: Validation parquet. Can be a list or a single
+  file.
+- ``data.prompt_key``: The field in the dataset where the prompt is
+  located. Default is ‘prompt’.
+- ``data.max_prompt_length``: Maximum prompt length. All prompts will be
+  left-padded to this length. An error will be reported if the length is
+  too long
+- ``data.max_response_length``: Maximum response length. Rollout in RL
+  algorithms (e.g. PPO) generates up to this length
+- ``data.train_batch_size``: Batch size sampled for one training
+  iteration of different RL algorithms.
+- ``data.val_batch_size``: Batch size sampled for one validation
+  iteration.
+- ``data.return_raw_input_ids``: Whether to return the original
+  input_ids without adding chat template. This is mainly used to
+  accommodate situations where the reward model’s chat template differs
+  from the policy. It needs to be decoded first, then apply the RM’s
+  chat template. If using a model-based RM, and the policy and RM
+  chat_templates are different, this flag needs to be set
+- ``data.return_raw_chat``:
+- ``data.truncation``: Truncate the input_ids or prompt length if they
+  exceed max_prompt_length. Default is ‘error’, not allow exceed the
+  max_prompt_length. The users should increase the max_prompt_length if
+  throwing the error.
+
+V1:
+
+- data.prompt_id_key: The field in the dataset where the prompt_id is
+  located
+- data.max_prompt_id_length: In data processing, the prompt_id will be
+  tokenized using the tokenizer and packaged with the prompt. This
+  specifies the maximum length of the tokenized prompt_id. **An error
+  will be reported if it’s not long enough**
+
+Actor/Rollout/Reference Policy
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+
+   actor_rollout_ref:
+     hybrid_engine: True
+     model:
+       path: ~/models/deepseek-llm-7b-chat
+       external_lib: null
+       override_config: {}
+       enable_gradient_checkpointing: False
+     actor:
+       strategy: fsdp  # This is for backward-compatibility
+       ppo_mini_batch_size: 256
+       ppo_micro_batch_size: 64
+       grad_clip: 1.0
+       clip_ratio: 0.2
+       entropy_coeff: 0.001
+       ppo_epochs: 1
+       shuffle: True
+       optim:
+         lr: 1e-6
+         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+         min_lr_ratio: null   # only useful for warmup with cosine
+         warmup_style: constant  # select from constant/cosine
+         total_training_steps: -1  # must be override by program
+       fsdp_config:
+         wrap_policy:
+           # transformer_layer_cls_to_wrap: None
+           min_num_params: 0
+         param_offload: False
+         grad_offload: False
+         optimizer_offload: False
+     ref:
+       fsdp_config:
+         param_offload: False
+         wrap_policy:
+           # transformer_layer_cls_to_wrap: None
+           min_num_params: 0
+       log_prob_micro_batch_size: 128
+     rollout:
+       name: vllm
+       temperature: 1.0
+       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+       top_p: 1
+       response_length: ${data.max_response_length}
+       # for vllm rollout
+       dtype: bfloat16 # should align with FSDP
+       gpu_memory_utilization: 0.5
+       ignore_eos: False
+       enforce_eager: True
+       free_cache_engine: True
+       load_format: dummy_dtensor # or dummy_hf or dummy_megatron
+       tensor_model_parallel_size: 2
+       max_num_batched_tokens: 8192
+       max_num_seqs: 1024
+       log_prob_micro_batch_size: 128
+       # for vllm and hf rollout
+       do_sample: True
+
+**Common config for actor, rollout and reference model**
+
+- ``actor_rollout_ref.hybrid_engine``: Whether it’s a hybrid engine,
+  currently only supports hybrid engine
+- ``actor_rollout_ref.model.path``: Huggingface model path. This can be
+  either local path or HDFS path. For HDFS path, we provide utils to
+  download it to DRAM and convert the HDFS path to local path.
+- ``actor_rollout_ref.model.external_libs``: Additional Python packages
+  that need to be imported. Used to register models or tokenizers into
+  the Huggingface system.
+- ``actor_rollout_ref.model.override_config``: Used to override some of
+  the model’s original configurations, mainly dropout
+- ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
+  enable gradient checkpointing for the actor
+
+**Actor model**
+
+- ``actor_rollout_ref.actor.strategy``: fsdp or megatron. In this
+  example, we use fsdp backend.
+
+- ``actor_rollout_ref.actor.ppo_mini_batch_size``: One sample is split
+  into multiple sub-batches with batch_size=ppo_mini_batch_size for PPO
+  updates
+
+- ``actor_rollout_ref.actor.ppo_micro_batch_size``: Similar to gradient
+  accumulation, the micro_batch_size for one forward pass, trading speed
+  for GPU memory
+
+- ``actor_rollout_ref.actor.grad_clip``: Gradient clipping for actor
+  updates
+
+- ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
+
+- ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
+  calculating PPO loss
+
+- ``actor_rollout_ref.actor.ppo_epochs``: Number of epochs for PPO
+  updates on one set of sampled data
+
+- ``actor_rollout_ref.actor.shuffle``: Whether to shuffle data when
+  there are multiple epochs
+
+- ``actor_rollout_ref.actor.optim``: Actor’s optimizer parameters
+
+- ``actor_rollout_ref.actor.fsdp_config``: FSDP config for actor
+  training
+
+  - ``wrap_policy``: FSDP wrap policy. By default, it uses Huggingface’s
+    wrap policy, i.e., wrapping by DecoderLayer
+
+    - No need to set transformer_layer_cls_to_wrap, so we comment it.
+
+  - ``*_offload``: Whether to enable parameter, gradient and optimizer
+    offload
+
+    - Trading speed for GPU memory.
+
+**Reference Model**
+
+- ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
+  larger than 7B, it’s recommended to turn on offload for ref by
+  default**
+- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: The batch size
+  for one forward pass in the computation of ``ref_log_prob``.
+
+**Rollout Model**
+
+- ``actor_rollout_ref.rollout.name``: hf/vllm. We use vLLM by default
+  because it’s much efficient and our hybrid engine is implemented with
+  vLLM.
+
+- Rollout (Auto-regressive) parameters. The key should be equal to the
+  property name in vLLM’s ``SamplingParams``.
+
+  - ``temperature``, ``top_k``, ``top_p`` and others: Sampling
+    parameters in ``SamplingParams``.
+
+- ``dtype``: Rollout model parameters type. This should be align with
+  the actor model parameter type in FSDP/Megatron backend.
+
+- ``gpu_memory_utilization``: The proportion of the remaining GPU memory
+  allocated for kv cache after other models have initialized when using
+  vllm.
+
+- ``tensor_model_parallel_size``: TP size for rollout. Only effective
+  for vllm.
+
+- ``log_prob_micro_batch_size``: Micro_batch_size (The batch size for
+  one forward pass) for recalculating log_prob.
+
+- ``do_sample``: Whether to sample. If set to False, the rollout model
+  will perform greedy sampling. We disable ``do_sample`` during
+  validation.
+
+- ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
+  token and continue generating tokens after the EOS token is generated.
+
+- ``actor_rollout_ref.rollout.free_cache_engine``: Offload the KVCache
+  after rollout generation stage. Default is True. When set to True, we
+  need to disable the usage of CUDAGraph (set ``enforce_eager`` to
+  True.)
+
+- ``actor_rollout_ref.rollout.enforce_eager``: Whether to use CUDAGraph
+  in vLLM generation. Default set to True to disable CUDAGraph.
+
+- ``actor_rollout_ref.rollout.load_format``: Which weight loader to use
+  to load the actor model weights to the rollout model.
+
+  - ``auto``: Use Megatron weight loader.
+  - ``megatron``: Use Megatron weight loader. Deployed with Megatron
+    backend. The input model ``state_dict()`` is already partitioned
+    along TP dimension and already gathered along PP dimension. This
+    weight loader requires that the Rollout model and Actor model’s
+    parameters shape and name should be identical.
+  - ``dtensor``: Default solution when using Huggingface weight loader.
+    Deployed with FSDP backend and the state_dict_type is
+    ``StateDictType.SHARDED_STATE_DICT``. Recommend to use this weight
+    loader
+  - ``hf``: Use Huggingface weight loader. Deployed with FSDP backend
+    and the state_dict_type is ``StateDictType.FULL_STATE_DICT``. This
+    solution doesn’t need to rewrite the weight loader for each model
+    implemented in vLLM but it results in larger peak memory usage.
+  - ``dummy_hf``, ``dummy_megatron``, ``dummy_dtensor``: Random
+    initialization.
+
+.. note:: **NOTED**: In this config field, users only need to select from ``dummy_megatron``, ``dummy_dtensor``, ``dummy_hf`` for rollout initialization and our hybrid engine will select the corresponding weight loader (i.e., ``megatron``, ``dtensor``, ``hf``) during actor/rollout weight synchronization.
+
+Critic Model
+~~~~~~~~~~~~
+
+Most parameters for Critic are similar to Actor Model.
+
+Reward Model
+~~~~~~~~~~~~
+
+.. code:: yaml
+
+   reward_model:
+     enable: False
+     model:
+       input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
+       path: ~/models/Anomy-RM-v0.1
+       external_lib: ${actor_rollout_ref.model.external_lib}
+       fsdp_config:
+         min_num_params: 0
+         param_offload: False
+     micro_batch_size: 64
+     max_length: null
+
+- ``reward_model.enable``: Whether to enable reward model. If False, we
+  compute the reward only with the user-defined reward functions. In
+  GSM8K and Math examples, we disable reward model. For RLHF alignment
+  example using full_hh_rlhf, we utilize reward model to assess the
+  responses. If False, the following parameters are not effective.
+- ``reward_model.model``
+
+  - ``input_tokenizer``: Input tokenizer. If the reward model’s chat
+    template is inconsistent with the policy, we need to first decode to
+    plaintext, then apply the rm’s chat_template. Then score with RM. If
+    chat_templates are consistent, it can be set to null.
+  - ``path``: RM’s HDFS path or local path. Note that RM only supports
+    AutoModelForSequenceClassification. Other model types need to define
+    their own RewardModelWorker and pass it from the code.
+
+Algorithm
+~~~~~~~~~
+
+.. code:: yaml
+
+   algorithm:
+     gamma: 1.0
+     lam: 1.0
+     adv_estimator: gae
+     kl_penalty: kl  # how to estimate kl divergence
+     kl_ctrl:
+       type: fixed
+       kl_coef: 0.005
+
+- ``gemma``: discount factor
+- ``lam``: Trade-off between bias and variance in the GAE estimator
+- ``adv_estimator``: gae. Currently only supports gae, will support GRPO
+  in the future
+- ``kl_penalty``\ ：Support ``kl``, ``abs``, ``mse`` and ``full``.How to
+  calculate the kl divergence between actor and reference policy. For
+  specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+
+Trainer
+~~~~~~~
+
+.. code:: yaml
+
+   trainer:
+     total_epochs: 30
+     project_name: verl_examples
+     experiment_name: gsm8k
+     logger: ['console', 'tracking']
+     nnodes: 1
+     n_gpus_per_node: 8
+     save_freq: -1
+     test_freq: 2
+     critic_warmup: 0
+     default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
+     default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
+
+- ``trainer.total_epochs``: Number of epochs in training.
+- ``trainer.project_name``: For wandb
+- ``trainer.experiment_name``: For wandb
+- ``trainer.logger``: Support console and tracking. For tracking, we
+  will initialize a wandb
+- ``trainer.nnodes``: Number of nodes used in the training.
+- ``trainer.n_gpus_per_node``: Number of GPUs per node.
+- ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
+  of the actor and critic model.
+- ``trainer.test_freq``: The validation frequency (by iteration).
+- ``trainer.critic_warmup``: The number of iteration to train the critic
+  model before actual policy learning.
