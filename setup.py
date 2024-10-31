@@ -22,8 +22,9 @@ with open(os.path.join(version_folder, 'verl/version/version')) as f:
 
 # TODO: add version info to requirements
 install_requires = [
+    'torch==2.4.0',
     'tensordict',
-    'transformers<4.45',
+    'transformers',
     'codetiming',
     'pybind11',
     'hydra-core',
@@ -36,7 +37,6 @@ install_requires = [
 
 install_optional = [
     'vllm==0.5.4',
-    'liger-kernel'
 ]
 
 extras_require = {
@@ -61,7 +61,8 @@ setup(
     description='veRL: Volcano Engine Reinforcement Learning for LLM',
     install_requires=install_requires,
     extras_require=extras_require,
-    package_data={'': ['version/*']},
+    package_data={'': ['version/*'],
+                  'verl': ['trainer/config/*.yaml'],},
     include_package_data=True,
     long_description=long_description,
     long_description_content_type='text/markdown'
