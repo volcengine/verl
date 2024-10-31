@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-
 from verl.utils.import_utils import is_vllm_available, is_megatron_core_available
 
-from .base import BaseShardingManager
+AllGatherPPModel = None
 
 if is_megatron_core_available() and is_vllm_available():
     from .megatron_vllm import AllGatherPPModel, MegatronVLLMShardingManager
