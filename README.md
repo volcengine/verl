@@ -25,7 +25,7 @@ veRL is fast with:
 
 
 <p align="center">
-| <a href="https://verl-doc.readthedocs.io/en/latest/index.html"><b>Documentation</b></a> | <a href="https://arxiv.org/abs/2409.19256v2"><b>Paper</b></a> | 
+| <a href="https://verl.readthedocs.io/en/latest/index.html"><b>Documentation</b></a> | <a href="https://arxiv.org/abs/2409.19256v2"><b>Paper</b></a> | 
 <!-- <a href=""><b>Slides</b></a> | -->
 </p>
 
@@ -111,28 +111,28 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
 
 ## Getting Started
-Visit our [documentation](https://verl-doc.readthedocs.io/en/latest/index.html) to learn more.
+Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to learn more.
 
 **Running an PPO example should follow:**
 - Preparation
-  - [Installation](https://verl-doc.readthedocs.io/en/latest/preparation/install.html)
-  - [Prepare Data (Parquet) for Post-Training](https://verl-doc.readthedocs.io/en/latest/preparation/prepare_data.html)
-  - [Implement Reward Function for Dataset](https://verl-doc.readthedocs.io/en/latest/preparation/reward_function.html)
+  - [Installation](https://verl.readthedocs.io/en/latest/preparation/install.html)
+  - [Prepare Data (Parquet) for Post-Training](https://verl.readthedocs.io/en/latest/preparation/prepare_data.html)
+  - [Implement Reward Function for Dataset](https://verl.readthedocs.io/en/latest/preparation/reward_function.html)
 - PPO Example (Run an example)
-  - [PPO Example Architecture](https://verl-doc.readthedocs.io/en/latest/examples/ppo_code_architecture.html)
-  - [Config Explanation](https://verl-doc.readthedocs.io/en/latest/examples/config.html)
-  - [Run GSM8K Example](https://verl-doc.readthedocs.io/en/latest/examples/gsm8k_example.html)
+  - [PPO Example Architecture](https://verl.readthedocs.io/en/latest/examples/ppo_code_architecture.html)
+  - [Config Explanation](https://verl.readthedocs.io/en/latest/examples/config.html)
+  - [Run GSM8K Example](https://verl.readthedocs.io/en/latest/examples/gsm8k_example.html)
 
 **For code explanation and advance usage (extension):**
 - PPO Trainer and Workers
-  - [PPO Ray Trainer](https://verl-doc.readthedocs.io/en/latest/workers/ray_trainer.html)
-  - [PyTorch FSDP Backend](https://verl-doc.readthedocs.io/en/latest/workers/fsdp_workers.html)
-  - [Megatron-LM Backend](https://verl-doc.readthedocs.io/en/latest/index.html)
+  - [PPO Ray Trainer](https://verl.readthedocs.io/en/latest/workers/ray_trainer.html)
+  - [PyTorch FSDP Backend](https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html)
+  - [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/index.html)
 - Advance Usage and Extension
-  - [Ray API Design Tutorial](https://verl-doc.readthedocs.io/en/latest/advance/placement.html)
-  - [Extend to other RL(HF) algorithms](https://verl-doc.readthedocs.io/en/latest/advance/dpo_extension.html)
-  - [Add models to FSDP backend](https://verl-doc.readthedocs.io/en/latest/advance/fsdp_extension.html)
-  - [Add models to Megatron-LM backend](https://verl-doc.readthedocs.io/en/latest/advance/megatron_extension.html)
+  - [Ray API Design Tutorial](https://verl.readthedocs.io/en/latest/advance/placement.html)
+  - [Extend to other RL(HF) algorithms](https://verl.readthedocs.io/en/latest/advance/dpo_extension.html)
+  - [Add models to FSDP backend](https://verl.readthedocs.io/en/latest/advance/fsdp_extension.html)
+  - [Add models to Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
 
 
 ## Contribution

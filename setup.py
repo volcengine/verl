@@ -45,6 +45,10 @@ extras_require = {
     'single-controller-ray': ['ray'],
 }
 
+from pathlib import Path
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text()
+
 setup(
     name='verl',
     version=__version__,
@@ -59,4 +63,6 @@ setup(
     extras_require=extras_require,
     package_data={'': ['version/*']},
     include_package_data=True,
+    long_description=long_description,
+    long_description_content_type='text/markdown'
 )
