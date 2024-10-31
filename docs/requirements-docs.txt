@@ -1,0 +1,9 @@
+# markdown suport
+recommonmark
+# markdown table suport
+sphinx-markdown-tables
+
+# theme default rtd
+
+# crate-docs-theme
+sphinx-rtd-theme
