@@ -13,7 +13,6 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/config.py
 
-
 from typing import Optional, Union, ClassVar
 from dataclasses import dataclass
 import torch

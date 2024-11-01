@@ -13,7 +13,6 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/config.py
 
-
 import enum
 import json
 from typing import List, Optional, Union
