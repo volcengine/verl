@@ -8,7 +8,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
-    data.prompt_key=question \
+    data.prompt_key=prompt \
     data.response_key=answer \
     data.micro_batch_size=8 \
     model.partial_pretrain=deepseek-ai/deepseek-coder-6.7b-instruct \
