@@ -154,9 +154,9 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(local_path)
 
     dataset = RLHFDataset(parquet_files='~/data/rlhf/gsm8k/train.parquet',
-                            tokenizer=tokenizer,
-                            prompt_key='prompt',
-                            max_prompt_length=256)
+                          tokenizer=tokenizer,
+                          prompt_key='prompt',
+                          max_prompt_length=256)
 
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
 

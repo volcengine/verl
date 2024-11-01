@@ -88,7 +88,7 @@ def generate_rl_dataset(target_hdfs_path_dir, local_dir='~/data/full_hh_rlhf/rl'
     train_dataset = dataset['train']
 
     data_source = 'Dahoas/full-hh-rlhf'
-    
+
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
 
@@ -105,7 +105,7 @@ def generate_rl_dataset(target_hdfs_path_dir, local_dir='~/data/full_hh_rlhf/rl'
                 "ability": "alignment",
                 "reward_model": {
                     "style": "model",
-                    "ground_truth": response # should not be used
+                    "ground_truth": response  # should not be used
                 },
                 "extra_info": {
                     'split': split,

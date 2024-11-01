@@ -241,30 +241,30 @@ class RayPPOTrainer(object):
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
-                                            tokenizer=self.tokenizer,
-                                            prompt_key=self.config.data.prompt_key,
-                                            max_prompt_length=self.config.data.max_prompt_length,
-                                            filter_prompts=True,
-                                            return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                            truncation='error')
+                                         tokenizer=self.tokenizer,
+                                         prompt_key=self.config.data.prompt_key,
+                                         max_prompt_length=self.config.data.max_prompt_length,
+                                         filter_prompts=True,
+                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                         truncation='error')
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
-                                            batch_size=self.config.data.train_batch_size,
-                                            shuffle=True,
-                                            drop_last=True,
-                                            collate_fn=collate_fn)
+                                           batch_size=self.config.data.train_batch_size,
+                                           shuffle=True,
+                                           drop_last=True,
+                                           collate_fn=collate_fn)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                            tokenizer=self.tokenizer,
-                                            prompt_key=self.config.data.prompt_key,
-                                            max_prompt_length=self.config.data.max_prompt_length,
-                                            filter_prompts=True,
-                                            return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                            truncation='error')
+                                       tokenizer=self.tokenizer,
+                                       prompt_key=self.config.data.prompt_key,
+                                       max_prompt_length=self.config.data.max_prompt_length,
+                                       filter_prompts=True,
+                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                       truncation='error')
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                            batch_size=self.config.data.val_batch_size,
-                                            shuffle=True,
-                                            drop_last=True,
-                                            collate_fn=collate_fn)
+                                         batch_size=self.config.data.val_batch_size,
+                                         shuffle=True,
+                                         drop_last=True,
+                                         collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
         assert len(self.val_dataloader) >= 1

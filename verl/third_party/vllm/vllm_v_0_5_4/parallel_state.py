@@ -3,7 +3,6 @@
 # Adapted from
 # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
-
 """Model and data parallel groups."""
 import os
 import torch
