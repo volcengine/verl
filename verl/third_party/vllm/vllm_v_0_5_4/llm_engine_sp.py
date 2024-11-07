@@ -169,21 +169,34 @@ class LLMEngine(LLMEngine):
         self.generation_config_fields = _load_generation_config_dict(model_config)
 
         self.input_processor = INPUT_REGISTRY.create_input_processor(self.model_config)
-
-        self.model_executor = executor_class(
-            model=model, # add for spmd_gpu_executor
-            model_config=model_config,
-            cache_config=cache_config,
-            parallel_config=parallel_config,
-            scheduler_config=scheduler_config,
-            device_config=device_config,
-            lora_config=lora_config,
-            multimodal_config=multimodal_config,
-            speculative_config=speculative_config,
-            load_config=load_config,
-            prompt_adapter_config=prompt_adapter_config,
-        )
-
+        from .spmd_gpu_executor import SPMDGPUExecutor
+        if executor_class is SPMDGPUExecutor:
+            self.model_executor = executor_class(
+                model=model, # add for spmd_gpu_executor
+                model_config=model_config,
+                cache_config=cache_config,
+                parallel_config=parallel_config,
+                scheduler_config=scheduler_config,
+                device_config=device_config,
+                lora_config=lora_config,
+                multimodal_config=multimodal_config,
+                speculative_config=speculative_config,
+                load_config=load_config,
+                prompt_adapter_config=prompt_adapter_config,
+            )
+        else:
+            self.model_executor = executor_class(
+                model_config=model_config,
+                cache_config=cache_config,
+                parallel_config=parallel_config,
+                scheduler_config=scheduler_config,
+                device_config=device_config,
+                lora_config=lora_config,
+                multimodal_config=multimodal_config,
+                speculative_config=speculative_config,
+                load_config=load_config,
+                prompt_adapter_config=prompt_adapter_config,
+            )
         # Profile the memory usage and initialize the cache.
         if not self.model_config.embedding_mode:
             self._initialize_kv_caches()
