@@ -260,12 +260,10 @@ class LLMEngine(LLMEngine):
             "Currently, the vllm in verl only support running on GPU"
 
         if engine_config.parallel_config.world_size == 1:
-            # TODO: may also need to init process group
-            from vllm.executor.gpu_executor import GPUExecutor
-            executor_class = GPUExecutor
-        else:
-            from .spmd_gpu_executor import SPMDGPUExecutor
-            executor_class = SPMDGPUExecutor
+            engine_config.load_config.load_format = "dummy_hf"
+
+        from .spmd_gpu_executor import SPMDGPUExecutor
+        executor_class = SPMDGPUExecutor
 
         # Create the LLM engine.
         engine = cls(

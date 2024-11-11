@@ -279,29 +279,14 @@ class LLMEngine(LLMEngine):
     # The GPUExecutor remove the Ray dependency
     @classmethod
     def _get_executor_cls(cls, engine_config: EngineConfig) -> Type[ExecutorBase]:
-        distributed_executor_backend = (engine_config.parallel_config.distributed_executor_backend)
-        # Initialize the cluster and specify the executor class.]
-        # Initialize the cluster and specify the executor class.
         assert engine_config.device_config.device_type == "cuda", \
             "Currently, the vllm in verl only support running on GPU"
 
         if engine_config.parallel_config.world_size == 1:
-            # TODO: may also need to init process group
-            from vllm.executor.gpu_executor import GPUExecutor
-            executor_class = GPUExecutor
-        else:
-            from .spmd_gpu_executor import SPMDGPUExecutor
-            executor_class = SPMDGPUExecutor
-        # elif distributed_executor_backend == "mp":
-        #     from vllm.executor.multiproc_gpu_executor import (
-        #         MultiprocessingGPUExecutor)
-        #     assert not envs.VLLM_USE_RAY_SPMD_WORKER, (
-        #         "multiprocessing distributed executor backend does not "
-        #         "support VLLM_USE_RAY_SPMD_WORKER=1")
-        #     executor_class = MultiprocessingGPUExecutor
-        # else:
-        #     from vllm.executor.gpu_executor import GPUExecutor
-        #     executor_class = GPUExecutor
+            engine_config.load_config.load_format = "dummy_hf"
+
+        from .spmd_gpu_executor import SPMDGPUExecutor
+        executor_class = SPMDGPUExecutor
         return executor_class
 
     @classmethod
@@ -321,13 +306,8 @@ class LLMEngine(LLMEngine):
         assert engine_config.device_config.device_type == "cuda", \
             "Currently, the vllm in verl only support running on GPU"
 
-        if engine_config.parallel_config.world_size == 1:
-            # TODO: may also need to init process group
-            from vllm.executor.gpu_executor import GPUExecutor
-            executor_class = GPUExecutor
-        else:
-            from .spmd_gpu_executor import SPMDGPUExecutor
-            executor_class = SPMDGPUExecutor
+        from .spmd_gpu_executor import SPMDGPUExecutor
+        executor_class = SPMDGPUExecutor
 
         # Create the LLM engine.
         engine = cls(

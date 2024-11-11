@@ -232,6 +232,8 @@ class ActorRolloutRefWorker(Worker):
                                   tokenizer=self.tokenizer,
                                   model_hf_config=self.actor_model_config)
             log_gpu_memory_usage('After building vllm rollout', logger=None)
+            if torch.distributed.get_world_size() == 1:
+                self.config.rollout.load_format = 'dummy_hf'
             sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
                                                        inference_engine=rollout.inference_engine,
                                                        model_config=self.actor_model_config,
