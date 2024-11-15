@@ -333,7 +333,7 @@ class RayWorkerGroup(WorkerGroup):
         # Here we assume that if all parameters in args and kwargs are lists,
         # and all lists have the same length as len(self._workers),
         # we will distribute each element to its corresponding worker
-        # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
+        print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
             if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
@@ -349,16 +349,13 @@ class RayWorkerGroup(WorkerGroup):
         return [getattr(worker, method_name).remote(*args, **kwargs) for worker in self._workers]
 
     def bind_all(self, method_name: str, splitted_input):
-        # Mirror the logic in execute_all_async
+        # Mirror the logic in execute_all_async but with bind
         length = len(self._workers)
         result = []
         for i in range(length):
             remote_call = getattr(self._workers[i], method_name)
             result.append(remote_call.bind(splitted_input[i]))
         return result
-    
-    def bind_all_broadcast(self, method_name: str, input):
-        return [getattr(worker, method_name).bind(input) for worker in self._workers]
 
     @property
     def master_address(self):
