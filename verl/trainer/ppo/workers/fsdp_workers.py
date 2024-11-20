@@ -392,8 +392,11 @@ class ActorRolloutRefWorker(Worker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output = self.ref_policy.compute_log_prob(data=data)
-        output = DataProto.from_dict(tensors={'ref_log_prob': output})
+        # Amjad try this
+        ref_log_prob = self.ref_policy.compute_log_prob(data=data)
+        output = data
+        output.batch['ref_log_prob'] = ref_log_prob
+        # output = DataProto.from_dict(tensors={'ref_log_prob': output})
 
         output = output.to('cpu')
 
@@ -581,8 +584,13 @@ class CriticWorker(Worker):
         micro_batch_size = self.config.ppo_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         values = self.critic.compute_values(data=data)
-        output = DataProto.from_dict(tensors={'values': values})
+        
+        # Amjad try this
+        # output = DataProto.from_dict(tensors={'values': values})
+        data.batch['values'] = values
+        output = data
         output = output.to('cpu')
+
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
@@ -809,3 +817,121 @@ class RewardModelWorker(Worker):
         output = output.to('cpu')
         torch.cuda.empty_cache()
         return output
+
+@ray.remote
+class ReturnEstimatorWorker(Worker):
+    """
+    Worker that handles reward function computation, KL penalty, and advantage estimation
+    without requiring a model.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        import torch.distributed
+        if not torch.distributed.is_initialized():
+            torch.distributed.init_process_group(backend="nccl")
+        self.config = config
+        # self.reward_fn = reward_fn
+        # self.kl_ctrl = kl_ctrl
+        
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        # No model initialization needed
+        print("ReturnEstimatorWorker init_model")
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_scores_and_advantage(self, tensor_data: DataProto, non_tensor_data: DataProto):
+        """
+        Combines reward computation, KL penalty, and advantage estimation in one step
+        """
+        data = tensor_data.union(non_tensor_data)
+
+        # Compute rewards
+        reward_tensor = self.reward_fn(data)
+        data.batch["token_level_scores"] = reward_tensor
+
+        # Apply KL penalty
+        data, kl_metrics = apply_kl_penalty(
+            data, kl_ctrl=self.kl_ctrl, kl_penalty=self.config.algorithm.kl_penalty
+        )
+
+        # Compute advantages
+        data = compute_advantage(
+            data,
+            gamma=self.config.algorithm.gamma,
+            lam=self.config.algorithm.lam,
+            adv_estimator=self.config.algorithm.adv_estimator,
+        )
+
+        # Move results back to CPU
+        data = data.to("cpu")
+
+        return data
+    
+    
+
+import torch
+from verl.utils.torch_functional import masked_mean
+from verl.trainer.ppo import core_algos
+
+
+def apply_kl_penalty(
+    data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"
+):
+    responses = data.batch["responses"]
+    response_length = responses.size(1)
+    token_level_scores = data.batch["token_level_scores"]
+    batch_size = data.batch.batch_size[0]
+    attention_mask = data.batch["attention_mask"]
+    response_mask = attention_mask[:, -response_length:]
+
+    # compute kl between ref_policy and current policy
+    if "ref_log_prob" in data.batch.keys():
+        kld = core_algos.kl_penalty(
+            data.batch["old_log_probs"],
+            data.batch["ref_log_prob"],
+            kl_penalty=kl_penalty,
+        )  # (batch_size, response_length)
+        kld = kld * response_mask
+        beta = kl_ctrl.value
+    else:
+        beta = 0
+        kld = torch.zeros_like(response_mask, dtype=torch.float32)
+
+    token_level_rewards = token_level_scores - beta * kld
+
+    current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
+    current_kl = torch.mean(current_kl, dim=0).item()
+
+    # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
+    kl_ctrl.update(current_kl=current_kl, n_steps=batch_size)
+    data.batch["token_level_rewards"] = token_level_rewards
+
+    metrics = {"critic/kl": current_kl, "critic/kl_coeff": beta}
+
+    return data, metrics
+
+
+def compute_advantage(data: DataProto, gamma, lam, adv_estimator):
+    values = data.batch["values"]
+    responses = data.batch["responses"]
+    response_length = responses.size(1)
+    attention_mask = data.batch["attention_mask"]
+    response_mask = attention_mask[:, -response_length:]
+    token_level_rewards = data.batch["token_level_rewards"]
+
+    # TODO: add other ways to estimate advantages
+    if adv_estimator == "gae":
+        advantages, returns = core_algos.compute_gae_advantage_return(
+            token_level_rewards=token_level_rewards,
+            values=values,
+            eos_mask=response_mask,
+            gamma=gamma,
+            lam=lam,
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+    else:
+        raise NotImplementedError
+    return data

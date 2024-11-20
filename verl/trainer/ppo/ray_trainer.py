@@ -31,7 +31,10 @@ from single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithI
 from single_controller.ray.base import create_colocated_worker_cls
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from single_controller.ray.decorator import dispatch_dp_compute_data_proto, collect_dp_compute_data_proto
+from single_controller.ray.decorator import (
+    dispatch_dp_compute_data_proto,
+    collect_dp_compute_data_proto,
+)
 
 
 import ray
@@ -52,6 +55,7 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+    ReturnEstimator = 7
 
 
 @dataclass
@@ -139,6 +143,8 @@ def reduce_metrics(metrics: dict):
     for key, val in metrics.items():
         metrics[key] = np.mean(val)
     return metrics
+
+
 
 
 def compute_data_metrics(batch):
@@ -344,7 +350,7 @@ class RayPPOTrainer(object):
             metric_dict[f'test_score/{data_source}'] = np.mean(rewards)
 
         return metric_dict
-        
+
     def init_workers(self):
         """Init resource pool and worker group"""
         self.resource_pool_manager.create_resource_pool()
@@ -386,57 +392,102 @@ class RayPPOTrainer(object):
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
             self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
 
+        # TODO: generalize this to megatron
+        resource_pool = self.resource_pool_manager.get_resource_pool(Role.ReturnEstimator)
+        return_estimator_cls = RayClassWithInitArgs(
+            cls=self.role_worker_mapping[Role.ReturnEstimator],
+            config=self.config.algorithm,
+            # comment out for debugging
+            # reward_fn=self.reward_fn,
+            # kl_ctrl=self.kl_ctrl,
+        )
+        self.resource_pool_to_cls[resource_pool]["return"] = return_estimator_cls
+
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
+            breakpoint()
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
 
+        # Amjad comment out init_model to speed up debugging
         if self.use_critic:
             self.critic_wg = all_wg['critic']
-            self.critic_wg.init_model()
+            # self.critic_wg.init_model()
 
         if self.use_reference_policy:
             self.ref_policy_wg = all_wg['ref']
-            self.ref_policy_wg.init_model()
+            # self.ref_policy_wg.init_model()
 
         if self.use_rm:
             self.rm_wg = all_wg['rm']
-            self.rm_wg.init_model()
+            # self.rm_wg.init_model()
+
+        # Initialize return estimator worker group
+        self.return_estimator_wg = all_wg["return"]
+        # self.return_estimator_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg['actor_rollout']
-        self.actor_rollout_wg.init_model()
+        # self.actor_rollout_wg.init_model()
+
+        # TODO: Amjad move this to another class
+        self._build_compiled_graph()
+
+    def _build_compiled_graph(self):
+        print("actor_rollout_wg", self.actor_rollout_wg._workers)
+        print("ref_policy_wg", self.ref_policy_wg._workers)
+        print("critic_wg", self.critic_wg._workers)
+        print("return_estimator_wg", self.return_estimator_wg._workers)
         
-        
-        
-        
-    def debug_compiled_dag(self, batch):
-        
-        with InputNode() as splitted_batch:
+        # comment out other inputs for debugging with a single GPU
+        with InputNode() as graph_input:
+            tensor_data = graph_input[0], #, graph_input[1], graph_input[2], graph_input[3]
+            non_tensor_data = graph_input[1], #, graph_input[5], graph_input[6], graph_input[7]
+   
             # Generation step (actor_rollout_ is appended to method name)
-            gen_output = self.actor_rollout_wg.bind_all("actor_rollout_generate_sequences", splitted_batch)
-            dag = MultiOutputNode(gen_output)
-        dag = dag.experimental_compile()
+            gen_output = self.actor_rollout_wg.bind_all(
+                "actor_rollout_generate_sequences", tensor_data
+            )
+            print("gen_output", gen_output[0]._get_bind_index())
+            ref_output = self.ref_policy_wg.bind_all(
+                "ref_compute_ref_log_prob", gen_output
+            )
+            print("ref_output", ref_output[0]._get_bind_index())
+            critic_output = self.critic_wg.bind_all(
+                "critic_compute_values", ref_output
+            )
+            print("critic_output", critic_output[0]._get_bind_index())
+            return_estimator_output = self.return_estimator_wg.bind_all(  
+                "return_compute_scores_and_advantage", critic_output, non_tensor_data
+            )
+            print("return_estimator_output", return_estimator_output[0]._get_bind_index())
+
+            dag = MultiOutputNode(return_estimator_output)
+        self.compiled_dag = dag.experimental_compile(_execution_timeout=100000)
         print("successfully compiled dag!")
-        
+
+    def debug_compiled_dag(self, tensor_data, non_tensor_data):
         # split
-        splitted_batch, _ = dispatch_dp_compute_data_proto(self.actor_rollout_wg, batch)
-        for i in range(len(splitted_batch[0])):
-            print(f"splitted_batch[{i}] = {splitted_batch[0][i]}")
-        
+        splitted_tensor_data, _ = dispatch_dp_compute_data_proto(self.actor_rollout_wg, tensor_data)
+        splitted_non_tensor_data, _ = dispatch_dp_compute_data_proto(self.actor_rollout_wg, non_tensor_data)
+        # for i in range(len(splitted_gen_batch[0])):
+        #     print(f"splitted_gen_batch[{i}] = {splitted_gen_batch[0][i]}")
+
         # execute
-        splitted_output = ray.get(dag.execute(*splitted_batch[0]))
-        
+        ref = self.compiled_dag.execute(*(splitted_tensor_data[0]+splitted_non_tensor_data[0]))
+        splitted_output = ray.get(ref, timeout=100000)
+
         # concatenate
-        rcg_output = collect_dp_compute_data_proto(self.actor_rollout_wg, splitted_output)
+        rcg_output = collect_dp_compute_data_proto(
+            self.actor_rollout_wg, splitted_output
+        )
         return rcg_output
-        
 
     def fit(self):
         """
@@ -464,79 +515,108 @@ class RayPPOTrainer(object):
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-                with Timer(name='full_step', logger=None) as full_timer:
+                with Timer(name="full_step", logger=None) as full_timer:
                     metrics = {}
 
                     batch: DataProto = DataProto.from_single_dict(batch_dict)
-                    gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])                    
+                    gen_batch = batch.pop(
+                        batch_keys=["input_ids", "attention_mask", "position_ids"]
+                    )
+                    orig_batch = batch
 
                     # generate a batch
-                    with Timer(name='gen', logger=None) as timer:
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                    metrics['timing/gen'] = timer.last
-                                        
-                    # debug compiled dag
-                    rcg_gen_batch_output = self.debug_compiled_dag(gen_batch) # TODO: remove this
-                    
-                    breakpoint()
+                    with Timer(name="gen", logger=None) as timer:
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(
+                            gen_batch
+                        )
+                    metrics["timing/gen"] = timer.last
 
-                    batch = batch.union(gen_batch_output)
+                    # AMJAD try this
 
                     if self.use_reference_policy:
-                        with Timer(name='ref', logger=None) as timer:
-                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                            batch = batch.union(ref_log_prob)
-                        metrics['timing/ref'] = timer.last
+                        with Timer(name="ref", logger=None) as timer:
+                            # Amjad try this
+                            ref_output_batch = self.ref_policy_wg.compute_ref_log_prob(gen_batch_output)
+                            # batch = batch.union(ref_log_prob)
+                        metrics["timing/ref"] = timer.last
 
                     # compute values
-                    with Timer(name='values', logger=None) as timer:
-                        values = self.critic_wg.compute_values(batch)
-                        batch = batch.union(values)
-                    metrics['timing/values'] = timer.last
-
-                    with Timer(name='adv', logger=None) as timer:
+                    with Timer(name="values", logger=None) as timer:
+                        # Amjad try this
+                        critic_output_batch = self.critic_wg.compute_values(ref_output_batch)
+                        # batch = batch.union(values)
+                    metrics["timing/values"] = timer.last
+                                        
+                    batch = critic_output_batch
+                    # adding this data for reward function computation
+                    # TODO: convert this to a tensor
+                    batch.non_tensor_batch["reward_model"] = (
+                        orig_batch.non_tensor_batch["reward_model"]
+                    )
+                    batch.non_tensor_batch["data_source"] = orig_batch.non_tensor_batch[
+                        "data_source"
+                    ]
+                    
+                    with Timer(name="adv", logger=None) as timer:
                         if self.use_rm:
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
                         reward_tensor = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
+                        batch.batch["token_level_scores"] = reward_tensor
 
-                        batch, kl_metrics = apply_kl_penalty(batch,
-                                                           kl_ctrl=self.kl_ctrl,
-                                                           kl_penalty=self.config.algorithm.kl_penalty)
+                        batch, kl_metrics = apply_kl_penalty(
+                            batch,
+                            kl_ctrl=self.kl_ctrl,
+                            kl_penalty=self.config.algorithm.kl_penalty,
+                        )
                         metrics.update(kl_metrics)
 
-                        batch = compute_advantage(batch,
-                                               self.config.algorithm.gamma,
-                                               self.config.algorithm.lam,
-                                               adv_estimator=self.config.algorithm.adv_estimator)
-                    metrics['timing/adv'] = timer.last
+                        batch = compute_advantage(
+                            batch,
+                            self.config.algorithm.gamma,
+                            self.config.algorithm.lam,
+                            adv_estimator=self.config.algorithm.adv_estimator,
+                        )
+                    metrics["timing/adv"] = timer.last
+                    
+                    non_tensor_data = orig_batch.pop(non_tensor_batch_keys=["reward_model", "data_source"])                    
+                    dag_output = self.debug_compiled_dag(gen_batch, non_tensor_data)
+                    breakpoint()
 
                     # update critic
                     if self.use_critic:
-                        with Timer(name='update_critic', logger=None) as timer:
+                        with Timer(name="update_critic", logger=None) as timer:
                             critic_output = self.critic_wg.update_critic(batch)
-                        metrics['timing/update_critic'] = timer.last
-                        critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
+                        metrics["timing/update_critic"] = timer.last
+                        critic_output_metrics = reduce_metrics(
+                            critic_output.meta_info["metrics"]
+                        )
                         metrics.update(critic_output_metrics)
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= global_steps:
-                        with Timer(name='update_actor', logger=None) as timer:
+                        with Timer(name="update_actor", logger=None) as timer:
                             actor_output = self.actor_rollout_wg.update_actor(batch)
-                        metrics['timing/update_actor'] = timer.last
-                        actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
+                        metrics["timing/update_actor"] = timer.last
+                        actor_output_metrics = reduce_metrics(
+                            actor_output.meta_info["metrics"]
+                        )
                         metrics.update(actor_output_metrics)
 
-                metrics['timing/full_step'] = full_timer.last
+                metrics["timing/full_step"] = full_timer.last
 
                 # validate
-                if self.val_reward_fn is not None and (global_steps + 1) % self.config.trainer.test_freq == 0:
-                    with Timer(name='testing', logger=None) as timer:
+                if (
+                    self.val_reward_fn is not None
+                    and (global_steps + 1) % self.config.trainer.test_freq == 0
+                ):
+                    with Timer(name="testing", logger=None) as timer:
                         val_metrics: dict = self._validate()
-                        val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
-                    metrics['timing/testing'] = timer.last
+                        val_metrics = {
+                            f"val/{key}": val for key, val in val_metrics.items()
+                        }
+                    metrics["timing/testing"] = timer.last
                     metrics.update(val_metrics)
 
                 # collect metrics
@@ -546,85 +626,80 @@ class RayPPOTrainer(object):
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=global_steps)
 
-                if self.config.trainer.save_freq > 0 and (global_steps + 1) % self.config.trainer.save_freq == 0:
-                    actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
-                                                    f'global_step_{global_steps}')
-                    actor_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, 'actor')
-                    self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
+                if (
+                    self.config.trainer.save_freq > 0
+                    and (global_steps + 1) % self.config.trainer.save_freq == 0
+                ):
+                    actor_local_path = os.path.join(
+                        self.config.trainer.default_local_dir,
+                        "actor",
+                        f"global_step_{global_steps}",
+                    )
+                    actor_remote_path = os.path.join(
+                        self.config.trainer.default_hdfs_dir, "actor"
+                    )
+                    self.actor_rollout_wg.save_checkpoint(
+                        actor_local_path, actor_remote_path
+                    )
 
                     if self.use_critic:
-                        critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                                         f'global_step_{global_steps}')
-                        critic_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, 'critic')
-                        self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
+                        critic_local_path = os.path.join(
+                            self.config.trainer.default_local_dir,
+                            "critic",
+                            f"global_step_{global_steps}",
+                        )
+                        critic_remote_path = os.path.join(
+                            self.config.trainer.default_hdfs_dir, "critic"
+                        )
+                        self.critic_wg.save_checkpoint(
+                            critic_local_path, critic_remote_path
+                        )
 
                 global_steps += 1
 
         # perform validation after training
         if self.val_reward_fn is not None:
             val_metrics = self._validate()
-            pprint(f'Final validation metrics: {val_metrics}')
+            pprint(f"Final validation metrics: {val_metrics}")
 
-
-class RCGPPOTrainer(RayPPOTrainer):
+ 
+# TODO: remove this after debugging
+def compare_batch_tensors(data1, data2, rtol=1e-5, atol=1e-8):
     """
-    PPO Trainer with Reward Critic Guidance (RCG) - modifies the training loop to incorporate
-    reward critic guidance during policy updates.
+    Compare tensors in the batch attribute of two DataProto objects.
+    
+    Args:
+        data1: First DataProto object
+        data2: Second DataProto object
+        rtol: Relative tolerance for tensor comparison
+        atol: Absolute tolerance for tensor comparison
     """
+    batch1 = data1.batch
+    batch2 = data2.batch
     
-    def _build_compiled_graph(self):
-        """
-        Builds a compiled Ray DAG for the PPO training flow.
-        """
-        from ray.dag import InputNode, MultiOutputNode
+    # Compare keys
+    keys1 = set(batch1.keys())
+    keys2 = set(batch2.keys())
+    if keys1 != keys2:
+        print(f"❌ Keys don't match:")
+        print(f"Only in batch1: {keys1 - keys2}")
+        print(f"Only in batch2: {keys2 - keys1}")
+        return
+    
+    # Compare each tensor
+    for key in keys1:
+        tensor1 = batch1[key]
+        tensor2 = batch2[key]
         
-        # Create DAG with input nodes
-        with InputNode() as splitted_batch:
-            # Generation step
-            gen_output = self.actor_rollout_wg.bind_all("generate_sequences", splitted_batch)
+        # Compare shapes
+        if tensor1.shape != tensor2.shape:
+            print(f"❌ {key} shapes differ: {tensor1.shape} vs {tensor2.shape}")
+            continue
             
-            # Reference policy step (if enabled)
-            if self.use_reference_policy:
-                ref_output = self.ref_policy_wg.bind("compute_ref_log_prob", gen_output)
-                current_output = ref_output
-            else:
-                current_output = gen_output
-                
-            # Value computation
-            value_output = self.critic_wg.bind("compute_values", current_output)
-            
-            # Reward model computation (if enabled)
-            if self.use_rm:
-                rm_output = self.rm_wg.bind("compute_rm_score", value_output)
-                current_output = rm_output
-            else:
-                current_output = value_output
-                
-            # Critic update
-            if self.use_critic:
-                critic_output = self.critic_wg.bind("update_critic", current_output)
-                current_output = critic_output
-                
-            # Actor update
-            actor_output = self.actor_rollout_wg.bind("update_actor", current_output)
-            
-            # Create final DAG with all outputs needed
-            dag = MultiOutputNode([
-                gen_output,          # Generation results
-                value_output,        # Value estimates
-                current_output,      # Final state before actor update
-                actor_output         # Actor update results
-            ])
-        
-        # Compile the DAG
-        self.compiled_dag = dag.experimental_compile()
-    
-    def init_workers(self):
-        super().init_workers()
-        self._build_compiled_graph()
-    
-    def fit(self):
-        """
-        Modified training loop that implements RCG-PPO.
-        """
-        pass
+        # Compare values
+        if torch.allclose(tensor1, tensor2, rtol=rtol, atol=atol):
+            print(f"✅ {key}: match (shape={tensor1.shape}, dtype={tensor1.dtype})")
+        else:
+            print(f"❌ {key}: differ")
+            print(f"   Max diff: {(tensor1 - tensor2).abs().max().item()}")
+            print(f"   Mean diff: {(tensor1 - tensor2).abs().mean().item()}")

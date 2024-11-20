@@ -157,7 +157,8 @@ class vLLMRollout(BaseRollout):
         for i in range(batch_size):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
-        do_sample = prompts.meta_info.get('do_sample', True)
+        # TODO: change this back to True after debugging. Added it to make it reproducible
+        do_sample = prompts.meta_info.get('do_sample', False)
         if not do_sample:
             kwargs = {
                 'best_of': 1,
