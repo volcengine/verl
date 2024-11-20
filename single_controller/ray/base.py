@@ -267,6 +267,7 @@ class RayWorkerGroup(WorkerGroup):
                             time.sleep(1)
                         else:
                             register_center_actor = ray.get_actor(f"{self.name_prefix}_register_center")
+                            break
                     assert register_center_actor is not None, f"failed to get register_center_actor: {self.name_prefix}_register_center in {list_named_actors(all_namespaces=True)}"
                     rank_zero_info = ray.get(register_center_actor.get_rank_zero_info.remote())
                     self._master_addr, self._master_port = rank_zero_info['MASTER_ADDR'], rank_zero_info['MASTER_PORT']
