@@ -205,7 +205,6 @@ class RayWorkerGroup(WorkerGroup):
     def _init_with_detached_workers(self, worker_names):
         workers = [ray.get_actor(name=name) for name in worker_names]
         self._workers = workers
-        self._worker_names = worker_names
         self._world_size = len(worker_names)
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached):
