@@ -16,7 +16,7 @@ import os
 import logging
 import torch
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType
+from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
@@ -42,7 +42,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if full_params:
             FSDP.set_state_dict_type(self.module,
                                      state_dict_type=StateDictType.FULL_STATE_DICT,
-                                     state_dict_config=ShardedStateDictConfig())
+                                     state_dict_config=FullStateDictConfig())
         else:
             FSDP.set_state_dict_type(self.module,
                                      state_dict_type=StateDictType.SHARDED_STATE_DICT,
