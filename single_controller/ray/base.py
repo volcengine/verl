@@ -188,6 +188,7 @@ class RayWorkerGroup(WorkerGroup):
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
 
         if worker_names is not None:
+            assert self._is_init_with_detached_workers
             self._worker_names = worker_names
 
         if self._is_init_with_detached_workers:
