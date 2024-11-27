@@ -73,6 +73,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         return grad_norm
 
     def compute_values(self, data: DataProto) -> torch.Tensor:
+        self.critic_module.eval()
         micro_batch_size = data.meta_info['micro_batch_size']
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
         batch = data.select(batch_keys=select_keys).batch
@@ -86,6 +87,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         return values
 
     def update_critic(self, data: DataProto):
+        # make sure we are in training mode
+        self.critic_module.train()
         metrics = {}
 
         dataloader = self._make_minibatch_iterator(data)
