@@ -18,7 +18,7 @@ on:
 
 jobs:
   ray:
-    runs-on: self-host-gpu
+    runs-on: [self-hosted, gpu]
     strategy:
       matrix:
         python-version: ["3.12"]
