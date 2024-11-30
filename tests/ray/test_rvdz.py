@@ -42,7 +42,7 @@ def test_rvdz():
 
     workers = [TestWorker.options(num_gpus=1).remote(rank, world_size, group_name) for rank in range(world_size)]
 
-    [worker.init.remote() for worker in workers]
+    ray.get([worker.init.remote() for worker in workers])
 
     ranks = ray.get([worker.test.remote() for worker in workers])
 
