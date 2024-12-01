@@ -30,7 +30,7 @@ into two parts:
    if __name__ == '__main__':
        parser = argparse.ArgumentParser()
        parser.add_argument('--local_dir', default='/opt/tiger/gsm8k')
-       parser.add_argument('--hdfs_dir', default='hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/data/rlhf')
+       parser.add_argument('--hdfs_dir', default=None)
 
        args = parser.parse_args()
 
