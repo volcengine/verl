@@ -58,7 +58,7 @@ into two parts:
 
        copy(src=local_dir, dst=hdfs_dir)
 
-1. The users are required to implement the ``make_map_fn()`` function
+2. The users are required to implement the ``make_map_fn()`` function
    (as well as the ``extract_solution``) on their own to support
    different datasets or tasks.
 
