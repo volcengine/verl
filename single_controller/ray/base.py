@@ -187,6 +187,10 @@ class RayWorkerGroup(WorkerGroup):
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
 
+        if worker_names is not None:
+            assert self._is_init_with_detached_workers
+            self._worker_names = worker_names
+
         if self._is_init_with_detached_workers:
             self._init_with_detached_workers(worker_names=worker_names)
         else:
@@ -205,7 +209,6 @@ class RayWorkerGroup(WorkerGroup):
     def _init_with_detached_workers(self, worker_names):
         workers = [ray.get_actor(name=name) for name in worker_names]
         self._workers = workers
-        self._worker_names = worker_names
         self._world_size = len(worker_names)
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached):
