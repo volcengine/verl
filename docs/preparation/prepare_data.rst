@@ -30,7 +30,7 @@ into two parts:
    if __name__ == '__main__':
        parser = argparse.ArgumentParser()
        parser.add_argument('--local_dir', default='/opt/tiger/gsm8k')
-       parser.add_argument('--hdfs_dir', default='hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/data/rlhf')
+       parser.add_argument('--hdfs_dir', default=None)
 
        args = parser.parse_args()
 
@@ -58,7 +58,7 @@ into two parts:
 
        copy(src=local_dir, dst=hdfs_dir)
 
-2. The users are required to implement the ``make_map_fn()`` function
+1. The users are required to implement the ``make_map_fn()`` function
    (as well as the ``extract_solution``) on their own to support
    different datasets or tasks.
 
