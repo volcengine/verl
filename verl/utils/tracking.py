@@ -15,7 +15,6 @@
 A unified tracking interface that supports logging data to different backend
 """
 
-
 from typing import List, Union
 
 
