@@ -72,6 +72,8 @@ class vLLMRollout(BaseRollout):
             "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
+        assert tensor_parallel_size <= torch.distributed.get_world_size(), \
+            "tensor parallel size should be less than or equal to the world size"
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron

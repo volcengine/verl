@@ -30,6 +30,8 @@ def update_hf_weight_loader():
 def load_hf_weights(actor_weights: Dict, vllm_model: nn.Module):
     assert isinstance(actor_weights, Dict)
     with set_default_torch_dtype(next(vllm_model.parameters()).dtype):  # TODO
+        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in actor_weights.keys():
+            del actor_weights["lm_head.weight"]
         vllm_model.load_weights(actor_weights.items())
     for _, module in vllm_model.named_modules():
         quant_method = getattr(module, "quant_method", None)
