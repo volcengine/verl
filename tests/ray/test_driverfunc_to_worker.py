@@ -56,7 +56,7 @@ def test():
     # construct model
     ray.init()
 
-    # create 8 workers, each hold a GPU
+    # create 2 workers, each hold a GPU
     resource_pool = RayResourcePool([2], use_gpu=True, name_prefix='a')
 
     class_with_args = RayClassWithInitArgs(cls=ModelActor)
