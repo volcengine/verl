@@ -38,14 +38,14 @@ def test_rvdz():
     ray.init()
 
     group_name = "test_group"
-    world_size = 4
+    world_size = 2
 
     workers = [TestWorker.options(num_gpus=1).remote(rank, world_size, group_name) for rank in range(world_size)]
 
-    [worker.init.remote() for worker in workers]
+    ray.get([worker.init.remote() for worker in workers])
 
     ranks = ray.get([worker.test.remote() for worker in workers])
 
-    assert ranks == [0, 1, 2, 3], f"expecting [0, 1, 2, 3], got {ranks}"
+    assert ranks == [0, 1], f"expecting [0, 1], got {ranks}"
 
     ray.shutdown()

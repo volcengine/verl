@@ -18,21 +18,15 @@ on:
 
 jobs:
   ray:
-    runs-on: self-host-gpu
-    strategy:
-      matrix:
-        python-version: ["3.12"]
+    runs-on: [self-hosted, gpu] # test if the enviroment is ready
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
-          python-version: ${{ matrix.python-version }}
-      # - name: Install dependencies
-      #   run: |
-      #     python -m pip install --upgrade pip
-      #     pip install yapf
-      #     pip install toml==0.10.2
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip install -e .
       - name: Running some ray test that only need 2 GPUs
         run: |
+          cd tests/ray
           pytest -s -x test_rvdz.py test_driverfunc_to_worker.py test_data_transfer.py test_colocated_workers.py test_check_worker_alive.py
