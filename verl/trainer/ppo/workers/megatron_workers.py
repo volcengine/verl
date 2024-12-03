@@ -139,11 +139,11 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
-
+        pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
+            'pad_token_id': pad_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
@@ -346,7 +346,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         assert self._is_rollout
 
         prompts.batch = prompts.batch.cuda()
-        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
+        pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
+        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': pad_token_id}
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)
@@ -466,7 +467,7 @@ class CriticWorker(MegatronWorker):
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
@@ -629,7 +630,7 @@ class RewardModelWorker(MegatronWorker):
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(rm_model_config, override_config_kwargs=override_config_kwargs)

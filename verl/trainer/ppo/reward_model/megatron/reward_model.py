@@ -101,7 +101,8 @@ class MegatronRewardModel(BasePPORewardModel):
                 rm_attention_mask = rm_attention_mask[:ori_seqlen]
             else:
                 # right padding
-                rm_input_ids = pad_sequence_to_length(rm_input_ids, ori_seqlen, self.rm_tokenizer.pad_token_id)
+                pad_token_id = self.rm_tokenizer.pad_token_id if self.rm_tokenizer.pad_token_id is not None else self.rm_tokenizer.eos_token_id
+                rm_input_ids = pad_sequence_to_length(rm_input_ids, ori_seqlen, pad_token_id)
                 rm_attention_mask = pad_sequence_to_length(rm_attention_mask, ori_seqlen, 0)
             rm_position_ids = torch.arange(0, ori_seqlen, device=input_ids.device)
             input_ids_for_rm.append(torch.unsqueeze(rm_input_ids, dim=0))

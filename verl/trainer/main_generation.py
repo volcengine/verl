@@ -110,7 +110,7 @@ def main(config):
                                                  skip_special_tokens=False)
 
             # remove the padding
-            pad_token = tokenizer.pad_token
+            pad_token = tokenizer.pad_token if tokenizer.pad_token is not None else tokenizer.eos_token
             output_text_unpad = []
             for text in output_text:
                 output_text_unpad.append(text.replace(pad_token, ''))

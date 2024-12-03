@@ -119,7 +119,7 @@ class ActorRolloutRefWorker(Worker):
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
@@ -349,7 +349,8 @@ class ActorRolloutRefWorker(Worker):
                                      load_grad=self._is_offload_grad)
 
         prompts.batch = prompts.batch.cuda()
-        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
+        pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
+        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': pad_token_id}
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)
@@ -472,7 +473,7 @@ class CriticWorker(Worker):
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_config)
         if self.rank == 0:
@@ -770,11 +771,12 @@ class RewardModelWorker(Worker):
             max_length = self.config.get('max_length', src_max_length)
             if max_length is None:
                 max_length = src_max_length
+            target_pad_token_id = target_tokenizer.pad_token_id if target_tokenizer.pad_token_id is not None else target_tokenizer.eos_token_id
             input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
                 prompt=prompt_with_chat_template,
                 tokenizer=target_tokenizer,
                 max_length=max_length,
-                pad_token_id=target_tokenizer.pad_token_id,
+                pad_token_id=target_pad_token_id,
                 left_pad=False,  # right padding
                 truncation=self.config.get('truncation', 'right'))  # truncate from the right
 

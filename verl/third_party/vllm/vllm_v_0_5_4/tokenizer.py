@@ -70,7 +70,7 @@ class TokenizerGroup:
     # FIXME(sgm): for simplicity, we assign the special token here
     @property
     def pad_token_id(self):
-        return self.tokenizer.pad_token_id
+        return self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
 
     @property
     def eos_token_id(self):
