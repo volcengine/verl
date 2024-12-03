@@ -28,10 +28,11 @@ jobs:
           pip install -e .[test]
       - name: Running some dataset tests
         run: |
+          export http_proxy=http://sys-proxy-rd-relay.byted.org:8118
+          export https_proxy=http://sys-proxy-rd-relay.byted.org:8118
+          export no_proxy=.byted.org
           pytest -s -x tests/verl
       - name: Running some ray test that only need 2 GPUs
         run: |
           cd tests/ray
           pytest -s -x test_rvdz.py test_driverfunc_to_worker.py test_data_transfer.py test_colocated_workers.py test_check_worker_alive.py
-          cd - && cd tests/verl
-          pytest -s -x .
