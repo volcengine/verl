@@ -25,7 +25,6 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 
 from verl.utils.model import compute_position_id_with_mask
 
-import torch
 import pandas as pd
 
 from transformers import AutoTokenizer
@@ -45,6 +44,9 @@ def main(config):
     OmegaConf.resolve(config)
     local_path = copy_local_path_from_hdfs(config.model.path)
     tokenizer = AutoTokenizer.from_pretrained(local_path)
+    from verl.utils import set_pad_token_id
+    set_pad_token_id(tokenizer)
+
     if config.rollout.temperature == 0.:
         assert config.data.n_samples == 1, 'When temperature=0, n_samples must be 1.'
 

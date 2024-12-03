@@ -11,8 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Utils for tokenization."""
 
-from . import tokenizer
-from .tokenizer import *
+__all__ = ['set_pad_token_id']
 
-__all__ = tokenizer.__all__
+
+def set_pad_token_id(tokenizer):
+    """Set pad_token_id to eos_token_id if it is None.
+
+    Args:
+        tokenizer (transformers.PreTrainedTokenizer): The tokenizer to be set.
+
+    """
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token

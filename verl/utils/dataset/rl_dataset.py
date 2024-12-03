@@ -143,38 +143,3 @@ class RLHFDataset(Dataset):
             row_dict['raw_prompt'] = chat.tolist()
 
         return row_dict
-
-
-if __name__ == '__main__':
-    from transformers import AutoTokenizer
-
-    from torch.utils.data import DataLoader
-
-    local_path = copy_local_path_from_hdfs('~/models/gemma-1.1-7b-it')
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
-
-    dataset = RLHFDataset(parquet_files='~/data/rlhf/gsm8k/train.parquet',
-                          tokenizer=tokenizer,
-                          prompt_key='prompt',
-                          max_prompt_length=256)
-
-    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
-
-    a = next(iter(dataloader))
-
-    from verl import DataProto
-
-    tensors = {}
-    non_tensors = {}
-
-    for key, val in a.items():
-        if isinstance(val, torch.Tensor):
-            tensors[key] = val
-        else:
-            non_tensors[key] = val
-
-    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
-
-    data = dataset[0]['input_ids']
-    output = tokenizer.batch_decode([data])[0]
-    print(f'\n\noutput: {output}')
