@@ -166,3 +166,13 @@ yapf -ir -vv --style ./.style.yapf verl single_controller examples
 }
 ```
 
+## Publications Using veRL
+
+```tex
+@article{liu2024enhancing,
+  title={Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization},
+  author={Liu, Guanlin and Ji, Kaixuan and Zheng, Renjie and Wu, Zheng and Dun, Chen and Gu, Quanquan and Yan, Lin},
+  journal={arXiv preprint arXiv:2410.09302},
+  year={2024}
+}
+```
