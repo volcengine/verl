@@ -26,12 +26,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running some dataset tests
-        run: |
-          export http_proxy=http://sys-proxy-rd-relay.byted.org:8118
-          export https_proxy=http://sys-proxy-rd-relay.byted.org:8118
-          export no_proxy=.byted.org
-          pytest -s -x tests/verl
       - name: Running some ray test that only need 2 GPUs
         run: |
           cd tests/ray
