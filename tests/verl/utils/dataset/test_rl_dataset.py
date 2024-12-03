@@ -32,7 +32,7 @@ def get_gsm8k_data():
 
 def test_rl_dataset():
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/deepseek-coder-1.3b-base')
+    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/deepseek-coder-1.3b-instruct')
     from verl.utils import set_pad_token_id
     set_pad_token_id(tokenizer)
     local_path = get_gsm8k_data()
