@@ -465,9 +465,12 @@ class CriticWorker(MegatronWorker):
         critic_model_config = AutoConfig.from_pretrained(local_path)
 
         override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
+            'bos_token_id':
+                self.tokenizer.bos_token_id,
+            'eos_token_id':
+                self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
@@ -628,9 +631,12 @@ class RewardModelWorker(MegatronWorker):
         rm_model_config = AutoConfig.from_pretrained(local_path)
 
         override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
+            'bos_token_id':
+                self.tokenizer.bos_token_id,
+            'eos_token_id':
+                self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
         }
         override_config_kwargs.update(override_model_config)
         update_model_config(rm_model_config, override_config_kwargs=override_config_kwargs)

@@ -293,11 +293,17 @@ class RayPPOTrainer(object):
 
             test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
             test_gen_batch.meta_info = {
-                'eos_token_id': self.tokenizer.eos_token_id,
-                'pad_token_id': self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
-                'recompute_log_prob': False,
-                'do_sample': False,
-                'validate': True,
+                'eos_token_id':
+                    self.tokenizer.eos_token_id,
+                'pad_token_id':
+                    self.tokenizer.pad_token_id
+                    if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
+                'recompute_log_prob':
+                    False,
+                'do_sample':
+                    False,
+                'validate':
+                    True,
             }
 
             test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_gen_batch)
