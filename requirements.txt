@@ -2,6 +2,7 @@
 # TODO: add version info to requirements
 accelerate
 codetiming
+datasets
 dill
 hydra-core
 numpy
