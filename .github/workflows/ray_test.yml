@@ -26,9 +26,9 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
--      - name: Running some dataset tests
--        run: |
--          pytest -s -x tests/verl
+      - name: Running some dataset tests
+        run: |
+-         pytest -s -x tests/verl
       - name: Running some ray tests that only need 2 GPUs
         run: |
           cd tests/ray
