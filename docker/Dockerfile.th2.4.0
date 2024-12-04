@@ -2,15 +2,13 @@
 
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-devel
 
-ENV http_proxy="http://sys-proxy-rd-relay.byted.org:8118"
-ENV https_proxy="http://sys-proxy-rd-relay.byted.org:8118"
-ENV no_proxy="byted.org"
-
 LABEL com.nvidia.volumes.needed="nvidia_driver"
 LABEL com.nvidia.cuda.version=
 ENV NVIDIA_VISIBLE_DEVICES= \
     NVIDIA_REQUIRE_CUDA="cuda>=11.0" \
     LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/cuda/lib64
+
+RUN apt-get update && apt-get install git vim -y
 
 # install common libs
 RUN pip3 install --no-cache-dir -U \
@@ -28,23 +26,19 @@ RUN pip3 install --no-cache-dir -U \
     vllm==0.5.4
 
 # intall apex
-RUN apt-get update && apt-get install git vim -y
 WORKDIR /tmp/third_party
 
 # install apex
 # check their github repo for the latest installation command. the command changes from time to time.
-RUN http_proxy=http://bj-rd-proxy.byted.org:3128 https_proxy=http://bj-rd-proxy.byted.org:3128 no_proxy=byted.org \
-    pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
-         --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
-         git+https://github.com/NVIDIA/apex
+RUN pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+    --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
+    git+https://github.com/NVIDIA/apex
 
-# install transformerengine v1.7
-RUN http_proxy=http://bj-rd-proxy.byted.org:3128 https_proxy=http://bj-rd-proxy.byted.org:3128 no_proxy=byted.org \
-    pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
+# install transformer engine v1.7
+RUN pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 
 # install megatron
-RUN http_proxy=http://bj-rd-proxy.byted.org:3128 https_proxy=http://bj-rd-proxy.byted.org:3128 no_proxy=byted.org \
-    pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.7.0
+RUN pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.7.0
 
 RUN pip3 install --no-cache-dir cupy-cuda12x
 
