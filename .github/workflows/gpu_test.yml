@@ -28,7 +28,7 @@ jobs:
           pip install -e .[test]
       - name: Running dataset tests
         run: |
-          sudo apt-get install git-lfs -y && git lfs install
+          git lfs install
           rm -rf ~/verl-data && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           pytest -s -x tests/verl
       - name: Running ray tests that need 2 GPUs
