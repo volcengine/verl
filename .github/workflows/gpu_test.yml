@@ -8,13 +8,13 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/ray_test.yml
+      - .github/workflows/gpu_test.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/ray_test.yml
+      - .github/workflows/gpu_test.yml
 
 jobs:
   ray:

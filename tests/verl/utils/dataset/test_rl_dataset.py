@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-import fsspec
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
@@ -24,6 +23,7 @@ def get_gsm8k_data():
     local_folder = os.path.expanduser('~/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
     os.makedirs(local_folder, exist_ok=True)
+    # import fsspec
     # with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
     #     content = fin.read()
     #     fout.write(content)
