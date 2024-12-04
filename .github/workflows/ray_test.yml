@@ -26,7 +26,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running some ray test that only need 2 GPUs
+-      - name: Running some dataset tests
+-        run: |
+-          pytest -s -x tests/verl
+      - name: Running some ray tests that only need 2 GPUs
         run: |
           cd tests/ray
           pytest -s -x test_rvdz.py test_driverfunc_to_worker.py test_data_transfer.py test_colocated_workers.py test_check_worker_alive.py
