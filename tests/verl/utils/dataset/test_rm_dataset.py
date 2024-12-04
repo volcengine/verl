@@ -22,12 +22,12 @@ from verl.utils.dataset.rm_dataset import RMDataset
 def get_rm_data():
     # prepare test dataset
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/full_hh_rlhf/rm/test.parquet"
-    local_folder = os.path.expanduser('~/verl-data/full_hh_rlhf_test/rm/')
+    local_folder = os.path.expanduser('~/verl-data/full_hh_rlhf/rm/')
     local_path = os.path.join(local_folder, 'test.parquet')
     os.makedirs(local_folder, exist_ok=True)
-    with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
-        content = fin.read()
-        fout.write(content)
+    # with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
+    #     content = fin.read()
+    #     fout.write(content)
     return local_path
 
 

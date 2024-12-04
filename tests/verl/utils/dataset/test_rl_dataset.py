@@ -24,9 +24,9 @@ def get_gsm8k_data():
     local_folder = os.path.expanduser('~/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
     os.makedirs(local_folder, exist_ok=True)
-    with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
-        content = fin.read()
-        fout.write(content)
+    # with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
+    #     content = fin.read()
+    #     fout.write(content)
     return local_path
 
 
