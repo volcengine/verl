@@ -8,13 +8,13 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/gpu_test.yml
+      - .github/workflows/ray_test.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/gpu_test.yml
+      - .github/workflows/ray_test.yml
 
 jobs:
   ray:
@@ -26,6 +26,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
+      - name: Running dataset tests
+        run: |
+          git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/
+          pytest -s -x tests/verl
       - name: Running ray tests that need 2 GPUs
         run: |
           cd tests/ray
