@@ -30,12 +30,9 @@ WORKDIR /tmp/third_party
 
 # install apex
 # check their github repo for the latest installation command. the command changes from time to time.
-RUN pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
     --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
     git+https://github.com/NVIDIA/apex
-
-# install transformer engine v1.7
-RUN pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 
 # install megatron
 RUN pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.7.0
