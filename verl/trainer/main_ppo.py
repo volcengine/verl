@@ -113,6 +113,8 @@ def main_task(config):
 
     # instantiate tokenizer
     tokenizer = AutoTokenizer.from_pretrained(local_path)
+    from verl.utils import set_pad_token_id
+    set_pad_token_id(tokenizer)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':

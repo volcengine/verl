@@ -35,6 +35,7 @@ from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_param_and
 from verl.utils.import_utils import import_external_libs
 from verl.utils.debug import log_gpu_memory_usage
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils import set_pad_token_id
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -107,6 +108,8 @@ class ActorRolloutRefWorker(Worker):
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
         self.tokenizer = AutoTokenizer.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        set_pad_token_id(self.tokenizer)
+
         torch_dtype = fsdp_config.get('model_dtype', None)
         if torch_dtype is None:
             torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
@@ -466,6 +469,7 @@ class CriticWorker(Worker):
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path,
                                                        trust_remote_code=config.model.get('trust_remote_code', False))
+        set_pad_token_id(self.tokenizer)
 
         from omegaconf import OmegaConf
         override_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
@@ -675,6 +679,8 @@ class RewardModelWorker(Worker):
             self.tokenizer = AutoTokenizer.from_pretrained(local_path,
                                                            trust_remote_code=config.model.get(
                                                                'trust_remote_code', False))
+            set_pad_token_id(self.tokenizer)
+            set_pad_token_id(self.input_tokenizer)
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)

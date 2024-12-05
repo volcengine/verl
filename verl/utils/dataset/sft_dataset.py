@@ -28,6 +28,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils import set_pad_token_id
 
 
 class SFTDataset(Dataset):
@@ -51,6 +52,7 @@ class SFTDataset(Dataset):
         self.parquet_files = parquet_files
         if isinstance(tokenizer, str):
             tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+            set_pad_token_id(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
         self.prompt_key = prompt_key
@@ -148,7 +150,7 @@ class SFTDataset(Dataset):
 if __name__ == '__main__':
     local_model_path = copy_local_path_from_hdfs('~/models/gemma-2b-it')
     tokenizer = AutoTokenizer.from_pretrained(local_model_path)
-
+    set_pad_token_id(tokenizer)
     dataset = SFTDataset(parquet_files='~/data/gsm8k/train.parquet',
                          tokenizer=tokenizer,
                          prompt_key='question',
