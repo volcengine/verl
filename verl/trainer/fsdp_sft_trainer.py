@@ -24,11 +24,9 @@ os.environ['NCCL_DEBUG'] = 'WARN'
 os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 
 import logging
-import functools
 import re
 import torch
 import torch.distributed
-import wandb
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
@@ -66,7 +64,8 @@ class FSDPSFTTrainer(object):
         local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
         self.tokenizer = AutoTokenizer.from_pretrained(local_model_path,
                                                        trust_remote_code=self.config.model.trust_remote_code)
-
+        from verl.utils import set_pad_token_id
+        set_pad_token_id(self.tokenizer)
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 

@@ -29,7 +29,6 @@ install_requires = [
     'pybind11',
     'hydra-core',
     'numpy',
-    'pytest',
     'yapf',
     "dill",
     "accelerate"
@@ -43,6 +42,7 @@ extras_require = {
     'demo': ['hydra-core', 'transformers', ''],
     'single-controller': ['ray', 'kubernetes'],
     'single-controller-ray': ['ray'],
+    'test': ['fsspec', 'pytest', 'datasets']
 }
 
 from pathlib import Path
