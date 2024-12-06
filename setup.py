@@ -35,7 +35,7 @@ install_requires = [
 ]
 
 install_optional = [
-    'vllm==0.5.4',
+    'vllm==0.6.3',
 ]
 
 extras_require = {
