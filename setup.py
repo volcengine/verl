@@ -42,7 +42,7 @@ extras_require = {
     'demo': ['hydra-core', 'transformers', ''],
     'single-controller': ['ray', 'kubernetes'],
     'single-controller-ray': ['ray'],
-    'test': ['fsspec', 'pytest', 'datasets']
+    'test': ['fsspec', 'pytest', 'datasets', 'ray']
 }
 
 from pathlib import Path
