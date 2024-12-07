@@ -1,0 +1,76 @@
+# docker buildx build -t "haibinlin/verl:th2.4.0-cu121-vllm0.5.4" -f docker/Dockerfile.th2.4.0 .
+
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-devel
+
+LABEL com.nvidia.volumes.needed="nvidia_driver"
+LABEL com.nvidia.cuda.version=
+ENV NVIDIA_VISIBLE_DEVICES= \
+    NVIDIA_REQUIRE_CUDA="cuda>=11.0" \
+    LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/cuda/lib64
+
+RUN apt-get update && apt-get install git vim -y
+
+RUN pip3 install --no-cache-dir -U pip 'setuptools==69.5.1' wheel --upgrade
+
+# install OpenMPI
+RUN apt-get update && \
+    apt-get install -yq --no-install-recommends \
+        cmake \
+        libopenmpi-dev \
+        openmpi-bin \
+        openssh-client \
+        openssh-server \
+        && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# configure OpenSSH
+RUN mkdir -p /var/run/sshd && \
+    cat /etc/ssh/ssh_config | grep -v StrictHostKeyChecking > /etc/ssh/ssh_config.new && \
+    echo "    StrictHostKeyChecking no" >> /etc/ssh/ssh_config.new && \
+    mv /etc/ssh/ssh_config.new /etc/ssh/ssh_config
+
+# Install latest open source torch
+RUN python3 -m pip install --no-cache-dir numpy
+RUN pip3 install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip3 install --no-cache-dir \
+    torch==2.4.0 \
+    accelerate \
+    codetiming \
+    dill \
+    hydra-core \
+    numpy \
+    pybind11 \
+    tensordict \
+    transformers
+
+# intall apex
+WORKDIR /tmp/third_party
+
+# install apex
+# check their github repo for the latest installation command. the command changes from time to time.
+RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+    --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
+    git+https://github.com/NVIDIA/apex
+
+RUN pip3 install --no-cache-dir cupy-cuda12x
+
+# flash-attn is pinned to 2.5.3 by TransformerEngine
+# cudnn is required by TransformerEngine
+# ray is installed via vllm
+RUN pip3 install --no-cache-dir --no-build-isolation \
+    vllm==0.6.3 nvidia-cudnn-cu12==9.1.1.17
+
+RUN pip3 install flash-attn==2.7.0.post2
+
+# install Transformer Engine
+# if processes are killed due to OOM, install with: MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0
+# switch to NVIDIA/TransformerEngine.git@v1.7 if you do not need flash-attn 0.2.7
+RUN CUDNN_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn \
+    pip3 install git+https://github.com/eric-haibin-lin/TransformerEngine.git@v1.7.0
+
+# install megatron
+RUN pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.7.0
+
+RUN rm -rf /tmp/third_party
