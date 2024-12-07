@@ -27,7 +27,7 @@ from verl.utils.torch_functional import pad_sequence_to_length
 
 
 def test_vllm_with_hf():
-    assert torch.cuda.device_count() >= 4, 'At least 4 GPUs is required to run tp+dp tests.'
+    assert torch.cuda.device_count() >= 2, 'At least 2 GPUs is required to run tp+dp tests.'
 
     # fill rollout config
     max_prompt_length = 16
