@@ -1,0 +1,45 @@
+# docker buildx build --platform linux/x86_64 -t "verlai/verl:$TAG" -f docker/$FILE .
+
+# the one in docker.io is an alias for the one veturbo
+# FROM vemlp-cn-beijing.cr.volces.com/veturbo/pytorch:2.4-cu124
+FROM docker.io/haibinlin/verl:v0.0.5-th2.4.0-cu124-base
+
+# only config pip index with https://pypi.tuna.tsinghua.edu.cn/simple if needed
+# unset for now
+RUN pip3 config unset global.index-url
+
+# transformers 4.47.0 contains the following bug:
+# AttributeError: 'Gemma2Attention' object has no attribute '_flash_attn_uses_top_left_mask'
+RUN pip3 install --no-cache-dir \
+    torch==2.4.0 \
+    accelerate \
+    codetiming \
+    dill \
+    hydra-core \
+    numpy \
+    pybind11 \
+    tensordict \
+    "transformers <= 4.46.0"
+
+RUN pip3 install --no-cache-dir flash-attn==2.7.0.post2 --no-build-isolation
+
+# ray is installed via vllm
+RUN pip3 install --no-cache-dir vllm==0.6.3
+
+# ====== Dependencies for Megatron pending verification ======
+
+# install apex
+# RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+#     --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
+#     git+https://github.com/NVIDIA/apex
+
+# flash-attn is pinned to 2.5.3 by TransformerEngine 1.7
+# cudnn is required by TransformerEngine
+# install Transformer Engine
+# if processes are killed due to OOM, install with: MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0
+# switch to NVIDIA/TransformerEngine.git@v1.7 if you do not need flash-attn 0.2.7
+# RUN CUDNN_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn \
+#     pip3 install git+https://github.com/eric-haibin-lin/TransformerEngine.git@v1.7.0
+
+# install megatron
+# RUN pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.4.0
