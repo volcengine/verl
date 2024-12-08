@@ -1,7 +1,3 @@
-<div align=center>
-  <img src="docs/_static/logo.png" width = "20%" height = "20%" />
-</div>
-
 <h1 style="text-align: center;">veRL: Volcano Engine Reinforcement Learning for LLM</h1>
 
 veRL (HybridFlow) is a flexible, efficient and industrial-level RL(HF) training framework designed for large language models (LLMs). veRL is the open-source version of [HybridFlow](https://arxiv.org/abs/2409.19256v2) paper.
@@ -70,7 +66,7 @@ pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https
 
 # install vllm
 pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
-pip3 install ray==2.10 # other version may have bug
+pip3 install ray
 
 # flash attention 2
 pip3 install flash-attn --no-build-isolation
