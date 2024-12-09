@@ -47,23 +47,17 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 
 #### 1. From Docker Image
 
-We provide pre-built Docker images for quick setup. It does not support **Megatron-LM** (coming soon).
+We provide pre-built Docker images for quick setup.
 
 Image and tag: `verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`
 
-1. Pull the desired Docker image:
+1. Launch the desired Docker image:
 
 ```bash
-docker pull <image:tag>
+docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag> 
 ```
 
-2. Launch the container.
-
-```
-docker run -it --gpus all <image-name>
-```
-
-3.	Inside the container, install veRL:
+2.	Inside the container, install veRL:
 
 ```bash
 # install the nightly version
@@ -71,10 +65,29 @@ git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
 # or install from pypi via `pip3 install verl`
 ```
 
+4. Setup Megatron (optional)
+
+If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
+
+```bash
+cd ..
+git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+cp verl/patches/megatron_v4.patch Megatron-LM/
+cd Megatron-LM && git apply megatron_v4.patch
+pip3 install -e .
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+```
+
+You can also get the Megatron code after verl's patch via
+```bash
+git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+```
 
 #### 2. From Custom Environments
 
-If you prefer setting up veRL in your custom environment, follow the steps below. Using **conda** is recommended for managing dependencies.
+<details><summary>If you prefer setting up veRL in your custom environment, expand this section and follow the steps below.</summary>
+
+Using **conda** is recommended for managing dependencies.
 
 1. Create a conda environment:
 
@@ -97,7 +110,15 @@ pip3 install ray
 pip3 install flash-attn --no-build-isolation
 ```
 
-3. Install Megatron dependencies (optional)
+3. Install veRL
+
+```bash
+# install the nightly version
+git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+# or install from pypi via `pip3 install verl`
+```
+
+4. Setup Megatron (optional)
 
 ```bash
 # FOR Megatron-LM Backend
@@ -112,21 +133,13 @@ pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 # megatron core v0.4.0
 cd ..
 git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
-cd Megatron-LM
-cp ../verl/patches/megatron_v4.patch .
-git apply megatron_v4.patch
+cp verl/patches/megatron_v4.patch Megatron-LM/
+cd Megatron-LM && git apply megatron_v4.patch
 pip3 install -e .
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
 
-4. Install veRL
-
-```bash
-# install the nightly version
-git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
-# or install from pypi via `pip3 install verl`
-```
-
+</details>
 
 ## Getting Started
 Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to learn more.
