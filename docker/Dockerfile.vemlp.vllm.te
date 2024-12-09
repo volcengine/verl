@@ -23,23 +23,19 @@ RUN pip3 install --no-cache-dir \
 
 RUN pip3 install --no-cache-dir flash-attn==2.7.0.post2 --no-build-isolation
 
-# ray is installed via vllm
-RUN pip3 install --no-cache-dir vllm==0.6.3
-
-# ====== Dependencies for Megatron pending verification ======
+# vllm depends on ray, and veRL does not support ray > 2.37
+RUN pip3 install --no-cache-dir vllm==0.6.3 ray==2.10
 
 # install apex
-# RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
-#     --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
-#     git+https://github.com/NVIDIA/apex
+RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+    --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
+    git+https://github.com/NVIDIA/apex
 
-# flash-attn is pinned to 2.5.3 by TransformerEngine 1.7
-# cudnn is required by TransformerEngine
 # install Transformer Engine
-# if processes are killed due to OOM, install with: MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0
-# switch to NVIDIA/TransformerEngine.git@v1.7 if you do not need flash-attn 0.2.7
+# - flash-attn pinned to 2.5.3 by TransformerEngine, switch to eric-haibin-lin/TransformerEngine.git@v1.7.0 to relax version req
+# - install with: MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0 to avoid OOM
+# - cudnn is required by TransformerEngine
 # RUN CUDNN_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn \
 #     pip3 install git+https://github.com/eric-haibin-lin/TransformerEngine.git@v1.7.0
-
-# install megatron
-# RUN pip3 install git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.4.0
+RUN MAX_JOBS=1 NINJA_FLAGS="-j1" pip3 install flash-attn==2.5.3 --no-cache-dir --no-build-isolation
+RUN MAX_JOBS=1 NINJA_FLAGS="-j1" pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
