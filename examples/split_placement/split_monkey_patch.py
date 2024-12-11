@@ -32,9 +32,9 @@ def fit(self):
     from omegaconf import OmegaConf
 
     logger = Tracking(project_name=self.config.trainer.project_name,
-                        experiment_name=self.config.trainer.experiment_name,
-                        default_backend=self.config.trainer.logger,
-                        config=OmegaConf.to_container(self.config, resolve=True))
+                      experiment_name=self.config.trainer.experiment_name,
+                      default_backend=self.config.trainer.logger,
+                      config=OmegaConf.to_container(self.config, resolve=True))
 
     global_steps = 0
 
@@ -89,15 +89,15 @@ def fit(self):
 
                 # compute rewards. apply_kl_penalty if available
                 batch, kl_metrics = apply_kl_penalty(batch,
-                                                        kl_ctrl=self.kl_ctrl,
-                                                        kl_penalty=self.config.algorithm.kl_penalty)
+                                                     kl_ctrl=self.kl_ctrl,
+                                                     kl_penalty=self.config.algorithm.kl_penalty)
                 metrics.update(kl_metrics)
 
                 # compute advantages, executed on the driver process
                 batch = compute_advantage(batch,
-                                            self.config.algorithm.gamma,
-                                            self.config.algorithm.lam,
-                                            adv_estimator=self.config.algorithm.adv_estimator)
+                                          self.config.algorithm.gamma,
+                                          self.config.algorithm.lam,
+                                          adv_estimator=self.config.algorithm.adv_estimator)
             metrics['timing/adv'] = timer.last
 
             # update critic
@@ -112,7 +112,7 @@ def fit(self):
                 with Timer(name='update_actor_call', logger=None) as timer:
                     actor_output = self.actor_rollout_wg.update_actor(batch)
                 metrics['timing/update_acto_call'] = timer.last
-            
+
             # NOTE: make sure you set blocking=False in update_actor and update_crtic in the worker class
             with Timer(name='update_actor_critic', logger=None) as timer:
                 # NOTE: get the DataProtoFuture
@@ -149,7 +149,7 @@ def fit(self):
 
                 if self.use_critic:
                     critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                                        f'global_step_{global_steps}')
+                                                     f'global_step_{global_steps}')
                     critic_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, 'critic')
                     self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
