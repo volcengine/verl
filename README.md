@@ -25,6 +25,12 @@ veRL is fast with:
 <!-- <a href=""><b>Slides</b></a> | -->
 </p>
 
+## News
+
+- [2024/12] The team will present <a href="https://neurips.cc/Expo/Conferences/2024/workshop/100677">Post-training LLMs: From Algorithms to Infrastructure</a> at NeurIPS 2024.
+  - [Slides](https://github.com/eric-haibin-lin/verl-data/tree/neurips), notebooks, and video be available soon
+- [2024/08] HybridFlow (verl) is accepted to EuroSys 2025.
+
 ## Installation Guide
 
 Below are the steps to install veRL in your environment.
