@@ -18,9 +18,9 @@ import os
 
 import ray
 
-from single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
-from single_controller.base.worker import Worker
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
+from verl.single_controller.base.worker import Worker
+from verl.single_controller.base.decorator import register, Dispatch
 
 
 @ray.remote

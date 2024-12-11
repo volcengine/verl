@@ -14,7 +14,7 @@
 
 import ray
 
-from single_controller.ray.base import RayWorkerGroup, RayResourcePool, RayClassWithInitArgs
+from verl.single_controller.ray.base import RayWorkerGroup, RayResourcePool, RayClassWithInitArgs
 
 
 @ray.remote

@@ -26,9 +26,9 @@ from omegaconf import OmegaConf, open_dict
 import numpy as np
 from codetiming import Timer
 
-from single_controller.base import Worker
-from single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
-from single_controller.ray.base import create_colocated_worker_cls
+from verl.single_controller.base import Worker
+from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
+from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl import DataProto
 from verl.trainer.ppo import core_algos
 

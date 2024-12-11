@@ -17,7 +17,7 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch
 
 
 @dataclass
@@ -43,7 +43,7 @@ class WorkerHelper:
                 import ray
                 return ray._private.services.get_node_ip_address()
             elif os.getenv("WG_BACKEND", None) == "torch_rpc":
-                from single_controller.torchrpc.k8s_client import get_ip_addr
+                from verl.single_controller.torchrpc.k8s_client import get_ip_addr
                 return get_ip_addr()
             return None
 
@@ -110,7 +110,7 @@ class Worker(WorkerHelper):
             }
 
             if os.getenv("WG_BACKEND", None) == "ray":
-                from single_controller.base.register_center.ray import create_worker_group_register_center
+                from verl.single_controller.base.register_center.ray import create_worker_group_register_center
                 self.register_center = create_worker_group_register_center(name=register_center_name,
                                                                            info=rank_zero_info)
 

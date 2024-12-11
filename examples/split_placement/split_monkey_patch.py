@@ -16,7 +16,7 @@ An naive implementation of split placment example
 """
 import os
 from pprint import pprint
-from single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
+from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, Role, create_colocated_worker_cls
 from codetiming import Timer

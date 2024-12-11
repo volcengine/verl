@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from single_controller.remote import remote, RemoteBackend, SharedResourcePool
-from single_controller.base.decorator import register, Dispatch
-from single_controller.base.worker import Worker
+from verl.single_controller.remote import remote, RemoteBackend, SharedResourcePool
+from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.worker import Worker
 
 
 @remote(process_on_nodes=[3], use_gpu=True, name_prefix="actor", sharing=SharedResourcePool)

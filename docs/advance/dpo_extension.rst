@@ -47,8 +47,8 @@ Implementation details:
 
 .. code:: python
 
-   from single_controller.base import Worker
-   from single_controller.ray import RayWorkerGroup, RayClassWithInitArgs, RayResourcePool
+   from verl.single_controller.base import Worker
+   from verl.single_controller.ray import RayWorkerGroup, RayClassWithInitArgs, RayResourcePool
    import ray
 
    @ray.remote
@@ -75,7 +75,7 @@ API: compute reference log probability
 
 .. code:: python
 
-   from single_controller.base import Worker
+   from verl.single_controller.base import Worker
    import ray
 
    @ray.remote
@@ -93,7 +93,7 @@ API: Update actor model parameters
 
 .. code:: python
 
-   from single_controller.base import Worker
+   from verl.single_controller.base import Worker
    import ray
 
    @ray.remote
@@ -184,7 +184,7 @@ registered into the worker_group**
 
 .. code:: python
 
-   from single_controller.base.decorator import register
+   from verl.single_controller.base.decorator import register
 
    def dispatch_data(worker_group, data):
        return data.chunk(worker_group.world_size)
@@ -214,11 +214,11 @@ computation, and data collection.
 
 Furthermore, the model parallelism size of each model is usually fixed,
 including dp, tp, pp. So for these common distributed scenarios, we have
-pre-implemented specific dispatch and collect methods,in `decorator.py <https://github.com/volcengine/verl/blob/main/single_controller/base/decorator.py>`_, which can be directly used to wrap the computations.
+pre-implemented specific dispatch and collect methods,in `decorator.py <https://github.com/volcengine/verl/blob/main/verl/single_controller/base/decorator.py>`_, which can be directly used to wrap the computations.
 
 .. code:: python
 
-   from single_controller.base.decorator import register, Dispatch
+   from verl.single_controller.base.decorator import register, Dispatch
 
    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
    def generate_sequences(self, data: DataProto) -> DataProto:

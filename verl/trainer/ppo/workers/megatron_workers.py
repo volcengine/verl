@@ -22,13 +22,13 @@ import torch
 import torch.distributed
 import torch.nn as nn
 from omegaconf import DictConfig
-from single_controller.base.megatron.worker import MegatronWorker
+from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.trainer.ppo.actor.megatron_actor import MegatronPPOActor
 from verl.trainer.ppo.critic.megatron_critic import MegatronPPOCritic
 from verl.trainer.ppo.hybrid_engine import AllGatherPPModel
 from verl.trainer.ppo.reward_model.megatron.reward_model import MegatronRewardModel
 
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.debug import log_gpu_memory_usage

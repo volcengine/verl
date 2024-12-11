@@ -19,8 +19,8 @@ import ray
 import torch
 
 from verl import DataProto
-from single_controller.ray import RayClassWithInitArgs
-from single_controller.ray.megatron import NVMegatronRayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs
+from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
 
 from tensordict import TensorDict
 
