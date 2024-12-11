@@ -14,7 +14,7 @@
 
 import os
 from dataclasses import dataclass
-from single_controller.base.worker import Worker, DistRankInfo, DistGlobalInfo
+from verl.single_controller.base.worker import Worker, DistRankInfo, DistGlobalInfo
 
 
 class MegatronWorker(Worker):

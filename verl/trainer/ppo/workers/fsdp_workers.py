@@ -23,8 +23,8 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig, open_dict
 
-from single_controller.base import Worker
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import register, Dispatch
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.actor import DataParallelPPOActor

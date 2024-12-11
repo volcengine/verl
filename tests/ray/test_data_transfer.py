@@ -15,10 +15,10 @@
 In this test, we instantiate a data parallel worker with 8 GPUs
 """
 
-from single_controller.base import Worker
-from single_controller.ray import RayWorkerGroup, RayClassWithInitArgs, RayResourcePool
+from verl.single_controller.base import Worker
+from verl.single_controller.ray import RayWorkerGroup, RayClassWithInitArgs, RayResourcePool
 
-from single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, register
 
 import ray
 import torch
