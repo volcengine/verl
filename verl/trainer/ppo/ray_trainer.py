@@ -63,7 +63,10 @@ class ResourcePoolManager:
             # Due to the Ray issue, we can only support max_colocate_count=1 for now.
             # This means that each GPU can only have one process.
             # We can support max_colocate > 1 when applying this pull request: https://github.com/ray-project/ray/pull/44385
-            resource_pool = RayResourcePool(process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1)
+            resource_pool = RayResourcePool(process_on_nodes=process_on_nodes,
+                                            use_gpu=True,
+                                            max_colocate_count=1,
+                                            name_prefix=resource_pool_name)
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
     def get_resource_pool(self, role: Role) -> RayResourcePool:
