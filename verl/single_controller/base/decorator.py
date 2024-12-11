@@ -75,7 +75,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     """
     User passes in dp data. The data is dispatched to all tp/pp ranks with the same dp
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group,
                       MegatronWorkerGroup), f'worker_group must be MegatronWorkerGroup, Got {type(worker_group)}'
 
@@ -104,7 +104,7 @@ def collect_megatron_compute(worker_group, output):
     """
     Only collect the data from the tp=0 and pp=last and every dp ranks
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_dp = []
     pp_size = worker_group.get_megatron_global_info().pp_size
@@ -119,7 +119,7 @@ def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
     """
     All the args and kwargs must be DataProto. The batch will be chunked by dp_size and passed to each rank
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.dp_size, *args, **kwargs)
@@ -162,7 +162,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
     """
     treat pp as dp.
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     pp_size = worker_group.pp_size
@@ -210,7 +210,7 @@ def collect_megatron_pp_as_dp(worker_group, output):
     """
     treat pp as dp. Only collect data on tp=0
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_dp = []
     for global_rank in range(worker_group.world_size):
@@ -224,7 +224,7 @@ def collect_megatron_pp_only(worker_group, output):
     """
     Only collect output of megatron pp. This is useful when examine weight names as they are identical in tp/dp
     """
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_pp = []
     for global_rank in range(worker_group.world_size):
@@ -235,7 +235,7 @@ def collect_megatron_pp_only(worker_group, output):
 
 
 def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     pp_dp_size = worker_group.dp_size * worker_group.pp_size
@@ -245,7 +245,7 @@ def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
 
 def collect_megatron_pp_as_dp_data_proto(worker_group, output):
     from verl.protocol import DataProto
-    from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+    from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     output = collect_megatron_pp_as_dp(worker_group, output)
@@ -253,7 +253,7 @@ def collect_megatron_pp_as_dp_data_proto(worker_group, output):
 
 
 def dispatch_dp_compute(worker_group, *args, **kwargs):
-    from single_controller.base.worker_group import WorkerGroup
+    from verl.single_controller.base.worker_group import WorkerGroup
     assert isinstance(worker_group, WorkerGroup)
     for arg in args:
         assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.world_size
@@ -263,21 +263,21 @@ def dispatch_dp_compute(worker_group, *args, **kwargs):
 
 
 def collect_dp_compute(worker_group, output):
-    from single_controller.base.worker_group import WorkerGroup
+    from verl.single_controller.base.worker_group import WorkerGroup
     assert isinstance(worker_group, WorkerGroup)
     assert len(output) == worker_group.world_size
     return output
 
 
 def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
-    from single_controller.base.worker_group import WorkerGroup
+    from verl.single_controller.base.worker_group import WorkerGroup
     assert isinstance(worker_group, WorkerGroup)
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args, **kwargs)
     return splitted_args, splitted_kwargs
 
 
 def dispatch_dp_compute_data_proto_with_func(worker_group, *args, **kwargs):
-    from single_controller.base.worker_group import WorkerGroup
+    from verl.single_controller.base.worker_group import WorkerGroup
     assert isinstance(worker_group, WorkerGroup)
     assert type(args[0]) == FunctionType  # NOTE: The first one args is a function!
 

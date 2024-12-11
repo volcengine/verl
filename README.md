@@ -180,7 +180,7 @@ pip3 install yapf
 ```
 Then, make sure you are at top level of verl repo and run
 ```bash
-yapf -ir -vv --style ./.style.yapf verl single_controller examples
+yapf -ir -vv --style ./.style.yapf verl examples
 ```
 
 

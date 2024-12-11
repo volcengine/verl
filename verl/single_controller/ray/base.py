@@ -21,7 +21,7 @@ from ray.util.placement_group import placement_group, PlacementGroup
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy, NodeAffinitySchedulingStrategy
 from ray.experimental.state.api import get_actor
 
-from single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
+from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
 
 __all__ = ['Worker']
 
@@ -373,7 +373,7 @@ with code written in separate ray.Actors.
 """
 
 from unittest.mock import patch
-from single_controller.base.decorator import MAGIC_ATTR
+from verl.single_controller.base.decorator import MAGIC_ATTR
 import os
 
 

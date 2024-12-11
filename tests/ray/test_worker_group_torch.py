@@ -21,8 +21,8 @@ import torch
 import torch.distributed
 import ray
 
-from single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
-from single_controller.base.worker import Worker
+from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
+from verl.single_controller.base.worker import Worker
 
 
 @ray.remote

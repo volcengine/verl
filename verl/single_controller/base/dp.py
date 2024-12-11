@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from single_controller.base.worker import Worker
+from verl.single_controller.base.worker import Worker
 
 
 class DPEngineWorker(Worker):

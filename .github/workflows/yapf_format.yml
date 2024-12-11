@@ -42,4 +42,4 @@ jobs:
           pip install toml==0.10.2
       - name: Running yapf
         run: |
-          yapf -r -vv -d --style=./.style.yapf verl tests single_controller examples
+          yapf -r -vv -d --style=./.style.yapf verl tests examples

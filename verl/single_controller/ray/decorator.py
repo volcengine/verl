@@ -19,7 +19,7 @@ import os
 import ray
 
 # compatiblity cern
-from single_controller.base.decorator import *
+from verl.single_controller.base.decorator import *
 
 
 def maybe_remote(main):

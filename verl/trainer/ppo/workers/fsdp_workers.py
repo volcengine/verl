@@ -23,8 +23,8 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig, open_dict
 
-from single_controller.base import Worker
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import register, Dispatch
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.actor import DataParallelPPOActor
@@ -304,7 +304,7 @@ class ActorRolloutRefWorker(Worker):
 
         torch.cuda.empty_cache()
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
     def update_actor(self, data: DataProto):
         data = data.to('cuda')
 
@@ -592,7 +592,7 @@ class CriticWorker(Worker):
         torch.cuda.empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO, blocking=False)
     def update_critic(self, data: DataProto):
         data = data.to('cuda')
         if self._is_offload_param:

@@ -33,7 +33,7 @@ from verl import DataProto
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.hdfs_io import makedirs
-from single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
 @hydra.main(config_path='config', config_name='generation', version_base=None)
