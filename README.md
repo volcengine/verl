@@ -172,7 +172,12 @@ Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to l
   - [Add models to Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
 
 
-## Contribution
+## Community and Contribution
+
+### Communication channel
+
+[Join us](https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA) for discussions on slack!
+
 ### Code formatting
 We use yapf (Google style) to enforce strict code formatting when reviewing MRs. To reformat you code locally, make sure you installed `yapf`
 ```bash
