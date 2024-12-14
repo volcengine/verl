@@ -2,9 +2,16 @@
 
 set -x
 
-hdfs_path=hdfs://user/verl/experiments/gsm8k/gemma-2b-it/ # replace to your own hdfs/local path
+if [ "$#" -lt 2 ]; then
+    echo "Usage: run_gemma_2b.sh <nproc_per_node> <save_path> [other_configs...]"
+    exit 1
+fi
 
 nproc_per_node=$1
+hdfs_path=$2
+
+# Shift the arguments so $@ refers to the rest
+shift 2
 
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
@@ -18,4 +25,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-gemma-2b-it \
     trainer.total_epochs=3 \
-    trainer.logger=['console','tracking']
+    trainer.logger=['console','wandb'] $@
