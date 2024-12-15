@@ -24,10 +24,6 @@ def get_rm_data():
     local_folder = os.path.expanduser('~/verl-data/full_hh_rlhf/rm/')
     local_path = os.path.join(local_folder, 'test.parquet')
     os.makedirs(local_folder, exist_ok=True)
-    # import fsspec
-    # with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
-    #     content = fin.read()
-    #     fout.write(content)
     return local_path
 
 

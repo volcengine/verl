@@ -18,7 +18,9 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.prompt_key=prompt \
-    data.response_key=answer \
+    data.response_key=extra_info \
+    +data.prompt_dict_keys=['content'] \
+    +data.response_dict_keys=['answer'] \
     data.micro_batch_size=32 \
     model.partial_pretrain=google/gemma-2b-it \
     trainer.default_hdfs_dir=$hdfs_path \

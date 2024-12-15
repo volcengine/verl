@@ -40,4 +40,4 @@ class LocalLogger:
 
     def log(self, data, step):
         if self.print_to_console:
-            print(concat_dict_to_str(data, step=step))
+            print(concat_dict_to_str(data, step=step), flush=True)

@@ -12,46 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-import torch
-from torch.utils.data import DataLoader
+
 from transformers import AutoTokenizer
+from verl.utils import set_pad_token_id
+from verl.utils.dataset.sft_dataset import SFTDataset
 
 
 def get_gsm8k_data():
     # prepare test dataset
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
-    local_folder = os.path.expanduser('~/verl-data/gsm8k/')
+    local_folder = os.path.expanduser('/opt/tiger/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
 
-def test_rl_dataset():
-    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/deepseek-coder-1.3b-instruct')
-    from verl.utils import set_pad_token_id
+def test_sft_dataset():
+    tokenizer = AutoTokenizer.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct')
     set_pad_token_id(tokenizer)
     local_path = get_gsm8k_data()
-    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
-
-    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
-
-    a = next(iter(dataloader))
-
-    from verl import DataProto
-
-    tensors = {}
-    non_tensors = {}
-
-    for key, val in a.items():
-        if isinstance(val, torch.Tensor):
-            tensors[key] = val
-        else:
-            non_tensors[key] = val
-
-    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+    dataset = SFTDataset(parquet_files=local_path,
+                         tokenizer=tokenizer,
+                         prompt_key='prompt',
+                         prompt_dict_keys=['content'],
+                         response_key='extra_info',
+                         response_dict_keys=['answer'],
+                         max_length=512)
 
     data = dataset[0]['input_ids']
     output = tokenizer.batch_decode([data])[0]
-    print(f'type: type{output}')
-    print(f'\n\noutput: {output}')
+    assert len(output) > 1
+    assert type(output) == str

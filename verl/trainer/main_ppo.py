@@ -31,6 +31,8 @@ def _select_rm_score_fn(data_source):
 
 
 class RewardManager():
+    """The reward manager.
+    """
 
     def __init__(self, tokenizer, num_examine) -> None:
         self.tokenizer = tokenizer

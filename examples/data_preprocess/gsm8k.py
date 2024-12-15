@@ -52,17 +52,17 @@ if __name__ == '__main__':
     def make_map_fn(split):
 
         def process_fn(example, idx):
-            question = example.pop('question')
+            question_raw = example.pop('question')
 
-            question = question + ' ' + instruction_following
+            question = question_raw + ' ' + instruction_following
 
-            answer = example.pop('answer')
-            solution = extract_solution(answer)
+            answer_raw = example.pop('answer')
+            solution = extract_solution(answer_raw)
             data = {
                 "data_source": data_source,
                 "prompt": [{
                     "role": "user",
-                    "content": question
+                    "content": question,
                 }],
                 "ability": "math",
                 "reward_model": {
@@ -71,7 +71,9 @@ if __name__ == '__main__':
                 },
                 "extra_info": {
                     'split': split,
-                    'index': idx
+                    'index': idx,
+                    'answer': answer_raw,
+                    "question": question_raw,
                 }
             }
             return data

@@ -95,13 +95,17 @@ class FSDPSFTTrainer(object):
         self.train_dataset = SFTDataset(parquet_files=config.data.train_files,
                                         tokenizer=self.tokenizer,
                                         prompt_key=config.data.prompt_key,
+                                        prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                         response_key=config.data.response_key,
+                                        response_dict_keys=config.data.get('response_dict_keys', None),
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation)
         self.val_dataset = SFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
                                       prompt_key=config.data.prompt_key,
+                                      prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                       response_key=config.data.response_key,
+                                      response_dict_keys=config.data.get('response_dict_keys', None),
                                       max_length=config.data.max_length,
                                       truncation=config.data.truncation)
 
@@ -292,10 +296,10 @@ class FSDPSFTTrainer(object):
         # save huggingface model
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
-            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir)
+            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
             self.tokenizer.save_pretrained(path)
-            hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir)
+            hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
 
     def fit(self):
