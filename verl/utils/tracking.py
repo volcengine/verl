@@ -19,20 +19,24 @@ from typing import List, Union
 
 
 class Tracking(object):
-    supported_backend = ['tracking', 'console']
+    supported_backend = ['wandb', 'console']
 
     def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = 'console', config=None):
         if isinstance(default_backend, str):
             default_backend = [default_backend]
         for backend in default_backend:
-            assert backend in self.supported_backend, f'{backend} is not supported'
+            if backend == 'tracking':
+                import warnings
+                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning)
+            else:
+                assert backend in self.supported_backend, f'{backend} is not supported'
 
         self.logger = {}
 
-        if 'tracking' in default_backend:
+        if 'tracking' in default_backend or 'wandb' in default_backend:
             import wandb
             wandb.init(project=project_name, name=experiment_name, config=config)
-            self.logger['tracking'] = wandb
+            self.logger['wandb'] = wandb
 
         if 'console' in default_backend:
             from verl.utils.logger.aggregate_logger import LocalLogger

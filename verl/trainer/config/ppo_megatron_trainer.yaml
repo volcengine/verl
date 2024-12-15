@@ -135,7 +135,7 @@ trainer:
   total_epochs: 30
   project_name: verl_examples
   experiment_name: gsm8k
-  logger: ['console', 'tracking']
+  logger: ['console', 'wandb']
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1

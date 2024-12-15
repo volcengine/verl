@@ -307,7 +307,7 @@ Trainer
      total_epochs: 30
      project_name: verl_examples
      experiment_name: gsm8k
-     logger: ['console', 'tracking']
+     logger: ['console', 'wandb']
      nnodes: 1
      n_gpus_per_node: 8
      save_freq: -1
@@ -319,8 +319,7 @@ Trainer
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb
 - ``trainer.experiment_name``: For wandb
-- ``trainer.logger``: Support console and tracking. For tracking, we
-  will initialize a wandb
+- ``trainer.logger``: Support console and wandb
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
