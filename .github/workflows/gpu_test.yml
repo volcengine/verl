@@ -28,7 +28,7 @@ jobs:
           pip install -e .[test]
       - name: Running dataset tests
         run: |
-          git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
+          rm -rf ~/verl-data && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           pytest -s -x tests/verl
       - name: Running ray tests that need 2 GPUs
         run: |
