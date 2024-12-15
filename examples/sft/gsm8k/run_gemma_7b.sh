@@ -16,4 +16,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-gemma-1.1-7b-it \
     trainer.total_epochs=4 \
-    trainer.logger=['console','tracking']
+    trainer.logger=['console','wandb']
