@@ -28,9 +28,8 @@ def get_gsm8k_data():
 
 def test_rl_dataset():
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/deepseek-coder-1.3b-instruct')
-    from verl.utils import set_pad_token_id
-    set_pad_token_id(tokenizer)
+    from verl.utils import hf_tokenizer
+    tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
     local_path = get_gsm8k_data()
     dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
 

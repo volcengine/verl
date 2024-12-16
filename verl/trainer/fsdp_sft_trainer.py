@@ -62,10 +62,8 @@ class FSDPSFTTrainer(object):
         self.device_mesh = device_mesh
         # build tokenizer first
         local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(local_model_path,
-                                                       trust_remote_code=self.config.model.trust_remote_code)
-        from verl.utils import set_pad_token_id
-        set_pad_token_id(self.tokenizer)
+        from verl.utils import hf_tokenizer
+        self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code)
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 

@@ -35,7 +35,7 @@ from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_param_and
 from verl.utils.import_utils import import_external_libs
 from verl.utils.debug import log_gpu_memory_usage
 import verl.utils.hdfs_io as hdfs_io
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -107,8 +107,7 @@ class ActorRolloutRefWorker(Worker):
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
-        self.tokenizer = AutoTokenizer.from_pretrained(local_path, trust_remote_code=trust_remote_code)
-        set_pad_token_id(self.tokenizer)
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
 
         torch_dtype = fsdp_config.get('model_dtype', None)
         if torch_dtype is None:
@@ -467,9 +466,7 @@ class CriticWorker(Worker):
         from transformers import AutoTokenizer
 
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path,
-                                                       trust_remote_code=config.model.get('trust_remote_code', False))
-        set_pad_token_id(self.tokenizer)
+        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
 
         from omegaconf import OmegaConf
         override_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
@@ -673,14 +670,9 @@ class RewardModelWorker(Worker):
         else:
             self._do_switch_chat_template = True
             input_tokenizer_local_path = copy_local_path_from_hdfs(config.model.input_tokenizer)
-            self.input_tokenizer = AutoTokenizer.from_pretrained(input_tokenizer_local_path,
-                                                                 trust_remote_code=config.model.get(
-                                                                     'trust_remote_code', False))
-            self.tokenizer = AutoTokenizer.from_pretrained(local_path,
-                                                           trust_remote_code=config.model.get(
-                                                               'trust_remote_code', False))
-            set_pad_token_id(self.tokenizer)
-            set_pad_token_id(self.input_tokenizer)
+            self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
+                                                trust_remote_code=config.model.get('trust_remote_code', False))
+            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)

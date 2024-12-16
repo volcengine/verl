@@ -14,7 +14,7 @@
 import os
 
 from transformers import AutoTokenizer
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 from verl.utils.dataset.sft_dataset import SFTDataset
 
 
@@ -22,13 +22,13 @@ def get_gsm8k_data():
     # prepare test dataset
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
     local_folder = os.path.expanduser('~/verl-data/gsm8k/')
+    local_folder = os.path.expanduser('/opt/tiger/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
     return local_path
 
 
 def test_sft_cot_dataset():
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
-    set_pad_token_id(tokenizer)
+    tokenizer = hf_tokenizer('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
     local_path = get_gsm8k_data()
     dataset = SFTDataset(parquet_files=local_path,
                          tokenizer=tokenizer,
@@ -45,8 +45,7 @@ def test_sft_cot_dataset():
 
 
 def test_sft_dataset():
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
-    set_pad_token_id(tokenizer)
+    tokenizer = hf_tokenizer('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
     local_path = get_gsm8k_data()
     dataset = SFTDataset(parquet_files=local_path,
                          tokenizer=tokenizer,

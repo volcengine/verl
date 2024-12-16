@@ -14,7 +14,7 @@
 import os
 
 from transformers import AutoTokenizer
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 from verl.utils.dataset.rm_dataset import RMDataset
 
 
@@ -28,8 +28,7 @@ def get_rm_data():
 
 
 def test_rm_dataset():
-    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
-    set_pad_token_id(tokenizer)
+    tokenizer = hf_tokenizer("facebook/opt-1.3b")
     local_path = get_rm_data()
     dataset = RMDataset(parquet_files=local_path, tokenizer=tokenizer, max_length=512)
     data = dataset[0]['input_ids']

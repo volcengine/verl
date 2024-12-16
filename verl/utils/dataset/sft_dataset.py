@@ -28,7 +28,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 
 
 class SFTDataset(Dataset):
@@ -53,8 +53,7 @@ class SFTDataset(Dataset):
 
         self.parquet_files = parquet_files
         if isinstance(tokenizer, str):
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-            set_pad_token_id(tokenizer)
+            tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
         self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
