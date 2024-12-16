@@ -27,7 +27,6 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.actor import DataParallelPPOActor
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, load_fsdp_grad, offload_fsdp_grad, init_fn, get_init_weight_context_manager
@@ -246,6 +245,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        from verl.trainer.actor import DataParallelPPOActor
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
 
@@ -557,7 +557,7 @@ class CriticWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
 
-        from verl.trainer.ppo.critic import DataParallelPPOCritic
+        from verl.trainer.critic import DataParallelPPOCritic
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
             self.config)
 
