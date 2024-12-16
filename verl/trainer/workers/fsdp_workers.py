@@ -219,14 +219,14 @@ class ActorRolloutRefWorker(Worker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'hf':
-            from verl.trainer.ppo.rollout import HFRollout
-            from verl.trainer.ppo.hybrid_engine import BaseShardingManager
+            from verl.trainer.rollout import HFRollout
+            from verl.trainer.hybrid_engine import BaseShardingManager
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
-            from verl.trainer.ppo.rollout.vllm_rollout import vLLMRollout
-            from verl.trainer.ppo.hybrid_engine import FSDPVLLMShardingManager
+            from verl.trainer.rollout.vllm_rollout import vLLMRollout
+            from verl.trainer.hybrid_engine import FSDPVLLMShardingManager
             log_gpu_memory_usage('Before building vllm rollout', logger=None)
             rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
                                   config=self.config.rollout,
