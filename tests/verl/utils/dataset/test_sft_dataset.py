@@ -28,7 +28,7 @@ def get_gsm8k_data():
 
 
 def test_sft_dataset():
-    tokenizer = AutoTokenizer.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct')
+    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
     set_pad_token_id(tokenizer)
     local_path = get_gsm8k_data()
     dataset = SFTDataset(parquet_files=local_path,

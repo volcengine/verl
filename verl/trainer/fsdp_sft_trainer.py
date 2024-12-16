@@ -294,7 +294,7 @@ class FSDPSFTTrainer(object):
 
         path = os.path.join(self.config.trainer.default_local_dir, f'global_step_{step}')
         # save huggingface model
-        if self.device_mesh.get_rank() == 0:
+        if self.device_mesh.get_rank() == 0 and self.config.trainer.default_hdfs_dir:
             os.makedirs(path, exist_ok=True)
             hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
