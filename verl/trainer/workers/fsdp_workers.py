@@ -219,14 +219,14 @@ class ActorRolloutRefWorker(Worker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'hf':
-            from verl.trainer.rollout import HFRollout
-            from verl.trainer.hybrid_engine import BaseShardingManager
+            from verl.trainer.workers.rollout import HFRollout
+            from verl.trainer.workers.hybrid_engine import BaseShardingManager
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
-            from verl.trainer.rollout.vllm_rollout import vLLMRollout
-            from verl.trainer.hybrid_engine import FSDPVLLMShardingManager
+            from verl.trainer.workers.rollout.vllm_rollout import vLLMRollout
+            from verl.trainer.workers.hybrid_engine import FSDPVLLMShardingManager
             log_gpu_memory_usage('Before building vllm rollout', logger=None)
             rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
                                   config=self.config.rollout,
@@ -245,7 +245,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        from verl.trainer.actor import DataParallelPPOActor
+        from verl.trainer.workers.actor import DataParallelPPOActor
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
 
@@ -557,7 +557,7 @@ class CriticWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
 
-        from verl.trainer.critic import DataParallelPPOCritic
+        from verl.trainer.workers.critic import DataParallelPPOCritic
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
             self.config)
 
