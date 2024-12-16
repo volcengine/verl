@@ -1,4 +1,4 @@
-# Tested in 4 GPUs
+# Tested with 2 & 4 GPUs
 
 set -x
 
@@ -21,7 +21,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.response_key=extra_info \
     +data.prompt_dict_keys=['content'] \
     +data.response_dict_keys=['answer'] \
-    data.micro_batch_size=32 \
+    data.micro_batch_size=8 \
     model.partial_pretrain=google/gemma-2b-it \
     trainer.default_local_dir=$save_path \
     trainer.project_name=gsm8k-sft \

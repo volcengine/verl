@@ -424,7 +424,6 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
