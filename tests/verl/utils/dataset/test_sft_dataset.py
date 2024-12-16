@@ -23,8 +23,25 @@ def get_gsm8k_data():
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
     local_folder = os.path.expanduser('~/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
-    os.makedirs(local_folder, exist_ok=True)
     return local_path
+
+
+def test_sft_cot_dataset():
+    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct')
+    set_pad_token_id(tokenizer)
+    local_path = get_gsm8k_data()
+    dataset = SFTDataset(parquet_files=local_path,
+                         tokenizer=tokenizer,
+                         prompt_key='prompt',
+                         prompt_dict_keys=['content'],
+                         response_key='extra_info',
+                         response_dict_keys=['answer'],
+                         max_length=512)
+
+    data = dataset[0]['input_ids']
+    output = tokenizer.batch_decode([data])[0]
+    assert len(output) > 1
+    assert type(output) == str
 
 
 def test_sft_dataset():
@@ -33,8 +50,8 @@ def test_sft_dataset():
     local_path = get_gsm8k_data()
     dataset = SFTDataset(parquet_files=local_path,
                          tokenizer=tokenizer,
-                         prompt_key='prompt',
-                         prompt_dict_keys=['content'],
+                         prompt_key='extra_info',
+                         prompt_dict_keys=['question'],
                          response_key='extra_info',
                          response_dict_keys=['answer'],
                          max_length=512)

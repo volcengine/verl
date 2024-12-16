@@ -72,6 +72,13 @@ class SFTDataset(Dataset):
             self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
 
     def _read_files_and_tokenize(self):
+
+        def series_to_item(ls):
+            import pandas, numpy
+            while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
+                ls = ls[0]
+            return ls
+
         dataframes = []
         for parquet_file in self.parquet_files:
             # read parquet files and cache
@@ -84,7 +91,7 @@ class SFTDataset(Dataset):
             # type(x[0]): numpy.ndarray
             # type(x[0][0]): dict
             try:
-                self.prompts = self.prompts.apply(lambda x: x[0][0][key], axis=1)
+                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)
             except Exception:
                 print(f'self.prompts={self.prompts}')
                 raise
@@ -92,7 +99,7 @@ class SFTDataset(Dataset):
         self.responses = self.dataframe[self.response_key]
         for key in self.response_dict_keys:
             try:
-                self.responses = self.responses.apply(lambda x: x[0][key], axis=1)
+                self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)
             except Exception:
                 print(f'self.responses={self.responses}')
                 raise

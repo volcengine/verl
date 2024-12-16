@@ -77,6 +77,8 @@ class FSDPSFTTrainer(object):
         self._build_model_optimizer()
 
         # TODO: add checkpoint manager
+        if self.device_mesh.get_rank() == 0:
+            print(self.config)
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size()
@@ -294,12 +296,13 @@ class FSDPSFTTrainer(object):
 
         path = os.path.join(self.config.trainer.default_local_dir, f'global_step_{step}')
         # save huggingface model
-        if self.device_mesh.get_rank() == 0 and self.config.trainer.default_hdfs_dir:
+        if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
-            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
             self.tokenizer.save_pretrained(path)
-            hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+            if self.config.trainer.default_hdfs_dir:
+                hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
 
     def fit(self):
@@ -353,7 +356,6 @@ def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
     device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(world_size,), mesh_dim_names=('dp',))
-
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh)
     trainer.fit()
 
