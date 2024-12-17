@@ -31,6 +31,8 @@ def _select_rm_score_fn(data_source):
 
 
 class RewardManager():
+    """The reward manager.
+    """
 
     def __init__(self, tokenizer, num_examine) -> None:
         self.tokenizer = tokenizer
@@ -112,9 +114,8 @@ def main_task(config):
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 
     # instantiate tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
-    from verl.utils import set_pad_token_id
-    set_pad_token_id(tokenizer)
+    from verl.utils import hf_tokenizer
+    tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':

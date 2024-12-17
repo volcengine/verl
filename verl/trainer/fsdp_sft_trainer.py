@@ -62,10 +62,8 @@ class FSDPSFTTrainer(object):
         self.device_mesh = device_mesh
         # build tokenizer first
         local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
-        self.tokenizer = AutoTokenizer.from_pretrained(local_model_path,
-                                                       trust_remote_code=self.config.model.trust_remote_code)
-        from verl.utils import set_pad_token_id
-        set_pad_token_id(self.tokenizer)
+        from verl.utils import hf_tokenizer
+        self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code)
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 
@@ -77,6 +75,8 @@ class FSDPSFTTrainer(object):
         self._build_model_optimizer()
 
         # TODO: add checkpoint manager
+        if self.device_mesh.get_rank() == 0:
+            print(self.config)
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size()
@@ -95,13 +95,17 @@ class FSDPSFTTrainer(object):
         self.train_dataset = SFTDataset(parquet_files=config.data.train_files,
                                         tokenizer=self.tokenizer,
                                         prompt_key=config.data.prompt_key,
+                                        prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                         response_key=config.data.response_key,
+                                        response_dict_keys=config.data.get('response_dict_keys', None),
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation)
         self.val_dataset = SFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
                                       prompt_key=config.data.prompt_key,
+                                      prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                       response_key=config.data.response_key,
+                                      response_dict_keys=config.data.get('response_dict_keys', None),
                                       max_length=config.data.max_length,
                                       truncation=config.data.truncation)
 
@@ -292,10 +296,11 @@ class FSDPSFTTrainer(object):
         # save huggingface model
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
-            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir)
             self.model.save_pretrained(path, state_dict=state_dict)
             self.tokenizer.save_pretrained(path)
-            hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir)
+            if self.config.trainer.default_hdfs_dir:
+                hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
 
     def fit(self):
@@ -349,7 +354,6 @@ def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
     device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(world_size,), mesh_dim_names=('dp',))
-
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh)
     trainer.fit()
 

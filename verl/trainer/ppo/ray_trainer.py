@@ -420,6 +420,9 @@ class RayPPOTrainer(object):
         if self.val_reward_fn is not None:
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
+            logger.log(data=val_metrics, step=global_steps)
+            if self.config.trainer.get('val_only', False):
+                return
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -527,3 +530,4 @@ class RayPPOTrainer(object):
         if self.val_reward_fn is not None:
             val_metrics = self._validate()
             pprint(f'Final validation metrics: {val_metrics}')
+            logger.log(data=val_metrics, step=global_steps)

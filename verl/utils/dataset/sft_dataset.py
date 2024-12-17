@@ -28,7 +28,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 
 
 class SFTDataset(Dataset):
@@ -40,7 +40,9 @@ class SFTDataset(Dataset):
                  parquet_files: Union[str, List[str]],
                  tokenizer,
                  prompt_key='prompt',
+                 prompt_dict_keys=None,
                  response_key='response',
+                 response_dict_keys=None,
                  max_length=1024,
                  truncation='error'):
         assert truncation in ['error', 'left', 'right']
@@ -51,12 +53,13 @@ class SFTDataset(Dataset):
 
         self.parquet_files = parquet_files
         if isinstance(tokenizer, str):
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-            set_pad_token_id(tokenizer)
+            tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
-        self.prompt_key = prompt_key
-        self.response_key = response_key
+        self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
+        self.response_key = response_key if isinstance(response_key, (tuple, list)) else [response_key]
+        self.prompt_dict_keys = [] if not prompt_dict_keys else prompt_dict_keys
+        self.response_dict_keys = [] if not response_dict_keys else response_dict_keys
 
         self.max_length = max_length
 
@@ -68,14 +71,38 @@ class SFTDataset(Dataset):
             self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
 
     def _read_files_and_tokenize(self):
+
+        def series_to_item(ls):
+            import pandas, numpy
+            while isinstance(ls, (pandas.core.series.Series, numpy.ndarray)) and len(ls) == 1:
+                ls = ls[0]
+            return ls
+
         dataframes = []
         for parquet_file in self.parquet_files:
             # read parquet files and cache
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
-        self.prompts = self.dataframe[self.prompt_key].tolist()
-        self.responses = self.dataframe[self.response_key].tolist()
+        self.prompts = self.dataframe[self.prompt_key]
+        for key in self.prompt_dict_keys:
+            # type(x): pandas.core.series.Series
+            # type(x[0]): numpy.ndarray
+            # type(x[0][0]): dict
+            try:
+                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)
+            except Exception:
+                print(f'self.prompts={self.prompts}')
+                raise
+        self.prompts = self.prompts.tolist()
+        self.responses = self.dataframe[self.response_key]
+        for key in self.response_dict_keys:
+            try:
+                self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)
+            except Exception:
+                print(f'self.responses={self.responses}')
+                raise
+        self.responses = self.responses.tolist()
 
     def __len__(self):
         return len(self.prompts)
@@ -145,18 +172,3 @@ class SFTDataset(Dataset):
             'position_ids': position_ids,
             'loss_mask': loss_mask
         }
-
-
-if __name__ == '__main__':
-    local_model_path = copy_local_path_from_hdfs('~/models/gemma-2b-it')
-    tokenizer = AutoTokenizer.from_pretrained(local_model_path)
-    set_pad_token_id(tokenizer)
-    dataset = SFTDataset(parquet_files='~/data/gsm8k/train.parquet',
-                         tokenizer=tokenizer,
-                         prompt_key='question',
-                         response_key='answer',
-                         max_length=512)
-
-    data = dataset[0]['input_ids']
-    output = tokenizer.batch_decode([data])[0]
-    print(output)
