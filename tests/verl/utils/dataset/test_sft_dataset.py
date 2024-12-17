@@ -22,7 +22,6 @@ def get_gsm8k_data():
     # prepare test dataset
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
     local_folder = os.path.expanduser('~/verl-data/gsm8k/')
-    local_folder = os.path.expanduser('/opt/tiger/verl-data/gsm8k/')
     local_path = os.path.join(local_folder, 'train.parquet')
     return local_path
 
