@@ -62,6 +62,12 @@ veRL is fast with:
 
 .. toctree::
    :maxdepth: 1
+   :caption: Experimental Results
+
+   experiment/ppo
+
+.. toctree::
+   :maxdepth: 1
    :caption: Advance Usage and Extension
 
    advance/placement
