@@ -14,7 +14,6 @@
 """
 A Ray logger will receive logging info from different processes.
 """
-
 import numbers
 from typing import Dict
 
@@ -40,4 +39,4 @@ class LocalLogger:
 
     def log(self, data, step):
         if self.print_to_console:
-            print(concat_dict_to_str(data, step=step))
+            print(concat_dict_to_str(data, step=step), flush=True)
