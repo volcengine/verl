@@ -84,6 +84,10 @@ class DataParallelPPOCritic(BasePPOCritic):
                 values = self._forward_micro_batch(micro_batch)
             values_lst.append(values)
         values = torch.concat(values_lst, dim=0)
+        responses = data.batch['responses']
+        attention_mask = data.batch['attention_mask']
+        response_length = responses.size(1)
+        values = values * attention_mask[:, -response_length - 1:-1]
         return values
 
     def update_critic(self, data: DataProto):
