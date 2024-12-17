@@ -1,7 +1,3 @@
-<div align=center>
-  <img src="docs/_static/logo.png" width = "20%" height = "20%" />
-</div>
-
 <h1 style="text-align: center;">veRL: Volcano Engine Reinforcement Learning for LLM</h1>
 
 veRL (HybridFlow) is a flexible, efficient and industrial-level RL(HF) training framework designed for large language models (LLMs). veRL is the open-source version of [HybridFlow](https://arxiv.org/abs/2409.19256v2) paper.
@@ -29,66 +25,106 @@ veRL is fast with:
 <!-- <a href=""><b>Slides</b></a> | -->
 </p>
 
+## News
 
+- [2024/12] The team presented <a href="https://neurips.cc/Expo/Conferences/2024/workshop/100677">Post-training LLMs: From Algorithms to Infrastructure</a> at NeurIPS 2024.
+  - [Slides](https://github.com/eric-haibin-lin/verl-data/tree/neurips), [notebooks](https://lightning.ai/eric-haibin-lin/studios/verl-neurips~01je0d1benfjb9grmfjxqahvkn?view=public&section=featured), and [video](https://neurips.cc/Expo/Conferences/2024/workshop/100677) available.
+- [2024/08] HybridFlow (verl) is accepted to EuroSys 2025.
 
-## Installation
+## Installation Guide
 
-For installing the latest version of veRL, the best way is to clone and install it from source. Then you can modify our code to customize your own post-training jobs.
+Below are the steps to install veRL in your environment.
+
+### Requirements
+- **Python**: Version >= 3.9
+- **CUDA**: Version >= 12.1
+
+veRL supports various backends. Currently, the following configurations are available:
+- **FSDP** and **Megatron-LM** for training.
+- **vLLM** for rollout generation.
+
+**Training backends**
+
+We recommend using **FSDP** backend to investigate, research and prototype different models, datasets and RL algorithms. The guide for using FSDP backend can be found in [PyTorch FSDP Backend](https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html)
+
+For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM@core_v0.4.0 and we fix some internal issues of Megatron-LM. Here's the additional installation guide. The guide for using Megatron-LM backend can be found in [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/workers/megatron_workers.html)
+
+### Installation Options
+
+#### 1. From Docker Image
+
+We provide pre-built Docker images for quick setup.
+
+Image and tag: `verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`
+
+1. Launch the desired Docker image:
 
 ```bash
-# install verl together with some lightweight dependencies in setup.py
-git clone https://github.com/volcengine/verl.git
-cd verl
+docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag> 
+```
+
+2.	Inside the container, install veRL:
+
+```bash
+# install the nightly version
+git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+# or install from pypi via `pip3 install verl`
+```
+
+4. Setup Megatron (optional)
+
+If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
+
+```bash
+cd ..
+git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+cp verl/patches/megatron_v4.patch Megatron-LM/
+cd Megatron-LM && git apply megatron_v4.patch
 pip3 install -e .
+export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
 
-You can also install veRL using `pip3 install`
-
+You can also get the Megatron code after verl's patch via
 ```bash
-# directly install from pypi
-pip3 install verl
+git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
 ```
 
-### Dependencies
+#### 2. From Custom Environments
 
-veRL requires Python >= 3.9 and CUDA >= 12.1.
+<details><summary>If you prefer setting up veRL in your custom environment, expand this section and follow the steps below.</summary>
 
-veRL support various backend, we currently release FSDP and Megatron-LM for actor training and vLLM for rollout generation.
+Using **conda** is recommended for managing dependencies.
 
-To install the dependencies, we recommend using conda:
+1. Create a conda environment:
 
 ```bash
 conda create -n verl python==3.9
 conda activate verl
 ```
 
-The following dependencies are required for all backends.
+2. Install common dependencies (required for all backends)
 
 ```bash
 # install torch [or you can skip this step and let vllm to install the correct version for you]
-pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+pip3 install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
 
 # install vllm
-pip3 install vllm==0.5.4
-pip3 install ray==2.10 # other version may have bug
+pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
+pip3 install ray
 
 # flash attention 2
 pip3 install flash-attn --no-build-isolation
 ```
 
-**FSDP**
+3. Install veRL
 
-We recommend using FSDP backend to investigate, research and prototype different models, datasets and RL algorithms.
+```bash
+# install the nightly version
+git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+# or install from pypi via `pip3 install verl`
+```
 
-The pros, cons and extension guide for using FSDP backend can be found in [PyTorch FSDP Backend](https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html)
-
-**Megatron-LM**
-
-For users who pursue better scalability, we recommend using Megatron-LM backend. Please install the above dependencies first.
-
-Currently, we support Megatron-LM@core_v0.4.0 and we fix some internal issues of Megatron-LM. Here's the additional installation guide.
-
-The pros, cons and extension guide for using Megatron-LM backend can be found in [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/workers/megatron_workers.html)
+4. Setup Megatron (optional)
 
 ```bash
 # FOR Megatron-LM Backend
@@ -103,12 +139,13 @@ pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 # megatron core v0.4.0
 cd ..
 git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
-cd Megatron-LM
-cp ../verl/patches/megatron_v4.patch .
-git apply megatron_v4.patch
+cp verl/patches/megatron_v4.patch Megatron-LM/
+cd Megatron-LM && git apply megatron_v4.patch
 pip3 install -e .
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```
+
+</details>
 
 ## Getting Started
 Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to learn more.
@@ -135,7 +172,12 @@ Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to l
   - [Add models to Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
 
 
-## Contribution
+## Community and Contribution
+
+### Communication channel
+
+[Join us](https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA) for discussions on slack!
+
 ### Code formatting
 We use yapf (Google style) to enforce strict code formatting when reviewing MRs. To reformat you code locally, make sure you installed `yapf`
 ```bash
@@ -143,7 +185,7 @@ pip3 install yapf
 ```
 Then, make sure you are at top level of verl repo and run
 ```bash
-yapf -ir -vv --style ./.style.yapf verl single_controller examples
+yapf -ir -vv --style ./.style.yapf verl examples
 ```
 
 

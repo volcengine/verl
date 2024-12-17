@@ -49,13 +49,13 @@ Define worker classes
    if config.actor_rollout_ref.actor.strategy == 'fsdp': # for FSDP backend
        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
        from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
-       from single_controller.ray import RayWorkerGroup
+       from verl.single_controller.ray import RayWorkerGroup
        ray_worker_group_cls = RayWorkerGroup
 
    elif config.actor_rollout_ref.actor.strategy == 'megatron': # for Megatron backend
        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
        from verl.trainer.ppo.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
-       from single_controller.ray.megatron import NVMegatronRayWorkerGroup
+       from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
        ray_worker_group_cls = NVMegatronRayWorkerGroup # Ray worker class for Megatron-LM
 
    else:

@@ -40,7 +40,7 @@ We implement various of APIs for each ``Worker`` class decorated by the
 ``@register(dispatch_mode=)`` . These APIs can be called by the ray
 driver process. The data can be correctly collect and dispatch following
 the ``dispatch_mode`` on each function. The supported dispatch_model
-(i.e., transfer protocols) can be found in `decorator.py <https://github.com/volcengine/verl/blob/main/single_controller/base/decorator.py>`_.
+(i.e., transfer protocols) can be found in `decorator.py <https://github.com/volcengine/verl/blob/main/verl/single_controller/base/decorator.py>`_.
 
 ActorRolloutRefWorker
 ^^^^^^^^^^^^^^^^^^^^^

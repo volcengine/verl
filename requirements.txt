@@ -1,4 +1,4 @@
-# vllm==0.5.4 # vllm is installed in image building to avoid ray conflicts
+# vllm==0.6.3 # vllm is installed in image building to avoid ray conflicts
 # TODO: add version info to requirements
 accelerate
 codetiming
@@ -7,5 +7,6 @@ dill
 hydra-core
 numpy
 pybind11
+ray==2.10
 tensordict
 transformers

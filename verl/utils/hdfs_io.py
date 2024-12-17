@@ -14,7 +14,6 @@
 
 import os
 import shutil
-import subprocess
 import logging
 
 logger = logging.getLogger(__file__)
@@ -83,7 +82,7 @@ def _mkdir(file_path: str) -> bool:
 
 
 def copy(src: str, dst: str, **kwargs) -> bool:
-    r"""Works like shutil.copy() but supports hdfs.
+    r"""Works like shutil.copy() for file, and shutil.copytree for dir, and supports hdfs.
 
     Copy data and mode bits ("cp src dst"). Return the file's destination.
     The destination may be a directory.
@@ -105,7 +104,10 @@ def copy(src: str, dst: str, **kwargs) -> bool:
         # - return file destination for hdfs files
         return _copy(src, dst)
     else:
-        return shutil.copy(src, dst)
+        if os.path.isdir(src):
+            return shutil.copytree(src, dst, **kwargs)
+        else:
+            return shutil.copy(src, dst, **kwargs)
 
 
 def _copy(from_path: str, to_path: str, timeout: int = None) -> bool:

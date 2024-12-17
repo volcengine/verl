@@ -17,8 +17,8 @@ from typing import Dict, Optional
 import ray
 
 from .base import RayWorkerGroup, RayResourcePool, RayClassWithInitArgs
-from single_controller.base.megatron.worker import DistRankInfo, DistGlobalInfo
-from single_controller.base.megatron.worker_group import MegatronWorkerGroup
+from verl.single_controller.base.megatron.worker import DistRankInfo, DistGlobalInfo
+from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
 
 
 # NOTE(sgm): for opensource megatron-core

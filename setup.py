@@ -20,18 +20,19 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
+
 with open('requirements.txt') as f:
     required = f.read().splitlines()
     install_requires = [item.strip() for item in required if item.strip()[0] != '#']
 
 install_optional = [
-    'vllm==0.5.4',
-    'torch==2.4.0',
+    'vllm==0.6.3',
+    'torch==2.4.0', # required by vllm
 ]
 
 extras_require = {
     'single-controller': ['ray', 'kubernetes'],
-    'single-controller-ray': ['ray'],
+    'test': ['pytest']
 }
 
 from pathlib import Path

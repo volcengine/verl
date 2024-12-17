@@ -15,7 +15,7 @@
 from typing import Dict
 
 from .worker import DistRankInfo, DistGlobalInfo
-from single_controller.base import ResourcePool, WorkerGroup
+from verl.single_controller.base import ResourcePool, WorkerGroup
 
 
 class MegatronWorkerGroup(WorkerGroup):

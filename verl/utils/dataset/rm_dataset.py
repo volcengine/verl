@@ -18,8 +18,10 @@ from typing import List, Union
 import pandas as pd
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from transformers import AutoTokenizer
+
+from verl.utils import hf_tokenizer
 
 
 def download_files_distributed(download_fn):
@@ -52,7 +54,7 @@ class RMDataset(Dataset):
         self.parquet_files = parquet_files
         self.cache_dir = os.path.expanduser(cache_dir)
         if isinstance(tokenizer, str):
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+            tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer = tokenizer
 
         self.prompt_key = prompt_key
@@ -139,13 +141,3 @@ class RMDataset(Dataset):
             'input_ids': input_ids,
             'attention_mask': attention_mask,
         }
-
-
-if __name__ == '__main__':
-    tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1", add_bos_token=False)
-
-    dataset = RMDataset(parquet_files='~/data/full_hh_rlhf/rm/train.parquet', tokenizer=tokenizer, max_length=512)
-    data = dataset[0]['input_ids']
-    output = tokenizer.batch_decode(data)
-    print(output[0])
-    print(output[1])

@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-e2e test single_controller.ray
+e2e test verl.single_controller.ray
 """
 
 import torch
 import ray
 
-from single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
-from single_controller.base.worker import Worker
-from single_controller.ray.decorator import register, Dispatch, collect_all_to_all, Execute
+from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
+from verl.single_controller.base.worker import Worker
+from verl.single_controller.ray.decorator import register, Dispatch, collect_all_to_all, Execute
 
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):

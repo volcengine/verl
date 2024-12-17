@@ -14,6 +14,8 @@
 
 from verl.utils.import_utils import is_vllm_available, is_megatron_core_available
 
+from .base import BaseShardingManager
+
 AllGatherPPModel = None
 
 if is_megatron_core_available() and is_vllm_available():

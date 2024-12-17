@@ -31,6 +31,8 @@ def _select_rm_score_fn(data_source):
 
 
 class RewardManager():
+    """The reward manager.
+    """
 
     def __init__(self, tokenizer, num_examine) -> None:
         self.tokenizer = tokenizer
@@ -112,19 +114,20 @@ def main_task(config):
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 
     # instantiate tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
+    from verl.utils import hf_tokenizer
+    tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
-        from single_controller.ray import RayWorkerGroup
+        from verl.single_controller.ray import RayWorkerGroup
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == 'megatron':
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
         from verl.trainer.ppo.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
-        from single_controller.ray.megatron import NVMegatronRayWorkerGroup
+        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:

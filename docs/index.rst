@@ -26,11 +26,19 @@ veRL is fast with:
 
 .. toctree::
    :maxdepth: 5
-   :caption: Preparation
+   :caption: Quickstart
    :titlesonly:
    :numbered:
 
-   preparation/install
+   start/install
+   start/quickstart
+
+.. toctree::
+   :maxdepth: 5
+   :caption: Data Preparation
+   :titlesonly:
+   :numbered:
+
    preparation/prepare_data
    preparation/reward_function
 

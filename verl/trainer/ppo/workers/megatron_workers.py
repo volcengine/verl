@@ -22,19 +22,20 @@ import torch
 import torch.distributed
 import torch.nn as nn
 from omegaconf import DictConfig
-from single_controller.base.megatron.worker import MegatronWorker
+from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.trainer.ppo.actor.megatron_actor import MegatronPPOActor
 from verl.trainer.ppo.critic.megatron_critic import MegatronPPOCritic
 from verl.trainer.ppo.hybrid_engine import AllGatherPPModel
 from verl.trainer.ppo.reward_model.megatron.reward_model import MegatronRewardModel
 
-from single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights
 from verl.utils.megatron_utils import init_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
+from verl.utils import hf_tokenizer
 
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
@@ -135,7 +136,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(local_path)
+        self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
@@ -458,7 +459,7 @@ class CriticWorker(MegatronWorker):
 
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(local_path)
+        self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
         critic_model_config = AutoConfig.from_pretrained(local_path)
@@ -621,7 +622,7 @@ class RewardModelWorker(MegatronWorker):
 
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(local_path)
+        self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
         rm_model_config = AutoConfig.from_pretrained(local_path)
@@ -684,12 +685,13 @@ class RewardModelWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
         sft_tokenizer_local_path = copy_local_path_from_hdfs(self.config.model.input_tokenizer)
-        sft_tokenizer = AutoTokenizer.from_pretrained(sft_tokenizer_local_path)
+        sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
         rm_tokenizer_path = self.config.model.get('rm_tokenizer', None)
         rm_tokenizer = None
         if rm_tokenizer_path is not None:
             rm_tokenizer_local_path = copy_local_path_from_hdfs(rm_tokenizer_path)
-            rm_tokenizer = AutoTokenizer.from_pretrained(rm_tokenizer_local_path)
+            rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path)
+
         torch_dtype = torch.bfloat16
 
         megatron_config = OmegaConf.create({
