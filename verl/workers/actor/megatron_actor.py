@@ -38,7 +38,7 @@ from verl.utils.megatron.tensor_parallel import vocab_parallel_compute_entropy_l
 from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.actor import BasePPOActor
+from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits, broadcast_dict_tensor, split_dict_tensor_into_batches
 

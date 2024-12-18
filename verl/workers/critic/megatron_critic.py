@@ -25,7 +25,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.critic import BasePPOCritic
+from verl.workers.critic import BasePPOCritic
 from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_dtypes import PrecisionType
