@@ -1,3 +1,5 @@
+.. _algo-baseline-page:
+
 Algorithm Baselines
 ===================
 

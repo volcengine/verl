@@ -1,3 +1,5 @@
+.. _config-explain-page:
+
 Config Explaination
 ===================
 
