@@ -29,8 +29,6 @@ from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 
-from flash_attn.bert_padding import pad_input, unpad_input
-
 __all__ = ['DataParallelPPOCritic']
 
 
