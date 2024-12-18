@@ -89,7 +89,7 @@ Code formatting
 ^^^^^^^^^^^^^^^^^^^^^^^^
 We use yapf (Google style) to enforce strict code formatting when reviewing MRs. Run yapf at the top level of verl repo:
 
-.. bash::
+.. code-block:: bash
 
    pip3 install yapf
    yapf -ir -vv --style ./.style.yapf verl examples tests

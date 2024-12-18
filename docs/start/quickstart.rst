@@ -12,7 +12,7 @@ Introduction
 
 .. _hf_dataset_gsm8k: https://huggingface.co/datasets/gsm8k
 
-In this example, we train an LLM to tackle the `GSM8k <hf_dataset_gsm8k>`_ task with function-based rewards[1]_.
+In this example, we train an LLM to tackle the `GSM8k <hf_dataset_gsm8k>`_ task with function-based rewards. [1]_
 
 Prerequisite:
 
@@ -45,7 +45,7 @@ Step 1: Prepare the dataset
 
 We preprocess the dataset in parquet format so that (1) it contains necessary fields for computing RL rewards and (2) is faster to read.
 
-.. code:: bash
+.. code-block:: bash
 
    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
 
@@ -56,7 +56,7 @@ Usually we recommend starting with an "instruct" model variant so that the model
 
 If you start from a "base" model variant, doing SFT before RL is recommended. Refer to the `sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
 
-.. code:: bash
+.. code-block:: bash
 
    python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-0.5B-Instruct')"
 
@@ -75,12 +75,12 @@ For mode details, please refer to `verl/utils/reward_score/gsm8k.py <https://git
 
 **Training Script**
 
-Now let's run PPO training with the dataset and model above[2]_.
+Now let's run PPO training with the dataset and model above. [2]_
 
 
 Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on your dataset and model names or paths.
 
-.. code:: bash
+.. code-block:: bash
 
    PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
@@ -111,19 +111,18 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
 
 You are expected to see the following logs, indicating training in progress:
 
-.. code::
+.. code-block:: bash
+
     step:0 - timing/gen:21.470 - timing/ref:4.360 - timing/values:5.800 - critic/kl:0.000 - critic/kl_coeff:0.001 - timing/adv:0.109 - timing/update_critic:15.664 - critic/vf_loss:14.947 - critic/vf_clipfrac:0.000 - critic/vpred_mean:-2.056 - critic/grad_norm:1023.278 - critic/lr(1e-4):0.100 - timing/update_actor:20.314 - actor/entropy_loss:0.433 - actor/pg_loss:-0.005 - actor/pg_clipfrac:0.000 - actor/ppo_kl:0.000 - actor/grad_norm:1.992 - actor/lr(1e-4):0.010 - critic/score/mean:0.004 - critic/score/max:1.000 - critic/score/min:0.000 - critic/rewards/mean:0.004 - critic/rewards/max:1.000 - critic/rewards/min:0.000 - critic/advantages/mean:-0.000 - critic/advantages/max:2.360 - critic/advantages/min:-2.280 - critic/returns/mean:0.003 - critic/returns/max:0.000 - critic/returns/min:0.000 - critic/values/mean:-2.045 - critic/values/max:9.500 - critic/values/min:-14.000 - response_length/mean:239.133 - response_length/max:256.000 - response_length/min:77.000 - prompt_length/mean:104.883 - prompt_length/max:175.000 - prompt_length/min:68.000
     step:1 - timing/gen:23.020 - timing/ref:4.322 - timing/values:5.953 - critic/kl:0.000 - critic/kl_coeff:0.001 - timing/adv:0.118 - timing/update_critic:15.646 - critic/vf_loss:18.472 - critic/vf_clipfrac:0.384 - critic/vpred_mean:1.038 - critic/grad_norm:942.924 - critic/lr(1e-4):0.100 - timing/update_actor:20.526 - actor/entropy_loss:0.440 - actor/pg_loss:0.000 - actor/pg_clipfrac:0.002 - actor/ppo_kl:0.000 - actor/grad_norm:2.060 - actor/lr(1e-4):0.010 - critic/score/mean:0.000 - critic/score/max:0.000 - critic/score/min:0.000 - critic/rewards/mean:0.000 - critic/rewards/max:0.000 - critic/rewards/min:0.000 - critic/advantages/mean:0.000 - critic/advantages/max:2.702 - critic/advantages/min:-2.616 - critic/returns/mean:0.000 - critic/returns/max:0.000 - critic/returns/min:0.000 - critic/values/mean:-2.280 - critic/values/max:11.000 - critic/values/min:-16.000 - response_length/mean:232.242 - response_length/max:256.000 - response_length/min:91.000 - prompt_length/mean:102.398 - prompt_length/max:185.000 - prompt_length/min:70.000
 
 Checkout :ref:`algo-baseline-page` for full training and validation logs for reference.
 
-The checkpoint is saved at the following dir by default:
-
-- checkpoints/${trainer.project_name}/${trainer.experiment_name}
+The checkpoint is saved at the following dir by default: ``checkpoints/${trainer.project_name}/${trainer.experiment_name}``
 
 To enable ``wandb`` for experiment tracking, set the following configs:
 
-.. code:: bash
+.. code-block:: bash
 
     trainer.logger=['console','wandb'] \
     trainer.project_name=$YOUR_PROJECT_NAME \
