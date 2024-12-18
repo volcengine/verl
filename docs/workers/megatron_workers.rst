@@ -1,5 +1,5 @@
 Megatron-LM Backend
-================
+=====================
 
 We support Megatron Backend by implementing various workers for actor,
 critic, reference, rollout and reward models. We also implement the

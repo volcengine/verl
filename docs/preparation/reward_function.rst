@@ -1,5 +1,5 @@
 Implment Reward Function for Dataset
-=======================
+======================================
 
 For each dataset, we need to implement a reward function or utilize a reward model to compute the rewards for the generated responses.
 We already pre-implemented some reward functions in `reward_score directory <https://github.com/volcengine/verl/blob/main/verl/utils/reward_score>`_.

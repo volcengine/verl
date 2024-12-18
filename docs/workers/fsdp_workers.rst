@@ -1,5 +1,5 @@
 PyTorch FSDP Backend
-============
+======================
 
 We support PyTorch FSDP Backend by implementing various workers for
 actor, critic, reference, rollout and reward models. We also implement
@@ -28,7 +28,7 @@ Due to the simplicity, we recommend using FSDP backend for algorithm
 research and prototyping.
 
 FSDP Workers
-------------
+--------------
 
 ActorRolloutRefWorker
 ^^^^^^^^^^^^^^^^^^^^^
