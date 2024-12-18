@@ -21,7 +21,7 @@ veRL is fast with:
 
 
 <p align="center">
-| <a href="https://verl.readthedocs.io/en/latest/index.html"><b>Documentation</b></a> | <a href="https://arxiv.org/abs/2409.19256v2"><b>Paper</b></a> | 
+| <a href="https://verl.readthedocs.io/en/latest/index.html"><b>Documentation</b></a> | <a href="https://arxiv.org/abs/2409.19256v2"><b>Paper</b></a> | <a href="https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA"><b>Slack</b></a> | 
 <!-- <a href=""><b>Slides</b></a> | -->
 </p>
 
@@ -150,15 +150,21 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 ## Getting Started
 Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to learn more.
 
-**Running an PPO example should follow:**
-- Preparation
-  - [Installation](https://verl.readthedocs.io/en/latest/preparation/install.html)
+**Quickstart:**
+- [Installation](https://verl.readthedocs.io/en/latest/preparation/install.html)
+- [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
+
+**Running an PPO example step-by-step:**
+- Data and Reward Preparation
   - [Prepare Data (Parquet) for Post-Training](https://verl.readthedocs.io/en/latest/preparation/prepare_data.html)
   - [Implement Reward Function for Dataset](https://verl.readthedocs.io/en/latest/preparation/reward_function.html)
-- PPO Example (Run an example)
+- Understanding the PPO Example
   - [PPO Example Architecture](https://verl.readthedocs.io/en/latest/examples/ppo_code_architecture.html)
   - [Config Explanation](https://verl.readthedocs.io/en/latest/examples/config.html)
   - [Run GSM8K Example](https://verl.readthedocs.io/en/latest/examples/gsm8k_example.html)
+
+**Reproducible algorithm baselines:**
+- [PPO](https://verl.readthedocs.io/en/latest/experiment/ppo.html)
 
 **For code explanation and advance usage (extension):**
 - PPO Trainer and Workers

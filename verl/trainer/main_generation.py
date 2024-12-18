@@ -31,7 +31,7 @@ from transformers import AutoTokenizer
 
 from verl import DataProto
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.hdfs_io import makedirs
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
