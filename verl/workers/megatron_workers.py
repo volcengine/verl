@@ -23,10 +23,10 @@ import torch.distributed
 import torch.nn as nn
 from omegaconf import DictConfig
 from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.trainer.ppo.actor.megatron_actor import MegatronPPOActor
-from verl.trainer.ppo.critic.megatron_critic import MegatronPPOCritic
-from verl.trainer.ppo.hybrid_engine import AllGatherPPModel
-from verl.trainer.ppo.reward_model.megatron.reward_model import MegatronRewardModel
+from verl.workers.actor.megatron_actor import MegatronPPOActor
+from verl.workers.critic.megatron_critic import MegatronPPOCritic
+from verl.workers.hybrid_engine import AllGatherPPModel
+from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
 from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
@@ -216,8 +216,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'vllm':
-            from verl.trainer.ppo.rollout.vllm_rollout import vLLMRollout
-            from verl.trainer.ppo.hybrid_engine import MegatronVLLMShardingManager
+            from verl.workers.rollout.vllm_rollout import vLLMRollout
+            from verl.workers.hybrid_engine import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,

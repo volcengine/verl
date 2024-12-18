@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 from transformers import PretrainedConfig, PreTrainedTokenizer, PreTrainedTokenizerFast
-from verl.trainer.ppo.rollout.tokenizer import HybridEngineBaseTokenizer
+from verl.workers.rollout.tokenizer import HybridEngineBaseTokenizer
 from vllm import LLM
 from vllm.outputs import EmbeddingRequestOutput, RequestOutput
 from vllm.utils import Counter
@@ -137,7 +137,7 @@ class LLM(LLM):
         if not isinstance(tokenizer, tokenizer_cls):
             raise ValueError(
                 f"Unexpected tokenizer type: {type(tokenizer)}. Must be"
-                "one of the following: PreTrainedTokenizer, PreTrainedTokenizerFast, verl.trainer.ppo.rollout.HybridEngineBaseTokenizer"
+                "one of the following: PreTrainedTokenizer, PreTrainedTokenizerFast, verl.workers.rollout.HybridEngineBaseTokenizer"
             )
         self.llm_engine = LLMEngine.from_engine_args(model, tokenizer, engine_args)  # TODO: check usagecontext
         self.request_counter = Counter()

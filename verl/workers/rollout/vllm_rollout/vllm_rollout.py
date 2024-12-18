@@ -34,7 +34,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
-from verl.trainer.ppo.rollout.base import BaseRollout
+from verl.workers.rollout.base import BaseRollout
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from vllm import SamplingParams
