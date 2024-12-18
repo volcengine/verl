@@ -110,7 +110,7 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     trainer.test_freq=10 \
     trainer.total_epochs=15 $@ 2>&1 | tee verl_demo.log
 
-You are expected to see the following logs, indicating training in progress:
+You are expected to see the following logs, indicating training in progress. The key metric ``val/test_score/openai/gsm8k`` is computed every ``trainer.test_freq`` steps:
 
 .. code-block:: bash
 
