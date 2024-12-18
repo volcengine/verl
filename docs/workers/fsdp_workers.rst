@@ -137,6 +137,6 @@ additional initialization for the Optimizer.
 HybridShard
 ------------
 
-We didn’t support FSDP `HybridShard`. To support this, we may need to
+We didn't support FSDP `HybridShard`. To support this, we may need to
 construct a 2D device mesh and test the corresponding
 ``dtensor_weight_loader`` and ``hf_weight_loader`` for each model.

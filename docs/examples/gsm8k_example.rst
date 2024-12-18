@@ -49,7 +49,7 @@ Step 1: Prepare dataset
 Step 2: Download Model
 ----------------------
 
-There’re three ways to prepare the model checkpoints for post-training:
+There're three ways to prepare the model checkpoints for post-training:
 
 - Download the required models from hugging face
 
@@ -96,7 +96,7 @@ We also provide various training scripts for SFT on GSM8K dataset in `gsm8k sft 
 Step 4: Perform PPO training with your model on GSM8K Dataset
 -------------------------------------------------------------
 
-- Prepare your own run.sh script. Here’s an example for GSM8k dataset
+- Prepare your own run.sh script. Here's an example for GSM8k dataset
   and deepseek-llm-7b-chat model.
 - Users could replace the ``data.train_files`` ,\ ``data.val_files``,
   ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on
@@ -107,7 +107,7 @@ Step 4: Perform PPO training with your model on GSM8K Dataset
 
 We use a rule-based reward model. We force the model to produce a final
 answer following 4 “#” as shown in the solution. We extract the final
-answer from both the solution and model’s output using regular
+answer from both the solution and model's output using regular
 expression matching. We compare them and assign a reward of 1 to correct
 answer, 0.1 to incorrect answer and 0 to no answer.
 

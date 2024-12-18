@@ -55,7 +55,7 @@ For users who pursue better scalability, we recommend using Megatron-LM
 backend. Please install the above dependencies first.
 
 Currently, we support Megatron-LM\@core_v0.4.0 and we fix some internal
-issues of Megatron-LM. Here’s the additional installation guide.
+issues of Megatron-LM. Here's the additional installation guide.
 
 The pros, cons and extension guide for using Megatron-LM backend can be
 found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.

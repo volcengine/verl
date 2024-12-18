@@ -10,7 +10,7 @@ to follow the following steps: The data preprocess script can be divided
 into two parts:
 
 1. The first part is the common part, which loads the dataset from
-   huggingface’s ``datasets`` package. Then preprocess the datasets with
+   huggingface's ``datasets`` package. Then preprocess the datasets with
    the ``make_map_fn`` and then store in the parquet format.
 
 .. code:: python
