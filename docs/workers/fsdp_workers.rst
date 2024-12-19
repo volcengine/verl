@@ -1,5 +1,5 @@
 PyTorch FSDP Backend
-============
+======================
 
 We support PyTorch FSDP Backend by implementing various workers for
 actor, critic, reference, rollout and reward models. We also implement
@@ -28,7 +28,7 @@ Due to the simplicity, we recommend using FSDP backend for algorithm
 research and prototyping.
 
 FSDP Workers
-------------
+--------------
 
 ActorRolloutRefWorker
 ^^^^^^^^^^^^^^^^^^^^^
@@ -137,6 +137,6 @@ additional initialization for the Optimizer.
 HybridShard
 ------------
 
-We didn’t support FSDP `HybridShard`. To support this, we may need to
+We didn't support FSDP `HybridShard`. To support this, we may need to
 construct a 2D device mesh and test the corresponding
 ``dtensor_weight_loader`` and ``hf_weight_loader`` for each model.

@@ -1,5 +1,5 @@
 Add models to Megatron-LM backend
-===========
+===================================
 
 Model
 -----------
@@ -20,6 +20,6 @@ To support other model, users are required to implement:
    your loader to ``weight_loader_registry`` in `weight_loader_registry.py <https://github.com/volcengine/verl/blob/main/verl/models/weight_loader_registry.py>`_.
 3. Weight loader that synchronize the weight from Megatron to rollout
    (vLLM) model. Note that both the actor model and rollout model are
-   partitioned during runtime. So, it’s advisable to map the model name
+   partitioned during runtime. So, it's advisable to map the model name
    in actor model implementation. Otherwise, you may need an additional
    name mapping and even weight transformation.

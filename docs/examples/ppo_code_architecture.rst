@@ -1,7 +1,7 @@
 PPO Example Architecture
 ========================
 
-Let’s start with the Proximal Policy Optimization algorithm, which is
+Let's start with the Proximal Policy Optimization algorithm, which is
 most widely used algorithm in LLM post-training.
 
 The main entry point of the PPO algorithm example is:
@@ -151,18 +151,18 @@ Defining reward model/function
    resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
 Since not all tasks use model-based RM, users need to define here
-whether it’s a model-based RM or a function-based RM
+whether it's a model-based RM or a function-based RM
 
-- If it’s a model-based RM, directly add the ``RewardModel`` role in the
+- If it's a model-based RM, directly add the ``RewardModel`` role in the
   resource mapping and add it to the resource pool mapping.
 
   - Note that the pre-defined ``RewardModelWorker`` only supports models
     with the structure of huggingface
-    ``AutoModelForSequenceClassification``. If it’s not this model, you
+    ``AutoModelForSequenceClassification``. If it's not this model, you
     need to define your own RewardModelWorker in `FSDP Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/fsdp_workers.py>`_ 
     and `Megatron-LM Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/megatron_workers.py>`_.
 
-- If it’s a function-based RM, the users are required to classified the
+- If it's a function-based RM, the users are required to classified the
   reward function for each datasets.
 
 .. code:: python
