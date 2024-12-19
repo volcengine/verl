@@ -28,7 +28,7 @@ loader for the models below in `dtensor_weight_loader.py <https://github.com/vol
 - ``Qwen2ForCausalLM``
 - ``DeepseekV2ForCausalLM``
 
-To implement ``dtensor_weight_loader`` of a model that’s supported in
+To implement ``dtensor_weight_loader`` of a model that's supported in
 vLLM, follow the guide of gemma model below:
 
 1. Copy the

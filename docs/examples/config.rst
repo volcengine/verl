@@ -1,3 +1,5 @@
+.. _config-explain-page:
+
 Config Explaination
 ===================
 
@@ -22,14 +24,14 @@ Data
      return_raw_chat: False
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
-  file. The program will read all files into memory, so it can’t be too
+  file. The program will read all files into memory, so it can't be too
   large (< 100GB). The path can be either local path or HDFS path. For
   HDFS path, we provide utils to download it to DRAM and convert the
   HDFS path to local path.
 - ``data.val_files``: Validation parquet. Can be a list or a single
   file.
 - ``data.prompt_key``: The field in the dataset where the prompt is
-  located. Default is ‘prompt’.
+  located. Default is 'prompt'.
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
   left-padded to this length. An error will be reported if the length is
   too long
@@ -41,13 +43,13 @@ Data
   iteration.
 - ``data.return_raw_input_ids``: Whether to return the original
   input_ids without adding chat template. This is mainly used to
-  accommodate situations where the reward model’s chat template differs
-  from the policy. It needs to be decoded first, then apply the RM’s
+  accommodate situations where the reward model's chat template differs
+  from the policy. It needs to be decoded first, then apply the RM's
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
 - ``data.return_raw_chat``:
 - ``data.truncation``: Truncate the input_ids or prompt length if they
-  exceed max_prompt_length. Default is ‘error’, not allow exceed the
+  exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
   throwing the error.
 
@@ -114,7 +116,7 @@ Actor/Rollout/Reference Policy
 
 **Common config for actor, rollout and reference model**
 
-- ``actor_rollout_ref.hybrid_engine``: Whether it’s a hybrid engine,
+- ``actor_rollout_ref.hybrid_engine``: Whether it's a hybrid engine,
   currently only supports hybrid engine
 - ``actor_rollout_ref.model.path``: Huggingface model path. This can be
   either local path or HDFS path. For HDFS path, we provide utils to
@@ -123,7 +125,7 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model’s original configurations, mainly dropout
+  the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
 
@@ -154,12 +156,12 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.shuffle``: Whether to shuffle data when
   there are multiple epochs
 
-- ``actor_rollout_ref.actor.optim``: Actor’s optimizer parameters
+- ``actor_rollout_ref.actor.optim``: Actor's optimizer parameters
 
 - ``actor_rollout_ref.actor.fsdp_config``: FSDP config for actor
   training
 
-  - ``wrap_policy``: FSDP wrap policy. By default, it uses Huggingface’s
+  - ``wrap_policy``: FSDP wrap policy. By default, it uses Huggingface's
     wrap policy, i.e., wrapping by DecoderLayer
 
     - No need to set transformer_layer_cls_to_wrap, so we comment it.
@@ -172,7 +174,7 @@ Actor/Rollout/Reference Policy
 **Reference Model**
 
 - ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
-  larger than 7B, it’s recommended to turn on offload for ref by
+  larger than 7B, it's recommended to turn on offload for ref by
   default**
 - ``actor_rollout_ref.ref.log_prob_micro_batch_size``: The batch size
   for one forward pass in the computation of ``ref_log_prob``.
@@ -180,11 +182,11 @@ Actor/Rollout/Reference Policy
 **Rollout Model**
 
 - ``actor_rollout_ref.rollout.name``: hf/vllm. We use vLLM by default
-  because it’s much efficient and our hybrid engine is implemented with
+  because it's much efficient and our hybrid engine is implemented with
   vLLM.
 
 - Rollout (Auto-regressive) parameters. The key should be equal to the
-  property name in vLLM’s ``SamplingParams``.
+  property name in vLLM's ``SamplingParams``.
 
   - ``temperature``, ``top_k``, ``top_p`` and others: Sampling
     parameters in ``SamplingParams``.
@@ -224,7 +226,7 @@ Actor/Rollout/Reference Policy
   - ``megatron``: Use Megatron weight loader. Deployed with Megatron
     backend. The input model ``state_dict()`` is already partitioned
     along TP dimension and already gathered along PP dimension. This
-    weight loader requires that the Rollout model and Actor model’s
+    weight loader requires that the Rollout model and Actor model's
     parameters shape and name should be identical.
   - ``dtensor``: Default solution when using Huggingface weight loader.
     Deployed with FSDP backend and the state_dict_type is
@@ -232,7 +234,7 @@ Actor/Rollout/Reference Policy
     loader
   - ``hf``: Use Huggingface weight loader. Deployed with FSDP backend
     and the state_dict_type is ``StateDictType.FULL_STATE_DICT``. This
-    solution doesn’t need to rewrite the weight loader for each model
+    solution doesn't need to rewrite the weight loader for each model
     implemented in vLLM but it results in larger peak memory usage.
   - ``dummy_hf``, ``dummy_megatron``, ``dummy_dtensor``: Random
     initialization.
@@ -268,11 +270,11 @@ Reward Model
   responses. If False, the following parameters are not effective.
 - ``reward_model.model``
 
-  - ``input_tokenizer``: Input tokenizer. If the reward model’s chat
+  - ``input_tokenizer``: Input tokenizer. If the reward model's chat
     template is inconsistent with the policy, we need to first decode to
-    plaintext, then apply the rm’s chat_template. Then score with RM. If
+    plaintext, then apply the rm's chat_template. Then score with RM. If
     chat_templates are consistent, it can be set to null.
-  - ``path``: RM’s HDFS path or local path. Note that RM only supports
+  - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
 

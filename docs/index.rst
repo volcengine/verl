@@ -1,17 +1,19 @@
-Welcome to veRL/HybridFlow's documentation!
+Welcome to veRL's documentation!
 ================================================
 
-veRL (HybridFlow) is a flexible, efficient and industrial-level RL(HF) training framework designed for large language models (LLMs) Post-Training. 
+.. _hf_arxiv: https://arxiv.org/pdf/2409.19256
+
+veRL is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <hf_arxiv>`_ paper.
 
 veRL is flexible and easy to use with:
 
-- **Easy to support diverse RL(HF) algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
+- **Easy extension of diverse RL algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
 
-- **Seamless integration of existing LLM infra with modular API design**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM and vLLM. Moreover, users can easily extend to other LLM training and inference frameworks.
+- **Seamless integration of existing LLM infra with modular APIs**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM and vLLM. Moreover, users can easily extend to other LLM training and inference frameworks.
 
-- **Flexible device mapping**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
+- **Flexible device mapping and parallelism**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
 
-- Readily integration with popular Hugging Face models
+- Readily integration with popular HuggingFace models
 
 
 veRL is fast with:
@@ -81,7 +83,13 @@ Contribution
 
 veRL is free software; you can redistribute it and/or modify it under the terms
 of the Apache License 2.0. We welcome contributions.
-Join us on `GitHub <https://github.com/volcengine/verl>`_ .
+Join us on `GitHub <https://github.com/volcengine/verl>`_ and `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ for discussions.
 
-.. and check out our
-.. :doc:`contribution guidelines <contribute>`.
+Code formatting
+^^^^^^^^^^^^^^^^^^^^^^^^
+We use yapf (Google style) to enforce strict code formatting when reviewing MRs. Run yapf at the top level of verl repo:
+
+.. code-block:: bash
+
+   pip3 install yapf
+   yapf -ir -vv --style ./.style.yapf verl examples tests

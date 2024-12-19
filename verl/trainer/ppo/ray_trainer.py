@@ -417,7 +417,7 @@ class RayPPOTrainer(object):
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None:
+        if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=global_steps)
@@ -515,13 +515,15 @@ class RayPPOTrainer(object):
                 if self.config.trainer.save_freq > 0 and (global_steps + 1) % self.config.trainer.save_freq == 0:
                     actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
                                                     f'global_step_{global_steps}')
-                    actor_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, 'actor')
+                    actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                        self.config.trainer.default_hdfs_dir, 'actor')
                     self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
 
                     if self.use_critic:
                         critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
                                                          f'global_step_{global_steps}')
-                        critic_remote_path = os.path.join(self.config.trainer.default_hdfs_dir, 'critic')
+                        critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                            self.config.trainer.default_hdfs_dir, 'critic')
                         self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
                 global_steps += 1

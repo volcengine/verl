@@ -1,35 +1,31 @@
 .. _quickstart:
 
-==========
-Quickstart: Fintune a LLM using PPO with GSM8K dataset
-==========
+=========================================================
+Quickstart: Post-train a LLM using PPO with GSM8K dataset
+=========================================================
 
 Post-train a LLM using GSM8K dataset
-====================
+===================================================================
 
 Introduction
 ------------
 
-In this example, we train an LLM to tackle the GSM8k task.
+.. _hf_dataset_gsm8k: https://huggingface.co/datasets/gsm8k
 
-Paper: https://arxiv.org/pdf/2110.14168
+In this example, we train an LLM to tackle the `GSM8k <hf_dataset_gsm8k>`_ task with function-based rewards. [1]_
 
-Dataset: https://huggingface.co/datasets/gsm8k
+Prerequisite:
 
-Note that the original paper mainly focuses on training a verifier (a
-reward model) to solve math problems via Best-of-N sampling. In this
-example, we train an RLHF agent using a rule-based reward model.
+- the latest version of ``verl`` and its dependencies installed following the installation guide. Using the docker image is recommended.
+
+- an GPU with at least 32 GB memory
+
 
 Dataset Introduction
 --------------------
 
 GSM8k is a math problem dataset. The prompt is an elementary school
-problem. The LLM model is required to answer the math problem.
-
-The training set contains 7473 samples and the test set contains 1319
-samples.
-
-**An example**
+problem. The LLM model is asked to solve the math problem. Below is an example:
 
 Prompt
 
@@ -44,129 +40,107 @@ Solution
    number of teaspoons she used is 7/20, she used 7/20\ *120 =
    <<7/20*\ 120=42>>42 #### 42
 
-Step 1: Prepare dataset
------------------------
+Step 1: Prepare the dataset
+----------------------------
 
-.. code:: bash
+We preprocess the dataset in parquet format so that (1) it contains necessary fields for computing RL rewards and (2) is faster to read.
 
-   cd examples/data_preprocess
-   python3 gsm8k.py --local_dir ~/data/gsm8k
+.. code-block:: bash
 
-Step 2: Download Model
-----------------------
+   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
 
-There’re three ways to prepare the model checkpoints for post-training:
+Step 2: Download a model for post-training
+-------------------------------------------
 
-- Download the required models from huggingface
+Usually we recommend starting with an "instruct" model variant so that the model follows instructions. In this example, we start with the ``Qwen2.5-0.5B-Instruct`` model.
 
-.. code:: bash
+If you start from a "base" model variant, doing SFT before RL is recommended. Refer to the `sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
 
-   huggingface-cli download deepseek-ai/deepseek-math-7b-instruct --local-dir ~/models/deepseek-math-7b-instruct --local-dir-use-symlinks False
+.. code-block:: bash
 
-- Already store your store model in the local directory or HDFS path.
-- Also, you can directly use the model name in huggingface (e.g.,
-  deepseek-ai/deepseek-math-7b-instruct) in
-  ``actor_rollout_ref.model.path`` and ``critic.model.path`` field in
-  the run script.
+   python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-0.5B-Instruct')"
 
-Noted that users should prepare checkpoints for actor, critic and reward
-model.
-
-[Optional] Step 3: SFT your Model
----------------------------------
-
-We provide a SFT Trainer using PyTorch FSDP in
-`fsdp_sft_trainer.py <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_. 
-Users can customize their own SFT
-script using our FSDP SFT Trainer.
-
-We also provide various training scripts for SFT on GSM8K dataset in `gsm8k sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_.
-
-.. code:: shell
-
-   set -x
-
-   torchrun -m verl.trainer.fsdp_sft_trainer \
-       data.train_files=$HOME/data/gsm8k/train.parquet \
-       data.val_files=$HOME/data/gsm8k/test.parquet \
-       data.prompt_key=question \
-       data.response_key=answer \
-       data.micro_batch_size=8 \
-       model.partial_pretrain=deepseek-ai/deepseek-coder-6.7b-instruct \
-       trainer.default_hdfs_dir=hdfs://user/verl/experiments/gsm8k/deepseek-coder-6.7b-instruct/ \
-       trainer.project_name=gsm8k-sft \
-       trainer.experiment_name=gsm8k-sft-deepseek-coder-6.7b-instruct \
-       trainer.total_epochs=4 \
-       trainer.logger=['console','wandb']
-
-Step 4: Perform PPO training with your model on GSM8K Dataset
--------------------------------------------------------------
-
-- Prepare your own run.sh script. Here’s an example for GSM8k dataset
-  and deepseek-llm-7b-chat model.
-- Users could replace the ``data.train_files`` ,\ ``data.val_files``,
-  ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on
-  their environment.
-- See :doc:`config` for detailed explaination of each config field.
+Step 3: Perform PPO training with the instruct model
+----------------------------------------------------------------------
 
 **Reward Model/Function**
 
-We use a rule-based reward model. We force the model to produce a final
+We use a pre-defined rule-based reward model. We force the model to produce a final
 answer following 4 “#” as shown in the solution. We extract the final
-answer from both the solution and model’s output using regular
-expression matching. We compare them and assign a reward of 1 to correct
-answer, 0.1 to incorrect answer and 0 to no answer.
+answer from both the solution and model's output using regular
+expression matching. We assign a reward of 1 to correct
+answer, 0.1 to incorrect answer and 0 to no answer. 
+
+For mode details, please refer to `verl/utils/reward_score/gsm8k.py <https://github.com/volcengine/verl/blob/v0.1/verl/utils/reward_score/gsm8k.py>`_.
 
 **Training Script**
 
-The training script example for FSDP and Megatron-LM backend are stored in 
-`examples/ppo_trainer <https://github.com/volcengine/verl/tree/main/examples/ppo_trainer>`_ directory.
+Now let's run PPO training with the dataset and model above. [2]_
 
-.. code:: bash
 
-   cd ../ppo_trainer
-   bash run_deepseek7b_llm.sh
+Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on your dataset and model names or paths.
 
-The script of `run_deepseek7b_llm.sh`
+.. code-block:: bash
 
-.. code:: bash
+   PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+    data.train_files=$HOME/data/gsm8k/train.parquet \
+    data.val_files=$HOME/data/gsm8k/test.parquet \
+    data.train_batch_size=256 \
+    data.val_batch_size=1312 \
+    data.max_prompt_length=512 \
+    data.max_response_length=256 \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+    actor_rollout_ref.actor.ppo_micro_batch_size=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size=8 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size=4 \
+    critic.optim.lr=1e-5 \
+    critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
+    critic.ppo_micro_batch_size=4 \
+    algorithm.kl_ctrl.kl_coef=0.001 \
+    trainer.logger=['console'] \
+    +trainer.val_before_train=False \
+    trainer.default_hdfs_dir=null \
+    trainer.n_gpus_per_node=1 \
+    trainer.nnodes=1 \
+    trainer.save_freq=10 \
+    trainer.test_freq=10 \
+    trainer.total_epochs=15 $@ 2>&1 | tee verl_demo.log
 
-   set -x
+You are expected to see the following logs, indicating training in progress. The key metric ``val/test_score/openai/gsm8k`` is computed every ``trainer.test_freq`` steps:
 
-   python3 -m verl.trainer.main_ppo \
-       data.train_files=~/data/rlhf/gsm8k/train.parquet \
-       data.val_files=~/data/rlhf/gsm8k/test.parquet \
-       data.train_batch_size=1024 \
-       data.val_batch_size=1312 \
-       data.max_prompt_length=512 \
-       data.max_response_length=512 \
-       actor_rollout_ref.model.path=~/models/deepseek-llm-7b-chat \
-       actor_rollout_ref.actor.optim.lr=1e-6 \
-       actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-       actor_rollout_ref.actor.ppo_micro_batch_size=64 \
-       actor_rollout_ref.actor.fsdp_config.param_offload=False \
-       actor_rollout_ref.actor.fsdp_config.grad_offload=False \
-       actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-       actor_rollout_ref.rollout.micro_batch_size=256 \
-       actor_rollout_ref.rollout.log_prob_micro_batch_size=128 \
-       actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-       actor_rollout_ref.rollout.name=vllm \
-       actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
-       actor_rollout_ref.ref.log_prob_micro_batch_size=128 \
-       actor_rollout_ref.ref.fsdp_config.param_offload=True \
-       critic.optim.lr=1e-5 \
-       critic.model.path=~/models/deepseek-llm-7b-chat \
-       critic.model.enable_gradient_checkpointing=False \
-       critic.ppo_micro_batch_size=64 \
-       critic.model.fsdp_config.param_offload=False \
-       critic.model.fsdp_config.grad_offload=False \
-       critic.model.fsdp_config.optimizer_offload=False \
-       algorithm.kl_ctrl.kl_coef=0.001 \
-       trainer.critic_warmup=0 \
-       trainer.logger=['console','wandb'] \
-       trainer.project_name='verl_example_gsm8k' \
-       trainer.experiment_name='deepseek_llm_7b_function_rm' \
-       trainer.n_gpus_per_node=8 \
-       trainer.nnodes=1 \
-       trainer.save_freq=-1 \
-       trainer.total_epochs=15
+.. code-block:: bash
+
+    step:0 - timing/gen:21.470 - timing/ref:4.360 - timing/values:5.800 - critic/kl:0.000 - critic/kl_coeff:0.001 - timing/adv:0.109 - timing/update_critic:15.664 - critic/vf_loss:14.947 - critic/vf_clipfrac:0.000 - critic/vpred_mean:-2.056 - critic/grad_norm:1023.278 - critic/lr(1e-4):0.100 - timing/update_actor:20.314 - actor/entropy_loss:0.433 - actor/pg_loss:-0.005 - actor/pg_clipfrac:0.000 - actor/ppo_kl:0.000 - actor/grad_norm:1.992 - actor/lr(1e-4):0.010 - critic/score/mean:0.004 - critic/score/max:1.000 - critic/score/min:0.000 - critic/rewards/mean:0.004 - critic/rewards/max:1.000 - critic/rewards/min:0.000 - critic/advantages/mean:-0.000 - critic/advantages/max:2.360 - critic/advantages/min:-2.280 - critic/returns/mean:0.003 - critic/returns/max:0.000 - critic/returns/min:0.000 - critic/values/mean:-2.045 - critic/values/max:9.500 - critic/values/min:-14.000 - response_length/mean:239.133 - response_length/max:256.000 - response_length/min:77.000 - prompt_length/mean:104.883 - prompt_length/max:175.000 - prompt_length/min:68.000
+    step:1 - timing/gen:23.020 - timing/ref:4.322 - timing/values:5.953 - critic/kl:0.000 - critic/kl_coeff:0.001 - timing/adv:0.118 - timing/update_critic:15.646 - critic/vf_loss:18.472 - critic/vf_clipfrac:0.384 - critic/vpred_mean:1.038 - critic/grad_norm:942.924 - critic/lr(1e-4):0.100 - timing/update_actor:20.526 - actor/entropy_loss:0.440 - actor/pg_loss:0.000 - actor/pg_clipfrac:0.002 - actor/ppo_kl:0.000 - actor/grad_norm:2.060 - actor/lr(1e-4):0.010 - critic/score/mean:0.000 - critic/score/max:0.000 - critic/score/min:0.000 - critic/rewards/mean:0.000 - critic/rewards/max:0.000 - critic/rewards/min:0.000 - critic/advantages/mean:0.000 - critic/advantages/max:2.702 - critic/advantages/min:-2.616 - critic/returns/mean:0.000 - critic/returns/max:0.000 - critic/returns/min:0.000 - critic/values/mean:-2.280 - critic/values/max:11.000 - critic/values/min:-16.000 - response_length/mean:232.242 - response_length/max:256.000 - response_length/min:91.000 - prompt_length/mean:102.398 - prompt_length/max:185.000 - prompt_length/min:70.000
+
+Checkout :ref:`algo-baseline-page` for full training and validation logs for reference.
+
+The checkpoint is saved at the following dir by default: ``checkpoints/${trainer.project_name}/${trainer.experiment_name}``
+
+To enable ``wandb`` for experiment tracking, set the following configs:
+
+.. code-block:: bash
+
+    trainer.logger=['console','wandb'] \
+    trainer.project_name=$YOUR_PROJECT_NAME \
+    trainer.experiment_name=$YOUR_RUN_NAME \
+
+If you encounter out of memory issues, enable the following configs would help:
+
+- actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+
+- critic.ppo_micro_batch_size=1 \
+
+- actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+
+- critic.model.fsdp_config.optimizer_offload=False \
+
+For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
+
+
+.. [1] The original paper (https://arxiv.org/pdf/2110.14168) mainly focuses on training a verifier (a reward model) to solve math problems via Best-of-N sampling. In this example, we train an RL agent using a rule-based reward model.
+.. [2] More training script examples for FSDP and Megatron-LM backend are stored in `examples/ppo_trainer <https://github.com/volcengine/verl/tree/main/examples/ppo_trainer>`_ directory.
