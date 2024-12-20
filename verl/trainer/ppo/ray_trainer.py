@@ -166,16 +166,16 @@ def compute_data_metrics(batch):
         'critic/rewards/min': torch.min(sequence_reward).detach().item(),
         # adv
         'critic/advantages/mean': masked_mean(advantages, response_mask).detach().item(),
-        'critic/advantages/max': torch.max(advantages[response_mask]).detach().item(),
-        'critic/advantages/min': torch.min(advantages[response_mask]).detach().item(),
+        'critic/advantages/max': torch.max(advantages[response_mask.bool()]).detach().item(),
+        'critic/advantages/min': torch.min(advantages[response_mask.bool()]).detach().item(),
         # returns
         'critic/returns/mean': masked_mean(returns, response_mask).detach().item(),
-        'critic/returns/max': torch.max(returns[response_mask]).detach().item(),
-        'critic/returns/min': torch.min(returns[response_mask]).detach().item(),
+        'critic/returns/max': torch.max(returns[response_mask.bool()]).detach().item(),
+        'critic/returns/min': torch.min(returns[response_mask.bool()]).detach().item(),
         # values
         'critic/values/mean': masked_mean(values, response_mask).detach().item(),
-        'critic/values/max': torch.max(values[response_mask]).detach().item(),
-        'critic/values/min': torch.min(values[response_mask]).detach().item(),
+        'critic/values/max': torch.max(values[response_mask.bool()]).detach().item(),
+        'critic/values/min': torch.min(values[response_mask.bool()]).detach().item(),
         # response length
         'response_length/mean': torch.mean(response_length).detach().item(),
         'response_length/max': torch.max(response_length).detach().item(),
