@@ -103,7 +103,6 @@ class MegatronPPOCritic(BasePPOCritic):
 
         return values
 
-
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
         data = data.select(batch_keys=select_keys)
