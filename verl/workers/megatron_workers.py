@@ -60,7 +60,6 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-@ray.remote
 class ActorRolloutRefWorker(MegatronWorker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
@@ -406,7 +405,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         pass
 
 
-@ray.remote
 class CriticWorker(MegatronWorker):
 
     def __init__(self, config):
@@ -575,7 +573,6 @@ class CriticWorker(MegatronWorker):
         pass
 
 
-@ray.remote
 class RewardModelWorker(MegatronWorker):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
