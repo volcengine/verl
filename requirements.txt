@@ -8,5 +8,5 @@ hydra-core
 numpy
 pybind11
 ray==2.10
-tensordict
+tensordict < 0.6
 transformers
