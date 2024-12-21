@@ -40,7 +40,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 
-@ray.remote
 class ActorRolloutRefWorker(Worker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
@@ -434,7 +433,6 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
 
 
-@ray.remote
 class CriticWorker(Worker):
 
     def __init__(self, config):
@@ -642,7 +640,6 @@ class CriticWorker(Worker):
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
 
 
-@ray.remote
 class RewardModelWorker(Worker):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.

@@ -136,9 +136,9 @@ def main_task(config):
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
-        Role.ActorRollout: ActorRolloutRefWorker,
-        Role.Critic: CriticWorker,
-        Role.RefPolicy: ActorRolloutRefWorker
+        Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+        Role.Critic: ray.remote(CriticWorker),
+        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     global_pool_id = 'global_pool'
@@ -164,7 +164,7 @@ def main_task(config):
             from verl.workers.megatron_workers import RewardModelWorker
         else:
             raise NotImplementedError
-        role_worker_mapping[Role.RewardModel] = RewardModelWorker
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
     reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)
