@@ -18,7 +18,7 @@ Prerequisite:
 
 - the latest version of ``verl`` and its dependencies installed following the installation guide. Using the docker image is recommended.
 
-- an GPU with at least 32 GB memory
+- an GPU with at least 24 GB HBM
 
 
 Dataset Introduction
@@ -129,7 +129,7 @@ To enable ``wandb`` for experiment tracking, set the following configs:
     trainer.project_name=$YOUR_PROJECT_NAME \
     trainer.experiment_name=$YOUR_RUN_NAME \
 
-If you encounter out of memory issues, enable the following configs would help:
+If you encounter out of memory issues with HBM less than 32GB, enable the following configs would help:
 
 .. code-block:: bash
 
