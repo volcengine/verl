@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# setup.py is the fallback installation script when pyproject.toml does not work
 from setuptools import setup, find_packages
 import os
 
@@ -25,14 +26,8 @@ with open('requirements.txt') as f:
     required = f.read().splitlines()
     install_requires = [item.strip() for item in required if item.strip()[0] != '#']
 
-install_optional = [
-    'vllm==0.6.3',
-    'torch==2.4.0', # required by vllm
-]
-
 extras_require = {
-    'single-controller': ['ray', 'kubernetes'],
-    'test': ['pytest']
+    'test': ['pytest', 'yapf']
 }
 
 from pathlib import Path

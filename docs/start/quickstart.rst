@@ -18,7 +18,7 @@ Prerequisite:
 
 - the latest version of ``verl`` and its dependencies installed following the installation guide. Using the docker image is recommended.
 
-- an GPU with at least 32 GB memory
+- an GPU with at least 24 GB HBM
 
 
 Dataset Introduction
@@ -108,7 +108,7 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=15 $@ 2>&1 | tee verl_demo.log
+    trainer.total_epochs=15 2>&1 | tee verl_demo.log
 
 You are expected to see the following logs, indicating training in progress. The key metric ``val/test_score/openai/gsm8k`` is computed every ``trainer.test_freq`` steps:
 
@@ -129,15 +129,14 @@ To enable ``wandb`` for experiment tracking, set the following configs:
     trainer.project_name=$YOUR_PROJECT_NAME \
     trainer.experiment_name=$YOUR_RUN_NAME \
 
-If you encounter out of memory issues, enable the following configs would help:
+If you encounter out of memory issues with HBM less than 32GB, enable the following configs would help:
 
-- actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+.. code-block:: bash
 
-- critic.ppo_micro_batch_size=1 \
-
-- actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-
-- critic.model.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+    critic.ppo_micro_batch_size=1 \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    critic.model.fsdp_config.optimizer_offload=True \
 
 For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
 
