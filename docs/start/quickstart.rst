@@ -108,7 +108,7 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=15 $@ 2>&1 | tee verl_demo.log
+    trainer.total_epochs=15 2>&1 | tee verl_demo.log
 
 You are expected to see the following logs, indicating training in progress. The key metric ``val/test_score/openai/gsm8k`` is computed every ``trainer.test_freq`` steps:
 
@@ -131,13 +131,12 @@ To enable ``wandb`` for experiment tracking, set the following configs:
 
 If you encounter out of memory issues, enable the following configs would help:
 
-- actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+.. code-block:: bash
 
-- critic.ppo_micro_batch_size=1 \
-
-- actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-
-- critic.model.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+    critic.ppo_micro_batch_size=1 \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    critic.model.fsdp_config.optimizer_offload=False \
 
 For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
 
