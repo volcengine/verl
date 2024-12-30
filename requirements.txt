@@ -5,7 +5,7 @@ dill
 hydra-core
 numpy
 pybind11
-ray==2.10
+ray
 tensordict<0.6
 transformers
 vllm<=0.6.3

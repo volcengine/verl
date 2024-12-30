@@ -37,7 +37,7 @@ dependencies = [
     "hydra-core",
     "numpy",
     "pybind11",
-    "ray==2.10",
+    "ray",
     "tensordict",
     "transformers",
     "vllm<=0.6.3",
