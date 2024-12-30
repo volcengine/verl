@@ -60,9 +60,9 @@ class ResourcePoolManager:
 
     def create_resource_pool(self):
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # Due to the Ray issue, we can only support max_colocate_count=1 for now.
-            # This means that each GPU can only have one process.
-            # We can support max_colocate > 1 when applying this pull request: https://github.com/ray-project/ray/pull/44385
+            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
+            # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
+            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for differnt models
             resource_pool = RayResourcePool(process_on_nodes=process_on_nodes,
                                             use_gpu=True,
                                             max_colocate_count=1,
@@ -377,11 +377,14 @@ class RayPPOTrainer(object):
         # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
+        self.wg_dicts = []
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
+            # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
+            self.wg_dicts.append(wg_dict)
 
         if self.use_critic:
             self.critic_wg = all_wg['critic']
