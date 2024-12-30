@@ -39,9 +39,9 @@ We first introduce a basic implementation of initializing the
 
 .. code:: python
 
-   # Due to the Ray issue, we can only support max_colocate_count=1 for now.
-   # This means that each GPU can only have one process.
-   # We can support max_colocate > 1 when applying this pull request: https://github.com/ray-project/ray/pull/44385
+   # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
+   # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
+   # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for differnt models
    resource_pool = RayResourcePool(process_on_nodes=[config.trainer.n_gpus_per_node] * config.trainer.nnodes,
                                    use_gpu=True,
                                    max_colocate_count=1)
