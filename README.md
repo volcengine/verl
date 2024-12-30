@@ -71,7 +71,7 @@ git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
 # or install from pypi via `pip3 install verl`
 ```
 
-4. Setup Megatron (optional)
+<details><summary> 4. Setup Megatron (optional) </summary>
 
 If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
 
@@ -88,6 +88,7 @@ You can also get the Megatron code after verl's patch via
 ```bash
 git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
 ```
+</details>
 
 #### 2. From Custom Environments
 
