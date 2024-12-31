@@ -1,4 +1,4 @@
-Implment Reward Function for Dataset
+Implement Reward Function for Dataset
 ======================================
 
 For each dataset, we need to implement a reward function or utilize a reward model to compute the rewards for the generated responses.
