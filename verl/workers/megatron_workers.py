@@ -362,7 +362,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         validate = prompts.meta_info.get('validate', False)
         if self._is_actor and not validate:
             # we should always recompute old_log_probs when it is HybridEngine
-            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
+            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_normalized
             output.meta_info['temperature'] = self.config.rollout.temperature
             old_log_probs = self.actor.compute_log_prob(data=output)
             output.batch['old_log_probs'] = old_log_probs
@@ -381,7 +381,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_param_and_grad(self.ref_module, torch.cuda.current_device(), self._is_offload_grad)
 
-        micro_batch_size = self.config.rollout.log_prob_micro_batch_size
+        micro_batch_size = self.config.rollout.log_prob_micro_batch_size_normalized
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         output = self.ref_policy.compute_log_prob(data=data)
