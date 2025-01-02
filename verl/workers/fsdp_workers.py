@@ -446,9 +446,9 @@ class CriticWorker(Worker):
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
-        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size()
-        self.config.ppo_micro_batch_size //= torch.distributed.get_world_size()
-        self.config.forward_micro_batch_size //= torch.distributed.get_world_size()
+        config_normalize_batch_size(self.config, 'ppo_mini_batch_size', torch.distributed.get_world_size())
+        config_normalize_batch_size(self.config, 'ppo_micro_batch_size', torch.distributed.get_world_size())
+        config_normalize_batch_size(self.config, 'forward_micro_batch_size', torch.distributed.get_world_size())
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -576,7 +576,7 @@ class CriticWorker(Worker):
             load_fsdp_param_and_grad(module=self.critic_module,
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
-        micro_batch_size = self.config.forward_micro_batch_size
+        micro_batch_size = self.config.forward_micro_batch_size_normalized
         data.meta_info['micro_batch_size'] = micro_batch_size
         values = self.critic.compute_values(data=data)
         output = DataProto.from_dict(tensors={'values': values})
