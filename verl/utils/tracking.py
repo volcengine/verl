@@ -19,7 +19,7 @@ from typing import List, Union
 
 
 class Tracking(object):
-    supported_backend = ['wandb', 'console']
+    supported_backend = ['wandb', 'mlflow', 'console']
 
     def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = 'console', config=None):
         if isinstance(default_backend, str):
@@ -37,6 +37,11 @@ class Tracking(object):
             import wandb
             wandb.init(project=project_name, name=experiment_name, config=config)
             self.logger['wandb'] = wandb
+
+        if 'mlflow' in default_backend:
+            import mlflow
+            TODO
+            self.logger['mlflow'] = mlflow
 
         if 'console' in default_backend:
             from verl.utils.logger.aggregate_logger import LocalLogger
