@@ -40,8 +40,9 @@ class Tracking(object):
 
         if 'mlflow' in default_backend:
             import mlflow
-            TODO
-            self.logger['mlflow'] = mlflow
+            mlflow.start_run()
+            mlflow.log_params(_convert_config_to_mlflow(config))
+            self.logger['mlflow'] = _MlflowLoggingAdapter()
 
         if 'console' in default_backend:
             from verl.utils.logger.aggregate_logger import LocalLogger
@@ -52,3 +53,9 @@ class Tracking(object):
         for default_backend, logger_instance in self.logger.items():
             if backend is None or default_backend in backend:
                 logger_instance.log(data=data, step=step)
+
+
+class _MlflowLoggingAdapter:
+    def log(self, data, step):
+        import mlflow
+        mlflow.log_metrics(metrics=data, step=step)
