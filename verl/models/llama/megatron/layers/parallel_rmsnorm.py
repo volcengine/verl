@@ -12,15 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
 import numbers
 import torch
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import LlamaConfig
 
-from apex.normalization.fused_layer_norm import fused_rms_norm_affine
+apex_available = True
+try:
+    from apex.normalization.fused_layer_norm import fused_rms_norm_affine
+except ImportError:
+    apex_available = False
+
 from verl.utils.megatron import sequence_parallel as sp_utils
 
+def package_exists(package_name):
+    package_spec = importlib.util.find_spec(package_name)
+    return package_spec is not None
 
 class ParallelLlamaRMSNorm(nn.Module):
 
@@ -37,10 +46,16 @@ class ParallelLlamaRMSNorm(nn.Module):
 
         if megatron_config.sequence_parallel:
             sp_utils.mark_parameter_as_sequence_parallel(self.weight)
+        if not apex_available:
+            self.rms_norm_func = nn.RMSNorm(self.normalized_shape, eps=self.variance_epsilon)
+            self.rms_norm_func.weight = self.weight
 
     def forward(self, hidden_states):
-        return fused_rms_norm_affine(input=hidden_states,
-                                     weight=self.weight,
-                                     normalized_shape=self.normalized_shape,
-                                     eps=self.variance_epsilon,
-                                     memory_efficient=True)
+        if apex_available:
+            return fused_rms_norm_affine(input=hidden_states,
+                                        weight=self.weight,
+                                        normalized_shape=self.normalized_shape,
+                                        eps=self.variance_epsilon,
+                                        memory_efficient=True)
+        else:
+            return self.rms_norm_func(hidden_states)

@@ -29,12 +29,13 @@ from torch import nn
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import CausalLMOutputWithPast
+from transformers.utils import is_flash_attn_2_available
 
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
 from .layers import ParallelLlamaDecoderLayer, ParallelLlamaRMSNorm, ParallelLlamaDecoderLayerRmPad
 """
-TODO: 
+TODO:
 1. Add weight initialization. Here we need to be careful on TP weight init.
 2. Add sequence parallel
 3. Load checkpoint from meta LLama pretrained checkpoint
@@ -208,9 +209,10 @@ class ParallelLlamaForCausalLM(nn.Module):
             attentions=None,
         )
 
-
-from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
-
+if is_flash_attn_2_available():
+    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+else:
+    from .layers.parallel_attention import pad_input, unpad_input
 
 class ParallelLlamaModelRmPad(nn.Module):
     """

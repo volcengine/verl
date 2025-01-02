@@ -15,12 +15,16 @@
 
 import torch
 from megatron.core import parallel_state as mpu
+from transformers.utils import is_flash_attn_2_available
 
 from .sequence_parallel import pad_to_sequence_parallel
 
 
 def compute_transformers_input_shapes(batches, meta_info):
-    from flash_attn.bert_padding import unpad_input  # flash 2 is a must for Megatron
+    if is_flash_attn_2_available():
+        from flash_attn.bert_padding import unpad_input  # flash 2 is a must for Megatron
+    else:
+        from ...models.llama.megatron.layers.parallel_attention import unpad_input
     # pre-compute input shapes for each micro-batch at each pp stage
     input_shapes = []
     for model_inputs in batches:
