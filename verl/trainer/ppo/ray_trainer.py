@@ -138,22 +138,35 @@ def reduce_metrics(metrics: dict):
     return metrics
 
 
-def compute_data_metrics(batch):
-    # TODO: add response length
-    sequence_score = batch.batch['token_level_scores'].sum(-1)
-    sequence_reward = batch.batch['token_level_rewards'].sum(-1)
-
+def _compute_response_info(batch):
     response_length = batch.batch['responses'].shape[-1]
 
-    advantages = batch.batch['advantages']
     prompt_mask = batch.batch['attention_mask'][:, :-response_length]
     response_mask = batch.batch['attention_mask'][:, -response_length:]
 
     prompt_length = prompt_mask.sum(-1).float()
     response_length = response_mask.sum(-1).float()  # (batch_size,)
 
+    return dict(
+        response_mask=response_mask,
+        prompt_length=prompt_length,
+        response_length=response_length,
+    )
+
+
+def compute_data_metrics(batch):
+    # TODO: add response length
+    sequence_score = batch.batch['token_level_scores'].sum(-1)
+    sequence_reward = batch.batch['token_level_rewards'].sum(-1)
+
+    advantages = batch.batch['advantages']
     returns = batch.batch['returns']
     values = batch.batch['values']
+
+    response_info = _compute_response_info(batch)
+    response_mask = response_info['response_mask']
+    prompt_length = response_info['prompt_length']
+    response_length = response_info['response_length']
 
     metrics = {
         # score
@@ -186,6 +199,17 @@ def compute_data_metrics(batch):
         'prompt_length/min': torch.min(prompt_length).detach().item(),
     }
     return metrics
+
+
+def compute_timing_metrics(batch, timing_raw):
+    response_info = _compute_response_info(batch)
+    num_prompt_tokens = torch.sum(response_info['prompt_length']).item()
+    num_response_tokens = torch.sum(response_info['response_length']).item()
+
+    return {
+        **{f'timing/{name}': value for name, value in timing_raw.items()},
+        f'timing_per_token/{name}': TODO,
+    }
 
 
 class RayPPOTrainer(object):
@@ -430,6 +454,7 @@ class RayPPOTrainer(object):
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
+                timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                 # batch = batch.to('cuda')
@@ -502,8 +527,8 @@ class RayPPOTrainer(object):
                     metrics.update(val_metrics)
 
                 # collect metrics
-                data_metrics = compute_data_metrics(batch=batch)
-                metrics.update(data_metrics)
+                metrics.update(compute_data_metrics(batch=batch))
+                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=global_steps)
