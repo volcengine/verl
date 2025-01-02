@@ -28,6 +28,7 @@ from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
 from verl.utils import hf_tokenizer
+from verl.utils.config import config_normalize_batch_size
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, offload_fsdp_grad, init_fn, get_init_weight_context_manager
