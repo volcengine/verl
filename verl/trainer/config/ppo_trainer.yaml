@@ -15,7 +15,7 @@ actor_rollout_ref:
   model:
     path: ~/models/deepseek-llm-7b-chat
     external_lib: null
-    override_config: {}
+    override_config: { }
     enable_gradient_checkpointing: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
@@ -78,7 +78,7 @@ critic:
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${actor_rollout_ref.model.path}
-    override_config: {}
+    override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: False
     fsdp_config:
@@ -90,6 +90,7 @@ critic:
         min_num_params: 0
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 64
+  forward_micro_batch_size: ${critic.ppo_micro_batch_size}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
@@ -121,7 +122,7 @@ trainer:
   total_epochs: 30
   project_name: verl_examples
   experiment_name: gsm8k
-  logger: ['console', 'wandb']
+  logger: [ 'console', 'wandb' ]
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
