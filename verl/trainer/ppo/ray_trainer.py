@@ -225,6 +225,13 @@ def compute_timing_metrics(batch, timing_raw):
     }
 
 
+@contextmanager
+def _timer(name: str, timing_raw: Dict[str, float]):
+    with Timer(name=name, logger=None) as timer:
+        yield
+    timing_raw[name] = timer.last
+
+
 class RayPPOTrainer(object):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -567,10 +574,3 @@ class RayPPOTrainer(object):
             val_metrics = self._validate()
             pprint(f'Final validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=global_steps)
-
-
-@contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
-    with Timer(name=name, logger=None) as timer:
-        yield
-    timing_raw[name] = timer.last
