@@ -211,7 +211,7 @@ class MegatronPPOActor(BasePPOActor):
         """
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
         data = data.select(batch_keys=select_keys)
-        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
+        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size_normalized,
                                   epochs=self.config.ppo_epochs,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
@@ -232,7 +232,7 @@ class MegatronPPOActor(BasePPOActor):
         if data.meta_info.get('micro_batch_size', None) is not None:
             batch_size = data.meta_info['micro_batch_size']
         else:
-            batch_size = self.config.ppo_micro_batch_size
+            batch_size = self.config.ppo_micro_batch_size_normalized
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
         input_shapes = compute_transformers_input_shapes(

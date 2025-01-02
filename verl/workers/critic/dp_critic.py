@@ -39,8 +39,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
 
-        assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
-        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
+        assert self.config.ppo_mini_batch_size_normalized % self.config.ppo_micro_batch_size_normalized == 0
+        self.gradient_accumulation = self.config.ppo_mini_batch_size_normalized // self.config.ppo_micro_batch_size_normalized
 
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
@@ -56,7 +56,7 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
         data = data.select(batch_keys=select_keys)
-        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
+        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size_normalized,
                                   epochs=self.config.ppo_epochs,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
@@ -97,7 +97,7 @@ class DataParallelPPOCritic(BasePPOCritic):
 
         for batch_idx, data in enumerate(dataloader):
             # split batch into micro_batches
-            micro_batches = data.batch.split(self.config.ppo_micro_batch_size)
+            micro_batches = data.batch.split(self.config.ppo_micro_batch_size_normalized)
             self.critic_optimizer.zero_grad()
 
             for data in micro_batches:
