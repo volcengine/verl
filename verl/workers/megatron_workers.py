@@ -439,8 +439,8 @@ class CriticWorker(MegatronWorker):
         set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
-        self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-        self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
+        config_normalize_batch_size(self.config, 'ppo_mini_batch_size', mpu.get_data_parallel_world_size())
+        config_normalize_batch_size(self.config, 'ppo_micro_batch_size', mpu.get_data_parallel_world_size())
 
         # TODO(sgm): support critic model offload
 
@@ -610,7 +610,7 @@ class RewardModelWorker(MegatronWorker):
         set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
-        self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
+        config_normalize_batch_size(self.config, 'micro_batch_size', mpu.get_data_parallel_world_size())
 
     def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
