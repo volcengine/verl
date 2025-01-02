@@ -205,10 +205,20 @@ def compute_timing_metrics(batch, timing_raw):
     response_info = _compute_response_info(batch)
     num_prompt_tokens = torch.sum(response_info['prompt_length']).item()
     num_response_tokens = torch.sum(response_info['response_length']).item()
+    num_overall_tokens = num_prompt_tokens + num_response_tokens
+
+    num_tokens_of_section = {
+        'gen': num_response_tokens,
+        'ref': num_overall_tokens,
+        'values': num_overall_tokens,
+        'critic': num_overall_tokens,
+        'actor': num_overall_tokens,
+    }
 
     return {
         **{f'timing/{name}': value for name, value in timing_raw.items()},
-        f'timing_per_token/{name}': TODO,
+        **{f'timing_per_token/{name}': timing_raw[name] / num_tokens
+           for name, num_tokens in num_tokens_of_section.items()},
     }
 
 
