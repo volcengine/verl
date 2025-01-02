@@ -21,3 +21,13 @@ def update_dict_with_config(dictionary: Dict, config: DictConfig):
     for key in dictionary:
         if hasattr(config, key):
             dictionary[key] = getattr(config, key)
+
+
+def config_normalize_batch_size(config, key: str, divider: int):
+    value_raw = config[key]
+    assert value_raw % divider == 0
+    value_normalized = value_raw // divider
+
+    del config[key]
+    config[f'{key}_raw'] = value_raw
+    config[f'{key}_normalized'] = value_normalized
