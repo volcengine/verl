@@ -17,19 +17,19 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Callable, Type, Tuple, Union
+from typing import Type, Dict
 
-from omegaconf import OmegaConf, open_dict
 import numpy as np
 from codetiming import Timer
-
+from omegaconf import OmegaConf, open_dict
+from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl import DataProto
 from verl.trainer.ppo import core_algos
 
 WorkerType = Type[Worker]
@@ -438,26 +438,23 @@ class RayPPOTrainer(object):
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
 
                 # generate a batch
-                with Timer(name='gen', logger=None) as timer:
+                with _timer('gen', timing_raw):
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                metrics['timing/gen'] = timer.last
 
                 batch = batch.union(gen_batch_output)
 
                 if self.use_reference_policy:
                     # compute reference log_prob
-                    with Timer(name='ref', logger=None) as timer:
+                    with _timer('ref', timing_raw):
                         ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                         batch = batch.union(ref_log_prob)
-                    metrics['timing/ref'] = timer.last
 
                 # compute values
-                with Timer(name='values', logger=None) as timer:
+                with _timer('values', timing_raw):
                     values = self.critic_wg.compute_values(batch)
                     batch = batch.union(values)
-                metrics['timing/values'] = timer.last
 
-                with Timer(name='adv', logger=None) as timer:
+                with _timer('adv', timing_raw):
                     # compute scores. Support both model and function-based.
                     # We first compute the scores using reward model. Then, we call reward_fn to combine
                     # the results from reward model and rule-based results.
@@ -481,31 +478,27 @@ class RayPPOTrainer(object):
                                               self.config.algorithm.gamma,
                                               self.config.algorithm.lam,
                                               adv_estimator=self.config.algorithm.adv_estimator)
-                metrics['timing/adv'] = timer.last
 
                 # update critic
                 if self.use_critic:
-                    with Timer(name='update_critic', logger=None) as timer:
+                    with _timer('update_critic', timing_raw):
                         critic_output = self.critic_wg.update_critic(batch)
-                    metrics['timing/update_critic'] = timer.last
                     critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                     metrics.update(critic_output_metrics)
 
                 # implement critic warmup
                 if self.config.trainer.critic_warmup <= global_steps:
                     # update actor
-                    with Timer(name='update_actor', logger=None) as timer:
+                    with _timer('update_actor', timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch)
-                    metrics['timing/update_actor'] = timer.last
                     actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                     metrics.update(actor_output_metrics)
 
                 # validate
                 if self.val_reward_fn is not None and (global_steps + 1) % self.config.trainer.test_freq == 0:
-                    with Timer(name='testing', logger=None) as timer:
+                    with _timer('testing', timing_raw):
                         val_metrics: dict = self._validate()
                         val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
-                    metrics['timing/testing'] = timer.last
                     metrics.update(val_metrics)
 
                 # collect metrics
@@ -536,3 +529,10 @@ class RayPPOTrainer(object):
             val_metrics = self._validate()
             pprint(f'Final validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=global_steps)
+
+
+@contextmanager
+def _timer(name: str, timing_raw: Dict[str, float]):
+    with Timer(name=name, logger=None) as timer:
+        yield
+    timing_raw[f'timing/{name}'] = timer.last
