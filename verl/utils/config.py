@@ -28,6 +28,6 @@ def config_normalize_batch_size(config, key: str, divider: int):
     assert value_raw % divider == 0
     value_normalized = value_raw // divider
 
-    config.__delattr__(key)
-    config[f'{key}_raw'] = value_raw
-    config[f'{key}_normalized'] = value_normalized
+    delattr(config, key)
+    setattr(config, f'{key}_raw', value_raw)
+    setattr(config, f'{key}_normalized', value_normalized)
