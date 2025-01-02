@@ -39,7 +39,6 @@ from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm import SamplingParams
 
-
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here

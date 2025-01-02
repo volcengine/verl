@@ -114,12 +114,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor and self._is_rollout:
             config_normalize_batch_size(self.config.actor, 'ppo_mini_batch_size', mpu.get_data_parallel_world_size())
             config_normalize_batch_size(self.config.actor, 'ppo_micro_batch_size', mpu.get_data_parallel_world_size())
-            config_normalize_batch_size(self.config.rollout, 'log_prob_micro_batch_size', mpu.get_data_parallel_world_size())
+            config_normalize_batch_size(self.config.rollout, 'log_prob_micro_batch_size',
+                                        mpu.get_data_parallel_world_size())
             self._is_offload_param = self.config.actor.get('param_offload', False)
             self._is_offload_grad = self.config.actor.get('grad_offload', False)
             self._is_offload_optimizer = self.config.actor.get('optimizer_offload', False)
         elif self._is_ref:
-            config_normalize_batch_size(self.config.ref, 'log_prob_micro_batch_size', mpu.get_data_parallel_world_size())
+            config_normalize_batch_size(self.config.ref, 'log_prob_micro_batch_size',
+                                        mpu.get_data_parallel_world_size())
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
     def _build_model_optimizer(self,
