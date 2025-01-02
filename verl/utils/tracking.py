@@ -59,6 +59,7 @@ class Tracking(object):
 
 
 class _MlflowLoggingAdapter:
+
     def log(self, data, step):
         import mlflow
         mlflow.log_metrics(metrics=data, step=step)
