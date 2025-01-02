@@ -14,7 +14,7 @@
 
 from typing import Dict
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 
 
 def update_dict_with_config(dictionary: Dict, config: DictConfig):
@@ -28,6 +28,7 @@ def config_normalize_batch_size(config, key: str, divider: int):
     assert value_raw % divider == 0
     value_normalized = value_raw // divider
 
-    delattr(config, key)
-    setattr(config, f'{key}_raw', value_raw)
-    setattr(config, f'{key}_normalized', value_normalized)
+    with open_dict(config):
+        del config[key]
+        config[f'{key}_raw'] = value_raw
+        config[f'{key}_normalized'] = value_normalized
