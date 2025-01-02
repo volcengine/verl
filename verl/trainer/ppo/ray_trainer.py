@@ -209,10 +209,7 @@ def compute_timing_metrics(batch, timing_raw):
 
     num_tokens_of_section = {
         'gen': num_response_tokens,
-        'ref': num_overall_tokens,
-        'values': num_overall_tokens,
-        'critic': num_overall_tokens,
-        'actor': num_overall_tokens,
+        **{name: num_overall_tokens for name in ['ref', 'values', 'adv', 'update_critic', 'update_actor']},
     }
 
     return {
