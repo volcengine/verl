@@ -14,8 +14,11 @@
 """
 A unified tracking interface that supports logging data to different backend
 """
-
-from typing import List, Union
+import dataclasses
+from enum import Enum
+from functools import partial
+from pathlib import Path
+from typing import List, Union, Dict, Any
 
 
 class Tracking(object):
@@ -41,7 +44,7 @@ class Tracking(object):
         if 'mlflow' in default_backend:
             import mlflow
             mlflow.start_run()
-            mlflow.log_params(_convert_config_to_mlflow(config))
+            mlflow.log_params(_compute_mlflow_params_from_objects(config))
             self.logger['mlflow'] = _MlflowLoggingAdapter()
 
         if 'console' in default_backend:
@@ -59,3 +62,37 @@ class _MlflowLoggingAdapter:
     def log(self, data, step):
         import mlflow
         mlflow.log_metrics(metrics=data, step=step)
+
+
+def _compute_mlflow_params_from_objects(params) -> Dict[str, Any]:
+    if params is None:
+        return {}
+
+    return _flatten_dict(_transform_params_to_json_serializable(params, convert_list_to_dict=True), sep='/')
+
+
+def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
+    _transform = partial(_transform_params_to_json_serializable, convert_list_to_dict=convert_list_to_dict)
+
+    if dataclasses.is_dataclass(x):
+        return _transform(dataclasses.asdict(x))
+    if isinstance(x, dict):
+        return {k: _transform(v) for k, v in x.items()}
+    if isinstance(x, list):
+        if convert_list_to_dict:
+            return {'list_len': len(x)} | {f'{i}': _transform(v) for i, v in enumerate(x)}
+        else:
+            return [_transform(v) for v in x]
+    if isinstance(x, Path):
+        return str(x)
+    if isinstance(x, Enum):
+        return x.value
+
+    return x
+
+
+def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
+    import pandas as pd
+    ans = pd.json_normalize(raw, sep=sep).to_dict(orient='records')[0]
+    assert isinstance(ans, dict)
+    return ans
