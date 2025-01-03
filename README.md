@@ -199,12 +199,5 @@ Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to l
 ```
 
 ## Publications Using veRL
-
-```tex
-@article{liu2024enhancing,
-  title={Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization},
-  author={Liu, Guanlin and Ji, Kaixuan and Zheng, Renjie and Wu, Zheng and Dun, Chen and Gu, Quanquan and Yan, Lin},
-  journal={arXiv preprint arXiv:2410.09302},
-  year={2024}
-}
-```
+- [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
+- [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
