@@ -14,9 +14,9 @@
 
 import megatron
 from megatron.core import mpu
-from megatron.utils import print_rank_0, unwrap_model
 from megatron.model import Float16Module
 from megatron.model import DistributedDataParallel as LocalDDP
+import pkg_resources
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 import torch
 import time
@@ -24,6 +24,12 @@ from typing import Optional
 import torch.distributed as dist
 from megatron import get_args
 
+megatron_version = pkg_resources.get_distribution('megatron_core').version
+
+if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+    from megatron.utils import print_rank_0, unwrap_model
+else:
+    from megatron.training.utils import print_rank_0, unwrap_model
 
 def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0):
     """given TP,DP,PP rank to get the global rank."""

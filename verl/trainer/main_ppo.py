@@ -21,6 +21,9 @@ import torch
 from verl.utils.reward_score import gsm8k, math
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
+# import npu adapter if exit.
+if importlib.util.find_spec('mindspeed') is not None:
+    import mindspeed.megatron_adaptor
 
 def _default_compute_score(data_source, solution_str, ground_truth):
     if data_source == 'openai/gsm8k':

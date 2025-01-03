@@ -19,14 +19,17 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import importlib
 from functools import partial
+import pkg_resources
 from typing import Iterable, Dict
 
 import torch
 from torch import nn
 import torch.distributed
+if importlib.util.find_spec('mindspeed') is not None:
+    import mindspeed.megatron_adaptor
 # from megatron import get_args
-from megatron.optimizer import DistributedOptimizer
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
@@ -41,6 +44,13 @@ from verl.trainer.ppo import core_algos
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits, broadcast_dict_tensor, split_dict_tensor_into_batches
+
+megatron_version = pkg_resources.get_distribution('megatron_core').version
+
+if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+    from megatron.optimizer import DistributedOptimizer
+else:
+    from megatron.core.optimizer import DistributedOptimizer
 
 __all__ = ['MegatronPPOActor']
 
@@ -350,14 +360,20 @@ class MegatronPPOActor(BasePPOActor):
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
-                chunk.zero_grad_buffer(zero_buffer=(not self.actor_optimizer_config.use_distributed_optimizer))
+                if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+                    chunk.zero_grad_buffer(zero_buffer=(not self.actor_optimizer_config.use_distributed_optimizer))
+                else:
+                    chunk.zero_grad()
 
             metric_micro_batch = self.forward_backward_batch(data)
             for metric in metric_micro_batch:
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
-            update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step(
-                self.megatron_config, self.megatron_config.timers)
+            if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+                update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step(
+                    self.megatron_config, self.megatron_config.timers)
+            else:
+                update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
             if update_successful:
                 # allgather already execute in optimizer.step in new megatron
                 pass

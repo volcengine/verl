@@ -13,12 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pkg_resources
 from apex.optimizers import FusedAdam as Adam
 from apex.optimizers import FusedSGD as SGD
-from megatron.optimizer.distrib_optimizer import DistributedOptimizer
-from megatron.optimizer.grad_scaler import ConstantGradScaler, DynamicGradScaler
-from megatron.optimizer import Float16OptimizerWithFloat16Params, FP32Optimizer
-from megatron.optimizer import get_param_groups
+
+megatron_version = pkg_resources.get_distribution('megatron_core').version
+
+if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+    from megatron.optimizer.distrib_optimizer import DistributedOptimizer
+    from megatron.optimizer.grad_scaler import ConstantGradScaler, DynamicGradScaler
+    from megatron.optimizer import Float16OptimizerWithFloat16Params, FP32Optimizer
+    from megatron.optimizer import get_param_groups
+else:
+    from megatron.core.optimizer import get_megatron_optimizer as get_megatron_optimizer_native
 
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 
@@ -33,6 +40,14 @@ def get_megatron_optimizer(
         overlap_param_gather=False  # add for verl
 ):
     # Base optimizer.
+    if pkg_resources.parse_version(megatron_version) >= pkg_resources.parse_version('0.6.0'):
+        return get_megatron_optimizer_native(
+            config=config,
+            model_chunks=model,
+            no_weight_decay_cond=no_weight_decay_cond,
+            scale_lr_cond=scale_lr_cond,
+            lr_mult=lr_mult
+        )
     param_groups = get_param_groups(model, no_weight_decay_cond, scale_lr_cond, lr_mult)
 
     if config.optimizer == 'adam':
