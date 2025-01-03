@@ -20,6 +20,8 @@ TODO(zhangchi.usc1992)
 
 import os
 
+from verl.utils.config import config_normalize_batch_size
+
 os.environ['NCCL_DEBUG'] = 'WARN'
 os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 
@@ -29,7 +31,7 @@ import torch
 import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
+from transformers import AutoModelForCausalLM, PreTrainedModel, AutoConfig
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, DistributedSampler
@@ -83,11 +85,8 @@ class FSDPSFTTrainer(object):
         if self.device_mesh.get_rank() == 0:
             print(f'Normalize batch size by dp {dp_size}')
 
-        assert self.config.data.train_batch_size % dp_size == 0
-        assert self.config.data.micro_batch_size % dp_size == 0
-
-        self.config.data.train_batch_size //= dp_size
-        self.config.data.micro_batch_size //= dp_size
+        config_normalize_batch_size(self.config.data, 'train_batch_size', dp_size)
+        config_normalize_batch_size(self.config.data, 'micro_batch_size', dp_size)
 
     def _build_dataloader(self):
         config = self.config
@@ -118,7 +117,7 @@ class FSDPSFTTrainer(object):
                                                 rank=rank,
                                                 drop_last=True)
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
-                                           batch_size=config.data.train_batch_size,
+                                           batch_size=config.data.train_batch_size_normalized,
                                            sampler=self.train_sampler,
                                            drop_last=True)
 
@@ -128,7 +127,7 @@ class FSDPSFTTrainer(object):
                                               rank=rank,
                                               drop_last=True)
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=config.data.micro_batch_size,
+                                         batch_size=config.data.micro_batch_size_normalized,
                                          sampler=self.val_sampler,
                                          drop_last=True)
 
@@ -254,7 +253,7 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
 
-        micro_batches = batch.split(self.config.data.micro_batch_size)
+        micro_batches = batch.split(self.config.data.micro_batch_size_normalized)
         n_micro_batches = len(micro_batches)
         for micro_batch in micro_batches:
             loss = self._compute_loss(batch=micro_batch) / n_micro_batches
@@ -319,7 +318,7 @@ class FSDPSFTTrainer(object):
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
             for data in self.train_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.train_batch_size).cuda()
+                data = TensorDict(data, batch_size=self.config.data.train_batch_size_normalized).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
@@ -328,7 +327,7 @@ class FSDPSFTTrainer(object):
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size).cuda()
+                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_normalized).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:

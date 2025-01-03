@@ -60,7 +60,7 @@ class DataParallelPPOActor(BasePPOActor):
         """
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
         data = data.select(batch_keys=select_keys)
-        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
+        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size_normalized,
                                   epochs=self.config.ppo_epochs,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
@@ -113,8 +113,8 @@ class DataParallelPPOActor(BasePPOActor):
         # make sure we are in training mode
         self.actor_module.train()
 
-        assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
-        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
+        assert self.config.ppo_mini_batch_size_normalized % self.config.ppo_micro_batch_size_normalized == 0
+        self.gradient_accumulation = self.config.ppo_mini_batch_size_normalized // self.config.ppo_micro_batch_size_normalized
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
         dataloader = self._make_minibatch_iterator(data=data)
@@ -122,7 +122,7 @@ class DataParallelPPOActor(BasePPOActor):
         metrics = {}
         for batch_idx, data in enumerate(dataloader):
             # split batch into micro_batches
-            micro_batches = data.batch.split(self.config.ppo_micro_batch_size)
+            micro_batches = data.batch.split(self.config.ppo_micro_batch_size_normalized)
 
             self.actor_optimizer.zero_grad()
 
