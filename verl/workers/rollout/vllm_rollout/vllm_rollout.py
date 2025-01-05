@@ -24,19 +24,19 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-from typing import List
-from contextlib import contextmanager
-from omegaconf import DictConfig
+from copy import deepcopy
+from typing import List, Dict, Any
+
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch import nn
-
 from verl import DataProto
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
-from verl.workers.rollout.base import BaseRollout
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
+from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.workers.rollout.base import BaseRollout
 from vllm import SamplingParams
 
 # TODO
@@ -118,25 +118,9 @@ class vLLMRollout(BaseRollout):
                 kwargs[k] = config.get(k)
 
         print(f"kwargs: {kwargs}")
-        self.sampling_params = SamplingParams(**kwargs)
+        self.partial_sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id
-
-    @contextmanager
-    def update_sampling_params(self, **kwargs):
-        # update sampling params
-        old_sampling_params_args = {}
-        if kwargs:
-            for key, value in kwargs.items():
-                if hasattr(self.sampling_params, key):
-                    old_value = getattr(self.sampling_params, key)
-                    old_sampling_params_args[key] = old_value
-                    setattr(self.sampling_params, key, value)
-        yield
-        # roll back to previous sampling params
-        # if len(old_sampling_params_args):
-        for key, value in old_sampling_params_args.items():
-            setattr(self.sampling_params, key, value)
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -169,13 +153,12 @@ class vLLMRollout(BaseRollout):
                 'temperature': 0,
             }
 
-        # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = self.inference_engine.generate(
-                prompts=None,  # because we have already convert it to prompt token id
-                sampling_params=self.sampling_params,
-                prompt_token_ids=idx_list,
-                use_tqdm=False)
+        sampling_params = _merge_sampling_params(self.partial_sampling_params, extra_params=kwargs)
+        output = self.inference_engine.generate(
+            prompts=None,  # because we have already convert it to prompt token id
+            sampling_params=sampling_params,
+            prompt_token_ids=idx_list,
+            use_tqdm=False)
 
         response = output[0].to(idx.device)  # (bs, response_length)
         log_probs = output[1].to(idx.device)  # (bs, response_length)
@@ -216,3 +199,11 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)
+
+
+def _merge_sampling_params(partial_sampling_params: SamplingParams, extra_params: Dict[str, Any]):
+    ans = deepcopy(partial_sampling_params)
+    for key, value in (extra_params or {}).items():
+        if hasattr(ans, key):
+            setattr(ans, key, value)
+    return ans

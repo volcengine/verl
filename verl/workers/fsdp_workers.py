@@ -28,6 +28,7 @@ from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
 from verl.utils import hf_tokenizer
+from verl.utils.config import config_normalize_batch_size
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, offload_fsdp_grad, init_fn, get_init_weight_context_manager
@@ -79,12 +80,12 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize config
         if self._is_actor:
-            self.config.actor.ppo_mini_batch_size //= self.device_mesh.shape[0]
-            self.config.actor.ppo_micro_batch_size //= self.device_mesh.shape[0]
+            config_normalize_batch_size(self.config.actor, 'ppo_mini_batch_size', self.device_mesh.shape[0])
+            config_normalize_batch_size(self.config.actor, 'ppo_micro_batch_size', self.device_mesh.shape[0])
         if self._is_rollout:
-            self.config.rollout.log_prob_micro_batch_size //= self.device_mesh.shape[0]
+            config_normalize_batch_size(self.config.rollout, 'log_prob_micro_batch_size', self.device_mesh.shape[0])
         if self._is_ref:
-            self.config.ref.log_prob_micro_batch_size //= self.device_mesh.shape[0]
+            config_normalize_batch_size(self.config.ref, 'log_prob_micro_batch_size', self.device_mesh.shape[0])
 
     def _build_model_optimizer(self,
                                model_path,
@@ -363,7 +364,7 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_actor and recompute_log_prob:
             # we should always recompute old_log_probs when it is HybridEngine
-            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
+            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_normalized
             output.meta_info['temperature'] = self.config.rollout.temperature
             old_log_probs = self.actor.compute_log_prob(data=output)
             output.batch['old_log_probs'] = old_log_probs
@@ -389,7 +390,7 @@ class ActorRolloutRefWorker(Worker):
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        micro_batch_size = self.config.ref.log_prob_micro_batch_size
+        micro_batch_size = self.config.ref.log_prob_micro_batch_size_normalized
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         output = self.ref_policy.compute_log_prob(data=data)
@@ -445,9 +446,9 @@ class CriticWorker(Worker):
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
-        self.config.ppo_mini_batch_size //= torch.distributed.get_world_size()
-        self.config.ppo_micro_batch_size //= torch.distributed.get_world_size()
-        self.config.forward_micro_batch_size //= torch.distributed.get_world_size()
+        config_normalize_batch_size(self.config, 'ppo_mini_batch_size', torch.distributed.get_world_size())
+        config_normalize_batch_size(self.config, 'ppo_micro_batch_size', torch.distributed.get_world_size())
+        config_normalize_batch_size(self.config, 'forward_micro_batch_size', torch.distributed.get_world_size())
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -575,7 +576,7 @@ class CriticWorker(Worker):
             load_fsdp_param_and_grad(module=self.critic_module,
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
-        micro_batch_size = self.config.forward_micro_batch_size
+        micro_batch_size = self.config.forward_micro_batch_size_normalized
         data.meta_info['micro_batch_size'] = micro_batch_size
         values = self.critic.compute_values(data=data)
         output = DataProto.from_dict(tensors={'values': values})
@@ -650,7 +651,7 @@ class RewardModelWorker(Worker):
             torch.distributed.init_process_group(backend="nccl")
         self.config = config
 
-        self.config.micro_batch_size //= torch.distributed.get_world_size()
+        config_normalize_batch_size(self.config, 'micro_batch_size', torch.distributed.get_world_size())
 
     def _build_model(self, config):
         # the following line is necessary
