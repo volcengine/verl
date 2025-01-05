@@ -486,6 +486,8 @@ class RayPPOTrainer(object):
                 with _timer('gen', timing_raw):
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
+                # repeat to align with repeated responses in rollout
+                batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 batch = batch.union(gen_batch_output)
 
                 if self.use_reference_policy:

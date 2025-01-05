@@ -167,6 +167,7 @@ class vLLMRollout(BaseRollout):
                 'top_k': -1,
                 'min_p': 0.0,
                 'temperature': 0,
+                'n': 1  # if greedy, only 1 response
             }
 
         # users can customize different sampling_params at different run
@@ -177,13 +178,20 @@ class vLLMRollout(BaseRollout):
                 prompt_token_ids=idx_list,
                 use_tqdm=False)
 
-        response = output[0].to(idx.device)  # (bs, response_length)
-        log_probs = output[1].to(idx.device)  # (bs, response_length)
+        # TODO(sgm): disable logprob when recompute_log_prob is enable
+        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+        response = output[0].to(idx.device)
+        log_probs = output[1].to(idx.device)
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
+        if self.config.n > 1 and do_sample:
+            idx = idx.repeat_interleave(self.config.n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
+            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
+            batch_size = batch_size * self.config.n
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
