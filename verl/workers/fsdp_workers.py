@@ -178,7 +178,7 @@ class ActorRolloutRefWorker(Worker):
         else:
             sharding_strategy = ShardingStrategy.FULL_SHARD
 
-        if fsdp_config.enable:
+        if fsdp_config.enable_fsdp:
             actor_module_fsdp = FSDP(
                 actor_module,
                 param_init_fn=init_fn,
@@ -275,7 +275,7 @@ class ActorRolloutRefWorker(Worker):
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
             # get the original unwrapped module
-            if fsdp_config.enable:
+            if fsdp_config.enable_fsdp:
                 self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
             else:
                 self.actor_module = self.actor_module_fsdp
@@ -531,7 +531,7 @@ class CriticWorker(Worker):
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
 
-        if fsdp_config.enable:
+        if fsdp_config.enable_fsdp:
             critic_module = FSDP(critic_module,
                                  param_init_fn=init_fn,
                                  use_orig_params=False,
@@ -701,7 +701,7 @@ class RewardModelWorker(Worker):
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
-        if self.config.model.fsdp_config.enable:
+        if self.config.model.fsdp_config.enable_fsdp:
             reward_module = FSDP(
                 reward_module,
                 param_init_fn=init_fn,
