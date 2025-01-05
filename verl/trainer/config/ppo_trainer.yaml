@@ -66,6 +66,8 @@ actor_rollout_ref:
     log_prob_micro_batch_size: 128
     # for hf rollout
     do_sample: True
+    # number of responses (i.e. num sample times)
+    n: 1 # > 1 for grpo
 
 critic:
   strategy: fsdp
