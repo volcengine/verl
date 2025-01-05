@@ -415,8 +415,9 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None):
+        assert self._is_actor
         _save_checkpoint(
-            module=self.critic_module, tokenizer=self.tokenizer, local_path=local_path, hdfs_path=hdfs_path,
+            module=self.actor_module_fsdp, tokenizer=self.tokenizer, local_path=local_path, hdfs_path=hdfs_path,
             is_offload_param=self._is_offload_param, is_offload_grad=self._is_offload_grad,
         )
 
@@ -816,12 +817,11 @@ def _save_checkpoint(
         offload_fsdp_param_and_grad(module=module, offload_grad=is_offload_grad)
 
     ############# TODO
-    assert self._is_actor
     import torch
-    if self._is_offload_param:
-        load_fsdp_param_and_grad(module=self.actor_module_fsdp,
+    if is_offload_param:
+        load_fsdp_param_and_grad(module=module,
                                  device_id=torch.cuda.current_device(),
-                                 load_grad=self._is_offload_grad)
+                                 load_grad=is_offload_grad)
 
     # TODO: support DCP and save sharded checkpoints
     import torch.distributed
@@ -840,5 +840,5 @@ def _save_checkpoint(
             hdfs_io.copy(src=local_path, dst=hdfs_path)
 
     torch.distributed.barrier()
-    if self._is_offload_param:
-        offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+    if is_offload_param:
+        offload_fsdp_param_and_grad(module=module, offload_grad=is_offload_grad)
