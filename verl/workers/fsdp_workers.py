@@ -827,13 +827,13 @@ def _save_checkpoint(
     import torch.distributed
     from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
     cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(self.actor.actor_module, StateDictType.FULL_STATE_DICT, cfg):
-        state_dict = self.actor.actor_module.state_dict()
-    if self.rank == 0:
+    with FSDP.state_dict_type(module, StateDictType.FULL_STATE_DICT, cfg):
+        state_dict = module.state_dict()
+    if rank == 0:
         print(f'Saving actor checkpoint to {local_path}')
         os.makedirs(local_path, exist_ok=True)
-        self.actor_module.save_pretrained(local_path, state_dict=state_dict)
-        self.tokenizer.save_pretrained(local_path)
+        module_inner_TODO.save_pretrained(local_path, state_dict=state_dict)
+        tokenizer.save_pretrained(local_path)
         if hdfs_path is not None:
             print(f'Uploading actor checkpoint to {hdfs_path}')
             hdfs_io.makedirs(hdfs_path, exist_ok=True)
