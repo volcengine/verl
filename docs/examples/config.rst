@@ -246,6 +246,10 @@ Critic Model
 
 Most parameters for Critic are similar to Actor Model.
 
+- ``critic.forward_micro_batch_size``: Micro batch size for forward-only computations.
+  This can be different from the forward-backward batch size, since forward-only usually
+  consumes less memory.
+
 Reward Model
 ~~~~~~~~~~~~
 
@@ -317,6 +321,7 @@ Trainer
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
+     val_before_train: True
 
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb
@@ -329,3 +334,6 @@ Trainer
 - ``trainer.test_freq``: The validation frequency (by iteration).
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.
+- ``trainer.default_hdfs_dir``: Default HDFS directory to use.
+- ``trainer.default_local_dir``: Default local directory to use.
+- ``trainer.val_before_train``: Whether to validate once before training starts.

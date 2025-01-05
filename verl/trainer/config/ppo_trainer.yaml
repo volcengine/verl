@@ -17,6 +17,7 @@ actor_rollout_ref:
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: False
+    enable_torch_compile: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -33,6 +34,7 @@ actor_rollout_ref:
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
     fsdp_config:
+      enable_fsdp: True
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -41,6 +43,7 @@ actor_rollout_ref:
       optimizer_offload: False
   ref:
     fsdp_config:
+      enable_fsdp: True
       param_offload: False
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
@@ -81,7 +84,9 @@ critic:
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: False
+    enable_torch_compile: False
     fsdp_config:
+      enable_fsdp: True
       param_offload: False
       grad_offload: False
       optimizer_offload: False
@@ -103,7 +108,9 @@ reward_model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
+    enable_torch_compile: False
     fsdp_config:
+      enable_fsdp: True
       min_num_params: 0
       param_offload: False
   micro_batch_size: 64
@@ -130,3 +137,4 @@ trainer:
   critic_warmup: 0
   default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  val_before_train: True
