@@ -629,31 +629,10 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None):
-        import torch
-        if self._is_offload_param:
-            load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.cuda.current_device(),
-                                     load_grad=self._is_offload_grad)
-
-        # TODO: support DCP and save sharded checkpoints
-        import torch.distributed
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        with FSDP.state_dict_type(self.critic_module, StateDictType.FULL_STATE_DICT, cfg):
-            state_dict = self.critic_module.state_dict()
-        if self.rank == 0:
-            print(f'Saving critic checkpoint to {local_path}')
-            os.makedirs(local_path, exist_ok=True)
-            self.critic_module._fsdp_wrapped_module.save_pretrained(local_path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(local_path)
-            if hdfs_path is not None:
-                print(f'Uploading critic checkpoint to {hdfs_path}')
-                hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                hdfs_io.copy(src=local_path, dst=hdfs_path)
-
-        torch.distributed.barrier()
-        if self._is_offload_param:
-            offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
+        _save_checkpoint(
+            module=self.critic_module, tokenizer=self.tokenizer, local_path=local_path, hdfs_path=hdfs_path,
+            is_offload_param=self._is_offload_param, is_offload_grad=self._is_offload_grad,
+        )
 
 
 class RewardModelWorker(Worker):
@@ -827,3 +806,33 @@ class RewardModelWorker(Worker):
         output = output.to('cpu')
         torch.cuda.empty_cache()
         return output
+
+
+def _save_checkpoint(
+        *, module, tokenizer, local_path, hdfs_path, is_offload_param, is_offload_grad, rank,
+):
+    import torch
+    if is_offload_param:
+        load_fsdp_param_and_grad(module=module,
+                                 device_id=torch.cuda.current_device(),
+                                 load_grad=is_offload_grad)
+
+    # TODO: support DCP and save sharded checkpoints
+    import torch.distributed
+    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
+    cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    with FSDP.state_dict_type(module, StateDictType.FULL_STATE_DICT, cfg):
+        state_dict = module.state_dict()
+    if rank == 0:
+        print(f'Saving critic checkpoint to {local_path}')
+        os.makedirs(local_path, exist_ok=True)
+        module._fsdp_wrapped_module.save_pretrained(local_path, state_dict=state_dict)
+        tokenizer.save_pretrained(local_path)
+        if hdfs_path is not None:
+            print(f'Uploading critic checkpoint to {hdfs_path}')
+            hdfs_io.makedirs(hdfs_path, exist_ok=True)
+            hdfs_io.copy(src=local_path, dst=hdfs_path)
+
+    torch.distributed.barrier()
+    if is_offload_param:
+        offload_fsdp_param_and_grad(module=module, offload_grad=is_offload_grad)
