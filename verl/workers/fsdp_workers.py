@@ -805,7 +805,12 @@ def _save_checkpoint(*, debug_name, module, tokenizer, local_path, hdfs_path, is
     if rank == 0:
         print(f'Saving {debug_name} checkpoint to {local_path}')
         os.makedirs(local_path, exist_ok=True)
-        module._fsdp_wrapped_module.save_pretrained(local_path, state_dict=state_dict)
+
+        module_to_save = module
+        if hasattr(module_to_save, '_fsdp_wrapped_module'):
+            module_to_save = module_to_save._fsdp_wrapped_module
+        module_to_save.save_pretrained(local_path, state_dict=state_dict)
+       
         tokenizer.save_pretrained(local_path)
         if hdfs_path is not None:
             print(f'Uploading {debug_name} checkpoint to {hdfs_path}')
