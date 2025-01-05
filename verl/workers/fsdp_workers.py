@@ -701,7 +701,7 @@ class RewardModelWorker(Worker):
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
-        if fsdp_config.enable:
+        if self.config.model.fsdp_config.enable:
             reward_module = FSDP(
                 reward_module,
                 param_init_fn=init_fn,
