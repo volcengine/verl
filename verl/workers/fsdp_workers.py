@@ -418,8 +418,12 @@ class ActorRolloutRefWorker(Worker):
         assert self._is_actor
         _save_checkpoint(
             debug_name='actor',
-            module=self.actor_module_fsdp, tokenizer=self.tokenizer, local_path=local_path, hdfs_path=hdfs_path,
-            is_offload_param=self._is_offload_param, is_offload_grad=self._is_offload_grad,
+            module=self.actor_module_fsdp,
+            tokenizer=self.tokenizer,
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            is_offload_param=self._is_offload_param,
+            is_offload_grad=self._is_offload_grad,
         )
 
 
@@ -611,8 +615,12 @@ class CriticWorker(Worker):
     def save_checkpoint(self, local_path, hdfs_path=None):
         _save_checkpoint(
             debug_name='critic',
-            module=self.critic_module, tokenizer=self.tokenizer, local_path=local_path, hdfs_path=hdfs_path,
-            is_offload_param=self._is_offload_param, is_offload_grad=self._is_offload_grad,
+            module=self.critic_module,
+            tokenizer=self.tokenizer,
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            is_offload_param=self._is_offload_param,
+            is_offload_grad=self._is_offload_grad,
         )
 
 
@@ -792,9 +800,7 @@ class RewardModelWorker(Worker):
 def _save_checkpoint(*, debug_name, module, tokenizer, local_path, hdfs_path, is_offload_param, is_offload_grad, rank):
     import torch
     if is_offload_param:
-        load_fsdp_param_and_grad(module=module,
-                                 device_id=torch.cuda.current_device(),
-                                 load_grad=is_offload_grad)
+        load_fsdp_param_and_grad(module=module, device_id=torch.cuda.current_device(), load_grad=is_offload_grad)
 
     # TODO: support DCP and save sharded checkpoints
     import torch.distributed
@@ -810,7 +816,7 @@ def _save_checkpoint(*, debug_name, module, tokenizer, local_path, hdfs_path, is
         if hasattr(module_to_save, '_fsdp_wrapped_module'):
             module_to_save = module_to_save._fsdp_wrapped_module
         module_to_save.save_pretrained(local_path, state_dict=state_dict)
-       
+
         tokenizer.save_pretrained(local_path)
         if hdfs_path is not None:
             print(f'Uploading {debug_name} checkpoint to {hdfs_path}')
