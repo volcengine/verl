@@ -34,6 +34,7 @@ actor_rollout_ref:
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
     fsdp_config:
+      enable: True
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -42,6 +43,7 @@ actor_rollout_ref:
       optimizer_offload: False
   ref:
     fsdp_config:
+      enable: True
       param_offload: False
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
@@ -84,6 +86,7 @@ critic:
     enable_gradient_checkpointing: False
     enable_torch_compile: False
     fsdp_config:
+      enable: True
       param_offload: False
       grad_offload: False
       optimizer_offload: False
@@ -107,6 +110,7 @@ reward_model:
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_torch_compile: False
     fsdp_config:
+      enable: True
       min_num_params: 0
       param_offload: False
   micro_batch_size: 64

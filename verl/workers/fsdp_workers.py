@@ -178,17 +178,20 @@ class ActorRolloutRefWorker(Worker):
         else:
             sharding_strategy = ShardingStrategy.FULL_SHARD
 
-        # TODO: add transformer policy
-        actor_module_fsdp = FSDP(
-            actor_module,
-            param_init_fn=init_fn,
-            use_orig_params=False,
-            auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
-            sharding_strategy=sharding_strategy,  # zero3
-            mixed_precision=mixed_precision,
-            sync_module_states=True,
-            device_mesh=self.device_mesh)
+        if fsdp_config.enable:
+            actor_module_fsdp = FSDP(
+                actor_module,
+                param_init_fn=init_fn,
+                use_orig_params=False,
+                auto_wrap_policy=auto_wrap_policy,
+                device_id=torch.cuda.current_device(),
+                sharding_strategy=sharding_strategy,  # zero3
+                mixed_precision=mixed_precision,
+                sync_module_states=True,
+                device_mesh=self.device_mesh)
+        else:
+            actor_module_fsdp = actor_module
+            actor_module_fsdp.to('cuda')
 
         if self.config.model.enable_torch_compile:
             print('torch.compile actor')
@@ -272,7 +275,10 @@ class ActorRolloutRefWorker(Worker):
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
             # get the original unwrapped module
-            self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+            if fsdp_config.enable:
+                self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+            else:
+                self.actor_module = self.actor_module_fsdp
 
             if self._is_offload_param:
                 # param is require during state_dict in sharding manager
@@ -525,14 +531,17 @@ class CriticWorker(Worker):
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
 
-        critic_module = FSDP(critic_module,
-                             param_init_fn=init_fn,
-                             use_orig_params=False,
-                             auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.cuda.current_device(),
-                             sharding_strategy=ShardingStrategy.FULL_SHARD,
-                             mixed_precision=mixed_precision,
-                             sync_module_states=True)
+        if fsdp_config.enable:
+            critic_module = FSDP(critic_module,
+                                 param_init_fn=init_fn,
+                                 use_orig_params=False,
+                                 auto_wrap_policy=auto_wrap_policy,
+                                 device_id=torch.cuda.current_device(),
+                                 sharding_strategy=ShardingStrategy.FULL_SHARD,
+                                 mixed_precision=mixed_precision,
+                                 sync_module_states=True)
+        else:
+            critic_module.to('cuda')
 
         if self.config.model.enable_torch_compile:
             print('torch.compile critic')
@@ -692,15 +701,18 @@ class RewardModelWorker(Worker):
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
-        reward_module = FSDP(
-            reward_module,
-            param_init_fn=init_fn,
-            use_orig_params=False,
-            auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
-            sharding_strategy=ShardingStrategy.FULL_SHARD,  # zero3
-            sync_module_states=True,
-            cpu_offload=CPUOffload(offload_params=self.config.model.fsdp_config.param_offload))
+        if fsdp_config.enable:
+            reward_module = FSDP(
+                reward_module,
+                param_init_fn=init_fn,
+                use_orig_params=False,
+                auto_wrap_policy=auto_wrap_policy,
+                device_id=torch.cuda.current_device(),
+                sharding_strategy=ShardingStrategy.FULL_SHARD,  # zero3
+                sync_module_states=True,
+                cpu_offload=CPUOffload(offload_params=self.config.model.fsdp_config.param_offload))
+        else:
+            reward_module.to('cuda')
 
         if self.config.model.enable_torch_compile:
             print('torch.compile reward')
