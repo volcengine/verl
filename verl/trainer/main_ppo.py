@@ -31,6 +31,8 @@ def _select_rm_score_fn(data_source):
 
 
 class RewardManager():
+    """The reward manager.
+    """
 
     def __init__(self, tokenizer, num_examine) -> None:
         self.tokenizer = tokenizer
@@ -112,21 +114,20 @@ def main_task(config):
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 
     # instantiate tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
-    from verl.utils import set_pad_token_id
-    set_pad_token_id(tokenizer)
+    from verl.utils import hf_tokenizer
+    tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
-        from single_controller.ray import RayWorkerGroup
+        from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.single_controller.ray import RayWorkerGroup
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == 'megatron':
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.trainer.ppo.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
-        from single_controller.ray.megatron import NVMegatronRayWorkerGroup
+        from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
     else:
@@ -135,9 +136,9 @@ def main_task(config):
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
-        Role.ActorRollout: ActorRolloutRefWorker,
-        Role.Critic: CriticWorker,
-        Role.RefPolicy: ActorRolloutRefWorker
+        Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+        Role.Critic: ray.remote(CriticWorker),
+        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     global_pool_id = 'global_pool'
@@ -158,12 +159,12 @@ def main_task(config):
     # - The reward type depends on the tag of the data
     if config.reward_model.enable:
         if config.reward_model.strategy == 'fsdp':
-            from verl.trainer.ppo.workers.fsdp_workers import RewardModelWorker
+            from verl.workers.fsdp_workers import RewardModelWorker
         elif config.reward_model.strategy == 'megatron':
-            from verl.trainer.ppo.workers.megatron_workers import RewardModelWorker
+            from verl.workers.megatron_workers import RewardModelWorker
         else:
             raise NotImplementedError
-        role_worker_mapping[Role.RewardModel] = RewardModelWorker
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
     reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)

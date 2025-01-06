@@ -72,6 +72,8 @@ actor_rollout_ref:
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
+    # number of responses (i.e. num sample times)
+    n: 1
 
 critic:
   strategy: megatron
@@ -135,7 +137,7 @@ trainer:
   total_epochs: 30
   project_name: verl_examples
   experiment_name: gsm8k
-  logger: ['console', 'tracking']
+  logger: ['console', 'wandb']
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1

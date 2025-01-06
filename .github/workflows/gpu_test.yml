@@ -25,7 +25,7 @@ jobs:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip install -e .[test]
+          pip install -e .[test] --user
       - name: Running dataset tests
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data

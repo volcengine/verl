@@ -39,9 +39,9 @@ We first introduce a basic implementation of initializing the
 
 .. code:: python
 
-   # Due to the Ray issue, we can only support max_colocate_count=1 for now.
-   # This means that each GPU can only have one process.
-   # We can support max_colocate > 1 when applying this pull request: https://github.com/ray-project/ray/pull/44385
+   # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
+   # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
+   # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for differnt models
    resource_pool = RayResourcePool(process_on_nodes=[config.trainer.n_gpus_per_node] * config.trainer.nnodes,
                                    use_gpu=True,
                                    max_colocate_count=1)
@@ -94,7 +94,7 @@ CUDA/distributed context in different processes.
    self.actor_rollout_wg = all_wg['actor_rollout']
    self.actor_rollout_wg.init_model()
 
-.. note:: For megatron backend, if we merge the ``worker_groups`` into the same processes, all the roles will utilize the same 3D parallel size. To optimize this, we may need to maintain several 3D process groups for each role in the same distributed context. If you want to use different 3D parallel size for different roles, please follow the similar architecture of the first code block to initialize each role’s ``worker_group``
+.. note:: For megatron backend, if we merge the ``worker_groups`` into the same processes, all the roles will utilize the same 3D parallel size. To optimize this, we may need to maintain several 3D process groups for each role in the same distributed context. If you want to use different 3D parallel size for different roles, please follow the similar architecture of the first code block to initialize each role's ``worker_group``
 
 
 PPO Training Loop
@@ -104,7 +104,7 @@ We implement the PPO training loop by calling the functions in
 worker_group of each role. The input and output data of each function is
 a ``DataProto`` object implemented in `protocol.py <https://github.com/volcengine/verl/blob/main/verl/protocol.py>`_. In the training
 loop, trainer will dispatch/collect the data to/from different GPUs
-following the transfer protocols wrapped in the workers’ functions. The
+following the transfer protocols wrapped in the workers' functions. The
 computation of PPO micro batches is processed in ``update_actor`` and
 ``update_critic`` functions.
 

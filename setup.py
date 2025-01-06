@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# setup.py is the fallback installation script when pyproject.toml does not work
 from setuptools import setup, find_packages
 import os
 
@@ -20,29 +21,13 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
-# TODO: add version info to requirements
-install_requires = [
-    'torch==2.4.0',
-    'tensordict',
-    'transformers',
-    'codetiming',
-    'pybind11',
-    'hydra-core',
-    'numpy',
-    'yapf',
-    "dill",
-    "accelerate"
-]
 
-install_optional = [
-    'vllm==0.6.3',
-]
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
+    install_requires = [item.strip() for item in required if item.strip()[0] != '#']
 
 extras_require = {
-    'demo': ['hydra-core', 'transformers', ''],
-    'single-controller': ['ray', 'kubernetes'],
-    'single-controller-ray': ['ray'],
-    'test': ['fsspec', 'pytest', 'datasets', 'ray']
+    'test': ['pytest', 'yapf']
 }
 
 from pathlib import Path

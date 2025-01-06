@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 
 
 def download_files_distributed(download_fn):
@@ -54,8 +54,7 @@ class RMDataset(Dataset):
         self.parquet_files = parquet_files
         self.cache_dir = os.path.expanduser(cache_dir)
         if isinstance(tokenizer, str):
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-            set_pad_token_id(tokenizer)
+            tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer = tokenizer
 
         self.prompt_key = prompt_key

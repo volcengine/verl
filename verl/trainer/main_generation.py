@@ -14,7 +14,7 @@
 """
 Generate responses given a dataset of prompts
 """
-
+import ray
 import numpy as np
 import hydra
 import os
@@ -31,9 +31,9 @@ from transformers import AutoTokenizer
 
 from verl import DataProto
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.trainer.ppo.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.hdfs_io import makedirs
-from single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
 @hydra.main(config_path='config', config_name='generation', version_base=None)
@@ -43,9 +43,8 @@ def main(config):
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
     local_path = copy_local_path_from_hdfs(config.model.path)
-    tokenizer = AutoTokenizer.from_pretrained(local_path)
-    from verl.utils import set_pad_token_id
-    set_pad_token_id(tokenizer)
+    from verl.utils import hf_tokenizer
+    tokenizer = hf_tokenizer(local_path)
 
     if config.rollout.temperature == 0.:
         assert config.data.n_samples == 1, 'When temperature=0, n_samples must be 1.'
@@ -60,7 +59,7 @@ def main(config):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    ray_cls_with_init = RayClassWithInitArgs(cls=ActorRolloutRefWorker, config=config, role='rollout')
+    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorRolloutRefWorker), config=config, role='rollout')
     resource_pool = RayResourcePool(process_on_nodes=[config.trainer.n_gpus_per_node] * config.trainer.nnodes)
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     wg.init_model()

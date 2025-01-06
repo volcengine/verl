@@ -14,7 +14,7 @@
 import os
 
 from transformers import AutoTokenizer
-from verl.utils import set_pad_token_id
+from verl.utils import hf_tokenizer
 from verl.utils.dataset.rm_dataset import RMDataset
 
 
@@ -24,16 +24,11 @@ def get_rm_data():
     local_folder = os.path.expanduser('~/verl-data/full_hh_rlhf/rm/')
     local_path = os.path.join(local_folder, 'test.parquet')
     os.makedirs(local_folder, exist_ok=True)
-    # import fsspec
-    # with fsspec.open(url, mode='rb') as fin, fsspec.open(local_path, mode='wb') as fout:
-    #     content = fin.read()
-    #     fout.write(content)
     return local_path
 
 
 def test_rm_dataset():
-    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
-    set_pad_token_id(tokenizer)
+    tokenizer = hf_tokenizer("facebook/opt-1.3b")
     local_path = get_rm_data()
     dataset = RMDataset(parquet_files=local_path, tokenizer=tokenizer, max_length=512)
     data = dataset[0]['input_ids']
