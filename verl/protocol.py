@@ -16,6 +16,7 @@ Implement base data transfer protocol between any two functions, modules.
 We can subclass Protocol to define more detailed batch info with specific keys
 """
 
+import pickle
 import numpy as np
 import copy
 from dataclasses import dataclass, field
@@ -100,6 +101,45 @@ def list_of_dict_to_dict_of_list(list_of_dict: list[dict]):
     return output
 
 
+def fold_batch_dim(data: 'DataProto', new_batch_size):
+    """
+    Fold a batch dim from [bsz, xxx] into [new_bsz, bsz // new_bsz, xxx]
+    """
+    batch_size = data.batch.batch_size[0]
+
+    assert batch_size % new_batch_size == 0
+
+    tensor: TensorDict = data.batch
+    non_tensor = data.non_tensor_batch
+
+    tensor = tensor.view(new_batch_size, -1)
+    tensor.auto_batch_size_(batch_dims=1)
+
+    for key, val in non_tensor.items():
+        non_tensor[key] = np.reshape(val, newshape=(new_batch_size, -1, *val.shape[1:]))
+
+    return DataProto(batch=tensor, non_tensor_batch=non_tensor, meta_info=data.meta_info)
+
+
+def unfold_batch_dim(data: 'DataProto', batch_dims=2):
+    """
+    Unfold the first n dims as new batch dim
+    """
+    tensor: TensorDict = data.batch
+    non_tensor = data.non_tensor_batch
+    tensor.auto_batch_size_(batch_dims=batch_dims)
+    tensor = tensor.view(-1)
+
+    batch_size = tensor.batch_size[0]
+
+    non_tensor_new = {}
+
+    for key, val in non_tensor.items():
+        non_tensor_new[key] = np.reshape(val, newshape=(batch_size, *val.shape[batch_dims:]))
+
+    return DataProto(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
+
+
 def collate_fn(x: list['DataProtoItem']):
     batch = []
     non_tensor_batch = []
@@ -152,17 +192,46 @@ class DataProto:
             self.batch = self.batch.contiguous()
             self.batch = self.batch.consolidate()
         torch.save(self.batch, buffer)
-        return buffer, self.non_tensor_batch, self.meta_info
+        buffer_bytes = buffer.getvalue()
+        return buffer_bytes, self.non_tensor_batch, self.meta_info
 
     def __setstate__(self, data):
-        batch_deserialized, non_tensor_batch, meta_info = data
-        batch_deserialized.seek(0)
+        import io
+        batch_deserialized_bytes, non_tensor_batch, meta_info = data
+        batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
         batch = torch.load(batch_deserialized,
                            weights_only=False,
                            map_location='cpu' if not torch.cuda.is_available() else None)
         self.batch = batch
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
+
+    def save_to_disk(self, filepath):
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_from_disk(filepath) -> 'DataProto':
+        with open(filepath, 'rb') as f:
+            data = pickle.load(f)
+            return data
+
+    def print_size(self, prefix=""):
+        size_of_tensordict = 0
+        for key, tensor in self.batch.items():
+            size_of_tensordict += tensor.element_size() * tensor.numel()
+        size_of_numpy_array = 0
+        for key, numpy_array in self.non_tensor_batch.items():
+            size_of_numpy_array += numpy_array.nbytes
+
+        size_of_numpy_array /= 1024**3
+        size_of_tensordict /= 1024**3
+
+        message = f'Size of tensordict: {size_of_tensordict} GB, size of non_tensor_batch: {size_of_numpy_array} GB'
+
+        if prefix:
+            message = f'{prefix}, ' + message
+        print(message)
 
     def check_consistency(self):
         """Check the consistency of the DataProto. Mainly for batch and non_tensor_batch
