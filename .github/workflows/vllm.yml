@@ -1,0 +1,32 @@
+name: vllm
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - .github/workflows/vllm.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - .github/workflows/vllm.yml
+
+jobs:
+  vllm:
+    runs-on: [verl-l20-0]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip install -e .[test] --user
+      - name: Running vllm tests on 8 L20 GPUs
+        run: |
+          cd tests/rollout
+          pytest -s -x test_vllm_hf_loader.py
