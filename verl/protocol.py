@@ -314,6 +314,25 @@ class DataProto:
         self.batch.rename_key_(tuple(old_keys), tuple(new_keys))
 
         return self
+    
+    def repeat(self, repeat_times: int, interleave=True) -> 'DataProto':
+        """Repeat the batch and non_tensor_batch repeat_times times. The meta_info is not repeated.
+
+        Args:
+            repeat_times (int): the number of times to repeat the batch and non_tensor_batch
+            interleave (bool): whether to interleave the repeated data. If False, the repeated data will be concatenated.
+
+        Returns:
+            DataProto: the DataProto after repeating
+        """
+        # tensor
+        for key, val in self.batch.items():
+            self.batch[key] = val.repeat_interleave(repeat_times) if interleave else val.repeat(repeat_times)
+        # non-tensor
+        for key, val in self.non_tensor_batch.items():
+            self.non_tensor_batch[key] = np.repeat(val, repeat_times) if interleave else np.tile(val, repeat_times)
+        
+        return self
 
     def union(self, other: 'DataProto') -> 'DataProto':
         """Union with another DataProto. Union batch and meta_info separately.
