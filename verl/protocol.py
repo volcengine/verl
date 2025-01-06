@@ -16,6 +16,7 @@ Implement base data transfer protocol between any two functions, modules.
 We can subclass Protocol to define more detailed batch info with specific keys
 """
 
+import pickle
 import numpy as np
 import copy
 from dataclasses import dataclass, field
@@ -204,6 +205,33 @@ class DataProto:
         self.batch = batch
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
+
+    def save_to_disk(self, filepath):
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_from_disk(filepath) -> 'DataProto':
+        with open(filepath, 'rb') as f:
+            data = pickle.load(f)
+            return data
+
+    def print_size(self, prefix=""):
+        size_of_tensordict = 0
+        for key, tensor in self.batch.items():
+            size_of_tensordict += tensor.element_size() * tensor.numel()
+        size_of_numpy_array = 0
+        for key, numpy_array in self.non_tensor_batch.items():
+            size_of_numpy_array += numpy_array.nbytes
+
+        size_of_numpy_array /= 1024**3
+        size_of_tensordict /= 1024**3
+
+        message = f'Size of tensordict: {size_of_tensordict} GB, size of non_tensor_batch: {size_of_numpy_array} GB'
+
+        if prefix:
+            message = f'{prefix}, ' + message
+        print(message)
 
     def check_consistency(self):
         """Check the consistency of the DataProto. Mainly for batch and non_tensor_batch
@@ -469,47 +497,6 @@ class DataProto:
                 DataProto(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
 
         return output
-
-    def unfold_column_chunks(self, n_split, split_keys=None):
-        """Split along the second dim into `n_split`, unfold it to the first dim (batch dim)
-        Useful in passing grouped tensors that doesn't want to be shuffled in dataset. 
-        keys not in split_keys are repeated to match the shape
-        """
-        if split_keys is None:
-            split_keys = list(self.batch.keys())
-
-        if self.batch is not None:
-            unfolded_batch = {}
-            for key in self.batch.keys():
-                if key in split_keys:
-                    shape = list(self.batch[key].shape)
-                    shape[0] = self.batch[key].shape[0] * n_split
-                    shape[1] = self.batch[key].shape[1] // n_split
-                    unfolded_batch[key] = self.batch[key].reshape(*shape)
-                else:
-                    unfolded_batch[key] = torch.repeat_interleave(self.batch[key], n_split, dim=0)
-        else:
-            unfolded_batch = None
-
-        unfolded_batch = TensorDict(
-            source=unfolded_batch,
-            batch_size=(self.batch.batch_size[0] * n_split,),
-        )
-        repeated_non_tensor_batch = {}
-        for key, val in self.non_tensor_batch.items():
-            if key in split_keys:
-                shape = list(val.shape)
-                shape[0] = val.shape[0] * n_split
-                shape[1] = val.shape[1] // n_split
-                repeated_non_tensor_batch[key] = val.reshape(*shape)
-            else:
-                repeated_non_tensor_batch[key] = np.repeat(val, n_split, axis=0)
-
-        return DataProto(
-            batch=unfolded_batch,
-            non_tensor_batch=repeated_non_tensor_batch,
-            meta_info=self.meta_info,
-        )
 
     @staticmethod
     def concat(data: List['DataProto']) -> 'DataProto':
