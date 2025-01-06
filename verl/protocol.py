@@ -332,6 +332,8 @@ class DataProto:
         for key, val in self.non_tensor_batch.items():
             self.non_tensor_batch[key] = np.repeat(val, repeat_times) if interleave else np.tile(val, repeat_times)
         
+        self.batch.batch_size = torch.Size([self.batch.batch_size[0] * repeat_times])
+        
         return self
 
     def union(self, other: 'DataProto') -> 'DataProto':
