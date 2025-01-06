@@ -19,5 +19,5 @@ def test_import():
 
 
 def test_single_controller_import():
-    import single_controller
-    print(single_controller.__version__)
+    import verl.single_controller
+    print(verl.single_controller.__version__)
