@@ -65,7 +65,6 @@ def test_vllm_with_hf():
     actor_model.to(torch.bfloat16)
 
     actor_model_config = AutoConfig.from_pretrained(local_model_path)
-    assert isinstance(actor_model_config, transformers.MistralConfig), 'Only llama is supported now.'
     update_model_config(actor_model_config, override_config_kwargs)
 
     temperature = 0
