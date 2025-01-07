@@ -24,6 +24,7 @@ from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM
 from transformers import GenerationConfig
 
 from verl.utils.torch_functional import pad_sequence_to_length
+from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
 
 
 def test_vllm_with_hf():
@@ -86,7 +87,13 @@ def test_vllm_with_hf():
     print('start generation')
     input_ids = input_ids.cuda()
     attention_mask = attention_mask.cuda()
-    outputs = llm.generate(prompt_token_ids=input_ids, sampling_params=sampling_params, use_tqdm=False)
+    batch_size = input_ids.size(0)
+
+    idx_list = []
+    # parse idx from torch.Tensor to List[List[str]]
+    for i in range(batch_size):
+        idx_list.append(_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]))
+    outputs = llm.generate(prompt_token_ids=idx_list, sampling_params=sampling_params, use_tqdm=False)
     vllm_output = outputs[0].cuda()
     llm.free_cache_engine()
     llm = None
