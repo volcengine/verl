@@ -19,14 +19,17 @@ on:
 jobs:
   vllm:
     runs-on: [self-hosted, l20-0]
+    defaults:
+      run:
+        shell: bash -l {0}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
             fetch-depth: 0
-      - name: Activate conda environment
-        run: |
-          source ~/miniconda3/bin/activate
-          conda activate ci
+      # - name: Activate conda environment
+      #   run: |
+      #     source ~/miniconda3/bin/activate
+      #     conda activate ci
       - name: Install the current repository
         run: |
           pip3 install -e .[test] --user
