@@ -23,7 +23,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_HUB_ENABLE_HF_TRANSFER: 0
     container:
       image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
       options: --gpus all --shm-size=10g
@@ -31,13 +31,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
             fetch-depth: 0
-      # - name: Activate conda environment
-      #   run: |
-      #     source ~/miniconda3/bin/activate
-      #     conda activate ci
       - name: Install the current repository
         run: |
-          pip3 install -e .
+          pip3 install -e .[test]
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
