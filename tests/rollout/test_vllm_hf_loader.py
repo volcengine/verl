@@ -33,13 +33,6 @@ def test_vllm_with_hf():
     max_prompt_length = 16
     max_response_length = 32
 
-    # create model
-    override_config_kwargs = {
-        'vocab_size': 32000,
-        'n_positions': max_prompt_length + max_response_length,
-        'max_position_embeddings': max_prompt_length + max_response_length
-    }
-
     # Initialize model and token
     local_cache_path = '~/.cache/verl/rlhf'
     local_cache_path = os.path.expanduser(local_cache_path)
@@ -65,7 +58,6 @@ def test_vllm_with_hf():
     actor_model.to(torch.bfloat16)
 
     actor_model_config = AutoConfig.from_pretrained(local_model_path)
-    update_model_config(actor_model_config, override_config_kwargs)
 
     temperature = 0
     top_p = 1
