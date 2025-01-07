@@ -143,7 +143,7 @@ class AllGatherPPModel:
                     dist.broadcast(tensor=memory_buffer.data, src=global_src, group=self.pp_group, async_op=False)
             else:
                 # a workaround for megatron >= 0.6.0
-                for _, param in sorted(self.pp_models[cur_pp_rank].named_paramters()):
+                for _, param in sorted(self.pp_models[cur_pp_rank].named_parameters()):
                     dist.broadcast(tensor=param.data, src=global_src, group=self.pp_group, async_op=False)
 
     def forward(self, *inputs, **kwargs):
