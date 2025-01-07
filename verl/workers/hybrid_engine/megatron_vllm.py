@@ -15,6 +15,8 @@
 This file contains a Megatron style Hybrid Engine that shares the weights of the actor with the inference engine.
 """
 
+import importlib
+from packaging.version import Version
 import torch
 import torch.distributed as dist
 
@@ -30,6 +32,8 @@ from verl.utils.memory_buffer import (
     build_memory_reference_from_module,
     get_weight_buffer_meta_from_module,
 )
+
+megatron_version = megatron_version = Version(importlib.metadata.version('megatron-core'))
 
 
 class AllGatherPPModel:
@@ -81,11 +85,24 @@ class AllGatherPPModel:
 
     def _build_param_buffer(self, pp_rank):
         """Build the parameter buffer in each pp rank"""
-        model = self.pp_models[pp_rank]
-        weight_buffer_meta = get_weight_buffer_meta_from_module(model)
-        self.memory_buffers[pp_rank] = build_memory_buffer(weight_buffer_meta)
+        if megatron_version >= Version('0.6.0') and pp_rank == self._pp_rank:
+            from verl.utils.memory_buffer import MemoryBuffer
+            # The code here is very hard-coded, based on the following assumptions:
+            # 1. `len(_this_rank_models) == 1`
+            # 2. `_this_rank_models[0]` is a instance of `DistributedDataParallel` and `use_distributed_optimizer=True`
+            # 3. Only bfloat16 data type is used in parameters
+            source = self._this_rank_models[0].buffers[0].param_data
+            self.memory_buffers[pp_rank] = {
+                torch.bfloat16: MemoryBuffer(source.numel(), source.numel(), torch.bfloat16, source)
+            }
+        else:
+            model = self.pp_models[pp_rank]
+            weight_buffer_meta = get_weight_buffer_meta_from_module(model)
+            self.memory_buffers[pp_rank] = build_memory_buffer(weight_buffer_meta)
 
     def _build_param_references(self, pp_rank, maintain_weight=False):
+        if megatron_version >= Version('0.6.0') and pp_rank == self._pp_rank:
+            return
         model = self.pp_models[pp_rank]
         build_memory_reference_from_module(model, self.memory_buffers[pp_rank], maintain_weight=maintain_weight)
 
@@ -121,8 +138,13 @@ class AllGatherPPModel:
             global_src = dist.get_global_rank(group=self.pp_group, group_rank=cur_pp_rank)
 
             # NOTE(sgm): the async op may cause memory leakage of the memory_buffer/pp_models
-            for memory_buffer in self.memory_buffers[cur_pp_rank].values():
-                dist.broadcast(tensor=memory_buffer.data, src=global_src, group=self.pp_group, async_op=False)
+            if megatron_version < Version('0.6.0'):
+                for memory_buffer in self.memory_buffers[cur_pp_rank].values():
+                    dist.broadcast(tensor=memory_buffer.data, src=global_src, group=self.pp_group, async_op=False)
+            else:
+                # a workaround for megatron >= 0.6.0
+                for _, param in sorted(self.pp_models[cur_pp_rank].named_paramters()):
+                    dist.broadcast(tensor=param.data, src=global_src, group=self.pp_group, async_op=False)
 
     def forward(self, *inputs, **kwargs):
         try:
