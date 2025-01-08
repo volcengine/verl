@@ -1,7 +1,7 @@
 data:
   tokenizer: null 
-  train_files: ~/verl/tests/e2e/arithmetic_sequence/data/train.parquet
-  val_files: ~/verl/tests/e2e/arithmetic_sequence/data/test.parquet
+  train_files: $HOME/verl/tests/e2e/arithmetic_sequence/data/train.parquet
+  val_files: $HOME/verl/tests/e2e/arithmetic_sequence/data/test.parquet
   prompt_key: prompt
   prompt_id_key: null
   max_prompt_id_length: 10
@@ -14,7 +14,7 @@ data:
 actor_rollout_ref:
   hybrid_engine: True
   model:
-    path: ~/verl/tests/e2e/arithmetic_sequence/model
+    path: $HOME/verl/tests/e2e/arithmetic_sequence/model
     external_lib: tests.e2e.envs.digit_completion
     override_config: {}
     enable_gradient_checkpointing: False
@@ -72,7 +72,7 @@ critic:
   optim:
     lr: 1e-3
   model:
-    path: ~/verl/tests/e2e/arithmetic_sequence/model
+    path: $HOME/verl/tests/e2e/arithmetic_sequence/model
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config: {}
     external_lib: ${actor_rollout_ref.model.external_lib}
@@ -100,7 +100,7 @@ reward_model:
   type: function
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
-    path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    path: $HOME/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     offload: False
     fsdp_config:
@@ -127,5 +127,5 @@ trainer:
   save_freq: -1
   test_freq: 1
   critic_warmup: 0
-  default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
+  default_hdfs_dir: $HOME/experiments/gsm8k/ppo/${trainer.experiment_name}
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
