@@ -58,7 +58,6 @@ def make_reward_function(tokenizer, num_examine):
 
             # decode
             prompt = tokenizer.decode(valid_prompt_ids)
-            print(f'prompt: {prompt}, valid_prompt_ids: {valid_prompt_ids}, prompt_ids: {prompt_ids}')
             response = tokenizer.decode(valid_response_ids)
             # remove bos and eos
             prompt = prompt.replace(tokenizer.sep_token, '')
