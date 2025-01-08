@@ -28,7 +28,7 @@ from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.model import compute_position_id_with_mask
-
+from tests.e2e.envs.digit_completion import CharTokenizer
 import pandas as pd
 
 
