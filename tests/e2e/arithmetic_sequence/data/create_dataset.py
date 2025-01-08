@@ -25,6 +25,11 @@ if __name__ == '__main__':
     train_data = list(train_data)
     test_data = list(test_data)
 
+    train_data = [[{'role': 'user', 'content': str(item)}] \
+                     for item in train_data]
+    test_data = [[{'role': 'user', 'content': str(item)}] \
+                     for item in test_data]
+
     print(f'Size of train: {len(train_data)}, size of test: {len(test_data)}')
 
     train_data = {'prompt': train_data}
