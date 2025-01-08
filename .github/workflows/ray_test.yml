@@ -34,7 +34,6 @@ jobs:
       - name: Install the current repository
         run: |
           pip install hf_transfer
-          pip install cupy
           pip install -e .[test]
           pip install --upgrade "ray>=2.40.0"
       - name: Running ray tests that need 8 GPUs
