@@ -82,7 +82,8 @@ def test_vllm_with_hf():
               tensor_parallel_size=tensor_parallel_size,
               dtype='bfloat16',
               gpu_memory_utilization=0.1,
-              load_format='hf')
+              load_format='hf',
+              enable_chunked_prefill=False)
 
     print('start generation')
     input_ids = input_ids.cuda()
