@@ -38,4 +38,4 @@ jobs:
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=8 ~/miniconda3/bin/pytest -s test_vllm_hf_loader.py
+          torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
