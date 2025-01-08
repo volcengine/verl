@@ -66,25 +66,6 @@ class WorkerHelper:
     def _get_pid(self):
         return
 
-    def _get_actor_name(self):
-        import ray
-        if hasattr(ray.get_runtime_context(), "get_actor_name"):
-            actor_name = ray.get_runtime_context().get_actor_name()
-        else:
-            actor_name = "unknown_actor_name"
-        return actor_name
-
-    def _get_pod_name(self):
-        return os.getenv("MY_POD_NAME", "unknown_pod_name")
-
-    def _get_ray_method_prefix(self):
-        return ""
-
-    def _get_ray_actor_cls_name(self):
-        """Only Valid for Colocated Workers
-        """
-        return "WorkerHelper"
-
 
 class WorkerMeta:
     keys = [
