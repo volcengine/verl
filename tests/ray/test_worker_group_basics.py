@@ -20,7 +20,7 @@ import ray
 
 from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.ray.decorator import register, Dispatch, collect_all_to_all, Execute
+from verl.single_controller.base.decorator import register, Dispatch, collect_all_to_all, Execute
 
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):

@@ -28,7 +28,7 @@ import ray
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool
 from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
 from verl.single_controller.base.megatron.worker import MegatronWorker
-from verl.single_controller.ray.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.models.llama.megatron import ParallelLlamaForCausalLMRmPadPP
 
