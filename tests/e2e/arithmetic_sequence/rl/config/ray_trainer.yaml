@@ -85,6 +85,7 @@ critic:
         min_num_params: 0
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 200
+  forward_micro_batch_size: ${critic.ppo_micro_batch_size}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
