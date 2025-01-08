@@ -121,6 +121,7 @@ def test_vllm_with_hf():
     print(f'hf response: {tokenizer.batch_decode(response)}')
     print(f'vllm response: {tokenizer.batch_decode(vllm_output)}')
     assert torch.allclose(response, vllm_output), f'hf_response:{response} | vllm_response:{vllm_output}'
+    assert False
     print('Check Pass')
 
 
