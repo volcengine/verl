@@ -56,13 +56,12 @@ def make_reward_function(tokenizer, num_examine):
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
 
-
             # decode
             prompt = tokenizer.decode(valid_prompt_ids)
             print(f'prompt: {prompt}, valid_prompt_ids: {valid_prompt_ids}, prompt_ids: {prompt_ids}')
             response = tokenizer.decode(valid_response_ids)
             # remove bos and eos
-            prompt = prompt.replace(tokenizer.sep_token_id, '')
+            prompt = prompt.replace(tokenizer.sep_token, '')
             response = response.replace(tokenizer.eos_token, '')
             if i < num_examine:
                 print(prompt, response)
