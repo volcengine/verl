@@ -41,11 +41,12 @@ def levenshtein(s1, s2):
         for j in range(1, n + 1):
             cost = 0 if s1[i - 1] == s2[j - 1] else 1  # No cost if characters match
             dp[i][j] = min(
-                dp[i - 1][j] + 1,      # Deletion
-                dp[i][j - 1] + 1,      # Insertion
+                dp[i - 1][j] + 1,  # Deletion
+                dp[i][j - 1] + 1,  # Insertion
                 dp[i - 1][j - 1] + cost  # Substitution
             )
     return dp[m][n]
+
 
 def are_lists_similar(a, b):
     if len(a) != len(b):
