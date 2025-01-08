@@ -39,20 +39,26 @@ def make_reward_function(tokenizer, num_examine):
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
         for i in range(data.batch.batch_size[0]):
-            # extract raw prompt
-            valid_raw_prompt_length = data.batch['raw_attention_mask'][i].sum()
-            raw_prompt_ids = data.batch['raw_prompt_ids'][i]
-            valid_raw_prompt_ids = raw_prompt_ids[-valid_raw_prompt_length:]
+            data_item = data[i]  # DataProtoItem
 
+            prompt_ids = data_item.batch['prompts']
+
+            prompt_length = prompt_ids.shape[-1]
             # extract response
-            response_ids = data.batch['responses'][i]
             response_length = response_ids.shape[-1]
             response_mask = data.batch['attention_mask'][i][-response_length:]
-            valid_response_length = response_mask.sum()
+
+            # extract raw prompt
+            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+            response_ids = data_item.batch['responses']
+            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
 
+
             # decode
-            prompt = tokenizer.decode(valid_raw_prompt_ids)
+            prompt = tokenizer.decode(valid_prompt_ids)
             response = tokenizer.decode(valid_response_ids)
             # remove bos and eos
             response = response.replace(tokenizer.eos_token, '')
