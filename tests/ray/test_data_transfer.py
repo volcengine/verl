@@ -52,7 +52,7 @@ class DummyWorker(Worker):
 def test_data_transfer():
     ray.init()
     # construct resource pool
-    resource_pool = RayResourcePool([2])
+    resource_pool = RayResourcePool([8])
     cls_with_init = RayClassWithInitArgs(cls=DummyWorker)
     # construct worker group
     wg = RayWorkerGroup(resource_pool, cls_with_init)
