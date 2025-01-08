@@ -27,24 +27,45 @@ from verl.utils.torch_functional import pad_sequence_to_length
 from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
 
 
-def string_similarity(s1, s2):
-    if not s1 or not s2:
-        return 0
-    # Count matching characters
-    matches = sum(c1 == c2 for c1, c2 in zip(s1, s2))
-    # Use max length for percentage calculation
-    max_len = max(len(s1), len(s2))
-    return (matches / max_len) * 100
+def levenshtein(s1, s2):
+    m, n = len(s1), len(s2)
+    # Initialize matrix of zeros
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    # Initialize first column and first row of the matrix
+    for i in range(m + 1):
+        dp[i][0] = i  # Deletion from s1 to empty string
+    for j in range(n + 1):
+        dp[0][j] = j  # Insertion to s1 from empty string
+    # Compute the Levenshtein distance matrix
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            cost = 0 if s1[i - 1] == s2[j - 1] else 1  # No cost if characters match
+            dp[i][j] = min(
+                dp[i - 1][j] + 1,      # Deletion
+                dp[i][j - 1] + 1,      # Insertion
+                dp[i - 1][j - 1] + cost  # Substitution
+            )
+    return dp[m][n]
 
-def are_strings_similar(list1, list2, tolerance=10):
-    if len(list1) != len(list2):
+def are_lists_similar(a, b):
+    if len(a) != len(b):
+        print("The lists are of different lengths.")
         return False
-    
-    for s1, s2 in zip(list1, list2):
-        similarity = string_similarity(s1, s2)
-        if similarity < (100 - tolerance):
-            return False
-    return True
+
+    total_length = 0
+    total_diff = 0
+
+    for s1, s2 in zip(a, b):
+        max_len = max(len(s1), len(s2))
+        total_length += max_len
+        diff = levenshtein(s1, s2)
+        total_diff += diff
+        print(f"Comparing strings:\n{s1}\n{s2}\nDifference: {diff} characters\n")
+
+    percentage_difference = (total_diff / total_length) * 100
+    print(f"Total difference: {percentage_difference:.2f}%")
+
+    return percentage_difference <= 10
 
 
 def test_vllm_with_hf():
@@ -143,7 +164,7 @@ def test_vllm_with_hf():
 
     print(f'hf response: {hf_response_tokens}')
     print(f'vllm response: {vllm_response_tokens}')
-    assert are_strings_similar(hf_response_tokens, vllm_response_tokens, tolerance=10), \
+    assert are_lists_similar(hf_response_tokens, vllm_response_tokens), \
         f'Strings differ more than 10%:\n'
     print('Check Pass')
 
