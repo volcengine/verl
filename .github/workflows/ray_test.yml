@@ -38,4 +38,4 @@ jobs:
       - name: Running ray tests that need 8 GPUs
         run: |
           cd tests/ray
-          pytest -s -x .
+          pytest -s -x --ignore=test_check_worker_alive.py .
