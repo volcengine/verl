@@ -44,15 +44,15 @@ def make_reward_function(tokenizer, num_examine):
             prompt_ids = data_item.batch['prompts']
 
             prompt_length = prompt_ids.shape[-1]
-            # extract response
-            response_length = response_ids.shape[-1]
-            response_mask = data.batch['attention_mask'][i][-response_length:]
 
             # extract raw prompt
             valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
+            # extract response
             response_ids = data_item.batch['responses']
+            response_length = response_ids.shape[-1]
+            response_mask = data.batch['attention_mask'][i][-response_length:]
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
 
