@@ -65,7 +65,7 @@ class WorkerHelper:
 
     def _get_pid(self):
         return
-    
+
     def _get_actor_name(self):
         import ray
         if hasattr(ray.get_runtime_context(), "get_actor_name"):
