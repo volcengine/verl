@@ -32,7 +32,7 @@ def test_vllm_with_hf():
 
     # fill rollout config
     max_prompt_length = 16
-    max_response_length = 32
+    max_response_length = 16
 
     # Initialize model and token
     local_cache_path = '~/.cache/verl/rlhf'
@@ -43,9 +43,9 @@ def test_vllm_with_hf():
     tokenizer = AutoTokenizer.from_pretrained(local_model_path)
 
     preencode_prompts = [
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
+        "Who won the Champions League in 2019?",
+        "The founder of Apple is",
+        "What's your name",
     ]
     tokenizer.pad_token = tokenizer.eos_token
     prompts = tokenizer(preencode_prompts, return_tensors='pt', padding=True)
@@ -118,8 +118,11 @@ def test_vllm_with_hf():
     seq = output.sequences
     response = seq[:, max_prompt_length:]
 
-    print(f'hf response: {tokenizer.batch_decode(response)}')
-    print(f'vllm response: {tokenizer.batch_decode(vllm_output)}')
+    hf_response_tokens = tokenizer.batch_decode(response)
+    vllm_response_tokens = tokenizer.batch_decode(vllm_output)
+
+    print(f'hf response: {hf_response_tokens}')
+    print(f'vllm response: {vllm_response_tokens}')
     assert torch.allclose(response, vllm_output), f'hf_response:{response} | vllm_response:{vllm_output}'
     print('Check Pass')
 
