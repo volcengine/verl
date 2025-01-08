@@ -35,6 +35,7 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install -e .[test]
+          pip3 install vllm==0.5.4
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
