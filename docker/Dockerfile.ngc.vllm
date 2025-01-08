@@ -40,4 +40,4 @@ RUN MAX_JOBS=4 NINJA_FLAGS="-j4" pip3 install flash-attn==2.5.8 --no-cache-dir -
 RUN MAX_JOBS=4 NINJA_FLAGS="-j4" pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 
 # Pin wandb to v0.18 since v0.19.1 is released with ImportError
-RUN pip3 install wandb==0.18.7
+RUN pip3 install wandb==0.18.7 py-spy
