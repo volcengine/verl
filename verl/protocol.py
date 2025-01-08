@@ -498,47 +498,6 @@ class DataProto:
 
         return output
 
-    def unfold_column_chunks(self, n_split, split_keys=None):
-        """Split along the second dim into `n_split`, unfold it to the first dim (batch dim)
-        Useful in passing grouped tensors that doesn't want to be shuffled in dataset. 
-        keys not in split_keys are repeated to match the shape
-        """
-        if split_keys is None:
-            split_keys = list(self.batch.keys())
-
-        if self.batch is not None:
-            unfolded_batch = {}
-            for key in self.batch.keys():
-                if key in split_keys:
-                    shape = list(self.batch[key].shape)
-                    shape[0] = self.batch[key].shape[0] * n_split
-                    shape[1] = self.batch[key].shape[1] // n_split
-                    unfolded_batch[key] = self.batch[key].reshape(*shape)
-                else:
-                    unfolded_batch[key] = torch.repeat_interleave(self.batch[key], n_split, dim=0)
-        else:
-            unfolded_batch = None
-
-        unfolded_batch = TensorDict(
-            source=unfolded_batch,
-            batch_size=(self.batch.batch_size[0] * n_split,),
-        )
-        repeated_non_tensor_batch = {}
-        for key, val in self.non_tensor_batch.items():
-            if key in split_keys:
-                shape = list(val.shape)
-                shape[0] = val.shape[0] * n_split
-                shape[1] = val.shape[1] // n_split
-                repeated_non_tensor_batch[key] = val.reshape(*shape)
-            else:
-                repeated_non_tensor_batch[key] = np.repeat(val, n_split, axis=0)
-
-        return DataProto(
-            batch=unfolded_batch,
-            non_tensor_batch=repeated_non_tensor_batch,
-            meta_info=self.meta_info,
-        )
-
     @staticmethod
     def concat(data: List['DataProto']) -> 'DataProto':
         """Concat a list of DataProto. The batch is concatenated among dim=0.
