@@ -97,7 +97,8 @@ critic:
     kl_coef: 0.001
 
 reward_model:
-  type: function
+  strategy: fsdp
+  enable: False
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
