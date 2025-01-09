@@ -176,8 +176,8 @@ Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to l
 - Advance Usage and Extension
   - [Ray API Design Tutorial](https://verl.readthedocs.io/en/latest/advance/placement.html)
   - [Extend to other RL(HF) algorithms](https://verl.readthedocs.io/en/latest/advance/dpo_extension.html)
-  - [Add models to FSDP backend](https://verl.readthedocs.io/en/latest/advance/fsdp_extension.html)
-  - [Add models to Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
+  - [Add models with the FSDP backend](https://verl.readthedocs.io/en/latest/advance/fsdp_extension.html)
+  - [Add models with the Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
 
 
 ## Citation
@@ -201,3 +201,4 @@ Visit our [documentation](https://verl.readthedocs.io/en/latest/index.html) to l
 ## Publications Using veRL
 - [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
 - [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
+- [Process Reinforcement Through Implicit Rewards](https://github.com/PRIME-RL/PRIME/)
