@@ -29,3 +29,15 @@ RUN pip3 install --no-cache-dir vllm==0.6.3
 
 # we choose flash-attn v2.7.0 or v2.7.2 which contain pre-built wheels
 RUN pip3 install --no-cache-dir --no-build-isolation flash-attn==2.7.0.post2
+
+# install apex, set MAX_JOBS to avoid OOMs
+RUN MAX_JOBS=4 pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
+    --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
+    git+https://github.com/NVIDIA/apex
+
+# install Transformer Engine, which requires FA 2.5.8
+RUN MAX_JOBS=4 NINJA_FLAGS="-j4" pip3 install flash-attn==2.5.8 --no-cache-dir --no-build-isolation
+RUN MAX_JOBS=4 NINJA_FLAGS="-j4" pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
+
+# Pin wandb to v0.18 since v0.19.1 is released with ImportError
+RUN pip3 install wandb==0.18.7 py-spy
