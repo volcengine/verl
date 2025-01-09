@@ -27,7 +27,9 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean, prepare_input_for_rmpad
+
+from flash_attn.bert_padding import pad_input, unpad_input
 
 __all__ = ['DataParallelPPOCritic']
 
@@ -38,6 +40,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         super().__init__(config=config)
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
+        self.use_rmpad = self.config.model.get('use_rmpad', False)
+        print(f'Critic use_rmpad={self.use_rmpad}')
 
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
@@ -45,12 +49,30 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            output = self.critic_module(input_ids=micro_batch['input_ids'],
-                                        attention_mask=micro_batch['attention_mask'],
-                                        position_ids=micro_batch['position_ids'],
-                                        use_cache=False)  # prevent model thinks we are generating
-            values = output.logits
-            values = values[:, -response_length - 1:-1]
+            input_ids = micro_batch['input_ids']
+            batch, seqlen = input_ids.shape
+            attention_mask = micro_batch['attention_mask']
+            position_ids = micro_batch['position_ids']
+
+            if self.use_rmpad:
+                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(input_ids, attention_mask, position_ids)
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                output = self.critic_module(input_ids=input_ids_rmpad,
+                                            attention_mask=None,
+                                            position_ids=position_ids_rmpad,
+                                            use_cache=False)  # prevent model thinks we are generating
+                values = output.logits
+                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                # pad it back
+                values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+            else:    
+                output = self.critic_module(input_ids=input_ids,
+                                            attention_mask=attention_mask,
+                                            position_ids=position_ids,
+                                            use_cache=False)  # prevent model thinks we are generating
+                values = output.logits
+                values = values[:, -response_length - 1:-1]
             return values
 
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
