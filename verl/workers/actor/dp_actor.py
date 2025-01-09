@@ -75,7 +75,7 @@ class DataParallelPPOActor(BasePPOActor):
                 logits = output.logits / temperature
                 logits = logits[:, -response_length - 1:-1]
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
-                return logits, log_probs
+            return logits, log_probs
 
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor

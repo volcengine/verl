@@ -270,7 +270,6 @@ class ActorRolloutRefWorker(Worker):
                 optim_config=optim_config,
                 override_model_config=override_model_config,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
-                use_rmpad=use_rmpad,
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
             # get the original unwrapped module
@@ -300,14 +299,13 @@ class ActorRolloutRefWorker(Worker):
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
-                                                               use_rmpad=use_rmpad,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
             if self._is_offload_param:
                 offload_fsdp_param_and_grad(module=self.ref_module_fsdp, offload_grad=self._is_offload_grad)
 
             OmegaConf.set_struct(self.config.ref, True)
-            with open_dict(self.config.actor):
+            with open_dict(self.config.ref):
                 self.config.ref.use_rmpad = use_rmpad
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
@@ -494,17 +492,17 @@ class CriticWorker(Worker):
 
         trust_remote_code = False
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
-
+        critic_model_config.num_labels = 1
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
             setattr(critic_model_config, 'hidden_dropout', '0')
-            critic_module = AutoModelForTokenClassification.from_config(pretrained_model_name_or_path=local_path,
-                                                                 torch_dtype=torch_dtype,
-                                                                 config=critic_model_config,
-                                                                 attn_implementation='flash_attention_2',
-                                                                 trust_remote_code=trust_remote_code)
+            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                            torch_dtype=torch_dtype,
+                                                                            config=critic_model_config,
+                                                                            attn_implementation='flash_attention_2',
+                                                                            trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -682,7 +680,7 @@ class RewardModelWorker(Worker):
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
-        
+        model_config.num_labels = 1
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
 
@@ -690,9 +688,10 @@ class RewardModelWorker(Worker):
             warnings.simplefilter("ignore")
             setattr(model_config, 'classifier_dropout', 0.)
             reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                               torch_dtype=torch.bfloat16,
-                                                                               attn_implementation='flash_attention_2',
-                                                                               trust_remote_code=trust_remote_code)
+                                                                            config=model_config,
+                                                                            torch_dtype=torch.bfloat16,
+                                                                            attn_implementation='flash_attention_2',
+                                                                            trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
@@ -736,13 +735,13 @@ class RewardModelWorker(Worker):
                 reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
 
                 # pad it back
-                reward = pad_input(reward_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                rm_score = pad_input(reward_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
             else:
                 output = self.reward_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids)
-            rm_score = output.logits  # (batch_size,)
-            rm_score = rm_score.squeeze(-1)
+                rm_score = output.logits  # (batch_size, seq_len, 2)
+                rm_score = rm_score.squeeze(-1)
             return rm_score
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):

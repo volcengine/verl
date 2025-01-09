@@ -39,8 +39,8 @@ def test_hf_casual_models():
         origin_logits = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False).logits
         
         torch.testing.assert_close(masked_mean(pad_logits, attention_mask[:, :, None]), 
-                                   masked_mean(origin_logits, attention_mask[:, :, None])) , \
-                                   f'{test_case} rmpad and non-rmpad logits are not equal'
+                                   masked_mean(origin_logits, attention_mask[:, :, None]), 
+                                   msg=f'{test_case} rmpad and non-rmpad logits are not equal')
     print(f'Check pass')
 
 def test_hf_value_models():
@@ -53,6 +53,7 @@ def test_hf_value_models():
                   'Qwen/Qwen2-7B-Instruct']
     for test_case in test_cases:
         config = AutoConfig.from_pretrained(test_case)
+        config.num_labels = 1
         setattr(config, 'classifier_dropout', 0)
         setattr(config, 'hidden_dropout', 0)
         model = AutoModelForTokenClassification.from_pretrained(test_case, torch_dtype=torch.bfloat16,
@@ -82,10 +83,10 @@ def test_hf_value_models():
         pad_logits = pad_input(rmpad_logits.squeeze(0), indices, batch_size, seqlen=seqlen)
 
         torch.testing.assert_close(masked_mean(pad_logits, attention_mask[:, :, None]), 
-                                   masked_mean(origin_logits, attention_mask[:, :, None])) , \
-                                   f'{test_case} rmpad and non-rmpad logits are not equal'
+                                   masked_mean(origin_logits, attention_mask[:, :, None]),
+                                   msg=f'{test_case} rmpad and non-rmpad logits are not equal')
     print('Value model check pass')
 
 if __name__ == '__main__':
-    test_hf_casual_models()
+    # test_hf_casual_models()
     test_hf_value_models()
