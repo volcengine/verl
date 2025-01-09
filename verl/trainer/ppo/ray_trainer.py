@@ -335,7 +335,7 @@ class RayPPOTrainer(object):
             # test_batch = test_batch.to('cuda')
 
             # we only do validation on rule-based rm
-            if test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
+            if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
                 return {}
 
             test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])

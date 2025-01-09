@@ -196,6 +196,9 @@ class HFLoader(BaseModelLoader):
             raise ValueError(f"Model loader extra config is not supported for "
                              f"load format {load_config.load_format}")
 
+    def download_model(self, model_config: ModelConfig) -> None:
+        pass  # Nothing to download
+
     def _get_weights_iterator(self, actor_model: Union[PreTrainedModel, Dict]):
         if isinstance(actor_model, Dict):
             return actor_model.items()
@@ -240,6 +243,9 @@ class DTensorLoader(BaseModelLoader):
         if load_config.model_loader_extra_config:
             raise ValueError(f"Model loader extra config is not supported for "
                              f"load format {load_config.load_format}")
+
+    def download_model(self, model_config: ModelConfig) -> None:
+        pass  # Nothing to download
 
     def _get_weights_iterator(actor_model: Union[PreTrainedModel, Dict]):
         # NOTE(shengguangming) Load the weights from the actor model
