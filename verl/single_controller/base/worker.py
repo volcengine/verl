@@ -17,7 +17,7 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch, Execute
 
 
 @dataclass
@@ -179,3 +179,8 @@ class Worker(WorkerHelper):
     def execute_with_func_generator(self, func, *args, **kwargs):
         ret_proto = func(self, *args, **kwargs)
         return ret_proto
+
+    @register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.RANK_ZERO)
+    def execute_func_rank_zero(self, func, *args, **kwargs):
+        result = func(*args, **kwargs)
+        return result

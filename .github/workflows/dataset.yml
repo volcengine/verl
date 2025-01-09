@@ -1,4 +1,4 @@
-name: ray
+name: dataset
 
 on:
   # Trigger the workflow on push or pull request,
@@ -8,13 +8,13 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/ray_test.yml
+      - .github/workflows/dataset.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/ray_test.yml
+      - .github/workflows/dataset.yml
 
 jobs:
   ray:
@@ -30,7 +30,7 @@ jobs:
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           pytest -s -x tests/verl
-      - name: Running ray tests that need 2 GPUs
+      - name: Running ray test using cupy (move it to L20 when dockerfile ready)
         run: |
           cd tests/ray
-          pytest -s -x test_rvdz.py test_driverfunc_to_worker.py test_data_transfer.py test_colocated_workers.py test_check_worker_alive.py
+          pytest -s -x test_rvdz.py

@@ -4,6 +4,7 @@ datasets
 dill
 hydra-core
 numpy
+pandas
 pybind11
 ray
 tensordict<0.6
