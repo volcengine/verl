@@ -23,7 +23,7 @@ import torch
 import torch.distributed
 import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
@@ -96,6 +96,7 @@ class ActorRolloutRefWorker(Worker):
                                optim_config,
                                override_model_config,
                                enable_gradient_checkpointing=False,
+                               use_rmpad=False,
                                trust_remote_code=False):
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -128,6 +129,10 @@ class ActorRolloutRefWorker(Worker):
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
             print(f'Model config after override: {actor_model_config}')
+        
+        if use_rmpad:
+            # optimize the model using rmpad (data packing)
+            pass
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
@@ -254,6 +259,8 @@ class ActorRolloutRefWorker(Worker):
         from omegaconf import OmegaConf
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
+        use_rmpad = self.config.model.get('use_rmpad', False)
+
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:
@@ -268,6 +275,7 @@ class ActorRolloutRefWorker(Worker):
                 optim_config=optim_config,
                 override_model_config=override_model_config,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
+                use_rmpad=use_rmpad,
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
             # get the original unwrapped module
@@ -283,6 +291,8 @@ class ActorRolloutRefWorker(Worker):
         # load from checkpoint
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                self.config.actor.use_rmpad = use_rmpad
             self.actor = DataParallelPPOActor(config=self.config.actor,
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
@@ -295,12 +305,15 @@ class ActorRolloutRefWorker(Worker):
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
+                                                               use_rmpad=use_rmpad,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
             if self._is_offload_param:
                 offload_fsdp_param_and_grad(module=self.ref_module_fsdp, offload_grad=self._is_offload_grad)
 
             OmegaConf.set_struct(self.config.ref, True)
+            with open_dict(self.config.actor):
+                self.config.ref.use_rmpad = use_rmpad
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         torch.cuda.empty_cache()
@@ -487,6 +500,10 @@ class CriticWorker(Worker):
 
         trust_remote_code = False
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+
+        use_rmpad = self.config.model.get('use_rmpad', False)
+        if use_rmpad:
+            pass
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
@@ -675,6 +692,11 @@ class RewardModelWorker(Worker):
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+
+        use_rmpad = self.config.model.get('use_rmpad', False)
+        if use_rmpad:
+            pass
+        
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
 
