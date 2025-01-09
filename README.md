@@ -42,13 +42,13 @@ Below are the steps to install veRL in your environment.
 
 veRL supports various backends. Currently, the following configurations are available:
 - **FSDP** and **Megatron-LM** for training.
-- **vLLM** for rollout generation.
+- **vLLM** for rollout generation, **SGLang** support coming soon.
 
 **Training backends**
 
 We recommend using **FSDP** backend to investigate, research and prototype different models, datasets and RL algorithms. The guide for using FSDP backend can be found in [PyTorch FSDP Backend](https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html)
 
-For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM@core_v0.4.0 and we fix some internal issues of Megatron-LM. Here's the additional installation guide. The guide for using Megatron-LM backend can be found in [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/workers/megatron_workers.html)
+For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM@core_v0.4.0 with some internal patches (soon be updated to latest version directly relying on upstream Megatron-LM). The guide for using Megatron-LM backend can be found in [Megatron-LM Backend](https://verl.readthedocs.io/en/latest/workers/megatron_workers.html)
 
 ### Installation Options
 
@@ -72,7 +72,7 @@ git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
 # or install from pypi via `pip3 install verl`
 ```
 
-<details><summary> 4. Setup Megatron (optional) </summary>
+<details><summary> 3. Setup Megatron (optional) </summary>
 
 If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
 
