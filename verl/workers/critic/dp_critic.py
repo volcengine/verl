@@ -27,9 +27,9 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import masked_mean, prepare_input_for_rmpad
+from verl.utils.torch_functional import masked_mean
 
-from flash_attn.bert_padding import pad_input, unpad_input
+from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 __all__ = ['DataParallelPPOCritic']
 
@@ -55,8 +55,13 @@ class DataParallelPPOCritic(BasePPOCritic):
             position_ids = micro_batch['position_ids']
 
             if self.use_rmpad:
-                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(
-                    input_ids, attention_mask, position_ids)
+                input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
+                                                      indices).transpose(0, 1)
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.critic_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,

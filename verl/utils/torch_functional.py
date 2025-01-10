@@ -23,8 +23,7 @@ import torch.distributed
 import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import nn
-from flash_attn.bert_padding import unpad_input, pad_input, \
-                                    index_first_axis, rearrange
+
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
@@ -464,15 +463,3 @@ def get_unpad_data(attention_mask):
         cu_seqlens,
         max_seqlen_in_batch,
     )
-
-
-def prepare_input_for_rmpad(input_ids, attention_mask, position_ids):
-    input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-        input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
-    input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
-
-    # unpad the position_ids to align the rotary
-    position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
-                                          indices).transpose(0, 1)
-
-    return input_ids_rmpad, position_ids_rmpad, indices

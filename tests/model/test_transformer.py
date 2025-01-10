@@ -103,5 +103,5 @@ def test_hf_value_models():
 
 
 if __name__ == '__main__':
-    # test_hf_casual_models()
+    test_hf_casual_models()
     test_hf_value_models()
