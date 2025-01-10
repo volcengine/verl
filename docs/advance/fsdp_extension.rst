@@ -1,6 +1,6 @@
 
-Add models to FSDP backend
-===========================
+Add models with the FSDP backend
+==================================
 
 Model
 --------------------------

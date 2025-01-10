@@ -17,7 +17,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch LLaMA model."""
+"""PyTorch LLaMA model with Megatron-style acceleration."""
 
 from typing import Optional, Tuple, Union
 
@@ -26,7 +26,6 @@ import torch.utils.checkpoint
 from megatron.core import tensor_parallel
 from megatron.core import ModelParallelConfig
 from torch import nn
-from torch.nn import init
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import CausalLMOutputWithPast
@@ -482,8 +481,6 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
         """
         if self.pre_process:
-            # if torch.cuda.current_device() == 0:
-            #     print(f'rank {torch.cuda.current_device()}: input_ids shape before embedding: {input_ids.shape}')
             inputs_embeds = self.embed_tokens(input_ids)  # (1, total_nnz) -> (1, total_nnz, hidden_size)
 
             # vocab parallel embedding will not do sequence parallel reduce-scatter in open source megatron
@@ -493,8 +490,6 @@ class ParallelLlamaModelRmPadPP(nn.Module):
             if self.megatron_config.sequence_parallel:
                 inputs_embeds = tensor_parallel.scatter_to_sequence_parallel_region(inputs_embeds)
 
-            # if torch.cuda.current_device() == 0:
-            #     print(f'rank {torch.cuda.current_device()}: input_embeds shape after embedding: {inputs_embeds.shape}')
             hidden_states = inputs_embeds
         else:
             # self.hidden_states should be passed by Megatron
@@ -558,9 +553,9 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
     def _forward_head(self, hidden_states):
         # all_gather from sequence parallel region is performed inside lm_head
-        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = {self.config.vocab_size}') # [4, 32, 4096]
+        # logits shape before forward_head hidden_states.shape: [4, 32, 4096]
         logits = self.lm_head(hidden_states)[0]
-        # print(f'logits shape after forward_head: {logits.shape}') # [8, 32, 8]
+        # logits shape after forward_head logits.shape: [8, 32, 8]
         logits = logits.float()  # (total_nnz_padded, 1, vocab_size // tp)
         return logits
 
@@ -588,7 +583,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         # remove padding here
         input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(input_ids.unsqueeze(dim=-1),
                                                                                 attention_mask)  # (total_nnz, 1)
-        # print(f'input_ids.shape = {input_ids.shape}, input_ids_rmpad.shape = {input_ids_rmpad.shape}, indices.shape = {indices.shape}, cu_seqlens[-1] = {cu_seqlens[-1]}')
+
         # pad input_ids to multiple of tp for all tp ranks
         # TODO: for better performance, the sp padding should be removed at each layer. Not sure the performance gap
         if self.megatron_config.sequence_parallel:
@@ -607,7 +602,6 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
             hidden_states = outputs
             # print(f'hidden_states.shape = {hidden_states.shape}') # torch.Size([4, 32, 4096])
             logits = self._forward_head(hidden_states)
-            # print(f'logits.shape = {logits.shape}')
             logits = torch.squeeze(logits, dim=1)  # remove the artificial batch dimension # torch.Size([8, 32, 16])
 
             # remove padding from sequence parallel
@@ -615,7 +609,6 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
                 totol_nnz = cu_seqlens[-1]
                 logits = logits[:totol_nnz]  # (total_nnz_padded)
             # add removed padding back. If input is already rmpad, we let the caller pad_input
-            # print(f'logits.shape = {logits.shape}, indices.shape = {indices.shape}, batch_size = {batch_size}, seq_len = {sequence_length}')
             logits = pad_input(logits, indices, batch_size,
                                seqlen=sequence_length)  # (batch_size, sequence_length, vocab_size)
 
