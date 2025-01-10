@@ -54,24 +54,25 @@ class DataParallelPPOActor(BasePPOActor):
             position_ids = micro_batch['position_ids']
 
             if self.use_rmpad:
-                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(input_ids, attention_mask, position_ids)
+                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(
+                    input_ids, attention_mask, position_ids)
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(input_ids=input_ids_rmpad,
-                                        attention_mask=None,
-                                        position_ids=position_ids_rmpad,
-                                        use_cache=False)  # prevent model thinks we are generating
+                                           attention_mask=None,
+                                           position_ids=position_ids_rmpad,
+                                           use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad = logits_rmpad / temperature
                 log_probs = log_probs_from_logits_response_rmpad(input_ids=input_ids,
                                                                  attention_mask=attention_mask,
                                                                  logits_rmpad=logits_rmpad,
-                                                                 response_length=response_length) # (batch, seqlen)
+                                                                 response_length=response_length)  # (batch, seqlen)
                 logits = logits_rmpad
             else:
                 output = self.actor_module(input_ids=input_ids,
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids,
-                                        use_cache=False)  # prevent model thinks we are generating
+                                           attention_mask=attention_mask,
+                                           position_ids=position_ids,
+                                           use_cache=False)  # prevent model thinks we are generating
                 logits = output.logits / temperature
                 logits = logits[:, -response_length - 1:-1]
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])

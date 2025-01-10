@@ -646,6 +646,7 @@ class CriticWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
 
+
 # TODO(sgm): we may need to extract it to dp_reward_model.py
 class RewardModelWorker(Worker):
     """
@@ -725,7 +726,8 @@ class RewardModelWorker(Worker):
             position_ids = micro_batch['position_ids']
 
             if self.use_rmpad:
-                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(input_ids, attention_mask, position_ids)
+                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(
+                    input_ids, attention_mask, position_ids)
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.reward_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,

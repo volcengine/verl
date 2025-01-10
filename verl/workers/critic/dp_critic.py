@@ -55,7 +55,8 @@ class DataParallelPPOCritic(BasePPOCritic):
             position_ids = micro_batch['position_ids']
 
             if self.use_rmpad:
-                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(input_ids, attention_mask, position_ids)
+                input_ids_rmpad, position_ids_rmpad, indices = prepare_input_for_rmpad(
+                    input_ids, attention_mask, position_ids)
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.critic_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
@@ -67,7 +68,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 # pad it back
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
                 values = values[:, -response_length - 1:-1]
-            else:    
+            else:
                 output = self.critic_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids,
