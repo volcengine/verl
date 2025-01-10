@@ -73,7 +73,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                                             position_ids=position_ids,
                                             use_cache=False)  # prevent model thinks we are generating
                 values = output.logits
-                values = values[:, -response_length - 1:-1]
+                values = values[:, -response_length - 1:-1].squeeze(-1)
             return values
 
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
