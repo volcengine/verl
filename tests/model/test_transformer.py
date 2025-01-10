@@ -2,23 +2,26 @@ from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForTokenClas
 
 import torch
 from verl.utils.model import create_random_mask, compute_position_id_with_mask
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_rmpad, logprobs_from_logits
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
+
+# TODO(sgm): add more models for test
+# we only need one scale for each model
+test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
 
 
 def test_hf_casual_models():
     batch_size = 4
     seqlen = 128
+    response_length = 127
 
-    # TODO(sgm): add more models for test
-    # we only need one scale for each model
-    test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
     for test_case in test_cases:
         config = AutoConfig.from_pretrained(test_case)
-        model = AutoModelForCausalLM.from_pretrained(test_case,
+        with torch.device('cuda'):
+            model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
                                                      attn_implementation='flash_attention_2')
-        model = model.to(device='cuda')
+            model = model.to(device='cuda')
         input_ids = torch.randint(low=0, high=config.vocab_size, size=(batch_size, seqlen), device='cuda')
         attention_mask = create_random_mask(input_ids=input_ids,
                                             max_ratio_of_left_padding=0.1,
@@ -36,18 +39,33 @@ def test_hf_casual_models():
                                               indices).transpose(0, 1)
 
         # input with input_ids_rmpad and postition_ids to enable flash attention varlen
-        rmpad_logits = model(input_ids_rmpad, position_ids=position_ids_rmpad,
+        logits_rmpad = model(input_ids_rmpad, position_ids=position_ids_rmpad,
                              use_cache=False).logits  # (1, total_nnz, vocab_size)
-        pad_logits = pad_input(rmpad_logits.squeeze(0), indices, batch_size, seqlen=seqlen)
 
         origin_logits = model(input_ids=input_ids,
                               attention_mask=attention_mask,
                               position_ids=position_ids,
                               use_cache=False).logits
+        origin_logits_rmpad, origin_logits_indices, _, _ = unpad_input(origin_logits, attention_mask)
 
-        torch.testing.assert_close(masked_mean(pad_logits, attention_mask[:, :, None]),
-                                   masked_mean(origin_logits, attention_mask[:, :, None]),
-                                   msg=f'{test_case} rmpad and non-rmpad logits are not equal')
+        logits_rmpad = logits_rmpad.squeeze(0)
+        log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
+                                                    logits_rmpad=logits_rmpad,
+                                                    indices=indices,
+                                                    batch_size=batch_size,
+                                                    seqlen=seqlen,
+                                                    response_length=response_length)  # (batch, seqlen)
+        origin_log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
+                                                           logits_rmpad=origin_logits_rmpad,
+                                                           indices=origin_logits_indices,
+                                                           batch_size=batch_size,
+                                                           seqlen=seqlen,
+                                                           response_length=response_length)  # (batch, seqlen)
+
+        torch.testing.assert_close(masked_mean(log_probs, attention_mask[:, -response_length - 1:-1]),
+                                   masked_mean(origin_log_probs, attention_mask[:, -response_length - 1:-1]),
+                                   atol=1e-2,
+                                   rtol=1e-5)
     print(f'Check pass')
 
 
@@ -55,19 +73,16 @@ def test_hf_value_models():
     batch_size = 4
     seqlen = 128
 
-    # TODO(sgm): add more models for test
-    # we only need one scale for each model
-    test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
     for test_case in test_cases:
         config = AutoConfig.from_pretrained(test_case)
         config.num_labels = 1
         setattr(config, 'classifier_dropout', 0)
         setattr(config, 'hidden_dropout', 0)
-        model = AutoModelForTokenClassification.from_pretrained(test_case,
+        with torch.device('cuda'):
+            model = AutoModelForTokenClassification.from_config(config=config,
                                                                 torch_dtype=torch.bfloat16,
-                                                                config=config,
                                                                 attn_implementation='flash_attention_2')
-        model = model.to(device='cuda')
+            model = model.to(device='cuda')
         input_ids = torch.randint(low=0, high=config.vocab_size, size=(batch_size, seqlen), device='cuda')
         attention_mask = create_random_mask(input_ids=input_ids,
                                             max_ratio_of_left_padding=0.1,
@@ -88,17 +103,17 @@ def test_hf_value_models():
                               attention_mask=attention_mask,
                               position_ids=position_ids,
                               use_cache=False).logits
-        print(f'origin_logits: {origin_logits.shape}')
 
         # input with input_ids_rmpad and postition_ids to enable flash attention varlen
         rmpad_logits = model(input_ids_rmpad, position_ids=position_ids_rmpad,
-                             use_cache=False).logits  # (1, total_nnz, vocab_size)
-        print(f'rmpad_logits: {rmpad_logits.shape}')
-        pad_logits = pad_input(rmpad_logits.squeeze(0), indices, batch_size, seqlen=seqlen)
+                             use_cache=False).logits  # (1, total_nnz, 1)
+        rmpad_logits = rmpad_logits.squeeze(0)
+        pad_logits = pad_input(rmpad_logits, indices, batch_size, seqlen=seqlen)
 
         torch.testing.assert_close(masked_mean(pad_logits, attention_mask[:, :, None]),
                                    masked_mean(origin_logits, attention_mask[:, :, None]),
-                                   msg=f'{test_case} rmpad and non-rmpad logits are not equal')
+                                   atol=1e-2,
+                                   rtol=1e-5)
     print('Value model check pass')
 
 

@@ -68,7 +68,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            position_ids=position_ids_rmpad,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                logits_rmpad = logits_rmpad / temperature
+                logits_rmpad /= temperature
                 log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
                                                             logits_rmpad=logits_rmpad,
                                                             indices=indices,

@@ -325,6 +325,7 @@ def log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad
     output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
     return output
 
+
 def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batch_size, seqlen, response_length):
     """Compute the log_probs from logits with rmpad input_ids and logits. Note that
     logits_rmpad = model(input_ids_rmpad). For each sentences, there is a shift between
@@ -339,7 +340,8 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
         response_length: int
     """
     from flash_attn.bert_padding import pad_input
-
+    input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # transpose back to [total_nnz, 1]
+    input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
     full_log_probs_rmpad = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)  # (total_nnz,)
     full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
@@ -348,6 +350,7 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
                             seqlen=seqlen)
     output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
     return output
+
 
 from transformers.generation.logits_process import (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper)
 
