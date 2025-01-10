@@ -77,6 +77,11 @@ veRL is fast with:
    advance/fsdp_extension
    advance/megatron_extension
 
+.. toctree::
+   :maxdepth: 1
+   :caption: FAQ
+
+   faq/faq
 
 Contribution
 -------------
