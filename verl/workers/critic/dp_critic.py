@@ -61,11 +61,12 @@ class DataParallelPPOCritic(BasePPOCritic):
                                             attention_mask=None,
                                             position_ids=position_ids_rmpad,
                                             use_cache=False)  # prevent model thinks we are generating
-                values = output.logits
+                values_rmpad = output.logits
                 values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
 
                 # pad it back
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                values = values[:, -response_length - 1:-1]
             else:    
                 output = self.critic_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
