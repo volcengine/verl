@@ -29,7 +29,7 @@ _RMPAD_MODELS = {
 }
 
 
-def if_support_rmpad(model_archs: List[str]):
+def check_model_support_rmpad(model_archs: List[str]):
     if isinstance(model_archs, list):
         for model_arch in model_archs:
             if model_arch in _RMPAD_MODELS.keys():

@@ -121,8 +121,8 @@ class ActorRolloutRefWorker(Worker):
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
 
         if use_rmpad:
-            from verl.models.registry import if_support_rmpad
-            if_support_rmpad(actor_model_config.architectures)
+            from verl.models.registry import check_model_support_rmpad
+            check_model_support_rmpad(actor_model_config.architectures)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -503,8 +503,8 @@ class CriticWorker(Worker):
 
         use_rmpad = config.model.get('use_rmpad', False)
         if use_rmpad:
-            from verl.models.registry import if_support_rmpad
-            if_support_rmpad(critic_model_config.architectures)
+            from verl.models.registry import check_model_support_rmpad
+            check_model_support_rmpad(critic_model_config.architectures)
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
@@ -760,7 +760,7 @@ class RewardModelWorker(Worker):
                 output = self.reward_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids)
-                rm_score = output.logits  # (batch_size, seq_len, 2)
+                rm_score = output.logits  # (batch_size, seq_len, 1)
                 rm_score = rm_score.squeeze(-1)
             return rm_score
 
