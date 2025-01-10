@@ -334,9 +334,11 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
     for large vocab_size
     
     Args:
-        input_ids: [batch_size, seqlen]
-        attention_mask: [batch_size, seqlen]
+        input_ids_rmpad: [1, total_nnz]
         logits_rmpad: [total_nnz, vocab_size]
+        indices: [total_nnz]
+        batch_size: int
+        seqlen: int
         response_length: int
     """
     from flash_attn.bert_padding import pad_input
