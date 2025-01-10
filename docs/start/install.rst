@@ -10,7 +10,15 @@ Requirements
 veRL supports various backends. Currently, the following configurations are available:
 
 - **FSDP** and **Megatron-LM** (optional) for training.
-- **vLLM** for rollout generation, **SGLang** support coming soon.
+- **vLLM** adn **TGI** for rollout generation, **SGLang** support coming soon.
+
+Training backends
+------------------
+
+We recommend using **FSDP** backend to investigate, research and prototype different models, datasets and RL algorithms. The guide for using FSDP backend can be found in `PyTorch FSDP Backend <https://verl.readthedocs.io/en/latest/workers/fsdp_workers.html>`_.
+
+For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM@core_v0.4.0 with some internal patches (soon be updated to latest version directly relying on upstream Megatron-LM). The guide for using Megatron-LM backend can be found in `Megatron-LM Backend <https://verl.readthedocs.io/en/latest/workers/megatron_workers.html>`_.
+
 
 Install from docker image
 -------------------------
@@ -102,8 +110,7 @@ found in :doc:`FSDP Workers<../workers/fsdp_workers>`.
    pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
 
    # install vllm
-   pip3 install vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
-   pip3 install ray
+   pip3 install ray vllm==0.6.3 # or you can install 0.5.4, 0.4.2 and 0.3.1
 
    # flash attention 2
    pip3 install flash-attn --no-build-isolation
@@ -112,14 +119,14 @@ For users who pursue better scalability, we recommend using Megatron-LM
 backend. Please install the above dependencies first.
 
 Currently, we support Megatron-LM\@core_v0.4.0 and we fix some internal
-issues of Megatron-LM. Here's the additional installation guide.
+issues of Megatron-LM. Here's the additional installation guide (optional).
 
 The pros, cons and extension guide for using Megatron-LM backend can be
 found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
 
 .. code:: bash
 
-   # FOR Megatron-LM Backend
+   # Megatron-LM Backend (optional)
    # apex
    pip3 install -v --disable-pip-version-check --no-cache-dir --no-build-isolation \
             --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" \
@@ -128,7 +135,9 @@ found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
    # transformer engine
    pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
 
-   # megatron core v0.4.0
+   # megatron core v0.4.0: clone and apply the patch
+   # You can also get the patched Megatron code patch via
+   # git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
    cd ..
    git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
    cd Megatron-LM
