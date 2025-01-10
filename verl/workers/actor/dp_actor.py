@@ -24,7 +24,7 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, log_probs_from_logits_response_rmpad
+from verl.utils.torch_functional import logprobs_from_logits, log_probs_from_logits_all_rmpad
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -50,6 +50,7 @@ class DataParallelPPOActor(BasePPOActor):
         response_length = micro_batch['responses'].size(-1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
+            batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
@@ -68,10 +69,12 @@ class DataParallelPPOActor(BasePPOActor):
                                            use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                 logits_rmpad = logits_rmpad / temperature
-                log_probs = log_probs_from_logits_response_rmpad(input_ids=input_ids,
-                                                                 attention_mask=attention_mask,
-                                                                 logits_rmpad=logits_rmpad,
-                                                                 response_length=response_length)  # (batch, seqlen)
+                log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
+                                                            logits_rmpad=logits_rmpad,
+                                                            indices=indices,
+                                                            batch_size=batch_size,
+                                                            seqlen=seqlen,
+                                                            response_length=response_length)  # (batch, seqlen)
                 logits = logits_rmpad
             else:
                 output = self.actor_module(input_ids=input_ids,
