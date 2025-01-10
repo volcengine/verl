@@ -95,6 +95,7 @@ class ActorRolloutRefWorker(Worker):
                                fsdp_config,
                                optim_config,
                                override_model_config,
+                               use_rmpad=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False):
         from verl.utils.model import print_model_size, update_model_config
@@ -118,6 +119,10 @@ class ActorRolloutRefWorker(Worker):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+
+        if use_rmpad:
+            from verl.models.registry import if_support_rmpad
+            if_support_rmpad(actor_model_config.architectures)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -269,6 +274,7 @@ class ActorRolloutRefWorker(Worker):
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
+                use_rmpad=use_rmpad,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
@@ -299,6 +305,7 @@ class ActorRolloutRefWorker(Worker):
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
+                                                               use_rmpad=use_rmpad,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
             if self._is_offload_param:
@@ -493,6 +500,12 @@ class CriticWorker(Worker):
         trust_remote_code = False
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         critic_model_config.num_labels = 1
+
+        use_rmpad = config.model.get('use_rmpad', False)
+        if use_rmpad:
+            from verl.models.registry import if_support_rmpad
+            if_support_rmpad(critic_model_config.architectures)
+
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")

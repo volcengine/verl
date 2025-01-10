@@ -17,6 +17,32 @@ from typing import List, Optional, Type
 
 import torch.nn as nn
 
+# Supported models using HF Rmpad
+# TODO(sgm): HF may supported more than listed here, we should add more after testing
+from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
+
+_RMPAD_MODELS = {
+    'LlamaForCausalLM': LlamaConfig,
+    'MistralForCausalLM': MistralConfig,
+    'GemmaForCausalLM': GemmaConfig,
+    'Qwen2ForCausalLM': Qwen2Config
+}
+
+
+def if_support_rmpad(model_archs: List[str]):
+    if isinstance(model_archs, list):
+        for model_arch in model_archs:
+            if model_arch in _RMPAD_MODELS.keys():
+                return
+        raise ValueError(f"Model architectures {model_archs} are not supported for now. "
+                         f"RMPad supported architectures: {_RMPAD_MODELS.keys()}")
+    elif isinstance(model_archs, str):
+        if not model_archs in _RMPAD_MODELS.keys():
+            raise ValueError(f"Model architecture {model_archs} is not supported for now. "
+                             f"RMPad supported architectures: {_RMPAD_MODELS.keys()}")
+
+
+# Supported models in Megatron-LM
 # Architecture -> (module, class).
 _MODELS = {
     "LlamaForCausalLM":

@@ -5,9 +5,16 @@ from verl.utils.model import create_random_mask, compute_position_id_with_mask
 from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_rmpad, logprobs_from_logits
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
+from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
 # TODO(sgm): add more models for test
 # we only need one scale for each model
-test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
+test_configs = [
+    LlamaConfig(num_hidden_layers=1),
+    MistralConfig(num_hidden_layers=1),
+    GemmaConfig(num_hidden_layers=1),
+    Qwen2Config(num_hidden_layers=1)
+]
+# test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
 
 
 def test_hf_casual_models():
@@ -15,8 +22,8 @@ def test_hf_casual_models():
     seqlen = 128
     response_length = 127
 
-    for test_case in test_cases:
-        config = AutoConfig.from_pretrained(test_case)
+    for config in test_configs:
+        # config = AutoConfig.from_pretrained(test_case)
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
@@ -73,8 +80,8 @@ def test_hf_value_models():
     batch_size = 4
     seqlen = 128
 
-    for test_case in test_cases:
-        config = AutoConfig.from_pretrained(test_case)
+    for config in test_configs:
+        # config = AutoConfig.from_pretrained(test_case)
         config.num_labels = 1
         setattr(config, 'classifier_dropout', 0)
         setattr(config, 'hidden_dropout', 0)
