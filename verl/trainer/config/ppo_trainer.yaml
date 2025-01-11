@@ -17,6 +17,7 @@ actor_rollout_ref:
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: False
+    use_remove_padding: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -83,6 +84,7 @@ critic:
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: False
+    use_remove_padding: False
     fsdp_config:
       param_offload: False
       grad_offload: False
@@ -105,6 +107,7 @@ reward_model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
+    use_remove_padding: False
     fsdp_config:
       min_num_params: 0
       param_offload: False

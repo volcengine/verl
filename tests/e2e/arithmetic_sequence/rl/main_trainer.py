@@ -119,7 +119,7 @@ def main(config):
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
 
     # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.tokenizer_path)
     local_path = os.path.expanduser(local_path)
     # instantiate tokenizern
     tokenizer = AutoTokenizer.from_pretrained(local_path)
