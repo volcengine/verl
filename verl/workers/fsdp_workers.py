@@ -729,7 +729,6 @@ class RewardModelWorker(Worker):
         torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
-        from verl.utils.torch_functional import prepare_input_for_rmpad
         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
 
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
