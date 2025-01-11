@@ -122,7 +122,7 @@ class ActorRolloutRefWorker(Worker):
 
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(actor_model_config.architectures)
+            check_model_support_rmpad(actor_model_config.model_type)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -504,7 +504,7 @@ class CriticWorker(Worker):
         use_remove_padding = config.model.get('use_remove_padding', False)
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(critic_model_config.architectures)
+            check_model_support_rmpad(critic_model_config.model_type)
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
