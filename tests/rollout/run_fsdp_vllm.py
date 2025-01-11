@@ -127,9 +127,8 @@ def main():
     for i in range(batch_size):
         idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
     print('start generation')
-    while True:
-        outputs = llm.generate(prompt_token_ids=idx_list, sampling_params=sampling_params, use_tqdm=False)
-        vllm_output = outputs[0].cuda()
+    outputs = llm.generate(prompt_token_ids=idx_list, sampling_params=sampling_params, use_tqdm=False)
+    vllm_output = outputs[0].cuda()
     if torch.distributed.get_rank() == 0:
         print(f'hf response: {tokenizer.batch_decode(response)}')
         print(f'vllm response: {tokenizer.batch_decode(vllm_output)}')
