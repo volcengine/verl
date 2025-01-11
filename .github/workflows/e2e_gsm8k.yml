@@ -1,4 +1,4 @@
-name: e2e_gpu
+name: e2e_gsm8k
 
 on:
   # Trigger the workflow on push or pull request,
@@ -8,16 +8,16 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gpu.yml
+      - .github/workflows/e2e_gsm8k.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gpu.yml
+      - .github/workflows/e2e_gsm8k.yml
 
 jobs:
-  e2e_gpu:
+  e2e_gsm8k:
     runs-on: [self-hosted, l20-1]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -35,10 +35,9 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install -e .[test]
-      - name: Running digit completon e2e training tests on 8 L20 GPUs
+      - name: Prepare gsm8k dataset
         run: |
-          bash tests/e2e/run_ray_trainer.sh
-      - name: Running digit completon e2e training tests on 8 L20 GPUs (with rmpad)
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using gsm8k and qwen
         run: |
-          pip3 install --upgrade transformers
-          bash tests/e2e/run_ray_trainer_rmpad.sh
+          bash tests/e2e/run_qwen_gsm8k_function_rm.sh
