@@ -39,7 +39,7 @@ dependencies = [
     "pybind11",
     "ray",
     "tensordict",
-    "transformers",
+    "transformers<4.48",
     "vllm<=0.6.3",
 ]
 
