@@ -14,9 +14,11 @@ actor_rollout_ref:
   hybrid_engine: True
   model:
     path: ~/verl/tests/e2e/arithmetic_sequence/model
+    tokenizer_path: ${actor_rollout_ref.model.path}
     external_lib: tests.e2e.envs.digit_completion
     override_config: {}
     enable_gradient_checkpointing: False
+    use_remove_padding: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 200
@@ -76,6 +78,7 @@ critic:
     override_config: {}
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: False
+    use_remove_padding: False
     fsdp_config:
       param_offload: False
       grad_offload: False
@@ -104,6 +107,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     offload: False
+    use_remove_padding: False
     fsdp_config:
       min_num_params: 0
   micro_batch_size: 8

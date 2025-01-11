@@ -29,6 +29,8 @@ from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 
+from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+
 __all__ = ['DataParallelPPOCritic']
 
 
@@ -38,6 +40,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         super().__init__(config=config)
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
+        self.use_remove_padding = self.config.model.get('use_remove_padding', False)
+        print(f'Critic use_remove_padding={self.use_remove_padding}')
 
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
@@ -45,12 +49,37 @@ class DataParallelPPOCritic(BasePPOCritic):
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            output = self.critic_module(input_ids=micro_batch['input_ids'],
-                                        attention_mask=micro_batch['attention_mask'],
-                                        position_ids=micro_batch['position_ids'],
-                                        use_cache=False)  # prevent model thinks we are generating
-            values = output.logits
-            values = values[:, -response_length - 1:-1]
+            input_ids = micro_batch['input_ids']
+            batch, seqlen = input_ids.shape
+            attention_mask = micro_batch['attention_mask']
+            position_ids = micro_batch['position_ids']
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
+                                                      indices).transpose(0, 1)
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                output = self.critic_module(input_ids=input_ids_rmpad,
+                                            attention_mask=None,
+                                            position_ids=position_ids_rmpad,
+                                            use_cache=False)  # prevent model thinks we are generating
+                values_rmpad = output.logits
+                values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                # pad it back
+                values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                values = values[:, -response_length - 1:-1]
+            else:
+                output = self.critic_module(input_ids=input_ids,
+                                            attention_mask=attention_mask,
+                                            position_ids=position_ids,
+                                            use_cache=False)  # prevent model thinks we are generating
+                values = output.logits
+                values = values[:, -response_length - 1:-1].squeeze(-1)
             return values
 
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:

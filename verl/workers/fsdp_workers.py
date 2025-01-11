@@ -23,7 +23,7 @@ import torch
 import torch.distributed
 import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
@@ -95,6 +95,7 @@ class ActorRolloutRefWorker(Worker):
                                fsdp_config,
                                optim_config,
                                override_model_config,
+                               use_remove_padding=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False):
         from verl.utils.model import print_model_size, update_model_config
@@ -118,6 +119,10 @@ class ActorRolloutRefWorker(Worker):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+
+        if use_remove_padding:
+            from verl.models.registry import check_model_support_rmpad
+            check_model_support_rmpad(actor_model_config.model_type)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -254,6 +259,8 @@ class ActorRolloutRefWorker(Worker):
         from omegaconf import OmegaConf
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
+        use_remove_padding = self.config.model.get('use_remove_padding', False)
+
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:
@@ -267,6 +274,7 @@ class ActorRolloutRefWorker(Worker):
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
+                use_remove_padding=use_remove_padding,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
@@ -283,6 +291,8 @@ class ActorRolloutRefWorker(Worker):
         # load from checkpoint
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
+            with open_dict(self.config.actor):
+                self.config.actor.use_remove_padding = use_remove_padding
             self.actor = DataParallelPPOActor(config=self.config.actor,
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
@@ -295,12 +305,15 @@ class ActorRolloutRefWorker(Worker):
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
+                                                               use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
             if self._is_offload_param:
                 offload_fsdp_param_and_grad(module=self.ref_module_fsdp, offload_grad=self._is_offload_grad)
 
             OmegaConf.set_struct(self.config.ref, True)
+            with open_dict(self.config.ref):
+                self.config.ref.use_remove_padding = use_remove_padding
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         torch.cuda.empty_cache()
@@ -463,7 +476,6 @@ class CriticWorker(Worker):
         local_path = copy_local_path_from_hdfs(config.model.path)
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
-        # TODO: support loading critic weights from RM. Support using AutoModelForTokenClassification
 
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
@@ -482,22 +494,28 @@ class CriticWorker(Worker):
         torch_dtype = self.config.model.fsdp_config.get('model_dtype', 'fp32')
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        from transformers import AutoConfig, AutoModelForCausalLM
+        from transformers import AutoConfig, AutoModelForTokenClassification
         from torch import nn
 
         trust_remote_code = False
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        critic_model_config.num_labels = 1
+
+        use_remove_padding = config.model.get('use_remove_padding', False)
+        if use_remove_padding:
+            from verl.models.registry import check_model_support_rmpad
+            check_model_support_rmpad(critic_model_config.model_type)
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            critic_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                 torch_dtype=torch_dtype,
-                                                                 config=critic_model_config,
-                                                                 attn_implementation='flash_attention_2',
-                                                                 trust_remote_code=trust_remote_code)
-            critic_module.lm_head = nn.Sequential(nn.Linear(critic_model_config.hidden_size, 1, dtype=torch_dtype),
-                                                  LambdaLayer(fn=squeeze))
+            setattr(critic_model_config, 'classifier_dropout', 0.)
+            setattr(critic_model_config, 'hidden_dropout', '0')
+            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                            torch_dtype=torch_dtype,
+                                                                            config=critic_model_config,
+                                                                            attn_implementation='flash_attention_2',
+                                                                            trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -642,9 +660,10 @@ class CriticWorker(Worker):
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
 
 
+# TODO(sgm): we may need to extract it to dp_reward_model.py
 class RewardModelWorker(Worker):
     """
-    Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
+    Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
     """
 
     def __init__(self, config):
@@ -653,12 +672,12 @@ class RewardModelWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
         self.config = config
-
+        self.use_remove_padding = self.config.model.get('use_remove_padding', False)
         self.config.micro_batch_size //= torch.distributed.get_world_size()
 
     def _build_model(self, config):
         # the following line is necessary
-        from transformers import AutoModelForSequenceClassification, AutoConfig
+        from transformers import AutoModelForTokenClassification, AutoConfig
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
 
         # download the checkpoint from hdfs
@@ -675,15 +694,18 @@ class RewardModelWorker(Worker):
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        model_config.num_labels = 1
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            reward_module = AutoModelForSequenceClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                               torch_dtype=torch.bfloat16,
-                                                                               attn_implementation='flash_attention_2',
-                                                                               trust_remote_code=trust_remote_code)
+            setattr(model_config, 'classifier_dropout', 0.)
+            reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                            config=model_config,
+                                                                            torch_dtype=torch.bfloat16,
+                                                                            attn_implementation='flash_attention_2',
+                                                                            trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
@@ -707,12 +729,39 @@ class RewardModelWorker(Worker):
         torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
+        from verl.utils.torch_functional import prepare_input_for_rmpad
+        from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
+
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            output = self.reward_module(input_ids=micro_batch['input_ids'],
-                                        attention_mask=micro_batch['attention_mask'],
-                                        position_ids=micro_batch['position_ids'])
-            rm_score = output.logits  # (batch_size,)
-            rm_score = rm_score.squeeze(-1)
+            input_ids = micro_batch['input_ids']
+            batch, seqlen = input_ids.shape
+            attention_mask = micro_batch['attention_mask']
+            position_ids = micro_batch['position_ids']
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                # unpad the position_ids to align the rotary
+                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
+                                                      indices).transpose(0, 1)
+                # only pass input_ids and position_ids to enable flash_attn_varlen
+                output = self.reward_module(input_ids=input_ids_rmpad,
+                                            attention_mask=None,
+                                            position_ids=position_ids_rmpad,
+                                            use_cache=False)  # prevent model thinks we are generating
+                reward_rmpad = output.logits
+                reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
+
+                # pad it back
+                rm_score = pad_input(reward_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+            else:
+                output = self.reward_module(input_ids=input_ids,
+                                            attention_mask=attention_mask,
+                                            position_ids=position_ids)
+                rm_score = output.logits  # (batch_size, seq_len, 1)
+                rm_score = rm_score.squeeze(-1)
             return rm_score
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
