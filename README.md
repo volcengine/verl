@@ -37,9 +37,9 @@ veRL is fast with:
 - **FSDP** and **Megatron-LM** for training.
 - **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
 - huggingface models support
-- Supervised fine tuning
+- Supervised fine-tuning
 - Reward model training
-- Reinforcement learning from humanf eedback with PPO
+- Reinforcement learning from human feedback with PPO
 - flash-attention integration, sequence packing
 - scales up to 70B models and hundreds of GPUs
 - experiment tracking with wandb and mlflow
