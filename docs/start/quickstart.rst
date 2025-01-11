@@ -135,8 +135,6 @@ If you encounter out of memory issues with HBM less than 32GB, enable the follow
 
     actor_rollout_ref.actor.ppo_micro_batch_size=1 \
     critic.ppo_micro_batch_size=1 \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    critic.model.fsdp_config.optimizer_offload=True \
 
 For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
 

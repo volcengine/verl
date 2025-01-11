@@ -77,13 +77,18 @@ veRL is fast with:
    advance/fsdp_extension
    advance/megatron_extension
 
+.. toctree::
+   :maxdepth: 1
+   :caption: FAQ
+
+   faq/faq
 
 Contribution
 -------------
 
 veRL is free software; you can redistribute it and/or modify it under the terms
 of the Apache License 2.0. We welcome contributions.
-Join us on `GitHub <https://github.com/volcengine/verl>`_ and `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ for discussions.
+Join us on `GitHub <https://github.com/volcengine/verl>`_, `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ and `Wechat <https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG>`_ for discussions.
 
 Code formatting
 ^^^^^^^^^^^^^^^^^^^^^^^^
