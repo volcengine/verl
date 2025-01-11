@@ -95,7 +95,7 @@ class ActorRolloutRefWorker(Worker):
                                fsdp_config,
                                optim_config,
                                override_model_config,
-                               use_rmpad=False,
+                               use_remove_padding=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False):
         from verl.utils.model import print_model_size, update_model_config
@@ -120,7 +120,7 @@ class ActorRolloutRefWorker(Worker):
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
 
-        if use_rmpad:
+        if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(actor_model_config.architectures)
 
@@ -259,7 +259,7 @@ class ActorRolloutRefWorker(Worker):
         from omegaconf import OmegaConf
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
-        use_rmpad = self.config.model.get('use_rmpad', False)
+        use_remove_padding = self.config.model.get('use_remove_padding', False)
 
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -274,7 +274,7 @@ class ActorRolloutRefWorker(Worker):
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
-                use_rmpad=use_rmpad,
+                use_remove_padding=use_remove_padding,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
@@ -292,7 +292,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
             with open_dict(self.config.actor):
-                self.config.actor.use_rmpad = use_rmpad
+                self.config.actor.use_remove_padding = use_remove_padding
             self.actor = DataParallelPPOActor(config=self.config.actor,
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
@@ -305,7 +305,7 @@ class ActorRolloutRefWorker(Worker):
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
-                                                               use_rmpad=use_rmpad,
+                                                               use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
             if self._is_offload_param:
@@ -313,7 +313,7 @@ class ActorRolloutRefWorker(Worker):
 
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
-                self.config.ref.use_rmpad = use_rmpad
+                self.config.ref.use_remove_padding = use_remove_padding
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         torch.cuda.empty_cache()
@@ -501,8 +501,8 @@ class CriticWorker(Worker):
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         critic_model_config.num_labels = 1
 
-        use_rmpad = config.model.get('use_rmpad', False)
-        if use_rmpad:
+        use_remove_padding = config.model.get('use_remove_padding', False)
+        if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(critic_model_config.architectures)
 
@@ -672,7 +672,7 @@ class RewardModelWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
         self.config = config
-        self.use_rmpad = self.config.model.get('use_rmpad', False)
+        self.use_remove_padding = self.config.model.get('use_remove_padding', False)
         self.config.micro_batch_size //= torch.distributed.get_world_size()
 
     def _build_model(self, config):
@@ -738,7 +738,7 @@ class RewardModelWorker(Worker):
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
-            if self.use_rmpad:
+            if self.use_remove_padding:
                 input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)

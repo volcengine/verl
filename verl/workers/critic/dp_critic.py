@@ -40,8 +40,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         super().__init__(config=config)
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
-        self.use_rmpad = self.config.model.get('use_rmpad', False)
-        print(f'Critic use_rmpad={self.use_rmpad}')
+        self.use_remove_padding = self.config.model.get('use_remove_padding', False)
+        print(f'Critic use_remove_padding={self.use_remove_padding}')
 
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
@@ -54,7 +54,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
-            if self.use_rmpad:
+            if self.use_remove_padding:
                 input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)

@@ -43,8 +43,8 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
-        self.use_rmpad = self.config.get('use_rmpad', False)
-        print(f'Actor use_rmpad={self.use_rmpad}')
+        self.use_remove_padding = self.config.get('use_remove_padding', False)
+        print(f'Actor use_remove_padding={self.use_remove_padding}')
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
         response_length = micro_batch['responses'].size(-1)
@@ -54,7 +54,7 @@ class DataParallelPPOActor(BasePPOActor):
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
-            if self.use_rmpad:
+            if self.use_remove_padding:
                 input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
                     input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
@@ -178,7 +178,7 @@ class DataParallelPPOActor(BasePPOActor):
                                                                               eos_mask=response_mask,
                                                                               cliprange=clip_ratio)
                 # compute entropy loss
-                if self.use_rmpad:
+                if self.use_remove_padding:
                     full_response_mask = attention_mask.clone()
                     full_response_mask[:, :-response_length] = 0  # set the prompt part to zero
                     full_response_mask_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
