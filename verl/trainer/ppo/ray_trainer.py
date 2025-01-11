@@ -27,6 +27,7 @@ import numpy as np
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 from verl import DataProto
+from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
@@ -308,7 +309,7 @@ class RayPPOTrainer(object):
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=self.config.data.val_batch_size,
+                                         batch_size=len(self.val_dataset),
                                          shuffle=True,
                                          drop_last=True,
                                          collate_fn=collate_fn)
@@ -347,7 +348,11 @@ class RayPPOTrainer(object):
                 'validate': True,
             }
 
-            test_output_gen_batch = self.actor_rollout_wg.generate_sequences(test_gen_batch)
+            # pad to be divisible by dp_size
+            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
+            test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            # unpad
+            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
 
             test_batch = test_batch.union(test_output_gen_batch)

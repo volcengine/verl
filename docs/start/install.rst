@@ -1,7 +1,64 @@
 Installation
 ============
 
-To install the veRL, we recommend using conda:
+Requirements
+------------
+
+- **Python**: Version >= 3.9
+- **CUDA**: Version >= 12.1
+
+veRL supports various backends. Currently, the following configurations are available:
+
+- **FSDP** and **Megatron-LM** (optional) for training.
+- **vLLM** for rollout generation, **SGLang** support coming soon.
+
+Install from docker image
+-------------------------
+
+We provide pre-built Docker images for quick setup.
+
+Image and tag: ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3``. See files under ``docker/`` if you want to build your own image.
+
+1. Launch the desired Docker image:
+
+.. code:: bash
+
+    docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
+
+
+2.	Inside the container, install veRL:
+
+.. code:: bash
+
+    # install the nightly version (recommended)
+    git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+    # or install from pypi via `pip3 install verl`
+
+
+3. Setup Megatron (optional)
+
+If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
+
+.. code:: bash
+
+    cd ..
+    git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+    cp verl/patches/megatron_v4.patch Megatron-LM/
+    cd Megatron-LM && git apply megatron_v4.patch
+    pip3 install -e .
+    export PYTHONPATH=$PYTHONPATH:$(pwd)
+
+
+You can also get the Megatron code after verl's patch via
+
+.. code:: bash
+
+    git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+
+Install from custom environment
+---------------------------------
+
+To manage environment, we recommend using conda:
 
 .. code:: bash
 

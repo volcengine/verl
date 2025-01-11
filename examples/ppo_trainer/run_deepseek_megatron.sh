@@ -28,4 +28,5 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.total_epochs=15 $@
+    trainer.total_epochs=15 \
+    +trainer.val_before_train=False $@
