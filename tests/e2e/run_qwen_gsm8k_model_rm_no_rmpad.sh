@@ -10,7 +10,7 @@ python3 -m verl.trainer.main_ppo \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size=32 \
@@ -24,7 +24,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size=128 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     critic.optim.lr=1e-5 \
-    critic.model.use_remove_padding=True \
+    critic.model.use_remove_padding=False \
     critic.optim.lr_warmup_steps_ratio=0.05 \
     critic.model.path=Qwen/Qwen2.5-0.5B \
     critic.model.enable_gradient_checkpointing=False \
@@ -34,7 +34,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
     reward_model.model.path=Qwen/Qwen2.5-0.5B\
-    reward_model.model.use_remove_padding=True \
+    reward_model.model.use_remove_padding=False \
     reward_model.model.fsdp_config.param_offload=True \
     reward_model.micro_batch_size=16 \
     algorithm.kl_ctrl.kl_coef=0.001 \

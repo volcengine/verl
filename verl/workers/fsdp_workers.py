@@ -733,7 +733,7 @@ class RewardModelWorker(Worker):
 
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
-            batch, seqlen = input_ids.shape
+            batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
@@ -754,13 +754,17 @@ class RewardModelWorker(Worker):
                 reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
 
                 # pad it back
-                rm_score = pad_input(reward_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
+                rm_score = pad_input(reward_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
             else:
                 output = self.reward_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids)
                 rm_score = output.logits  # (batch_size, seq_len, 1)
                 rm_score = rm_score.squeeze(-1)
+
+            # extract the result of the last valid token
+            eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+            rm_score = rm_score[torch.arange(batch_size), eos_mask_idx]
             return rm_score
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
