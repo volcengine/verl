@@ -1,6 +1,8 @@
 <h1 style="text-align: center;">veRL: Volcano Engine Reinforcement Learning for LLM</h1>
 
-veRL is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs). veRL is the open-source version of [HybridFlow](https://arxiv.org/abs/2409.19256v2) paper.
+veRL is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs). 
+
+veRL is the open-source version of **[HybridFlow: A Flexible and Efficient RLHF Framework](https://arxiv.org/abs/2409.19256v2)** paper.
 
 veRL is flexible and easy to use with:
 
@@ -79,8 +81,17 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 ## Citation
 
 If you find the project helpful, please cite:
-- [HybridFlow: A Flexible and Efficient RLHF Framework]()
+- [HybridFlow: A Flexible and Efficient RLHF Framework](https://arxiv.org/abs/2409.19256v2)
 - [A Framework for Training Large Language Models for Code Generation via Proximal Policy Optimization](https://i.cs.hku.hk/~cwu/papers/gmsheng-NL2Code24.pdf)
+
+```tex
+@article{sheng2024hybridflow,
+  title   = {HybridFlow: A Flexible and Efficient RLHF Framework},
+  author  = {Guangming Sheng and Chi Zhang and Zilingfeng Ye and Xibin Wu and Wang Zhang and Ru Zhang and Yanghua Peng and Haibin Lin and Chuan Wu},
+  year    = {2024},
+  journal = {arXiv preprint arXiv: 2409.19256}
+}
+```
 
 ## Publications Using veRL
 - [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
