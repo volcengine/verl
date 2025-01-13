@@ -124,6 +124,7 @@ algorithm:
 
 trainer:
   total_epochs: 200
+  total_training_steps: null
   project_name: verl_examples
   experiment_name: arithmetic_sequences
   logger: ['console']

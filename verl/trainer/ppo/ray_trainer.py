@@ -323,6 +323,12 @@ class RayPPOTrainer(object):
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        print(f'Total training steps: {self.total_training_steps}')
+
         OmegaConf.set_struct(self.config, True)
         with open_dict(self.config):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
@@ -465,14 +471,14 @@ class RayPPOTrainer(object):
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
 
-        global_steps = 0
+        self.global_steps = 0
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
-            logger.log(data=val_metrics, step=global_steps)
+            logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
                 return
 
@@ -539,7 +545,7 @@ class RayPPOTrainer(object):
                     metrics.update(critic_output_metrics)
 
                 # implement critic warmup
-                if self.config.trainer.critic_warmup <= global_steps:
+                if self.config.trainer.critic_warmup <= self.global_steps:
                     # update actor
                     with _timer('update_actor', timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch)
@@ -547,7 +553,7 @@ class RayPPOTrainer(object):
                     metrics.update(actor_output_metrics)
 
                 # validate
-                if self.val_reward_fn is not None and (global_steps + 1) % self.config.trainer.test_freq == 0:
+                if self.val_reward_fn is not None and (self.global_steps + 1) % self.config.trainer.test_freq == 0:
                     with _timer('testing', timing_raw):
                         val_metrics: dict = self._validate()
                         val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
@@ -558,26 +564,29 @@ class RayPPOTrainer(object):
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend
-                logger.log(data=metrics, step=global_steps)
+                logger.log(data=metrics, step=self.global_steps)
 
-                if self.config.trainer.save_freq > 0 and (global_steps + 1) % self.config.trainer.save_freq == 0:
+                if self.config.trainer.save_freq > 0 and (self.global_steps + 1) % self.config.trainer.save_freq == 0:
                     actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
-                                                    f'global_step_{global_steps}')
+                                                    f'global_step_{self.global_steps}')
                     actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                         self.config.trainer.default_hdfs_dir, 'actor')
                     self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
 
                     if self.use_critic:
                         critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                                         f'global_step_{global_steps}')
+                                                         f'global_step_{self.global_steps}')
                         critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                             self.config.trainer.default_hdfs_dir, 'critic')
                         self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
-                global_steps += 1
+                self.global_steps += 1
 
-        # perform validation after training
-        if self.val_reward_fn is not None:
-            val_metrics = self._validate()
-            pprint(f'Final validation metrics: {val_metrics}')
-            logger.log(data=val_metrics, step=global_steps)
+                if self.global_steps >= self.total_training_steps:
+
+                    # perform validation after training
+                    if self.val_reward_fn is not None:
+                        val_metrics = self._validate()
+                        pprint(f'Final validation metrics: {val_metrics}')
+                        logger.log(data=val_metrics, step=self.global_steps)
+                    return
