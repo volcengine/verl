@@ -55,8 +55,8 @@ class DataParallelPPOCritic(BasePPOCritic):
             position_ids = micro_batch['position_ids']
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-                    input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                           attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary

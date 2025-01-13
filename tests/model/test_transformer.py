@@ -1,11 +1,10 @@
-from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForTokenClassification, AutoTokenizer
-
 import torch
 from verl.utils.model import create_random_mask, compute_position_id_with_mask
 from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_rmpad, logprobs_from_logits
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
 from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
+from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForSequenceClassification
 # TODO(sgm): add more models for test
 # we only need one scale for each model
 test_configs = [
@@ -14,7 +13,6 @@ test_configs = [
     GemmaConfig(num_hidden_layers=1),
     Qwen2Config(num_hidden_layers=1)
 ]
-# test_cases = ['deepseek-ai/deepseek-llm-7b-chat', 'Qwen/Qwen2-7B-Instruct']
 
 
 def test_hf_casual_models():
@@ -37,8 +35,8 @@ def test_hf_casual_models():
         position_ids = compute_position_id_with_mask(
             attention_mask)  # TODO(sgm): we can construct the position_ids_rmpad here
 
-        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-            input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+        input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
         # unpad the position_ids to align the rotary
@@ -53,7 +51,7 @@ def test_hf_casual_models():
                               attention_mask=attention_mask,
                               position_ids=position_ids,
                               use_cache=False).logits
-        origin_logits_rmpad, origin_logits_indices, _, _ = unpad_input(origin_logits, attention_mask)
+        origin_logits_rmpad, origin_logits_indices, *_ = unpad_input(origin_logits, attention_mask)
 
         logits_rmpad = logits_rmpad.squeeze(0)
         log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
@@ -98,8 +96,8 @@ def test_hf_value_models():
         position_ids = compute_position_id_with_mask(
             attention_mask)  # TODO(sgm): we can construct the position_ids_rmpad here
 
-        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-            input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+        input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
         # unpad the position_ids to align the rotary

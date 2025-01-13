@@ -323,8 +323,8 @@ class ParallelLlamaForCausalLMRmPad(nn.Module):
         batch_size, sequence_length = input_ids.shape
 
         # remove padding here
-        input_ids, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(input_ids.unsqueeze(dim=-1),
-                                                                          attention_mask)  # (total_nnz, 1)
+        input_ids, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(input_ids.unsqueeze(dim=-1),
+                                                                              attention_mask)  # (total_nnz, 1)
 
         # pad input_ids to multiple of tp for all tp ranks
         # TODO: for better performance, the sp padding should be removed at each layer. Not sure the performance gap
@@ -581,8 +581,8 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         # In the first pp, input_ids will be used, in other pp layers hidden_states will be used inside self.model
         batch_size, sequence_length = input_ids.shape
         # remove padding here
-        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(input_ids.unsqueeze(dim=-1),
-                                                                                attention_mask)  # (total_nnz, 1)
+        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(input_ids.unsqueeze(dim=-1),
+                                                                                    attention_mask)  # (total_nnz, 1)
 
         # pad input_ids to multiple of tp for all tp ranks
         # TODO: for better performance, the sp padding should be removed at each layer. Not sure the performance gap
