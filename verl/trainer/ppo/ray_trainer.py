@@ -590,9 +590,3 @@ class RayPPOTrainer(object):
                         pprint(f'Final validation metrics: {val_metrics}')
                         logger.log(data=val_metrics, step=self.global_steps)
                     return
-
-        # perform validation after training
-        if self.val_reward_fn is not None:
-            val_metrics = self._validate()
-            pprint(f'Final validation metrics: {val_metrics}')
-            logger.log(data=val_metrics, step=self.global_steps)
