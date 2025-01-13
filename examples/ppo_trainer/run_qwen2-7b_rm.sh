@@ -8,6 +8,8 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
+export VLLM_ATTENTION_BACKEND=XFORMERS # vllm + qwen2-7b with flash_attn has some issues
+
 python3 -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
@@ -41,7 +43,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.grad_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
-    reward_model.model.path=sfairXC/FsfairX-Gemma2-RM-v0.1\
+    reward_model.model.path=sfairXC/FsfairX-LLaMA3-RM-v0.1\
     reward_model.model.use_remove_padding=True \
     reward_model.model.fsdp_config.param_offload=True \
     reward_model.micro_batch_size=16 \
