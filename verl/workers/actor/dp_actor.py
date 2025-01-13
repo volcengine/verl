@@ -55,8 +55,8 @@ class DataParallelPPOActor(BasePPOActor):
             position_ids = micro_batch['position_ids']
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-                    input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                           attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 # unpad the position_ids to align the rotary
@@ -181,8 +181,8 @@ class DataParallelPPOActor(BasePPOActor):
                 if self.use_remove_padding:
                     full_response_mask = attention_mask.clone()
                     full_response_mask[:, :-response_length] = 0  # set the prompt part to zero
-                    full_response_mask_rmpad, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(
-                        full_response_mask.unsqueeze(-1), attention_mask=attention_mask)
+                    full_response_mask_rmpad, *_ = unpad_input(full_response_mask.unsqueeze(-1),
+                                                               attention_mask=attention_mask)
                     full_response_mask_rmpad = full_response_mask_rmpad.squeeze(-1)  # (total_nnz)
                     entropy_loss = core_algos.compute_entropy_loss(logits, full_response_mask_rmpad)  # (total_nnz,)
                 else:
