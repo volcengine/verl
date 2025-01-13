@@ -35,8 +35,8 @@ def test_hf_casual_models():
         position_ids = compute_position_id_with_mask(
             attention_mask)  # TODO(sgm): we can construct the position_ids_rmpad here
 
-        input_ids_rmpad, indices, *_ = unpad_input(
-            input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+        input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
         # unpad the position_ids to align the rotary
@@ -96,8 +96,8 @@ def test_hf_value_models():
         position_ids = compute_position_id_with_mask(
             attention_mask)  # TODO(sgm): we can construct the position_ids_rmpad here
 
-        input_ids_rmpad, indices, *_ = unpad_input(
-            input_ids.unsqueeze(-1), attention_mask)  # input_ids_rmpad (total_nnz, ...)
+        input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
         # unpad the position_ids to align the rotary
