@@ -18,7 +18,7 @@ on:
 
 jobs:
   e2e_digit_completion:
-    runs-on: [self-hosted, l20-1]
+    runs-on: [self-hosted, l20-0]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
