@@ -1,4 +1,4 @@
-name: e2e_gpu
+name: e2e_digit_completion
 
 on:
   # Trigger the workflow on push or pull request,
@@ -8,16 +8,16 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gpu.yml
+      - .github/workflows/e2e_digit_completion.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gpu.yml
+      - .github/workflows/e2e_digit_completion.yml
 
 jobs:
-  e2e_gpu:
+  e2e_digit_completion:
     runs-on: [self-hosted, l20-1]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -38,7 +38,3 @@ jobs:
       - name: Running digit completon e2e training tests on 8 L20 GPUs
         run: |
           bash tests/e2e/run_ray_trainer.sh
-      - name: Running digit completon e2e training tests on 8 L20 GPUs (with rmpad)
-        run: |
-          pip3 install --upgrade transformers
-          bash tests/e2e/run_ray_trainer_rmpad.sh
