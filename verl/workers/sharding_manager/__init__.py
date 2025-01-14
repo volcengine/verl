@@ -15,6 +15,7 @@
 from verl.utils.import_utils import is_vllm_available, is_megatron_core_available
 
 from .base import BaseShardingManager
+from .fsdp_ulysses import FSDPUlyssesShardingManager
 
 AllGatherPPModel = None
 
