@@ -1,4 +1,4 @@
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Tuple
 
 import torch
 from torch import Tensor
@@ -79,3 +79,45 @@ def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(0, -padding_size)
     return x[slc]
+
+def all_to_all_tensor(local_tensor: Tensor, 
+                    scatter_dim: int, 
+                    gather_dim: int, 
+                    group: Optional[dist.ProcessGroup] = None,
+                    async_op: bool = False):
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    seq_world_size = dist.get_world_size(group=group)
+    # scatter input
+    input_tensor_list = [ t for t in torch.tensor_split(local_tensor, seq_world_size, dim=scatter_dim)]
+    # gather output
+    output_tensor_list = [ torch.empty_like(input_tensor_list[0]) for _ in range(seq_world_size) ]
+    dist.all_to_all(output_tensor_list, input_tensor_list, group=group, async_op=async_op)
+    return torch.cat(output_tensor_list, dim=gather_dim)
+
+
+class SeqAllToAll(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx: Any, 
+                group: dist.ProcessGroup, 
+                local_tensor: Tensor, 
+                scatter_dim: int, 
+                gather_dim: int, 
+                async_op=False) -> Tensor:
+        ctx.group = group
+        ctx.scatter_dim = scatter_dim
+        ctx.gather_dim = gather_dim
+        ctx.async_op = async_op
+        return all_to_all_tensor(local_tensor, scatter_dim, gather_dim, group, async_op)
+
+    @staticmethod
+    def backward(ctx: Any, 
+                 *grad_outputs: Tensor
+                 ) -> Tuple[None, Tensor, None, None, None]:
+        return (
+            None,
+            all_to_all_tensor(grad_outputs[0], ctx.gather_dim, ctx.scatter_dim, ctx.group, ctx.async_op),
+            None,
+            None,
+            None,
+            None
+        )
