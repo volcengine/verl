@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Pretrain utilities."""
+import importlib
+from packaging.version import Version
 from typing import Any, Dict
 import time
 from omegaconf import DictConfig
@@ -216,7 +218,11 @@ class FakeTimers:
     """Disable All Megatron Timing with FakeTimers"""
 
     def __init__(self):
-        from megatron.timers import DummyTimer
+        megatron_version = Version(importlib.metadata.version('megatron-core'))
+        if megatron_version < Version('0.6.0'):
+            from megatron.timers import DummyTimer
+        else:
+            from megatron.core.timers import DummyTimer
         self.dummy_timer = DummyTimer()
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
