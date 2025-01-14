@@ -53,11 +53,19 @@ class ActorRolloutRefWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
 
-        # build device mesh
+        # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
         # TODO(sgm): support FSDP hybrid shard for larger model
         self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
+
+        # build device mesh for Ulysses Sequence Parallel
+        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // ulysses_sequence_parallel_size
+        if ulysses_sequence_parallel_size > 1:
+            self.ulysses_device_mesh = init_device_mesh('cuda', 
+                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_dim_names=['dp', 'sp'])
 
         self.role = role
         assert self.role in ['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']
@@ -457,6 +465,18 @@ class CriticWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
         self.config = config
+
+        # build device mesh for Ulysses Sequence Parallel
+        world_size = torch.distributed.get_world_size()
+        from torch.distributed.device_mesh import init_device_mesh
+        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // ulysses_sequence_parallel_size
+        if ulysses_sequence_parallel_size > 1:
+            self.ulysses_device_mesh = init_device_mesh('cuda', 
+                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_dim_names=['dp', 'sp'])
+
+        # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_grad = self.config.model.fsdp_config.grad_offload
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
@@ -672,6 +692,17 @@ class RewardModelWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
         self.config = config
+
+        # build device mesh for Ulysses Sequence Parallel
+        world_size = torch.distributed.get_world_size()
+        from torch.distributed.device_mesh import init_device_mesh
+        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // ulysses_sequence_parallel_size
+        if ulysses_sequence_parallel_size > 1:
+            self.ulysses_device_mesh = init_device_mesh('cuda', 
+                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_dim_names=['dp', 'sp'])
+
         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
         self.config.micro_batch_size //= torch.distributed.get_world_size()
 
