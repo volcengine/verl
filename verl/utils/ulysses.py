@@ -29,6 +29,13 @@ def get_ulysses_sequence_parallel_world_size(group: ProcessGroup = None) -> int:
     group = get_ulysses_sequence_parallel_group() if group is None else group
     return dist.get_world_size(group) if group else 1
 
+def get_ulysses_sequence_parallel_rank(group: ProcessGroup = None) -> int:
+    """
+    Get ulysses sequence parallel rank.
+    """
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    return dist.get_rank(group) if group else 0
+
 def gather_seq_scatter_heads(
     x: Tensor,
     seq_dim: int,
@@ -80,6 +87,21 @@ def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc[dim] = slice(0, -padding_size)
     return x[slc]
 
+def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: ProcessGroup = None) -> Tensor:
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    sp_world_size = dist.get_world_size(group)
+    sp_rank = get_ulysses_sequence_parallel_rank()
+    dim_size = x.size(dim)
+    # pad before slice
+    if padding and dim_size % sp_world_size:
+        padding_size = sp_world_size - (dim_size % sp_world_size)
+        x = _pad_tensor(x, dim, padding_size)
+    # slice the input tensor
+    parts = x.size(dim) // sp_world_size
+    slc = [slice(None)] * len(x.shape)
+    slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
+    return x[slc].contiguous()
+
 def all_to_all_tensor(local_tensor: Tensor, 
                     scatter_dim: int, 
                     gather_dim: int, 
@@ -121,3 +143,40 @@ class SeqAllToAll(torch.autograd.Function):
             None,
             None
         )
+
+def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor],
+                                 sp_size: int):
+    """
+    Pad and slice input_ids to be divisible by sp_size
+    Pad position_ids to be divisible by sp_size.
+
+    Note both input_ids_rmpad and position_ids_rmpad will be padded,
+    but only input_ids will be sliced.
+
+    The is the utility of pre-forward for ulysses sequence parallelism
+
+    Args:
+        input_ids_rmpad: shape of [bsz, seqlen]
+        position_ids_rmpad: shape of [bsz, seqlen], where bsz must be 1
+        sp_size (int): ulysses sequence parallelism size
+
+    Returns:
+        torch.Tensor: padded and sliced input_ids
+        torch.Tensor: padded and sliced position_ids
+        int: pad size 
+    """
+    if position_ids_rmpad is not None:
+        assert position_ids_rmpad.size(0) == 1
+        assert input_ids_rmpad.size(1) == position_ids_rmpad.size(1)
+    if sp_size <= 1:
+        return input_ids_rmpad, position_ids_rmpad, 0
+    _, total_seq_len = input_ids_rmpad.shape
+    pad_size = (sp_size - total_seq_len % sp_size) % sp_size
+    if pad_size > 0:
+        input_ids_rmpad = torch.nn.functional.pad(input_ids_rmpad, (0, pad_size), value=0)
+        if position_ids_rmpad is not None:
+            pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
+            position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
+    # we don't need to slice position ids
+    input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
+    return input_ids_rmpad, position_ids_rmpad, pad_size
