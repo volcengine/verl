@@ -10,7 +10,7 @@ from verl.models.transformers.patch import llama_forward
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
 from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
-from transformers import LlamaModel
+from transformers.models.llama.modeling_llama import LlamaAttention
 from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForSequenceClassification
 # TODO(sgm): add more models for test
 # we only need one scale for each model
@@ -36,7 +36,7 @@ def test_hf_casual_models():
 
     for config in test_configs:
         # patch before load
-        LlamaModel.forward = llama_forward
+        LlamaAttention.forward = llama_forward
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
@@ -58,13 +58,13 @@ def test_hf_casual_models():
         position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
                                               indices).transpose(0, 1)
         
-        # slice input tensor for ulysses
-        # input_ids are padded and sliced
-        # postition_ids are only padded but not sliced
-        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=get_ulysses_sequence_parallel_world_size())
-
-        # input with input_ids_rmpad and postition_ids to enable flash attention varlen
         with sharding_manager:
+            # slice input tensor for ulysses
+            # input_ids are padded and sliced
+            # postition_ids are only padded but not sliced
+            input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=get_ulysses_sequence_parallel_world_size())
+
+            # input with input_ids_rmpad and postition_ids to enable flash attention varlen
             logits_split_in_seq = model(input_ids_rmpad, position_ids=position_ids_rmpad,
                                 use_cache=False).logits  # (1, total_nnz/n, vocab_size)
 

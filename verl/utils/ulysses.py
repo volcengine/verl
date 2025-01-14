@@ -19,7 +19,6 @@ def get_ulysses_sequence_parallel_group() -> Optional[dist.ProcessGroup]:
     Get ulysses sequence parallel process group.
     """
     global _ULYSSES_SEQUENCE_PARALLEL_GROUP
-    assert _ULYSSES_SEQUENCE_PARALLEL_GROUP is not None, ("tensor model parallel group is not initialized")
     return _ULYSSES_SEQUENCE_PARALLEL_GROUP
 
 def get_ulysses_sequence_parallel_world_size(group: ProcessGroup = None) -> int:
@@ -57,7 +56,7 @@ def gather_seq_scatter_heads(
     if unpadded_dim_size and unpadded_dim_size % sp_world != 0:
         padding_size = x.size(seq_dim) - unpadded_dim_size
         x = _unpad_tensor(x, seq_dim, padding_size)
-        return x
+    return x
 
 def gather_heads_scatter_seq(x: Tensor, head_dim: int, seq_dim: int, group: ProcessGroup = None) -> Tensor:
     """
