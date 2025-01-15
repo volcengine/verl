@@ -6,11 +6,12 @@ from verl.utils.model import create_random_mask, compute_position_id_with_mask
 from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_rmpad, logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs, get_ulysses_sequence_parallel_world_size
 from verl.workers.sharding_manager import FSDPUlyssesShardingManager
-from verl.models.transformers.patch import llama_forward
+from verl.models.transformers.patch import llama_flash_attn_forward
+from verl.protocol import DataProto
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
 from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
-from transformers.models.llama.modeling_llama import LlamaAttention
+from transformers.models.llama.modeling_llama import LlamaModel, LlamaAttention, LlamaFlashAttention2
 from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForSequenceClassification
 # TODO(sgm): add more models for test
 # we only need one scale for each model
@@ -25,8 +26,8 @@ test_configs = [
 def test_hf_casual_models():
     assert torch.cuda.device_count() >= 4, "need at least 2 gpus for test"
     local_rank, rank, world_size = initialize_global_process_group()
-    sp_size = 2
-    dp_size = 4
+    sp_size = 8
+    dp_size = 1
     ulysses_device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(dp_size, sp_size), mesh_dim_names=('dp', 'sp'))
     sharding_manager = FSDPUlyssesShardingManager(ulysses_device_mesh)
 
@@ -36,12 +37,14 @@ def test_hf_casual_models():
 
     for config in test_configs:
         # patch before load
-        LlamaAttention.forward = llama_forward
+        LlamaFlashAttention2.forward = llama_flash_attn_forward
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
                                                      attn_implementation='flash_attention_2')
             model = model.to(device='cuda')
+        
+        # different rank will generate different input_ids following fsdp
         input_ids = torch.randint(low=0, high=config.vocab_size, size=(batch_size, seqlen), device='cuda')
         attention_mask = create_random_mask(input_ids=input_ids,
                                             max_ratio_of_left_padding=0.1,
@@ -50,15 +53,26 @@ def test_hf_casual_models():
         position_ids = compute_position_id_with_mask(
             attention_mask)  # TODO(sgm): we can construct the position_ids_rmpad here
 
-        input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
-                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
-        input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+        model_inputs = {
+            'input_ids': input_ids.cuda(),
+            'attention_mask': attention_mask.cuda(),
+            'position_ids': position_ids.int().cuda()
+        }
 
-        # unpad the position_ids to align the rotary
-        position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
-                                              indices).transpose(0, 1)
-        
+        model_inputs = DataProto.from_dict(model_inputs)
+
         with sharding_manager:
+            model_inputs = sharding_manager.preprocess_data(model_inputs)
+            input_ids = model_inputs.batch['input_ids']
+            position_ids = model_inputs.batch['position_ids']
+            input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+                                                   attention_mask)  # input_ids_rmpad (total_nnz, ...)
+            input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+            # unpad the position_ids to align the rotary
+            position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
+                                                indices).transpose(0, 1)
+
             # slice input tensor for ulysses
             # input_ids are padded and sliced
             # postition_ids are only padded but not sliced
