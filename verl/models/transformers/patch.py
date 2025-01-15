@@ -53,6 +53,11 @@ def llama_flash_attn_forward(
             key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
             value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
 
+
+        if torch.distributed.get_rank() == 0:
+            print(f'key_states: {key_states}')
+            print(f'key_states: {key_states.shape}')
+        
         if position_embeddings is None:
             logger.warning_once(
                 "The attention layers in this model are transitioning from computing the RoPE embeddings internally "

@@ -118,8 +118,8 @@ def all_to_all_tensor(local_tensor: Tensor,
 def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] = None, async_op: bool = False):
     group = get_ulysses_sequence_parallel_group() if group is None else group
     sp_world_size = dist.get_world_size(group=group)
-    output_shape = local_tensor.shape
-    output_shape[0] = local_tensor.shape[0] * sp_world_size
+    output_shape = list(local_tensor.shape)
+    output_shape[0] = output_shape[0] * sp_world_size
     output = torch.empty(output_shape, dtype=local_tensor.dtype, device=local_tensor.device)
     dist.all_gather_into_tensor(output, local_tensor, group=group, async_op=async_op)
     return output
@@ -201,7 +201,7 @@ def gather_outpus_and_unpad(x: Tensor,
     sp_size = get_ulysses_sequence_parallel_world_size()
     if group == None:
         return x
-    x = Gather.apply(group, x, gather_dim, grad_scaler=grad_scaler, async_op=False)
+    x = Gather.apply(group, x, gather_dim, grad_scaler)
     if unpad_dim is not None:
         assert isinstance(padding_size, int), 'padding size is not given or is not an integer'
         if padding_size == 0:
