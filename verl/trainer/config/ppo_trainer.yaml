@@ -26,7 +26,7 @@ actor_rollout_ref:
     clip_ratio: 0.2
     entropy_coeff: 0.001
     ppo_epochs: 1
-    shuffle: True
+    shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
     optim:
       lr: 1e-6

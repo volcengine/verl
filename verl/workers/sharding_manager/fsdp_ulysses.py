@@ -46,29 +46,14 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
             # so we have to change to use model-specific sp group
             self.prev_sp_group = get_ulysses_sequence_parallel_group()
             set_ulysses_sequence_parallel_group(self.device_mesh['sp'].get_group())
-            # setup seed
-            dp_rank = self.device_mesh['dp'].get_local_rank()
-            self.prev_torch_seed = torch.seed()
-            torch.manual_seed(dp_rank + self.seed_offset)
-            self.prev_torch_cuda_state = torch.cuda.get_rng_state()
-            torch.cuda.manual_seed(dp_rank + self.seed_offset)
-            self.prev_random_state = random.getstate()
-            random.seed(dp_rank + self.seed_offset)
-            self.prev_np_state = np.random.get_state()
-            np.random.seed(dp_rank + self.seed_offset)
-            self.seed_offset += 1
+            # TODO: check how to set seed for each model
 
     def __exit__(self, exc_type, exc_value, traceback):
         # restore random states
         if self.device_mesh is not None:
             # revert to previous sp group
             set_ulysses_sequence_parallel_group(self.prev_sp_group)
-            # revert to previous seed
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.manual_seed(self.prev_torch_seed)
-            torch.cuda.set_rng_state(self.prev_torch_cuda_state)
-            random.setstate(self.prev_random_state)
-            np.random.set_state(self.prev_np_state)
+            # TODO: check how to set seed for each model
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         """
