@@ -65,10 +65,10 @@ class ActorRolloutRefWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.actor.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
+            self.ulysses_device_mesh = init_device_mesh('cuda',
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
-        
+
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.role = role
@@ -259,9 +259,9 @@ class ActorRolloutRefWorker(Worker):
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
-                                                       inference_engine=rollout.inference_engine,
-                                                       model_config=self.actor_model_config,
-                                                       full_params='hf' in self.config.rollout.load_format)
+                                                               inference_engine=rollout.inference_engine,
+                                                               model_config=self.actor_model_config,
+                                                               full_params='hf' in self.config.rollout.load_format)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
@@ -362,7 +362,7 @@ class ActorRolloutRefWorker(Worker):
 
             # TODO: here, we should return all metrics
             output = DataProto(meta_info={'metrics': metrics})
-            
+
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
             output = output.to('cpu')
 
@@ -408,7 +408,7 @@ class ActorRolloutRefWorker(Worker):
                 old_log_probs = self.actor.compute_log_prob(data=output)
                 output.batch['old_log_probs'] = old_log_probs
                 output = self.ulysses_sharding_manager.postprocess_data(output)
-    
+
         output = output.to('cpu')
 
         if self._is_offload_param:
@@ -492,12 +492,12 @@ class CriticWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
+            self.ulysses_device_mesh = init_device_mesh('cuda',
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-        
+
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_grad = self.config.model.fsdp_config.grad_offload
@@ -547,7 +547,7 @@ class CriticWorker(Worker):
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(critic_model_config.model_type)
-        
+
         if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
             from verl.models.transformers.monkey_patch import apply_monkey_patch
             apply_monkey_patch(critic_model_config, verbose=True)
@@ -651,7 +651,7 @@ class CriticWorker(Worker):
             values = self.critic.compute_values(data=data)
             output = DataProto.from_dict(tensors={'values': values})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
-    
+
         output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
@@ -667,7 +667,7 @@ class CriticWorker(Worker):
                                      load_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.cuda.current_device())
-        
+
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
@@ -737,12 +737,12 @@ class RewardModelWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
+            self.ulysses_device_mesh = init_device_mesh('cuda',
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-        
+
         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
         self.config.micro_batch_size //= torch.distributed.get_world_size()
 
@@ -771,7 +771,7 @@ class RewardModelWorker(Worker):
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(model_config.model_type)
-        
+
         if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
             from verl.models.transformers.monkey_patch import apply_monkey_patch
             apply_monkey_patch(model_config, verbose=True)
@@ -833,7 +833,7 @@ class RewardModelWorker(Worker):
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
                                                                                                 position_ids_rmpad, \
                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
-                
+
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.reward_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
@@ -844,7 +844,10 @@ class RewardModelWorker(Worker):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    reward_rmpad = gather_outpus_and_unpad(reward_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    reward_rmpad = gather_outpus_and_unpad(reward_rmpad,
+                                                           gather_dim=0,
+                                                           unpad_dim=0,
+                                                           padding_size=pad_size)
 
                 # pad it back
                 rm_score = pad_input(reward_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
@@ -954,7 +957,7 @@ class RewardModelWorker(Worker):
             # Note that this is only the scores, may not be the final rewards used to train RL
             output = DataProto.from_dict(tensors={'rm_scores': token_level_scores})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
-        
+
         output = output.to('cpu')
         torch.cuda.empty_cache()
         return output

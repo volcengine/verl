@@ -7,12 +7,14 @@ from torch.distributed import ProcessGroup
 
 _ULYSSES_SEQUENCE_PARALLEL_GROUP = None
 
+
 def set_ulysses_sequence_parallel_group(group: dist.ProcessGroup):
     """
     Set ulysses sequence parallel process group.
     """
     global _ULYSSES_SEQUENCE_PARALLEL_GROUP
     _ULYSSES_SEQUENCE_PARALLEL_GROUP = group
+
 
 def get_ulysses_sequence_parallel_group() -> Optional[dist.ProcessGroup]:
     """
@@ -21,6 +23,7 @@ def get_ulysses_sequence_parallel_group() -> Optional[dist.ProcessGroup]:
     global _ULYSSES_SEQUENCE_PARALLEL_GROUP
     return _ULYSSES_SEQUENCE_PARALLEL_GROUP
 
+
 def get_ulysses_sequence_parallel_world_size(group: ProcessGroup = None) -> int:
     """
     Get ulysses sequence parallel world size.
@@ -28,12 +31,14 @@ def get_ulysses_sequence_parallel_world_size(group: ProcessGroup = None) -> int:
     group = get_ulysses_sequence_parallel_group() if group is None else group
     return dist.get_world_size(group) if group else 1
 
+
 def get_ulysses_sequence_parallel_rank(group: ProcessGroup = None) -> int:
     """
     Get ulysses sequence parallel rank.
     """
     group = get_ulysses_sequence_parallel_group() if group is None else group
     return dist.get_rank(group) if group else 0
+
 
 def gather_seq_scatter_heads(
     x: Tensor,
@@ -58,6 +63,7 @@ def gather_seq_scatter_heads(
         x = _unpad_tensor(x, seq_dim, padding_size)
     return x
 
+
 def gather_heads_scatter_seq(x: Tensor, head_dim: int, seq_dim: int, group: ProcessGroup = None) -> Tensor:
     """
     A func to sync attention result with alltoall in sequence parallel
@@ -75,16 +81,19 @@ def gather_heads_scatter_seq(x: Tensor, head_dim: int, seq_dim: int, group: Proc
         x = _pad_tensor(x, seq_dim, padding_size)
     return SeqAllToAll.apply(group, x, seq_dim, head_dim, False)
 
+
 def _pad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     shape = list(x.shape)
     shape[dim] = padding_size
     pad = torch.zeros(shape, dtype=x.dtype, device=x.device)
     return torch.cat([x, pad], dim=dim)
 
+
 def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(0, -padding_size)
     return x[slc]
+
 
 def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: ProcessGroup = None) -> Tensor:
     group = get_ulysses_sequence_parallel_group() if group is None else group
@@ -100,6 +109,7 @@ def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: Process
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
     return x[slc].contiguous()
+
 
 def all_to_all_tensor(
     local_input: Tensor,
@@ -122,6 +132,7 @@ def all_to_all_tensor(
         return wait
     return torch.cat(output_list, dim=gather_dim).contiguous()
 
+
 def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] = None, async_op: bool = False):
     group = get_ulysses_sequence_parallel_group() if group is None else group
     sp_world_size = dist.get_world_size(group=group)
@@ -131,7 +142,9 @@ def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] =
     dist.all_gather_into_tensor(output, local_tensor, group=group, async_op=async_op)
     return output
 
+
 class SeqAllToAll(torch.autograd.Function):
+
     @staticmethod
     def forward(
         ctx: Any,
@@ -162,7 +175,9 @@ class SeqAllToAll(torch.autograd.Function):
             None,
         )
 
+
 class Gather(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx: Any,
                 group: dist.ProcessGroup,
@@ -183,7 +198,7 @@ class Gather(torch.autograd.Function):
 
         local_shape = list(local_tensor.size())
         split_size = local_shape[0]
-        part_size = local_shape[gather_dim] # store original size
+        part_size = local_shape[gather_dim]  # store original size
         ctx.part_size = part_size
 
         output = all_gather_tensor(local_tensor, group, async_op)
@@ -193,16 +208,11 @@ class Gather(torch.autograd.Function):
     def backward(ctx: Any, grad_output: Tensor) -> Any:
         if ctx.grad_scaler:
             grad_output = grad_output * ctx.sp_world_size
-        return (
-            None,
-            grad_output.split(ctx.part_size, dim=ctx.gather_dim)[ctx.sp_rank].contiguous(),
-            None,
-            None,
-            None,
-            None
-        )
-    
-def gather_outpus_and_unpad(x: Tensor, 
+        return (None, grad_output.split(ctx.part_size,
+                                        dim=ctx.gather_dim)[ctx.sp_rank].contiguous(), None, None, None, None)
+
+
+def gather_outpus_and_unpad(x: Tensor,
                             gather_dim: int,
                             unpad_dim: int = None,
                             padding_size: int = 0,
@@ -219,6 +229,7 @@ def gather_outpus_and_unpad(x: Tensor,
             return x
         x = _unpad_tensor(x, unpad_dim, padding_size)
     return x
+
 
 def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor],
                                  sp_size: int):

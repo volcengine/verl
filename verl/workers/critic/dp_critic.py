@@ -65,13 +65,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                 # unpad the position_ids to align the rotary
                 position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
                                                       indices).transpose(0, 1)
-                
+
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
                                                                                                 position_ids_rmpad, \
                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
-                    
+
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.critic_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
@@ -82,7 +82,10 @@ class DataParallelPPOCritic(BasePPOCritic):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    values_rmpad = gather_outpus_and_unpad(values_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    values_rmpad = gather_outpus_and_unpad(values_rmpad,
+                                                           gather_dim=0,
+                                                           unpad_dim=0,
+                                                           padding_size=pad_size)
 
                 # pad it back
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)

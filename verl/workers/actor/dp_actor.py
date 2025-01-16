@@ -80,7 +80,10 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # gather output if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    logits_rmpad = gather_outpus_and_unpad(logits_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    logits_rmpad = gather_outpus_and_unpad(logits_rmpad,
+                                                           gather_dim=0,
+                                                           unpad_dim=0,
+                                                           padding_size=pad_size)
 
                 logits_rmpad /= temperature
                 log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=origin_input_ids_rmpad,
