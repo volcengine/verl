@@ -16,16 +16,22 @@ Apply monkey-patch function to models
 """
 
 #### Open Source Models
+#### transformers version < 4.48
 
 def apply_monkey_patch_to_llama():
     from transformers.models.llama.modeling_llama import LlamaFlashAttention2
     from verl.models.transformers.llama import llama_flash_attn_forward
     LlamaFlashAttention2.forward = llama_flash_attn_forward
 
+def apply_monkey_patch_to_qwen2():
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2FlashAttention2
+    from verl.models.transformers.qwen2 import qwen2_flash_attn_forward
+    Qwen2FlashAttention2.forward = qwen2_flash_attn_forward
+
 
 _PATCH_NAME_TO_FUNC = {
     'llama': apply_monkey_patch_to_llama,
-    # 'qwen2': apply_monkey_patch_to_qwen2,
+    'qwen2': apply_monkey_patch_to_qwen2,
 }
 
 from transformers import PretrainedConfig

@@ -9,6 +9,7 @@ from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_u
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
 from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.models.transformers.llama import llama_flash_attn_forward
+from verl.models.transformers.qwen2 import qwen2_flash_attn_forward
 from verl.protocol import DataProto
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
@@ -20,10 +21,12 @@ from transformers import AutoModelForCausalLM, AutoModelForTokenClassification
 # we only need one scale for each model
 test_configs = {
     'llama': (LlamaConfig(num_hidden_layers=2), LlamaFlashAttention2),
+    'qwen2': (Qwen2Config(num_hidden_layers=2), Qwen2FlashAttention2)
 }
 
 patches = {
-    'llama': llama_flash_attn_forward
+    'llama': llama_flash_attn_forward,
+    'qwen2': qwen2_flash_attn_forward
 }
 
 def sync_model_parameters_global(layer):
@@ -34,7 +37,7 @@ def sync_model_parameters_global(layer):
 
 def test_hf_casual_fwd():
     assert torch.cuda.device_count() >= 2, "need at least 2 gpus for test"
-    local_rank, rank, world_size = initialize_global_process_group()
+
     sp_size = 8
     dp_size = 1
     ulysses_device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(dp_size, sp_size), mesh_dim_names=('dp', 'sp'))
@@ -108,7 +111,7 @@ def test_hf_casual_fwd():
 
 def test_hf_casual_fwd_bwd():
     assert torch.cuda.device_count() >= 2, "need at least 2 gpus for test"
-    local_rank, rank, world_size = initialize_global_process_group()
+
     sp_size = 8
     dp_size = 1
     ulysses_device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(dp_size, sp_size), mesh_dim_names=('dp', 'sp'))
@@ -192,5 +195,6 @@ def test_hf_casual_fwd_bwd():
     print(f'Fwd + BWD Check pass')
 
 if __name__ == '__main__':
+    local_rank, rank, world_size = initialize_global_process_group()
     test_hf_casual_fwd()
     test_hf_casual_fwd_bwd()
