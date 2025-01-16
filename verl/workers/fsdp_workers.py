@@ -61,12 +61,12 @@ class ActorRolloutRefWorker(Worker):
         self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
 
         # build device mesh for Ulysses Sequence Parallel
-        self.ulysses_device_mesh
-        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
-        dp = world_size // ulysses_sequence_parallel_size
-        if ulysses_sequence_parallel_size > 1:
+        self.ulysses_device_mesh = None
+        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // self.ulysses_sequence_parallel_size
+        if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
                                                         mesh_dim_names=['dp', 'sp'])
         
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -135,6 +135,10 @@ class ActorRolloutRefWorker(Worker):
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(actor_model_config.model_type)
+
+        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
+            from verl.models.transformers.monkey_patch import apply_monkey_patch
+            apply_monkey_patch(actor_model_config, verbose=True)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -485,11 +489,11 @@ class CriticWorker(Worker):
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
         self.ulysses_device_mesh = None
-        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
-        dp = world_size // ulysses_sequence_parallel_size
-        if ulysses_sequence_parallel_size > 1:
+        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // self.ulysses_sequence_parallel_size
+        if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -543,6 +547,10 @@ class CriticWorker(Worker):
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(critic_model_config.model_type)
+        
+        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
+            from verl.models.transformers.monkey_patch import apply_monkey_patch
+            apply_monkey_patch(critic_model_config, verbose=True)
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
@@ -726,11 +734,11 @@ class RewardModelWorker(Worker):
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
         self.ulysses_device_mesh = None
-        ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
-        dp = world_size // ulysses_sequence_parallel_size
-        if ulysses_sequence_parallel_size > 1:
+        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        dp = world_size // self.ulysses_sequence_parallel_size
+        if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh('cuda', 
-                                                        mesh_shape=(dp, ulysses_sequence_parallel_size), 
+                                                        mesh_shape=(dp, self.ulysses_sequence_parallel_size), 
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -758,6 +766,16 @@ class RewardModelWorker(Worker):
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         model_config.num_labels = 1
+
+        use_remove_padding = config.model.get('use_remove_padding', False)
+        if use_remove_padding:
+            from verl.models.registry import check_model_support_rmpad
+            check_model_support_rmpad(model_config.model_type)
+        
+        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
+            from verl.models.transformers.monkey_patch import apply_monkey_patch
+            apply_monkey_patch(model_config, verbose=True)
+
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
 
