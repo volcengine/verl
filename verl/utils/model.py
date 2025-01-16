@@ -150,8 +150,8 @@ def create_random_mask(input_ids: torch.Tensor,
     Returns:
 
     """
-    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token < 1.
-    assert max_ratio_of_left_padding > 0 and max_ratio_of_left_padding < 1.
+    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token <= 1.
+    assert max_ratio_of_left_padding >= 0 and max_ratio_of_left_padding < 1.
     assert min_ratio_of_valid_token <= max_ratio_of_valid_token
 
     batch_size, sequence_length = input_ids.shape
