@@ -28,7 +28,8 @@ def check_model_support_rmpad(model_type: str):
     assert isinstance(model_type, str)
     if not model_type in _REOVEPAD_MODELS.keys():
         raise ValueError(f"Model architecture {model_type} is not supported for now. "
-                         f"RMPad supported architectures: {_REOVEPAD_MODELS.keys()}")
+                         f"RMPad supported architectures: {_REOVEPAD_MODELS.keys()}."
+                         f"Please set `use_remove_padding=False` in the model config.")
 
 
 # Supported models in Megatron-LM

@@ -45,5 +45,8 @@ def apply_monkey_patch(config: PretrainedConfig, verbose=True):
 
     if success_apply_monkey_patch and verbose:
         print(f'Applying monkey patch to model {config.model_type}')
+    elif not success_apply_monkey_patch:
+        raise NotImplementedError(f'Ulysses for model {config.model_type} is not implemented, \
+                                   please set `ulysses_sequence_parallel_size=1`')
 
     return success_apply_monkey_patch
