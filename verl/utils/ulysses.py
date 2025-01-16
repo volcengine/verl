@@ -101,19 +101,26 @@ def slice_input_tensor(x: Tensor, dim: int, padding: bool = True, group: Process
     slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
     return x[slc].contiguous()
 
-def all_to_all_tensor(local_tensor: Tensor, 
-                    scatter_dim: int, 
-                    gather_dim: int, 
-                    group: Optional[dist.ProcessGroup] = None,
-                    async_op: bool = False):
+def all_to_all_tensor(
+    local_input: Tensor,
+    scatter_dim: int,
+    gather_dim: int,
+    group: Optional[dist.ProcessGroup] = None,
+    async_op: bool = False,
+):
     group = get_ulysses_sequence_parallel_group() if group is None else group
-    sp_world_size = dist.get_world_size(group=group)
-    # scatter input
-    input_tensor_list = [ t for t in torch.tensor_split(local_tensor, sp_world_size, dim=scatter_dim)]
-    # gather output
-    output_tensor_list = [ torch.empty_like(input_tensor_list[0]) for _ in range(sp_world_size) ]
-    dist.all_to_all(output_tensor_list, input_tensor_list, group=group, async_op=async_op)
-    return torch.cat(output_tensor_list, dim=gather_dim)
+    seq_world_size = dist.get_world_size(group)
+    input_list = [t.contiguous() for t in torch.tensor_split(local_input, seq_world_size, scatter_dim)]
+    output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+    comm = dist.all_to_all(output_list, input_list, group=group, async_op=async_op)
+    if async_op:
+
+        def wait():
+            comm.wait()
+            return torch.cat(output_list, dim=gather_dim).contiguous()
+
+        return wait
+    return torch.cat(output_list, dim=gather_dim).contiguous()
 
 def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] = None, async_op: bool = False):
     group = get_ulysses_sequence_parallel_group() if group is None else group
@@ -126,29 +133,33 @@ def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] =
 
 class SeqAllToAll(torch.autograd.Function):
     @staticmethod
-    def forward(ctx: Any, 
-                group: dist.ProcessGroup, 
-                local_tensor: Tensor, 
-                scatter_dim: int, 
-                gather_dim: int, 
-                async_op=False) -> Tensor:
+    def forward(
+        ctx: Any,
+        group: dist.ProcessGroup,
+        local_input: Tensor,
+        scatter_dim: int,
+        gather_dim: int,
+        async_op: bool = False,
+    ) -> Tensor:
         ctx.group = group
         ctx.scatter_dim = scatter_dim
         ctx.gather_dim = gather_dim
         ctx.async_op = async_op
-        return all_to_all_tensor(local_tensor, scatter_dim, gather_dim, group, async_op)
+        return all_to_all_tensor(local_input, scatter_dim, gather_dim, group, async_op)
 
     @staticmethod
-    def backward(ctx: Any, 
-                 *grad_outputs: Tensor
-                 ) -> Tuple[None, Tensor, None, None, None]:
+    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+        if ctx.async_op:
+            input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous()
+        else:
+            input_t = grad_output[0]
         return (
             None,
-            all_to_all_tensor(grad_outputs[0], ctx.gather_dim, ctx.scatter_dim, ctx.group, ctx.async_op),
+            all_to_all_tensor(input_t, ctx.gather_dim, ctx.scatter_dim, ctx.group, False),
             None,
             None,
             None,
-            None
+            None,
         )
 
 class Gather(torch.autograd.Function):

@@ -8,8 +8,6 @@ from transformers.cache_utils import Cache
 from transformers.utils import logging
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, get_ulysses_sequence_parallel_world_size
-from dist_attn.ulysses.parallel_states import get_ulysses_sequence_parallel_world_size
-from dist_attn.ulysses.ops import gather_seq_scatter_heads, gather_heads_scatter_seq, gather_outputs
 logger = logging.get_logger(__name__)
 
 def llama_flash_attn_forward(
@@ -49,26 +47,13 @@ def llama_flash_attn_forward(
         ########## AlltoAll for Ulysses ##########
         ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
-        if torch.distributed.get_rank() == 1:
-            print(f'before alltoall key_states: {key_states[0, 0:4, :, 0]}')
-
         if ulysses_sp_size > 1:
             # (bsz, n_head, seq_len/n, head_dim) -> (bsz, n_head/n, seq_len, head_dim)
             query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
             key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
             value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
 
-        full_q_len = query_states.size(2)  # full_q_len = seq_length
-        print(f'full_q_len: {full_q_len}')
-        if torch.distributed.get_rank() == 0:
-            print(f'key_states: {key_states[0, :3, :, 0]}')
-            print(f'key_states: {key_states[0, :3, :, 0].shape}')
-            print(f'key_states: {key_states.shape}')
-
-        # if torch.distributed.get_rank() == 0:
-        #     print(f'key_states: {key_states[0, 3, :, 0]}')
-        #     print(f'key_states: {len(key_states[0, 3, :, 0])}')
-        #     print(f'key_states: {key_states.shape}')
+        full_q_len = query_states.size(2)  # full seq length
         
         if position_embeddings is None:
             logger.warning_once(
