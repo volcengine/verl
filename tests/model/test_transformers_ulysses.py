@@ -8,7 +8,7 @@ from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_r
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
 from verl.workers.sharding_manager import FSDPUlyssesShardingManager
-from verl.models.transformers.patch import llama_flash_attn_forward
+from verl.models.transformers.llama import llama_flash_attn_forward
 from verl.protocol import DataProto
 from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
 
@@ -192,5 +192,5 @@ def test_hf_casual_fwd_bwd():
     print(f'Fwd + BWD Check pass')
 
 if __name__ == '__main__':
-    # test_hf_casual_fwd()
+    test_hf_casual_fwd()
     test_hf_casual_fwd_bwd()
