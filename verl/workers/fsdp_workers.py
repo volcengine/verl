@@ -245,7 +245,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager import BaseShardingManager
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
-            sharding_manager = BaseShardingManager()
+            rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
             from verl.workers.rollout.vllm_rollout import vLLMRollout
@@ -258,13 +258,13 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage('After building vllm rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
-            sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
+            rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
                                                        inference_engine=rollout.inference_engine,
                                                        model_config=self.actor_model_config,
                                                        full_params='hf' in self.config.rollout.load_format)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
-        return rollout, sharding_manager
+        return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -314,7 +314,7 @@ class ActorRolloutRefWorker(Worker):
                                               actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
-            self.rollout, self.sharding_manager = self._build_rollout()
+            self.rollout, self.rollout_sharding_manager = self._build_rollout()
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
@@ -388,15 +388,15 @@ class ActorRolloutRefWorker(Worker):
         prompts.batch = prompts.batch.cuda()
         meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
         prompts.meta_info.update(meta_info)
-        with self.sharding_manager:
-            log_gpu_memory_usage('After entering sharding manager', logger=logger)
+        with self.rollout_sharding_manager:
+            log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
 
-            prompts = self.sharding_manager.preprocess_data(prompts)
+            prompts = self.rollout_sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
 
             log_gpu_memory_usage('After rollout generation', logger=logger)
 
-            output = self.sharding_manager.postprocess_data(output)
+            output = self.rollout_sharding_manager.postprocess_data(output)
 
         if self._is_actor and recompute_log_prob:
             # we should always recompute old_log_probs when it is HybridEngine
@@ -433,11 +433,11 @@ class ActorRolloutRefWorker(Worker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        with self.sharding_manager:
-            data = self.sharding_manager.preprocess_data(data)
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
             output = self.ref_policy.compute_log_prob(data=data)
             output = DataProto.from_dict(tensors={'ref_log_prob': output})
-            output = self.sharding_manager.postprocess_data(output)
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')
 
