@@ -12,6 +12,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size=32 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
@@ -22,6 +23,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size=128 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     critic.optim.lr=1e-5 \
+    critic.ulysses_sequence_parallel_size=2 \
     critic.model.use_remove_padding=True \
     critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
     critic.model.enable_gradient_checkpointing=False \
@@ -33,8 +35,9 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_example_gsm8k' \
-    trainer.experiment_name='deepseek_llm_7b_function_rm' \
+    trainer.experiment_name='deepseek_llm_7b_function_rm_sp2' \
     trainer.n_gpus_per_node=8 \
+    +trainer.val_before_train=False \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.total_epochs=15 $@
