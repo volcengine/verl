@@ -62,7 +62,7 @@ class ActorRolloutRefWorker(Worker):
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        self.ulysses_sequence_parallel_size = self.config.actor.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh('cuda', 

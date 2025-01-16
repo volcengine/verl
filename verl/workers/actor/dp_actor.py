@@ -46,7 +46,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer = actor_optimizer
         self.use_remove_padding = self.config.get('use_remove_padding', False)
         print(f'Actor use_remove_padding={self.use_remove_padding}')
-        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
         response_length = micro_batch['responses'].size(-1)
@@ -66,6 +66,7 @@ class DataParallelPPOActor(BasePPOActor):
                                                       indices).transpose(0, 1)
 
                 # pad and slice the inputs if sp > 1
+                origin_input_ids_rmpad = input_ids_rmpad
                 if self.ulysses_sequence_parallel_size > 1:
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
                                                                                                 position_ids_rmpad, \
@@ -82,7 +83,7 @@ class DataParallelPPOActor(BasePPOActor):
                     logits_rmpad = gather_outpus_and_unpad(logits_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
 
                 logits_rmpad /= temperature
-                log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
+                log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=origin_input_ids_rmpad,
                                                             logits_rmpad=logits_rmpad,
                                                             indices=indices,
                                                             batch_size=batch_size,
