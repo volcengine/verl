@@ -164,11 +164,12 @@ def compute_data_metrics(batch):
     returns = batch.batch['returns']
     values = batch.batch['values']
 
-    prompt_mask = batch.batch['attention_mask'][:, :-response_length].bool()
-    response_mask = batch.batch['attention_mask'][:, -response_length:].bool()
+    max_response_length = batch.batch['responses'].shape[-1]
+
+    prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
+    response_mask = batch.batch['attention_mask'][:, -max_response_length:].bool()
 
     max_prompt_length = prompt_mask.size(-1)
-    max_response_length = response_mask.shape[-1]
 
     response_info = _compute_response_info(batch)
     prompt_length = response_info['prompt_length']
@@ -535,6 +536,9 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
+        # we start from step 1
+        self.global_steps += 1
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
@@ -607,14 +611,14 @@ class RayPPOTrainer(object):
                         metrics.update(actor_output_metrics)
 
                     # validate
-                    if self.val_reward_fn is not None and (self.global_steps + 1) % self.config.trainer.test_freq == 0:
+                    if self.val_reward_fn is not None and self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                             val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and \
-                            (self.global_steps + 1) % self.config.trainer.save_freq == 0:
+                            self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
