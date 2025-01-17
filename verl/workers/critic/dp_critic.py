@@ -104,7 +104,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
                                   epochs=self.config.ppo_epochs,
-                                  dataloader_kwargs={'shuffle': self.config.shuffle})
+                                  dataloader_kwargs={'shuffle': False}) # TODO: hardcode to False
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
