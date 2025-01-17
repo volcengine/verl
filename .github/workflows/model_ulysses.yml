@@ -14,7 +14,7 @@ on:
       - .github/workflows/model.yml
 
 jobs:
-  model_ulysses:
+  generate_matrix:
     name: Generate Transformers Versions Matrix
     runs-on: [self-hosted, l20-1]
     outputs:
@@ -53,7 +53,7 @@ jobs:
                     id: set-matrix
                     run: echo "::set-output name=matrix::$(cat versions.json | jq -c '.versions')"
 
-  e2e_gpu:
+  model_ulysses:
     needs: generate_matrix
     runs-on: [self-hosted, l20-1]
     strategy:
