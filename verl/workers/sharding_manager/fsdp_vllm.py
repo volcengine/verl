@@ -81,7 +81,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # if torch.distributed.get_rank() == 0:
         # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
         
-        # important: need to manually set the random states of each tp to be identical. Otherwise, xperf_gpt will hang
+        # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
