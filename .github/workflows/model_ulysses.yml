@@ -1,0 +1,83 @@
+name: model_ulysses
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - .github/workflows/model.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - .github/workflows/model.yml
+
+jobs:
+  model_ulysses:
+    name: Generate Transformers Versions Matrix
+    runs-on: [self-hosted, l20-1]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
+
+      - name: Install Requests Library
+        run: pip install requests
+
+      - name: Generate Transformers Versions
+        id: get-versions
+        run: |
+          python -c "
+            import requests
+            import json
+
+            def get_transformers_versions():
+                url = 'https://pypi.org/pypi/transformers/json'
+                response = requests.get(url)
+                data = response.json()
+                versions = data['releases'].keys()
+                filtered_versions = sorted([v for v in versions if '4.45.0' <= v <= '4.47.1'])
+                print(json.dumps({'versions': filtered_versions}))
+
+            get_transformers_versions()
+                      " > versions.json
+
+                  - name: Set Matrix for Transformers Versions
+                    id: set-matrix
+                    run: echo "::set-output name=matrix::$(cat versions.json | jq -c '.versions')"
+
+  e2e_gpu:
+    needs: generate_matrix
+    runs-on: [self-hosted, l20-1]
+    strategy:
+      fail-fast: false
+      matrix:
+        transformers_version: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
+
+    container:
+      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      options: --gpus all --shm-size=10g
+
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Transformers Version and Dependencies
+        run: |
+          pip install -e .[test]
+          pip install transformers==${{ matrix.transformers_version }}
+
+      - name: Run Tests for Transformers v${{ matrix.transformers_version }}
+        run: pytest -s tests/model/test_transformer_ulysses.py
