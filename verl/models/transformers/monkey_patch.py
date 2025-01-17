@@ -40,6 +40,11 @@ from transformers import PretrainedConfig
 
 
 def apply_monkey_patch(config: PretrainedConfig, verbose=True):
+    if not is_transformers_version_in_range("4.45.0", "4.47.1"):
+        raise AssertionError(
+            "The installed `transformers` version doesn't support ulysses patch. "
+            "Please install a version between 4.45.0 and 4.47.1 to use this ulysses feature."
+        )
     success_apply_monkey_patch = False
     if config.model_type in _PATCH_NAME_TO_FUNC:
         _PATCH_NAME_TO_FUNC[config.model_type]()
@@ -52,3 +57,18 @@ def apply_monkey_patch(config: PretrainedConfig, verbose=True):
                                    please set `ulysses_sequence_parallel_size=1`')
 
     return success_apply_monkey_patch
+
+from functools import lru_cache
+from packaging import version
+import importlib.metadata
+
+@lru_cache()
+def is_transformers_version_in_range(min_version: str, max_version: str) -> bool:
+    try:
+        # Get the installed version of the transformers library
+        transformers_version = importlib.metadata.version("transformers")
+    except importlib.metadata.PackageNotFoundError:
+        raise ModuleNotFoundError("The `transformers` package is not installed.")
+
+    # Check if the version is within the specified range
+    return version.parse(min_version) <= version.parse(transformers_version) <= version.parse(max_version)
