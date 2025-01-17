@@ -11,7 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+"""
+Utilities for DeepSpeed Ulysses Sequence Parallelism.
+DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
+Inspired from: https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+"""
 from typing import Any, Optional, List, Tuple
 
 import torch
