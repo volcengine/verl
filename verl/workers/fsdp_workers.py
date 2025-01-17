@@ -55,15 +55,15 @@ class ActorRolloutRefWorker(Worker):
             torch.distributed.init_process_group(backend="nccl")
 
         # build device mesh for FSDP
-        self.world_size = torch.distributed.get_world_size()
+        world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
         # TODO(sgm): support FSDP hybrid shard for larger model
-        self.device_mesh = init_device_mesh('cuda', mesh_shape=(self.world_size,), mesh_dim_names=['fsdp'])
+        self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.actor.get('ulysses_sequence_parallel_size', 1)
-        dp = self.world_size // self.ulysses_sequence_parallel_size
+        dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
             self.ulysses_device_mesh = init_device_mesh('cuda',
                                                         mesh_shape=(dp, self.ulysses_sequence_parallel_size),
