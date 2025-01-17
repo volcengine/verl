@@ -32,7 +32,7 @@ def main():
 
     local_cache_path = '~/.cache/verl/rlhf'
     local_cache_path = os.path.expanduser(local_cache_path)
-    hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Meta-Llama-3-8B-Instruct'
+    hdfs_path = 'Qwen/Qwen2-7B-Instruct'
 
     from verl.utils.fs import copy_local_path_from_hdfs
     local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)

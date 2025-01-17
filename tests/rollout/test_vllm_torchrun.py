@@ -9,7 +9,7 @@ import os
 
 local_cache_path = '~/.cache/verl/rlhf'
 local_cache_path = os.path.expanduser(local_cache_path)
-hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2.5-3B-Instruct'
+hdfs_path = 'Qwen/Qwen2-7B-Instruct'
 
 from verl.utils.fs import copy_local_path_from_hdfs
 local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
@@ -27,7 +27,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 # set different `gpu_memory_utilization` and `swap_space` for different ranks,
 # to test if all ranks agree on the same kv cache configuration.
 llm = LLM(model=local_model_path,
-          tensor_parallel_size=2,
+          tensor_parallel_size=4,
           distributed_executor_backend="external_launcher",
           gpu_memory_utilization=random.uniform(0.7, 0.9),
           swap_space=random.randint(1, 4))
