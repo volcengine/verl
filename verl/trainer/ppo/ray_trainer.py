@@ -422,7 +422,7 @@ class RayPPOTrainer(object):
 
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
-            metric_dict[f'test_score/{data_source}'] = np.mean(rewards)
+            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
 
         return metric_dict
 
@@ -614,7 +614,6 @@ class RayPPOTrainer(object):
                     if self.val_reward_fn is not None and self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
-                            val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and \
