@@ -241,6 +241,11 @@ class ActorRolloutRefWorker(Worker):
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self):
+        from torch.distributed.device_mesh import init_device_mesh
+        # TODO(sgm): support FSDP hybrid shard for larger model
+        dp = self.world_size // self.config.tensor_model_parallel_size
+        rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, self.config.tensor_model_parallel_size), mesh_dim_names=['dp', 'infer_tp'])
+
         if self.config.rollout.name == 'hf':
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager import BaseShardingManager
@@ -261,7 +266,8 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
                                                                inference_engine=rollout.inference_engine,
                                                                model_config=self.actor_model_config,
-                                                               full_params='hf' in self.config.rollout.load_format)
+                                                               full_params='hf' in self.config.rollout.load_format,
+                                                               device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
