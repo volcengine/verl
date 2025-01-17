@@ -72,11 +72,19 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
                                                       indices).transpose(0, 1)
 
+                # for compute the log_prob
+                input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
+
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
                                                                                                 position_ids_rmpad, \
                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None,
+                                                                                self.ulysses_sequence_parallel_size)
+
+                input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(input_ids=input_ids_rmpad,
                                            attention_mask=None,
@@ -90,15 +98,7 @@ class DataParallelPPOActor(BasePPOActor):
                 entropy_rmpad = verl_F.entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                log_probs = log_probs_from_logits_all_rmpad(
-                    input_ids_rmpad=input_ids_rmpad,
-                    logits_rmpad=logits_rmpad,
-                    indices=indices,
-                    batch_size=batch_size,
-                    seqlen=seqlen,
-                    response_length=response_length,
-                    pad=not self.use_ulysses_sp,
-                )
+                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -111,18 +111,19 @@ class DataParallelPPOActor(BasePPOActor):
                                                                  gather_dim=0,
                                                                  unpad_dim=0,
                                                                  padding_size=pad_size)
-                    # pad back to (bsz, seqlen)
-                    full_entropy = pad_input(hidden_states=full_entropy_rmpad.unsqueeze(-1),
-                                             indices=indices,
-                                             batch=batch_size,
-                                             seqlen=seqlen)
-                    full_log_probs = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
-                                               indices=indices,
-                                               batch=batch_size,
-                                               seqlen=seqlen)
-                    # only return response part:
-                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
-                    log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
+                # pad back to (bsz, seqlen)
+                full_entropy = pad_input(hidden_states=full_entropy_rmpad.unsqueeze(-1),
+                                         indices=indices,
+                                         batch=batch_size,
+                                         seqlen=seqlen)
+                full_log_probs = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
+                                           indices=indices,
+                                           batch=batch_size,
+                                           seqlen=seqlen)
+
+                # only return response part:
+                entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,

@@ -249,8 +249,9 @@ def gather_outpus_and_unpad(x: Tensor,
     return x
 
 
-def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor],
-                                 sp_size: int):
+def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
+                                 position_ids_rmpad: Optional[torch.Tensor] = None,
+                                 sp_size: int = 1):
     """
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
