@@ -14,7 +14,7 @@
 
 import os
 import torch
-from typing import Optional, List, Union, Tuple, Unpack, Callable
+from typing import Optional, Tuple
 
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.cache_utils import Cache
