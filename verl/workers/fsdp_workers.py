@@ -954,7 +954,7 @@ class RewardModelWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
-
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
             micro_batches = rm_data.batch.split(self.config.micro_batch_size)
             output = []
             for micro_batch in micro_batches:
