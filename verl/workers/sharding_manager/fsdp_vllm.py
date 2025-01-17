@@ -33,8 +33,12 @@ logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 class FSDPVLLMShardingManager(BaseShardingManager):
 
-    def __init__(self, module: FSDP, inference_engine: LLM, model_config, full_params: bool = False,
-                 device_mesh: DeviceMesh=None):
+    def __init__(self,
+                 module: FSDP,
+                 inference_engine: LLM,
+                 model_config,
+                 full_params: bool = False,
+                 device_mesh: DeviceMesh = None):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -50,7 +54,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             FSDP.set_state_dict_type(self.module,
                                      state_dict_type=StateDictType.SHARDED_STATE_DICT,
                                      state_dict_config=ShardedStateDictConfig())
-        
+
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
         # get a random rng states
@@ -80,7 +84,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # torch.cuda.empty_cache()
         # if torch.distributed.get_rank() == 0:
         # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
-        
+
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = torch.cuda.get_rng_state()

@@ -87,53 +87,53 @@ class DataParallelPPOActor(BasePPOActor):
                 logits_rmpad /= temperature
 
                 # compute entropy
-                entropy_rmpad = verl_F.entropy_from_logits(logits_rmpad) # ((total_nnz / sp) + pad)
-                
+                entropy_rmpad = verl_F.entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                log_probs = log_probs_from_logits_all_rmpad(input_ids_rmpad=input_ids_rmpad,
-                                                            logits_rmpad=logits_rmpad,
-                                                            indices=indices,
-                                                            batch_size=batch_size,
-                                                            seqlen=seqlen,
-                                                            response_length=response_length,
-                                                            pad=not self.use_ulysses_sp,
-                                                            )
+                log_probs = log_probs_from_logits_all_rmpad(
+                    input_ids_rmpad=input_ids_rmpad,
+                    logits_rmpad=logits_rmpad,
+                    indices=indices,
+                    batch_size=batch_size,
+                    seqlen=seqlen,
+                    response_length=response_length,
+                    pad=not self.use_ulysses_sp,
+                )
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
                     # gather and unpad for the ulysses sp
                     full_log_probs_rmpad = gather_outpus_and_unpad(log_probs,
-                                                                gather_dim=0,
-                                                                unpad_dim=0,
-                                                                padding_size=pad_size)
+                                                                   gather_dim=0,
+                                                                   unpad_dim=0,
+                                                                   padding_size=pad_size)
                     full_entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
-                                                                gather_dim=0,
-                                                                unpad_dim=0,
-                                                                padding_size=pad_size)
+                                                                 gather_dim=0,
+                                                                 unpad_dim=0,
+                                                                 padding_size=pad_size)
                     # pad back to (bsz, seqlen)
                     full_entropy = pad_input(hidden_states=full_entropy_rmpad.unsqueeze(-1),
-                                            indices=indices,
-                                            batch=batch_size,
-                                            seqlen=seqlen)
+                                             indices=indices,
+                                             batch=batch_size,
+                                             seqlen=seqlen)
                     full_log_probs = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
-                                            indices=indices,
-                                            batch=batch_size,
-                                            seqlen=seqlen)
+                                               indices=indices,
+                                               batch=batch_size,
+                                               seqlen=seqlen)
                     # only return response part:
-                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1] # (bsz, response_length)
-                    log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1] # (bsz, response_length)
+                    entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
+                    log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
-            else: # not using rmpad and no ulysses sp
+            else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits = output.logits / temperature
-                logits = logits[:, -response_length - 1:-1] # (bsz, response_length)
+                logits = logits[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
-                entropy = verl_F.entropy_from_logits(logits) # (bsz, response_length)
-            
+                entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+
             return entropy, log_probs
 
     def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:

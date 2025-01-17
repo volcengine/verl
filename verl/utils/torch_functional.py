@@ -325,8 +325,13 @@ def log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad
     return output
 
 
-def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices=None, batch_size=None, 
-                                    seqlen=None, response_length=None, pad=True):
+def log_probs_from_logits_all_rmpad(input_ids_rmpad,
+                                    logits_rmpad,
+                                    indices=None,
+                                    batch_size=None,
+                                    seqlen=None,
+                                    response_length=None,
+                                    pad=True):
     """Compute the log_probs from logits with rmpad input_ids and logits. Note that
     logits_rmpad = model(input_ids_rmpad). For each sentences, there is a shift between
     logits and input_ids.
@@ -355,7 +360,7 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices=None,
         output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
         return output
     else:
-        return full_log_probs_rmpad # (total_nnz,)
+        return full_log_probs_rmpad  # (total_nnz,)
 
 
 from transformers.generation.logits_process import (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper)
