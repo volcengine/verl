@@ -40,7 +40,7 @@ dependencies = [
     "ray",
     "tensordict",
     "transformers<4.48",
-    "vllm<=0.6.3",
+    "vllm",
 ]
 
 # Optional dependencies (extras_require in setup.py)
