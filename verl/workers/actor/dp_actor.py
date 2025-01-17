@@ -103,20 +103,17 @@ class DataParallelPPOActor(BasePPOActor):
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
                     # gather and unpad for the ulysses sp
-                    full_log_probs_rmpad = gather_outpus_and_unpad(log_probs,
-                                                                   gather_dim=0,
-                                                                   unpad_dim=0,
-                                                                   padding_size=pad_size)
-                    full_entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
-                                                                 gather_dim=0,
-                                                                 unpad_dim=0,
-                                                                 padding_size=pad_size)
+                    log_probs = gather_outpus_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
+                                                            gather_dim=0,
+                                                            unpad_dim=0,
+                                                            padding_size=pad_size)
                 # pad back to (bsz, seqlen)
-                full_entropy = pad_input(hidden_states=full_entropy_rmpad.unsqueeze(-1),
+                full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
                                          indices=indices,
                                          batch=batch_size,
                                          seqlen=seqlen)
-                full_log_probs = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
+                full_log_probs = pad_input(hidden_states=log_probs.unsqueeze(-1),
                                            indices=indices,
                                            batch=batch_size,
                                            seqlen=seqlen)
