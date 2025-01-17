@@ -170,7 +170,7 @@ def compute_data_metrics(batch):
     max_prompt_length = prompt_mask.size(-1)
     max_response_length = response_mask.shape[-1]
 
-    response_info = _compute_response_info(batch)    
+    response_info = _compute_response_info(batch)
     prompt_length = response_info['prompt_length']
     response_length = response_info['response_length']
 
@@ -183,35 +183,58 @@ def compute_data_metrics(batch):
 
     metrics = {
         # score
-        'critic/score/mean': torch.mean(sequence_score).detach().item(),
-        'critic/score/max': torch.max(sequence_score).detach().item(),
-        'critic/score/min': torch.min(sequence_score).detach().item(),
+        'critic/score/mean':
+            torch.mean(sequence_score).detach().item(),
+        'critic/score/max':
+            torch.max(sequence_score).detach().item(),
+        'critic/score/min':
+            torch.min(sequence_score).detach().item(),
         # reward
-        'critic/rewards/mean': torch.mean(sequence_reward).detach().item(),
-        'critic/rewards/max': torch.max(sequence_reward).detach().item(),
-        'critic/rewards/min': torch.min(sequence_reward).detach().item(),
+        'critic/rewards/mean':
+            torch.mean(sequence_reward).detach().item(),
+        'critic/rewards/max':
+            torch.max(sequence_reward).detach().item(),
+        'critic/rewards/min':
+            torch.min(sequence_reward).detach().item(),
         # adv
-        'critic/advantages/mean': torch.mean(valid_adv).detach().item(),
-        'critic/advantages/max': torch.max(valid_adv).detach().item(),
-        'critic/advantages/min': torch.min(valid_adv).detach().item(),
+        'critic/advantages/mean':
+            torch.mean(valid_adv).detach().item(),
+        'critic/advantages/max':
+            torch.max(valid_adv).detach().item(),
+        'critic/advantages/min':
+            torch.min(valid_adv).detach().item(),
         # returns
-        'critic/returns/mean': torch.mean(valid_returns).detach().item(),
-        'critic/returns/max': torch.max(valid_returns).detach().item(),
-        'critic/returns/min': torch.min(valid_returns).detach().item(),
+        'critic/returns/mean':
+            torch.mean(valid_returns).detach().item(),
+        'critic/returns/max':
+            torch.max(valid_returns).detach().item(),
+        'critic/returns/min':
+            torch.min(valid_returns).detach().item(),
         # values
-        'critic/values/mean': torch.mean(valid_values).detach().item(),
-        'critic/values/max': torch.max(valid_values).detach().item(),
-        'critic/values/min': torch.min(valid_values).detach().item(),
+        'critic/values/mean':
+            torch.mean(valid_values).detach().item(),
+        'critic/values/max':
+            torch.max(valid_values).detach().item(),
+        'critic/values/min':
+            torch.min(valid_values).detach().item(),
         # response length
-        'response_length/mean': torch.mean(response_length).detach().item(),
-        'response_length/max': torch.max(response_length).detach().item(),
-        'response_length/min': torch.min(response_length).detach().item(),
-        'response_length/clip_ratio': torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
+        'response_length/mean':
+            torch.mean(response_length).detach().item(),
+        'response_length/max':
+            torch.max(response_length).detach().item(),
+        'response_length/min':
+            torch.min(response_length).detach().item(),
+        'response_length/clip_ratio':
+            torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
         # prompt length
-        'prompt_length/mean': torch.mean(prompt_length).detach().item(),
-        'prompt_length/max': torch.max(prompt_length).detach().item(),
-        'prompt_length/min': torch.min(prompt_length).detach().item(),
-        'prompt_length/clip_ratio': torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
+        'prompt_length/mean':
+            torch.mean(prompt_length).detach().item(),
+        'prompt_length/max':
+            torch.max(prompt_length).detach().item(),
+        'prompt_length/min':
+            torch.min(prompt_length).detach().item(),
+        'prompt_length/clip_ratio':
+            torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
         # vf explained var
         'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
     }
@@ -475,14 +498,14 @@ class RayPPOTrainer(object):
 
     def _save_checkpoint(self):
         actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
-                                                    f'global_step_{self.global_steps}')
+                                        f'global_step_{self.global_steps}')
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
             self.config.trainer.default_hdfs_dir, 'actor')
         self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
 
         if self.use_critic:
             critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                                f'global_step_{self.global_steps}')
+                                             f'global_step_{self.global_steps}')
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
@@ -558,15 +581,15 @@ class RayPPOTrainer(object):
 
                         # compute rewards. apply_kl_penalty if available
                         batch, kl_metrics = apply_kl_penalty(batch,
-                                                            kl_ctrl=self.kl_ctrl,
-                                                            kl_penalty=self.config.algorithm.kl_penalty)
+                                                             kl_ctrl=self.kl_ctrl,
+                                                             kl_penalty=self.config.algorithm.kl_penalty)
                         metrics.update(kl_metrics)
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
-                                                self.config.algorithm.gamma,
-                                                self.config.algorithm.lam,
-                                                adv_estimator=self.config.algorithm.adv_estimator)
+                                                  self.config.algorithm.gamma,
+                                                  self.config.algorithm.lam,
+                                                  adv_estimator=self.config.algorithm.adv_estimator)
 
                     # update critic
                     if self.use_critic:
@@ -590,7 +613,8 @@ class RayPPOTrainer(object):
                             val_metrics = {f'val/{key}': val for key, val in val_metrics.items()}
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (self.global_steps + 1) % self.config.trainer.save_freq == 0:
+                    if self.config.trainer.save_freq > 0 and \
+                            (self.global_steps + 1) % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
