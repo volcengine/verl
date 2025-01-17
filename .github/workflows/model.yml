@@ -17,7 +17,7 @@ on:
       - .github/workflows/model.yml
 
 jobs:
-  e2e_gpu:
+  model_rmpad:
     runs-on: [self-hosted, l20-1]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

@@ -37,4 +37,5 @@ jobs:
           pip3 install -e .[test]
       - name: Running digit completon e2e training tests on 8 L20 GPUs
         run: |
+          ray stop --force
           bash tests/e2e/run_ray_trainer.sh
