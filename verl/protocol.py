@@ -178,7 +178,13 @@ class DataProto:
         self.check_consistency()
 
     def __len__(self):
-        return self.batch.batch_size[0]
+        if self.batch is not None:
+            return self.batch.batch_size[0]
+        elif self.non_tensor_batch is not None and len(self.non_tensor_batch) > 0:
+            random_key = list(self.non_tensor_batch.keys())[0]
+            return self.non_tensor_batch[random_key].shape[0]
+        else:
+            return 0
 
     def __getitem__(self, item):
         tensor_data = self.batch[item]
@@ -240,7 +246,11 @@ class DataProto:
         if self.batch is not None:
             assert len(self.batch.batch_size) == 1, 'only support num_batch_dims=1'
 
-        if len(self.non_tensor_batch) != 0:
+        if self.non_tensor_batch is not None:
+            for key, val in self.non_tensor_batch.items():
+                assert isinstance(val, np.ndarray)
+
+        if self.batch is not None and len(self.non_tensor_batch) != 0:
             # TODO: we can actually lift this restriction if needed
             assert len(self.batch.batch_size) == 1, 'only support num_batch_dims=1 when non_tensor_batch is not empty.'
 
@@ -478,6 +488,9 @@ class DataProto:
         Returns:
             List[DataProto]: a list of DataProto after splitting
         """
+        assert len(
+            self) % chunks == 0, f'only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}.'
+
         if self.batch is not None:
             batch_lst = self.batch.chunk(chunks=chunks, dim=0)
         else:

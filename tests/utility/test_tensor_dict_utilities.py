@@ -108,6 +108,9 @@ def test_chunk_concat():
     labels = ['a', 'b', 'c', 'd', 'e', 'f']
     data = DataProto.from_dict(tensors={'obs': obs}, non_tensors={'labels': labels}, meta_info={'name': 'abdce'})
 
+    with pytest.raises(AssertionError):
+        data.chunk(5)
+
     data_split = data.chunk(2)
     assert len(data_split) == 2
     assert torch.all(torch.eq(data_split[0].batch['obs'], torch.tensor([1, 2, 3])))
@@ -237,3 +240,23 @@ def test_torch_save_data_proto():
 
     import os
     os.remove('test_data.pt')
+
+
+def test_len():
+    obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
+    labels = np.array(['a', 'b', 'c'], dtype=object)
+    data = DataProto.from_dict(tensors={'obs': obs}, non_tensors={'labels': labels}, meta_info={'info': 'test_info'})
+
+    assert len(data) == 3
+
+    data = DataProto(batch=None, non_tensor_batch={'labels': labels}, meta_info={'info': 'test_info'})
+
+    assert len(data) == 3
+
+    data = DataProto(batch=None, non_tensor_batch={}, meta_info={'info': 'test_info'})
+
+    assert len(data) == 0
+
+    data = DataProto(batch=None, non_tensor_batch=None, meta_info={'info': 'test_info'})
+
+    assert len(data) == 0
