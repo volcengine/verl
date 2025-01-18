@@ -15,6 +15,7 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/e2e_gsm8k.yml
+      - "tests/e2e/*.sh"
 
 jobs:
   e2e_gsm8k:

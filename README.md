@@ -52,7 +52,7 @@ veRL is fast with:
 Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer/verl_getting_started.ipynb) to get started with PPO training with a single 24GB L4 GPU (**FREE** GPU quota provided by [Lighting Studio](https://lightning.ai/hlin-verl/studios/verl-getting-started))!
 
 **Quickstart:**
-- [Installation](https://verl.readthedocs.io/en/latest/preparation/install.html)
+- [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
 
 **Running an PPO example step-by-step:**
