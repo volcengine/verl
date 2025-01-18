@@ -260,4 +260,3 @@ def test_len():
     data = DataProto(batch=None, non_tensor_batch=None, meta_info={'info': 'test_info'})
 
     assert len(data) == 0
-
