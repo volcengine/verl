@@ -592,6 +592,8 @@ class CriticWorker(Worker):
         if self.rank == 0:
             print_model_size(critic_module)
 
+        self.critic_model_config = critic_model_config
+
         fsdp_config = self.config.model.fsdp_config
         mixed_precision_config = fsdp_config.get('mixed_precision', None)
         if mixed_precision_config is not None:
