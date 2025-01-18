@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
