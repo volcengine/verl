@@ -84,7 +84,7 @@ class FlopsCounter:
         v_size = num_key_value_heads * head_dim
 
         # non-attn per layer parm
-        # p6dense use SwiGelu, gate, having up and down linear layer in mlp
+        # Qwen2/LLama use SwiGelu, gate, having up and down linear layer in mlp
         mlp_N = hidden_size * intermediate_size * 3
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         emd_and_lm_head_N = vocab_size * hidden_size * 2
