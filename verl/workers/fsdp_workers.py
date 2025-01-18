@@ -164,7 +164,7 @@ class ActorRolloutRefWorker(Worker):
             actor_module.to(torch_dtype)
 
             if enable_gradient_checkpointing:
-                actor_module.gradient_checkpointing_enable()
+                actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -212,7 +212,8 @@ class ActorRolloutRefWorker(Worker):
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
             sync_module_states=True,
-            device_mesh=self.device_mesh)
+            device_mesh=self.device_mesh,
+            forward_prefetch=False)
 
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
@@ -575,7 +576,7 @@ class CriticWorker(Worker):
             critic_module.to(torch_dtype)
 
             if config.model.get('enable_gradient_checkpointing', False):
-                critic_module.gradient_checkpointing_enable()
+                critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         if self.rank == 0:
             print_model_size(critic_module)
 
@@ -603,7 +604,8 @@ class CriticWorker(Worker):
                              device_id=torch.cuda.current_device(),
                              sharding_strategy=ShardingStrategy.FULL_SHARD,
                              mixed_precision=mixed_precision,
-                             sync_module_states=True)
+                             sync_module_states=True,
+                             forward_prefetch=False)
 
         log_gpu_memory_usage('After critic FSDP', logger=None)
 
@@ -806,7 +808,8 @@ class RewardModelWorker(Worker):
             device_id=torch.cuda.current_device(),
             sharding_strategy=ShardingStrategy.FULL_SHARD,  # zero3
             sync_module_states=True,
-            cpu_offload=CPUOffload(offload_params=self.config.model.fsdp_config.param_offload))
+            cpu_offload=CPUOffload(offload_params=self.config.model.fsdp_config.param_offload),
+            forward_prefetch=False)
 
         return reward_module
 

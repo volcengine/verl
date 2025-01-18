@@ -611,7 +611,8 @@ class RayPPOTrainer(object):
                         metrics.update(actor_output_metrics)
 
                     # validate
-                    if self.val_reward_fn is not None and self.global_steps % self.config.trainer.test_freq == 0:
+                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
+                        self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
