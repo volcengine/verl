@@ -27,7 +27,8 @@ actor_rollout_ref:
     clip_ratio: 0.2
     entropy_coeff: 0.0
     ppo_epochs: 1
-    shuffle: True
+    shuffle: False
+    ulysses_sequence_parallel_size: 1 # sp size
     optim:
       lr: 1e-4
     fsdp_config:
@@ -44,6 +45,7 @@ actor_rollout_ref:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
     micro_batch_size: 200
+    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: hf
     temperature: 1.0
@@ -59,7 +61,7 @@ actor_rollout_ref:
     enforce_eager: True
     free_cache_engine: True
     load_format: dummy_dtensor
-    tensor_model_parallel_size: 2
+    tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
     log_prob_micro_batch_size: 200
@@ -89,6 +91,7 @@ critic:
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 200
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+  ulysses_sequence_parallel_size: 1 # sp size
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
@@ -112,6 +115,7 @@ reward_model:
       min_num_params: 0
   micro_batch_size: 8
   max_length: null
+  ulysses_sequence_parallel_size: 1 # sp size
 
 algorithm:
   gamma: 1.0

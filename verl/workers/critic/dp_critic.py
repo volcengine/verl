@@ -28,6 +28,7 @@ from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
+from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -46,6 +47,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
 
+        self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
@@ -62,6 +65,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                 # unpad the position_ids to align the rotary
                 position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
                                                       indices).transpose(0, 1)
+
+                # pad and slice the inputs if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
+                                                                                                position_ids_rmpad, \
+                                                                                                sp_size=self.ulysses_sequence_parallel_size)
+
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.critic_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
@@ -69,6 +79,13 @@ class DataParallelPPOCritic(BasePPOCritic):
                                             use_cache=False)  # prevent model thinks we are generating
                 values_rmpad = output.logits
                 values_rmpad = values_rmpad.squeeze(0)  # (total_nnz)
+
+                # gather output if sp > 1
+                if self.ulysses_sequence_parallel_size > 1:
+                    values_rmpad = gather_outpus_and_unpad(values_rmpad,
+                                                           gather_dim=0,
+                                                           unpad_dim=0,
+                                                           padding_size=pad_size)
 
                 # pad it back
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
@@ -87,7 +104,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
                                   epochs=self.config.ppo_epochs,
-                                  dataloader_kwargs={'shuffle': self.config.shuffle})
+                                  dataloader_kwargs={'shuffle': False})  # TODO: hardcode to False
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
