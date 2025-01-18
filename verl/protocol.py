@@ -478,6 +478,8 @@ class DataProto:
         Returns:
             List[DataProto]: a list of DataProto after splitting
         """
+        assert len(self) % chunks == 0, f'only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}.'
+
         if self.batch is not None:
             batch_lst = self.batch.chunk(chunks=chunks, dim=0)
         else:

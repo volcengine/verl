@@ -108,6 +108,9 @@ def test_chunk_concat():
     labels = ['a', 'b', 'c', 'd', 'e', 'f']
     data = DataProto.from_dict(tensors={'obs': obs}, non_tensors={'labels': labels}, meta_info={'name': 'abdce'})
 
+    with pytest.raises(AssertionError):
+        data.chunk(5)
+
     data_split = data.chunk(2)
     assert len(data_split) == 2
     assert torch.all(torch.eq(data_split[0].batch['obs'], torch.tensor([1, 2, 3])))
