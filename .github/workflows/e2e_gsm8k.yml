@@ -56,3 +56,7 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_no_rmpad.sh
+      - name: Running gsm8k e2e with rmpad using model rm and ulysses sp=2
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_model_rm_ulysses.sh
