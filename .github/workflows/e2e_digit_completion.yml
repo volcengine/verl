@@ -15,6 +15,7 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/e2e_digit_completion.yml
+      - "tests/e2e/*.sh"
 
 jobs:
   e2e_digit_completion:
@@ -37,4 +38,5 @@ jobs:
           pip3 install -e .[test]
       - name: Running digit completon e2e training tests on 8 L20 GPUs
         run: |
+          ray stop --force
           bash tests/e2e/run_ray_trainer.sh

@@ -26,7 +26,8 @@ actor_rollout_ref:
     clip_ratio: 0.2
     entropy_coeff: 0.001
     ppo_epochs: 1
-    shuffle: True
+    shuffle: False
+    ulysses_sequence_parallel_size: 1 # sp size
     optim:
       lr: 1e-6
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -47,6 +48,7 @@ actor_rollout_ref:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
     log_prob_micro_batch_size: 128
+    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: vllm
     temperature: 1.0
@@ -95,6 +97,7 @@ critic:
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 64
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+  ulysses_sequence_parallel_size: 1 # sp size
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
@@ -113,6 +116,7 @@ reward_model:
       param_offload: False
   micro_batch_size: 64
   max_length: null
+  ulysses_sequence_parallel_size: 1 # sp size
 
 algorithm:
   gamma: 1.0
@@ -132,7 +136,7 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
-  test_freq: 2
+  test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

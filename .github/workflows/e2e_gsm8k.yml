@@ -15,6 +15,7 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/e2e_gsm8k.yml
+      - "tests/e2e/*.sh"
 
 jobs:
   e2e_gsm8k:
@@ -37,16 +38,25 @@ jobs:
           pip3 install -e .[test]
       - name: Prepare gsm8k dataset
         run: |
+          ray stop --force
           python3 examples/data_preprocess/gsm8k.py
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
         run: |
+          ray stop --force
           bash tests/e2e/run_qwen_gsm8k_function_rm.sh
       - name: Running gsm8k e2e without rmpad using function rm
         run: |
+          ray stop --force
           bash tests/e2e/run_qwen_gsm8k_function_rm_no_rmpad.sh
       - name: Running gsm8k e2e with rmpad using model rm
         run: |
+          ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm.sh
       - name: Running gsm8k e2e without rmpad using model rm
         run: |
+          ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_no_rmpad.sh
+      - name: Running gsm8k e2e with rmpad using model rm and ulysses sp=2
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_model_rm_ulysses.sh

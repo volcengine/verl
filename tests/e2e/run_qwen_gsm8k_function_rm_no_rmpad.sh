@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -32,6 +34,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
+    +trainer.val_before_train=False \
     trainer.project_name='verl_example_gsm8k' \
     trainer.experiment_name='qwen_e2e_ci_function_rm' \
     trainer.n_gpus_per_node=8 \
