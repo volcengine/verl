@@ -35,7 +35,10 @@ from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_param_and
     load_fsdp_param_and_grad
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.flops_counter import FlopsCounter
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+
+from codetiming import Timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -341,6 +344,9 @@ class ActorRolloutRefWorker(Worker):
                 self.config.ref.use_remove_padding = use_remove_padding
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
+        if self._is_actor:
+            self.flops_counter = FlopsCounter(self.actor_model_config)
+
         torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -362,7 +368,13 @@ class ActorRolloutRefWorker(Worker):
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
             # perform training
-            metrics = self.actor.update_policy(data=data)
+            with Timer(name='update_policy', logger=None) as timer:
+                metrics = self.actor.update_policy(data=data)
+            delta_time = timer.last
+            global_num_tokens = data.meta_info['global_token_num']
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            metrics['mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+
             self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics['actor/lr'] = lr
@@ -580,6 +592,8 @@ class CriticWorker(Worker):
         if self.rank == 0:
             print_model_size(critic_module)
 
+        self.critic_model_config = critic_model_config
+
         fsdp_config = self.config.model.fsdp_config
         mixed_precision_config = fsdp_config.get('mixed_precision', None)
         if mixed_precision_config is not None:
@@ -643,6 +657,9 @@ class CriticWorker(Worker):
         self.critic = DataParallelPPOCritic(config=self.config,
                                             critic_module=self.critic_module,
                                             critic_optimizer=self.critic_optimizer)
+
+        self.flops_counter = FlopsCounter(self.critic_model_config)
+
         torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -681,7 +698,14 @@ class CriticWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            metrics = self.critic.update_critic(data=data)
+
+            with Timer(name='update_critic', logger=None) as timer:
+                metrics = self.critic.update_critic(data=data)
+            delta_time = timer.last
+
+            global_num_tokens = data.meta_info['global_token_num']
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             self.critic_lr_scheduler.step()
             lr = self.critic_lr_scheduler.get_last_lr()[0]

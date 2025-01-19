@@ -41,12 +41,14 @@ actor_rollout_ref:
       param_offload: False
       grad_offload: False
       optimizer_offload: False
+      fsdp_size: -1
   ref:
     fsdp_config:
       param_offload: False
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
+      fsdp_size: -1
     log_prob_micro_batch_size: 128
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
@@ -94,6 +96,7 @@ critic:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
+      fsdp_size: -1
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 64
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
