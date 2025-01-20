@@ -422,7 +422,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor and recompute_log_prob:
             # we should always recompute old_log_probs when it is HybridEngine
             output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
-            output.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len
+            output.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
             output.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
             output.meta_info['temperature'] = self.config.rollout.temperature
             # perform recompute log_prob
@@ -456,7 +456,7 @@ class ActorRolloutRefWorker(Worker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        data.meta_info['max_token_len'] = self.config.ref.log_prob_max_token_len
+        data.meta_info['max_token_len'] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
@@ -676,7 +676,7 @@ class CriticWorker(Worker):
                                      load_grad=self._is_offload_grad)
         micro_batch_size = self.config.forward_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
-        data.meta_info['max_token_len'] = self.config.max_token_len
+        data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
