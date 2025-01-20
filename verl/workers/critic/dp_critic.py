@@ -149,7 +149,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         # make sure we are in training mode
         self.critic_module.train()
         metrics = {}
-        
+
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
         batch = data.select(batch_keys=select_keys).batch
         # Split to make minibatch iterator for updating the actor
@@ -161,11 +161,10 @@ class DataParallelPPOCritic(BasePPOCritic):
             mini_batch = data
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch,
-                                                           max_token_len=max_token_len)
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
-            
+
             self.critic_optimizer.zero_grad()
 
             for data in micro_batches:

@@ -221,8 +221,7 @@ class DataParallelPPOActor(BasePPOActor):
             mini_batch = data
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch,
-                                                           max_token_len=max_token_len)
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
                 # split batch into micro_batches
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
