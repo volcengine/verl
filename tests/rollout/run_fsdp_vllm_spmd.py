@@ -18,13 +18,15 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStr
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType
 import torch
 
+import torch.distributed as dist
+from vllm.distributed.parallel_state import get_world_group
 from verl.utils.distributed import initialize_global_process_group
-from verl.third_party.vllm import LLM
+from vllm import LLM
+from verl.third_party.vllm.vllm_v_0_6_3.dtensor_weight_loaders import *
 
 from vllm import SamplingParams
-
 import time
-import torch.distributed as dist
+
 
 def main():
     assert torch.cuda.is_available(), 'CUDA must be present to run FSDP vLLM example'
@@ -96,59 +98,58 @@ def main():
                              state_dict_type=StateDictType.SHARDED_STATE_DICT,
                              state_dict_config=ShardedStateDictConfig())
 
-    state_dict = fsdp_model.state_dict()
+    state_dict = fsdp_model.state_dict()    
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
-    sampling_params = SamplingParams(temperature=0,
-                                     top_p=1,
-                                     n=1,
-                                     max_tokens=response_length,
-                                     logprobs=1,
-                                     ignore_eos=True,
-                                     detokenize=False)
-
-    print(actor_model_config)
-    llm = LLM(model=None,
-              tokenizer=tokenizer,
-              model_hf_config=actor_model_config,
+    # print(actor_model_config)
+    llm = LLM(model=local_model_path,
               tensor_parallel_size=tensor_model_parallel_size,
-              enforce_eager=True,
+              distributed_executor_backend="external_launcher",
               dtype='bfloat16',
-              load_format='dummy_dtensor',
-              gpu_memory_utilization=0.8,
-              trust_remote_code=True)
+              gpu_memory_utilization=0.7)
 
     # Warmup iterations
     for _ in range(10):
         torch.cuda.synchronize()
-        llm.sync_model_weights(actor_weights=state_dict, load_format='dtensor')
+        load_dtensor_weights(state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
         torch.cuda.synchronize()
         dist.barrier()
 
     start_time = time.time()
-    llm.sync_model_weights(actor_weights=state_dict, load_format='dtensor')
+    load_dtensor_weights(state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
     torch.cuda.synchronize()
     dist.barrier()
     end_time = time.time()
 
     # Calculate elapsed time
     elapsed_time = end_time - start_time
-    print(f"Time taken: {elapsed_time:.6f} seconds")
+    print(f"Weight sync time taken: {elapsed_time:.6f} seconds")
 
-    input_ids = input_ids.cuda()
-    attention_mask = attention_mask.cuda()
-    idx_list = []
-    batch_size = input_ids.shape[0]
+    outputs = llm.generate(preencode_prompts, sampling_params)
+    cpu_group = get_world_group().cpu_group
+    torch_rank = dist.get_rank(group=cpu_group)
 
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    from verl.workers.rollout.vllm_rollout.vllm_rollout import _pre_process_inputs
-    for i in range(batch_size):
-        idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
-    print('start generation')
-    outputs = llm.generate(prompt_token_ids=idx_list, sampling_params=sampling_params, use_tqdm=False)
-    vllm_output = outputs[0].cuda()
-    if torch.distributed.get_rank() == 0:
-        print(f'hf response: {tokenizer.batch_decode(response)}')
-        print(f'vllm response: {tokenizer.batch_decode(vllm_output)}')
+    def test_consistent_across_ranks(obj):
+        if torch_rank == 0:
+            dist.broadcast_object_list([obj], src=0, group=cpu_group)
+        else:
+            container = [None]
+            dist.broadcast_object_list(container, src=0, group=cpu_group)
+            assert container[0] == obj
+
+
+    test_consistent_across_ranks(
+        llm.llm_engine.vllm_config.cache_config.num_cpu_blocks)
+    test_consistent_across_ranks(
+        llm.llm_engine.vllm_config.cache_config.num_gpu_blocks)
+
+    for output in outputs:
+        prompt = output.prompt
+        generated_text = output.outputs[0].text
+        test_consistent_across_ranks(prompt)
+        test_consistent_across_ranks(generated_text)
+        print(f"Rank {torch_rank}, Prompt: {prompt!r}, "
+            f"Generated text: {generated_text!r}")
 
 
 if __name__ == "__main__":
