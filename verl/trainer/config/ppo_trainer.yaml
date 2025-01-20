@@ -22,6 +22,8 @@ actor_rollout_ref:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: 64
+    use_dynamic_bsz: True
+    
     grad_clip: 1.0
     clip_ratio: 0.2
     entropy_coeff: 0.001
