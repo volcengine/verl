@@ -23,6 +23,8 @@ actor_rollout_ref:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 200
     ppo_micro_batch_size: 200
+    use_dynamic_bsz: False
+    ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
     grad_clip: 1.0
     clip_ratio: 0.2
     entropy_coeff: 0.0
@@ -45,6 +47,8 @@ actor_rollout_ref:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
     micro_batch_size: 200
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: hf
@@ -65,6 +69,8 @@ actor_rollout_ref:
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
     log_prob_micro_batch_size: 200
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     # for hf rollout
     do_sample: True
     # number of responses (i.e. num sample times)
@@ -91,6 +97,9 @@ critic:
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: 200
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+  use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
+  forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
   ulysses_sequence_parallel_size: 1 # sp size
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
