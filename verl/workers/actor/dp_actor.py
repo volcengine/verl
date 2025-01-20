@@ -138,16 +138,6 @@ class DataParallelPPOActor(BasePPOActor):
 
             return entropy, log_probs
 
-    def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
-        """Make minibatch iterator for updating the actor
-        See PPO paper for details. https://arxiv.org/abs/1707.06347
-        """
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
-        data = data.select(batch_keys=select_keys)
-        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
-                                  epochs=self.config.ppo_epochs,
-                                  dataloader_kwargs={'shuffle': False})  # TODO: hardcode to False
-
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
 
@@ -218,6 +208,9 @@ class DataParallelPPOActor(BasePPOActor):
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
         batch = data.select(batch_keys=select_keys).batch
+
+        # Split to make minibatch iterator for updating the actor
+        # See PPO paper for details. https://arxiv.org/abs/1707.06347
         dataloader = batch.split(self.config.ppo_mini_batch_size)
 
         metrics = {}
