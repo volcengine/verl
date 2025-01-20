@@ -158,7 +158,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             # split batch into micro_batches
             mini_batch = data.batch
             if self.config.use_dynamic_bsz:
-                max_token_len = self.config.ppo_max_token_len_per_sp * self.ulysses_sequence_parallel_size
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch,
                                                            max_token_len=max_token_len)
             else:

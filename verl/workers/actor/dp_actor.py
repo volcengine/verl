@@ -53,6 +53,8 @@ class DataParallelPPOActor(BasePPOActor):
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+        self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
+
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns: 
@@ -98,7 +100,7 @@ class DataParallelPPOActor(BasePPOActor):
                 logits_rmpad.div_(temperature)
 
                 # compute entropy
-                entropy_rmpad = verl_F.entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                 log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
@@ -218,7 +220,7 @@ class DataParallelPPOActor(BasePPOActor):
             # split batch into micro_batches
             mini_batch = data.batch
             if self.config.use_dynamic_bsz:
-                max_token_len = self.config.ppo_max_token_len_per_sp * self.ulysses_sequence_parallel_size
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch,
                                                            max_token_len=max_token_len)
             else:
