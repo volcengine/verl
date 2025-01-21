@@ -129,6 +129,8 @@ reward_model:
   micro_batch_size: 64
   max_length: null
   ulysses_sequence_parallel_size: 1 # sp size
+  use_dynamic_bsz: ${critic.use_dynamic_bsz}
+  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
 
 algorithm:
   gamma: 1.0
