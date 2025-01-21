@@ -422,6 +422,8 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor and recompute_log_prob:
             # we should always recompute old_log_probs when it is HybridEngine
             output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
+            output.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
+            output.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
             output.meta_info['temperature'] = self.config.rollout.temperature
             # perform recompute log_prob
             with self.ulysses_sharding_manager:
@@ -454,6 +456,8 @@ class ActorRolloutRefWorker(Worker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
+        data.meta_info['max_token_len'] = self.config.ref.log_prob_max_token_len_per_gpu
+        data.meta_info['use_dynamic_bsz'] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
             output = self.ref_policy.compute_log_prob(data=data)
@@ -672,6 +676,8 @@ class CriticWorker(Worker):
                                      load_grad=self._is_offload_grad)
         micro_batch_size = self.config.forward_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
+        data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
+        data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
@@ -972,6 +978,8 @@ class RewardModelWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
+        import itertools
+        from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
         data = data.to('cuda')
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
@@ -982,12 +990,25 @@ class RewardModelWorker(Worker):
         with self.ulysses_sharding_manager:
             rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            micro_batches = rm_data.batch.split(self.config.micro_batch_size)
+
+            use_dynamic_bsz = self.config.use_dynamic_bsz
+            if use_dynamic_bsz:
+                max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
+            else:
+                micro_batches = rm_data.batch.split(self.config.micro_batch_size)
             output = []
             for micro_batch in micro_batches:
                 rm_score = self._forward_micro_batch(micro_batch)
                 output.append(rm_score)
             scores = torch.cat(output, dim=0)  # (batch_size)
+
+            if use_dynamic_bsz:
+                indices = list(itertools.chain.from_iterable(indices))
+                assert len(indices) == scores.size(0), f"{len(indices)} vs. {scores.size()}"
+                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                scores = scores[revert_indices]
+
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL
             output = DataProto.from_dict(tensors={'rm_scores': token_level_scores})

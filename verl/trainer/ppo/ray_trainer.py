@@ -32,6 +32,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
+from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 
 WorkerType = Type[Worker]
 
@@ -511,6 +512,23 @@ class RayPPOTrainer(object):
                 self.config.trainer.default_hdfs_dir, 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
 
+    def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
+        """Reorder the data on single controller such that each dp rank gets similar total tokens"""
+        attention_mask = batch.batch['attention_mask']
+        batch_size = attention_mask.shape[0]
+        global_seqlen_lst = batch.batch['attention_mask'].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
+        world_size = self.actor_rollout_wg.world_size
+        global_partition_lst = get_seqlen_balanced_partitions(global_seqlen_lst,
+                                                              k_partitions=world_size,
+                                                              equal_size=True)
+        # reorder based on index. The data will be automatically equally partitioned by dispatch function
+        global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
+        batch.reorder(global_idx)
+        global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst,
+                                                    partitions=global_partition_lst,
+                                                    prefix=logging_prefix)
+        metrics.update(global_balance_stats)
+
     def fit(self):
         """
         The training loop of PPO.
@@ -545,7 +563,6 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                # batch = batch.to('cuda')
 
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
@@ -558,6 +575,11 @@ class RayPPOTrainer(object):
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
+
+                    # balance the number of valid tokens on each dp rank.
+                    # Note that this breaks the order of data inside the batch.
+                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
