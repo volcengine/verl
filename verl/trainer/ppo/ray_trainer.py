@@ -257,10 +257,10 @@ def compute_timing_metrics(batch, timing_raw):
 
     return {
         **{
-            f'timing(s)/{name}': value for name, value in timing_raw.items()
+            f'timing_s/{name}': value for name, value in timing_raw.items()
         },
         **{
-            f'timing_per_token(ms)/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys(
+            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys(
             )) & set(timing_raw.keys())
         },
     }
