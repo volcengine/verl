@@ -459,11 +459,6 @@ class ActorRolloutRefWorker(Worker):
 
         data = data.to('cuda')
 
-        if self._is_offload_param:
-            load_fsdp_param_and_grad(module=self.ref_module_fsdp,
-                                     device_id=torch.cuda.current_device(),
-                                     load_grad=self._is_offload_grad)
-
         micro_batch_size = self.config.ref.log_prob_micro_batch_size
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
