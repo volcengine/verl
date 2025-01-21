@@ -60,3 +60,7 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_ulysses.sh
+      - name: Running gsm8k e2e with rmpad using model rm and dynamic batch size
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_model_rm_seq_balance.sh
