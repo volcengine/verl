@@ -67,7 +67,9 @@ class ActorRolloutRefWorker(Worker):
             self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
         else:
             assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=['ddp', 'fsdp'])
+            self.device_mesh = init_device_mesh('cuda',
+                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
+                                                mesh_dim_names=['ddp', 'fsdp'])
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
@@ -346,7 +348,8 @@ class ActorRolloutRefWorker(Worker):
                                                                override_model_config=override_model_config,
                                                                use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
-                                                                   'trust_remote_code', False), role='ref')[0]
+                                                                   'trust_remote_code', False),
+                                                               role='ref')[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
@@ -529,7 +532,9 @@ class CriticWorker(Worker):
             self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
         else:
             assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=['ddp', 'fsdp'])
+            self.device_mesh = init_device_mesh('cuda',
+                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
+                                                mesh_dim_names=['ddp', 'fsdp'])
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
@@ -632,7 +637,7 @@ class CriticWorker(Worker):
         auto_wrap_policy = get_fsdp_wrap_policy(module=critic_module, config=self.config.model.fsdp_config.wrap_policy)
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
-        
+
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         critic_module = FSDP(critic_module,
                              param_init_fn=init_fn,
@@ -800,7 +805,9 @@ class RewardModelWorker(Worker):
             self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
         else:
             assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size // fsdp_size, fsdp_size), mesh_dim_names=['ddp', 'fsdp'])
+            self.device_mesh = init_device_mesh('cuda',
+                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
+                                                mesh_dim_names=['ddp', 'fsdp'])
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
