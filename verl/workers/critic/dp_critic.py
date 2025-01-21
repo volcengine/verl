@@ -14,7 +14,7 @@
 """
 Implement a multiprocess PPOCritic
 """
-
+import itertools
 from typing import Iterable
 
 import torch
@@ -29,6 +29,7 @@ from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
+from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -99,13 +100,6 @@ class DataParallelPPOCritic(BasePPOCritic):
                 values = values[:, -response_length - 1:-1].squeeze(-1)
             return values
 
-    def _make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
-        select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
-        data = data.select(batch_keys=select_keys)
-        return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
-                                  epochs=self.config.ppo_epochs,
-                                  dataloader_kwargs={'shuffle': False})  # TODO: hardcode to False
-
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
 
@@ -121,7 +115,15 @@ class DataParallelPPOCritic(BasePPOCritic):
         micro_batch_size = data.meta_info['micro_batch_size']
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
         batch = data.select(batch_keys=select_keys).batch
-        micro_batches = batch.split(micro_batch_size)
+        use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
+
+        if use_dynamic_bsz:
+            # split using dynamic bsz
+            max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
+            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+        else:
+            micro_batches = batch.split(micro_batch_size)
+
         values_lst = []
         for micro_batch in micro_batches:
             with torch.no_grad():
@@ -132,6 +134,13 @@ class DataParallelPPOCritic(BasePPOCritic):
         attention_mask = data.batch['attention_mask']
         response_length = responses.size(1)
         values = values * attention_mask[:, -response_length - 1:-1]
+
+        if use_dynamic_bsz:
+            indices = list(itertools.chain.from_iterable(indices))
+            assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+            values = values[revert_indices]
+
         return values
 
     def update_critic(self, data: DataProto):
@@ -139,11 +148,21 @@ class DataParallelPPOCritic(BasePPOCritic):
         self.critic_module.train()
         metrics = {}
 
-        dataloader = self._make_minibatch_iterator(data)
+        select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
+        batch = data.select(batch_keys=select_keys).batch
+        # Split to make minibatch iterator for updating the actor
+        # See PPO paper for details. https://arxiv.org/abs/1707.06347
+        dataloader = batch.split(self.config.ppo_mini_batch_size)
 
         for batch_idx, data in enumerate(dataloader):
             # split batch into micro_batches
-            micro_batches = data.batch.split(self.config.ppo_micro_batch_size)
+            mini_batch = data
+            if self.config.use_dynamic_bsz:
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            else:
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
+
             self.critic_optimizer.zero_grad()
 
             for data in micro_batches:
