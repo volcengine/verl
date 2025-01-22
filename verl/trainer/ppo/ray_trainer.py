@@ -132,15 +132,17 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['returns'] = returns
     elif adv_estimator == 'grpo':
         assert data.batch.batch_size[0] % num_repeat == 0, 'batch_size must be divisible by num_repeat'
-        data = fold_batch_dim(data, new_batch_size=data.batch.batch_size[0] // num_repeat)
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['index']
         responses = data.batch['responses']
         response_length = responses.size(-1)
         attention_mask = data.batch['attention_mask']
-        response_mask = attention_mask[:, ..., -response_length:]
-        token_level_rewards = data.batch['token_level_rewards']
-        advantages = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
-                                                                    eos_mask=response_mask)
+        response_mask = attention_mask[:, -response_length:]
+        advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                        eos_mask=response_mask,
+                                                                        index=index)
         data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
         data = unfold_batch_dim(data, batch_dims=2)
     else:
         raise NotImplementedError
@@ -175,9 +177,7 @@ def compute_data_metrics(batch, use_critic=True):
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
 
     advantages = batch.batch['advantages']
-    if use_critic:
-        returns = batch.batch['returns']
-        values = batch.batch['values']
+    returns = batch.batch['returns']
 
     max_response_length = batch.batch['responses'].shape[-1]
 
@@ -191,11 +191,14 @@ def compute_data_metrics(batch, use_critic=True):
     response_length = response_info['response_length']
 
     valid_adv = torch.masked_select(advantages, response_mask)
-    valid_returns = torch.masked_select(returns, response_mask)
-    valid_values = torch.masked_select(values, response_mask)
+    
+    if use_critic:
+        values = batch.batch['values']
+        valid_returns = torch.masked_select(returns, response_mask)
+        valid_values = torch.masked_select(values, response_mask)
 
-    return_diff_var = torch.var(valid_returns - valid_values)
-    return_var = torch.var(valid_returns)
+        return_diff_var = torch.var(valid_returns - valid_values)
+        return_var = torch.var(valid_returns)
 
     metrics = {
         # score
@@ -219,14 +222,19 @@ def compute_data_metrics(batch, use_critic=True):
             torch.max(valid_adv).detach().item(),
         'critic/advantages/min':
             torch.min(valid_adv).detach().item(),
-        
-        # returns and values
-        **({'critic/returns/mean': torch.mean(valid_returns).detach().item(),
+        # returns
+        'critic/returns/mean': torch.mean(valid_returns).detach().item(),
         'critic/returns/max': torch.max(valid_returns).detach().item(),
         'critic/returns/min': torch.min(valid_returns).detach().item(),
+        
+        **({
+        # values
         'critic/values/mean': torch.mean(valid_values).detach().item(),
         'critic/values/max': torch.max(valid_values).detach().item(),
-        'critic/values/min': torch.min(valid_values).detach().item()}
+        'critic/values/min': torch.min(valid_values).detach().item(),
+        # vf explained var
+        'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
+        }
             if use_critic else {}),
 
         # response length
@@ -247,8 +255,6 @@ def compute_data_metrics(batch, use_critic=True):
             torch.min(prompt_length).detach().item(),
         'prompt_length/clip_ratio':
             torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
-        # vf explained var
-        'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
     }
     return metrics
 
@@ -590,7 +596,7 @@ class RayPPOTrainer(object):
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
-                    # self._balance_batch(batch, metrics=metrics)
+                    self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()

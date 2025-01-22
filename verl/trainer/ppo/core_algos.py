@@ -20,6 +20,7 @@ implement PPO
 
 import numpy as np
 import torch
+from collections import defaultdict
 
 import verl.utils.torch_functional as verl_F
 
@@ -106,38 +107,51 @@ def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torc
     return advantages, returns
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
-def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor, eos_mask: torch.Tensor):
+def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor, 
+                                   eos_mask: torch.Tensor,
+                                   index: torch.Tensor,
+                                   epsilon: float = 1e-6):
     """
     Compute advantage for GRPO, operating only on Outcome reward 
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, group_size, response_length)
+            shape: (bs, response_length)
         eos_mask: `(torch.Tensor)`
-            shape: (bs, group_size, response_length)
+            shape: (bs, response_length)
     
     Returns:
         advantages: `(torch.Tensor)`
-            shape: (bs, group_size, response_length)
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
     """
-    advantages = torch.zeros_like(token_level_rewards)
+    response_length = token_level_rewards.shape[-1]
+    non_zero_mask = (token_level_rewards != 0)
+    scores = (token_level_rewards * non_zero_mask).sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+
     with torch.no_grad():
-        for i in range(token_level_rewards.shape[0]):
-            # Get rewards for current batch
-            rewards = token_level_rewards[i]  # shape: (group_size, response_length)
-            # Get non-zero elements for each sequence in the group
-            non_zero_mask = (rewards != 0)  # shape: (group_size, response_length)
-            # Extract non-zero values for each sequence
-            # shape: (group_size,)
-            non_zero_values = (rewards * non_zero_mask).sum(dim=-1)
-            # Compute statistics on non-zero values
-            mean = non_zero_values.mean()
-            std = non_zero_values.std()
-            # Normalize non-zero values
-            normalized_values = (non_zero_values - mean) / (std + 1e-5)
-            # Broadcast back to original shape
-            advantages[i] = normalized_values.unsqueeze(-1).expand_as(rewards) * eos_mask[i]
-    return advantages
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = torch.tensor(0.0)
+                id2std[idx] = torch.tensor(1.0)
+            elif len(id2score[idx]) > 1:
+                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+        for i in range(bsz):
+            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
+
+    return scores, scores
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
