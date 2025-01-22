@@ -191,12 +191,11 @@ def compute_data_metrics(batch, use_critic=True):
     response_length = response_info['response_length']
 
     valid_adv = torch.masked_select(advantages, response_mask)
+    valid_returns = torch.masked_select(returns, response_mask)
     
     if use_critic:
         values = batch.batch['values']
-        valid_returns = torch.masked_select(returns, response_mask)
         valid_values = torch.masked_select(values, response_mask)
-
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
 
