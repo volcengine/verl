@@ -112,16 +112,17 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-def compute_advantage(data: DataProto, gamma, lam, adv_estimator):
-    values = data.batch['values']
-    responses = data.batch['responses']
-    response_length = responses.size(1)
-    attention_mask = data.batch['attention_mask']
-    response_mask = attention_mask[:, -response_length:]
-    token_level_rewards = data.batch['token_level_rewards']
-
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
+    from verl.protocol import fold_batch_dim, unfold_batch_dim
+    # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == 'gae':
+        values = data.batch['values']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        token_level_rewards = data.batch['token_level_rewards']
         advantages, returns = core_algos.compute_gae_advantage_return(token_level_rewards=token_level_rewards,
                                                                       values=values,
                                                                       eos_mask=response_mask,
@@ -129,6 +130,18 @@ def compute_advantage(data: DataProto, gamma, lam, adv_estimator):
                                                                       lam=lam)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
+    elif adv_estimator == 'grpo':
+        assert data.batch.batch_size[0] % num_repeat == 0, 'batch_size must be divisible by num_repeat'
+        data = fold_batch_dim(data, new_batch_size=data.batch.batch_size[0] // num_repeat)
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, ..., -response_length:]
+        token_level_rewards = data.batch['token_level_rewards']
+        advantages = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                    eos_mask=response_mask)
+        data.batch['advantages'] = advantages
+        data = unfold_batch_dim(data, batch_dims=2)
     else:
         raise NotImplementedError
     return data
@@ -156,14 +169,15 @@ def _compute_response_info(batch):
     )
 
 
-def compute_data_metrics(batch):
+def compute_data_metrics(batch, use_critic=True):
     # TODO: add response length
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
 
     advantages = batch.batch['advantages']
-    returns = batch.batch['returns']
-    values = batch.batch['values']
+    if use_critic:
+        returns = batch.batch['returns']
+        values = batch.batch['values']
 
     max_response_length = batch.batch['responses'].shape[-1]
 
@@ -205,20 +219,16 @@ def compute_data_metrics(batch):
             torch.max(valid_adv).detach().item(),
         'critic/advantages/min':
             torch.min(valid_adv).detach().item(),
-        # returns
-        'critic/returns/mean':
-            torch.mean(valid_returns).detach().item(),
-        'critic/returns/max':
-            torch.max(valid_returns).detach().item(),
-        'critic/returns/min':
-            torch.min(valid_returns).detach().item(),
-        # values
-        'critic/values/mean':
-            torch.mean(valid_values).detach().item(),
-        'critic/values/max':
-            torch.max(valid_values).detach().item(),
-        'critic/values/min':
-            torch.min(valid_values).detach().item(),
+        
+        # returns and values
+        **({'critic/returns/mean': torch.mean(valid_returns).detach().item(),
+        'critic/returns/max': torch.max(valid_returns).detach().item(),
+        'critic/returns/min': torch.min(valid_returns).detach().item(),
+        'critic/values/mean': torch.mean(valid_values).detach().item(),
+        'critic/values/max': torch.max(valid_values).detach().item(),
+        'critic/values/min': torch.min(valid_values).detach().item()}
+            if use_critic else {}),
+
         # response length
         'response_length/mean':
             torch.mean(response_length).detach().item(),
@@ -449,8 +459,9 @@ class RayPPOTrainer(object):
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
             self.resource_pool_to_cls[resource_pool]['critic'] = critic_cls
             self.use_critic = True
+        elif self.config.algorithm.adv_estimator == 'grpo':
+            self.use_critic = False
         else:
-            # support GRPO and ReMax
             raise NotImplementedError
 
         # create reference policy if needed
@@ -591,9 +602,10 @@ class RayPPOTrainer(object):
                             batch = batch.union(ref_log_prob)
 
                     # compute values
-                    with _timer('values', timing_raw):
-                        values = self.critic_wg.compute_values(batch)
-                        batch = batch.union(values)
+                    if self.use_critic:
+                        with _timer('values', timing_raw):
+                            values = self.critic_wg.compute_values(batch)
+                            batch = batch.union(values)
 
                     with _timer('adv', timing_raw):
                         # compute scores. Support both model and function-based.
@@ -609,16 +621,20 @@ class RayPPOTrainer(object):
                         batch.batch['token_level_scores'] = reward_tensor
 
                         # compute rewards. apply_kl_penalty if available
-                        batch, kl_metrics = apply_kl_penalty(batch,
-                                                             kl_ctrl=self.kl_ctrl,
-                                                             kl_penalty=self.config.algorithm.kl_penalty)
-                        metrics.update(kl_metrics)
+                        if not self.config.actor_rollout_ref.actor.use_kl_loss:
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                kl_ctrl=self.kl_ctrl,
+                                                                kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        else:
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
-                                                  self.config.algorithm.gamma,
-                                                  self.config.algorithm.lam,
-                                                  adv_estimator=self.config.algorithm.adv_estimator)
+                                                  adv_estimator=self.config.algorithm.adv_estimator,
+                                                  gamma=self.config.algorithm.gamma,
+                                                  lam=self.config.algorithm.lam,
+                                                  num_repeat=self.config.actor_rollout_ref.rollout.n)
 
                     # update critic
                     if self.use_critic:
@@ -648,7 +664,7 @@ class RayPPOTrainer(object):
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch))
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend

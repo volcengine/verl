@@ -105,6 +105,40 @@ def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torc
         advantages = verl_F.masked_whiten(advantages, eos_mask)
     return advantages, returns
 
+# NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
+def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor, eos_mask: torch.Tensor):
+    """
+    Compute advantage for GRPO, operating only on Outcome reward 
+    (with only one scalar reward for each response).
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, group_size, response_length)
+        eos_mask: `(torch.Tensor)`
+            shape: (bs, group_size, response_length)
+    
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, group_size, response_length)
+    """
+    advantages = torch.zeros_like(token_level_rewards)
+    with torch.no_grad():
+        for i in range(token_level_rewards.shape[0]):
+            # Get rewards for current batch
+            rewards = token_level_rewards[i]  # shape: (group_size, response_length)
+            # Get non-zero elements for each sequence in the group
+            non_zero_mask = (rewards != 0)  # shape: (group_size, response_length)
+            # Extract non-zero values for each sequence
+            # shape: (group_size,)
+            non_zero_values = (rewards * non_zero_mask).sum(dim=-1)
+            # Compute statistics on non-zero values
+            mean = non_zero_values.mean()
+            std = non_zero_values.std()
+            # Normalize non-zero values
+            normalized_values = (non_zero_values - mean) / (std + 1e-5)
+            # Broadcast back to original shape
+            advantages[i] = normalized_values.unsqueeze(-1).expand_as(rewards) * eos_mask[i]
+    return advantages
+
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     kl = old_log_prob - ref_log_prob

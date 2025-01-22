@@ -26,7 +26,7 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, log_probs_from_logits_all_rmpad
+from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
@@ -209,6 +209,8 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        if self.config.use_kl_loss:
+            select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
 
         # Split to make minibatch iterator for updating the actor
@@ -253,6 +255,19 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # compute policy loss
                 policy_loss = pg_loss - entropy_loss * entropy_coeff
+
+                if self.config.use_kl_loss:
+                    ref_log_prob = data['ref_log_prob']
+                    kl = ref_log_prob - log_prob
+                    ratio = torch.exp(kl)
+                    kld = (ratio - kl - 1).contiguous()
+                    kl_loss = masked_mean(kld * self.config.kl_coef, response_mask)
+                    policy_loss = policy_loss - kl_loss
+                    metrics['actor/kl_loss'] = kl_loss.detach().item()
+                    current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
+                    current_kl = torch.mean(current_kl, dim=0).item()
+                    metrics['actor/current_kl'] = current_kl
+                    metrics['actor/kl_coef'] = self.config.kl_coef
 
                 loss = policy_loss / self.gradient_accumulation
                 loss.backward()
