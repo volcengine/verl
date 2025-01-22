@@ -21,6 +21,7 @@ import warnings
 
 import torch
 import torch.distributed
+from torch.distributed.device_mesh import init_device_mesh
 import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
@@ -44,6 +45,29 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 
+
+def create_device_mesh(world_size, fsdp_size):
+    if fsdp_size < 0 or fsdp_size >= world_size:
+        device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
+    else:
+        assert world_size % fsdp_size == 0
+        device_mesh = init_device_mesh('cuda',
+                                       mesh_shape=(world_size // fsdp_size, fsdp_size),
+                                       mesh_dim_names=['ddp', 'fsdp'])
+    return device_mesh
+
+
+def get_sharding_strategy(device_mesh):
+    from torch.distributed.fsdp import ShardingStrategy
+    if device_mesh.ndim == 1:
+        sharding_strategy = ShardingStrategy.FULL_SHARD
+    elif device_mesh.ndim == 2:
+        sharding_strategy = ShardingStrategy.HYBRID_SHARD
+    else:
+        raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
+    return sharding_strategy
+
+
 class ActorRolloutRefWorker(Worker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
@@ -59,17 +83,9 @@ class ActorRolloutRefWorker(Worker):
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
-        from torch.distributed.device_mesh import init_device_mesh
         # TODO(sgm): support FSDP hybrid shard for larger model
-
-        fsdp_size = self.config.actor.fsdp_config.fsdp_size
-        if fsdp_size < 0 or fsdp_size >= world_size:
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
-        else:
-            assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda',
-                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
-                                                mesh_dim_names=['ddp', 'fsdp'])
+        self.device_mesh = create_device_mesh(world_size=world_size, 
+                                              fsdp_size=self.config.actor.fsdp_config.fsdp_size)
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
@@ -207,11 +223,8 @@ class ActorRolloutRefWorker(Worker):
 
         print(f'wrap_policy: {auto_wrap_policy}')
 
-        # TODO(sgm): support hybrid
-        if auto_wrap_policy is None:
-            sharding_strategy = ShardingStrategy.SHARD_GRAD_OP
-        else:
-            sharding_strategy = ShardingStrategy.FULL_SHARD
+        fsdp_mesh = self.device_mesh
+        sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
@@ -523,13 +536,7 @@ class CriticWorker(Worker):
         from torch.distributed.device_mesh import init_device_mesh
 
         fsdp_size = self.config.model.fsdp_config.fsdp_size
-        if fsdp_size < 0 or fsdp_size >= world_size:
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
-        else:
-            assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda',
-                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
-                                                mesh_dim_names=['ddp', 'fsdp'])
+        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
@@ -633,13 +640,16 @@ class CriticWorker(Worker):
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
 
+        fsdp_mesh = self.device_mesh
+        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         critic_module = FSDP(critic_module,
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
                              device_id=torch.cuda.current_device(),
-                             sharding_strategy=ShardingStrategy.FULL_SHARD,
+                             sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,
                              forward_prefetch=False,
@@ -796,13 +806,7 @@ class RewardModelWorker(Worker):
         from torch.distributed.device_mesh import init_device_mesh
 
         fsdp_size = self.config.model.fsdp_config.fsdp_size
-        if fsdp_size < 0 or fsdp_size >= world_size:
-            self.device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
-        else:
-            assert world_size % fsdp_size == 0
-            self.device_mesh = init_device_mesh('cuda',
-                                                mesh_shape=(world_size // fsdp_size, fsdp_size),
-                                                mesh_dim_names=['ddp', 'fsdp'])
+        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
@@ -861,13 +865,16 @@ class RewardModelWorker(Worker):
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
+        fsdp_mesh = self.device_mesh
+        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+
         reward_module = FSDP(
             reward_module,
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
             device_id=torch.cuda.current_device(),
-            sharding_strategy=ShardingStrategy.FULL_SHARD,  # zero3
+            sharding_strategy=sharding_strategy,  # zero3
             sync_module_states=True,
             cpu_offload=CPUOffload(offload_params=True),
             forward_prefetch=False,
