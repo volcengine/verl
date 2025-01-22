@@ -258,16 +258,15 @@ class DataParallelPPOActor(BasePPOActor):
 
                 if self.config.use_kl_loss:
                     ref_log_prob = data['ref_log_prob']
-                    kl = ref_log_prob - log_prob
-                    ratio = torch.exp(kl)
-                    kld = (ratio - kl - 1).contiguous()
-                    kl_loss = masked_mean(kld * self.config.kl_coef, response_mask)
-                    policy_loss = policy_loss - kl_loss
+                    # compute kl loss
+                    kld = core_algos.kl_penalty(logprob=log_prob,
+                                                ref_logprob=ref_log_prob,
+                                                kl_penalty=self.config.kl_loss_type)
+                    kl_loss = masked_mean(kld, response_mask)
+
+                    policy_loss = policy_loss - kl_loss * self.config.kl_loss_coef
                     metrics['actor/kl_loss'] = kl_loss.detach().item()
-                    current_kl = masked_mean(kld, mask=response_mask, axis=-1)  # average over sequence
-                    current_kl = torch.mean(current_kl, dim=0).item()
-                    metrics['actor/current_kl'] = current_kl
-                    metrics['actor/kl_coef'] = self.config.kl_coef
+                    metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
                 loss = policy_loss / self.gradient_accumulation
                 loss.backward()

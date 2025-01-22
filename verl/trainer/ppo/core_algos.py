@@ -258,6 +258,14 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     if kl_penalty == "mse":
         return 0.5 * (logprob - ref_logprob).square()
 
+    # J. Schulman. Approximating kl divergence, 2020. 
+    # # URL http://joschu.net/blog/kl-approx.html.
+    if kl_penalty == 'low_var_kl':
+        kl = ref_logprob - logprob
+        ratio = torch.exp(kl)
+        kld = (ratio - kl - 1).contiguous()
+        return torch.clamp(kld, min=-10, max=10)
+        
     if kl_penalty == "full":
         # so, here logprob and ref_logprob should contain the logits for every token in vocabulary
         raise NotImplementedError
