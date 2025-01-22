@@ -45,7 +45,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 
-
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
@@ -84,8 +83,7 @@ class ActorRolloutRefWorker(Worker):
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
         # TODO(sgm): support FSDP hybrid shard for larger model
-        self.device_mesh = create_device_mesh(world_size=world_size, 
-                                              fsdp_size=self.config.actor.fsdp_config.fsdp_size)
+        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
