@@ -113,7 +113,6 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
-    from verl.protocol import fold_batch_dim, unfold_batch_dim
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == 'gae':
@@ -143,7 +142,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                         index=index)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-        data = unfold_batch_dim(data, batch_dims=2)
     else:
         raise NotImplementedError
     return data
@@ -192,7 +190,7 @@ def compute_data_metrics(batch, use_critic=True):
 
     valid_adv = torch.masked_select(advantages, response_mask)
     valid_returns = torch.masked_select(returns, response_mask)
-    
+
     if use_critic:
         values = batch.batch['values']
         valid_values = torch.masked_select(values, response_mask)
@@ -222,19 +220,20 @@ def compute_data_metrics(batch, use_critic=True):
         'critic/advantages/min':
             torch.min(valid_adv).detach().item(),
         # returns
-        'critic/returns/mean': torch.mean(valid_returns).detach().item(),
-        'critic/returns/max': torch.max(valid_returns).detach().item(),
-        'critic/returns/min': torch.min(valid_returns).detach().item(),
-        
+        'critic/returns/mean':
+            torch.mean(valid_returns).detach().item(),
+        'critic/returns/max':
+            torch.max(valid_returns).detach().item(),
+        'critic/returns/min':
+            torch.min(valid_returns).detach().item(),
         **({
-        # values
-        'critic/values/mean': torch.mean(valid_values).detach().item(),
-        'critic/values/max': torch.max(valid_values).detach().item(),
-        'critic/values/min': torch.min(valid_values).detach().item(),
-        # vf explained var
-        'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
-        }
-            if use_critic else {}),
+            # values
+            'critic/values/mean': torch.mean(valid_values).detach().item(),
+            'critic/values/max': torch.max(valid_values).detach().item(),
+            'critic/values/min': torch.min(valid_values).detach().item(),
+            # vf explained var
+            'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
+        } if use_critic else {}),
 
         # response length
         'response_length/mean':
@@ -628,8 +627,8 @@ class RayPPOTrainer(object):
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.use_kl_loss:
                             batch, kl_metrics = apply_kl_penalty(batch,
-                                                                kl_ctrl=self.kl_ctrl,
-                                                                kl_penalty=self.config.algorithm.kl_penalty)
+                                                                 kl_ctrl=self.kl_ctrl,
+                                                                 kl_penalty=self.config.algorithm.kl_penalty)
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
