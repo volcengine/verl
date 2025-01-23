@@ -167,19 +167,34 @@ def parallel_load_safetensors(filepath):
     Parallel load safetensors from huggingface checkpoint
 
     Huggingface checkpoint contains:
+
     - config.json: a json file for model configuration
     - model.safetensor.index.json: a json file for safetensors (parameters & buffers) index
     - model-000x-of-ooxx.safetensors: a binary file for safetensors (parameters & buffers) chunks
+
+    Or (when model is small),
+
+    - model.safetensors: a binary file for all parameters and buffers
 
     Each rank will own a part of model chunks and load them directly into GPU memory.
     """
     from safetensors.torch import load_file
 
-    index_file = os.path.join(filepath, "model.safetensors.index.json")
-    index = json.load(open(index_file, "rb"))
     safetensors2param = {}
-    for param_name, filename in index["weight_map"].items():
-        safetensors2param.setdefault(filename, []).append(param_name)
+
+    index_file = os.path.join(filepath, "model.safetensors.index.json")
+    if os.path.exists(index_file):
+        index = json.load(open(index_file, "rb"))
+        for param_name, filename in index["weight_map"].items():
+            safetensors2param.setdefault(filename, []).append(param_name)
+    else:
+        # in this case, the model is small and we can load it all at once
+        param_file = os.path.join(filepath, "model.safetensors")
+        assert os.path.exists(param_file), f"Cannot find {param_file}"
+        states = load_file(param_file)
+        for param_name in states:
+            safetensors2param.setdefault("model.safetensors", []).append(param_name)
+        del states
 
     total_files = len(safetensors2param)
     ckpt_chunks = sorted(safetensors2param.keys())
