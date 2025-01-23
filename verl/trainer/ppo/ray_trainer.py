@@ -131,7 +131,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == 'grpo':
-        assert data.batch.batch_size[0] % num_repeat == 0, 'batch_size must be divisible by num_repeat'
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
