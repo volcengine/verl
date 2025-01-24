@@ -33,6 +33,7 @@ trainer:
   project_name: gsm8k-sft
   experiment_name: test
   total_epochs: 4
+  total_training_steps: null
   logger: ['console']
   seed: 1
 
