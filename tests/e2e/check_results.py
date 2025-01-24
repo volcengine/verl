@@ -48,5 +48,5 @@ if __name__ == '__main__':
                 best_reward = reward
 
     print(f'Best reward is {best_reward}')
-    assert best_reward > 0.2, f'Best reward must be greater than 0.3. best_reward: {best_reward}'
+    assert best_reward > 0.2, f'Best reward must be greater than 0.2. best_reward: {best_reward}'
     print('Check passes')

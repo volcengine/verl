@@ -41,7 +41,7 @@ veRL is fast with:
 - Supervised fine-tuning
 - Reward model training
 - Reinforcement learning from human feedback with PPO
-- flash-attention integration, sequence packing
+- flash-attention integration, sequence packing, and long context support
 - scales up to 70B models and hundreds of GPUs
 - experiment tracking with wandb and mlflow
 
