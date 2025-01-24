@@ -477,7 +477,8 @@ class ActorRolloutRefWorker(Worker):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        self.actor.actor_module._handle.reshard(True)
+        if self.world_size > 1:
+            self.actor.actor_module._handle.reshard(True)
 
         torch.cuda.empty_cache()
         return output
@@ -503,7 +504,8 @@ class ActorRolloutRefWorker(Worker):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        self.ref_policy.actor_module._handle.reshard(True)
+        if self.world_size > 1:
+            self.ref_policy.actor_module._handle.reshard(True)
 
         torch.cuda.empty_cache()
         return output
