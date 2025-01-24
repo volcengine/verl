@@ -39,12 +39,15 @@ veRL is fast with:
 - **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
 - huggingface models support
 - Supervised fine-tuning
-- Reward model training
 - Reinforcement learning from human feedback with PPO
-- flash-attention integration, sequence packing, and long context support
+  - Support model-based reward and function-based reward (verifiable reward)
+- flash-attention integration, sequence packing, and long context support via DeepSpeed Ulysses
 - scales up to 70B models and hundreds of GPUs
 - experiment tracking with wandb and mlflow
 
+## Upcoming Features
+- Reward model training
+- DPO training
 
 ## Getting Started
 
