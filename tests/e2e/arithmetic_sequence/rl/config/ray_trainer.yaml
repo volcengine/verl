@@ -43,6 +43,7 @@ actor_rollout_ref:
       param_offload: False
       grad_offload: False
       optimizer_offload: False
+      fsdp_size: -1
   ref:
     fsdp_config:
       param_offload: False
@@ -91,6 +92,7 @@ critic:
     enable_gradient_checkpointing: False
     use_remove_padding: False
     fsdp_config:
+      fsdp_size: -1
       param_offload: False
       grad_offload: False
       optimizer_offload: False
@@ -125,6 +127,7 @@ reward_model:
     use_remove_padding: False
     fsdp_config:
       min_num_params: 0
+      fsdp_size: -1
   micro_batch_size: 8
   max_length: null
   ulysses_sequence_parallel_size: 1 # sp size
