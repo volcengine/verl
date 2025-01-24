@@ -320,6 +320,15 @@ class FSDPSFTTrainer(object):
                                 default_backend=self.config.trainer.logger)
 
         global_step = 0
+        # compute the total training steps.
+        # the total training steps in SFT is mainly for early exit
+        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        print(f'Total training steps: {self.total_training_steps}')
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
 
@@ -331,6 +340,24 @@ class FSDPSFTTrainer(object):
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
                 global_step += 1
+
+                # for early exit validation
+                if global_step >= self.total_training_steps:
+                    # Perform final validation
+                    val_losses = []
+                    for val_data in self.val_dataloader:
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size).cuda()
+                        val_loss = self.validation_step(val_data)
+                        val_losses.append(val_loss)
+                    if rank == 0:
+                        avg_val_loss = torch.mean(torch.stack(val_losses))
+                        metric = {'val/loss': avg_val_loss.detach().item()}
+                        tracking.log(data=metric, step=global_step)
+                    torch.distributed.barrier()
+
+                    # Save final checkpoint
+                    self.save_checkpoint(step=global_step)
+                    return
 
             # validation
             val_losses = []
