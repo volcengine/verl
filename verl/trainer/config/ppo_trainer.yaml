@@ -53,7 +53,6 @@ actor_rollout_ref:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
-      fsdp_size: -1
     log_prob_micro_batch_size: 128
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
@@ -129,6 +128,7 @@ reward_model:
     fsdp_config:
       min_num_params: 0
       param_offload: False
+      fsdp_size: -1
   micro_batch_size: 64
   max_length: null
   ulysses_sequence_parallel_size: 1 # sp size
