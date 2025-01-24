@@ -353,15 +353,9 @@ class ActorRolloutRefWorker(MegatronWorker):
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
 
-        prompts.batch = prompts.batch.cuda()
-        meta_info = {
-            'eos_token_id':
-                self.generation_config.eos_token_id
-                if self.generation_config is not None else self.tokenizer.eos_token_id,
-            'pad_token_id':
-                self.generation_config.pad_token_id
-                if self.generation_config is not None else self.tokenizer.pad_token_id,
-        }
+        # prompts.batch = prompts.batch.cuda()
+        prompts.batch = prompts.batch.to(torch.cuda.current_device())
+        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)

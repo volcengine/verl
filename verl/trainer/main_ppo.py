@@ -15,6 +15,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import importlib.util
 from verl import DataProto
 import torch
 from verl.utils.reward_score import gsm8k, math
@@ -101,7 +102,15 @@ def main(config):
 def run_ppo(config, compute_score=None):
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        ray.init(runtime_env={
+            'env_vars': {
+                'TOKENIZERS_PARALLELISM': 'true',
+                'NCCL_DEBUG': 'WARN',
+                # Unlike CUDA, Ascend NPU requires visibility of all devices that need to engage in HCCL communication.
+                # use this environment variable to enable visiblity of all devices.
+                "RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "true"
+            }
+        })
 
     ray.get(main_task.remote(config, compute_score))
 

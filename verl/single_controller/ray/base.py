@@ -70,7 +70,8 @@ class RayResourcePool(ResourcePool):
         # print(f"pg_name_prefix = {pg_name_prefix}")
         pg_scheme = [[{
             "CPU": self.max_collocate_count,
-            "GPU": 1
+            # "GPU": 1
+            "NPU": 1
         } if self.use_gpu else {
             "CPU": self.max_collocate_count
         } for _ in range(process_count)] for process_count in self._store]
@@ -161,7 +162,8 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         options.update(self._options)
 
         if use_gpu:
-            options["num_gpus"] = num_gpus
+            # options["num_gpus"] = num_gpus
+            options["resources"] = {"NPU": num_gpus}
 
         if len(self._additional_resource) > 1:
             for k, v in self._additional_resource.items():
