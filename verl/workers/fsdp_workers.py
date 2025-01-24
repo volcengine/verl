@@ -49,7 +49,8 @@ def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
     else:
-        raise ValueError('HSDP is not supported yet because it produces incorrect results for now. Please set fsdp_size=-1')
+        raise ValueError(
+            'HSDP is not supported yet because it produces incorrect results for now. Please set fsdp_size=-1')
         assert world_size % fsdp_size == 0
         device_mesh = init_device_mesh('cuda',
                                        mesh_shape=(world_size // fsdp_size, fsdp_size),
