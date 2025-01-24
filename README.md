@@ -39,7 +39,7 @@ veRL is fast with:
 - **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
 - huggingface models support
 - Supervised fine-tuning
-- Reinforcement learning from human feedback with PPO
+- Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer) and [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer)
   - Support model-based reward and function-based reward (verifiable reward)
 - flash-attention integration, sequence packing, and long context support via DeepSpeed Ulysses
 - scales up to 70B models and hundreds of GPUs
