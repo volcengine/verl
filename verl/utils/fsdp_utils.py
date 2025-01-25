@@ -45,7 +45,14 @@ def get_init_weight_context_manager(use_meta_tensor=True):
 
 # Copyright 2020-present the HuggingFace Inc. team.
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
-def get_fsdp_wrap_policy(module, config=None):
+def get_fsdp_wrap_policy(module, config=None, is_lora=False):
+    """Get FSDP wrap policy for the module.
+    
+    Args:
+        module: The module to get wrap policy for
+        config: Configuration for wrap policy
+        is_lora: Whether to enable lambda policy for LoRA modules
+    """
     if config is None:
         config = {}
 
@@ -57,8 +64,26 @@ def get_fsdp_wrap_policy(module, config=None):
                                                     default_transformer_cls_names_to_wrap)
     min_num_params = config.get('min_num_params', 0)
     auto_wrap_policy = None
+
+    policies = []
+
+    from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, transformer_auto_wrap_policy
+
+    # Add lambda policy for LoRA modules if is_lora is True
+    if is_lora:
+
+        def lambda_policy_fn(module):
+            if (len(list(module.named_children())) == 0 and getattr(module, "weight", None) is not None and
+                    module.weight.requires_grad):
+                return True
+            return False
+
+        lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
+        policies.append(lambda_policy)
+
     if min_num_params > 0:
-        auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)
+        size_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)
+        policies.append(size_policy)
     elif fsdp_transformer_layer_cls_to_wrap is not None:
         transformer_cls_to_wrap = set()
         for layer_class in fsdp_transformer_layer_cls_to_wrap:
@@ -68,11 +93,15 @@ def get_fsdp_wrap_policy(module, config=None):
             else:
                 transformer_cls_to_wrap.add(transformer_cls)
 
-        auto_wrap_policy = functools.partial(
+        transformer_policy = functools.partial(
             transformer_auto_wrap_policy,
-            # Transformer layer class to wrap
             transformer_layer_cls=transformer_cls_to_wrap,
         )
+        policies.append(transformer_policy)
+
+    if len(policies) > 0:
+        auto_wrap_policy = functools.partial(_or_policy, policies=policies)
+
     return auto_wrap_policy
 
 
