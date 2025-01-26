@@ -45,8 +45,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
         print(f'Critic use_remove_padding={self.use_remove_padding}')
 
-        assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size == 0
-        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size
+        assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
+        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
 
@@ -161,7 +161,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
-                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
             self.critic_optimizer.zero_grad()
 
