@@ -47,20 +47,22 @@ def validate_config(config):
     if not config.actor_rollout_ref.actor.use_dynamic_bsz:
         # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
         check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
-                                config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu, "actor_rollout_ref.actor")
-    
+                                 config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu, "actor_rollout_ref.actor")
+
         # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
         check_mutually_exclusive(config.actor_rollout_ref.ref.log_prob_micro_batch_size,
-                                config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu, "actor_rollout_ref.ref")
+                                 config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu,
+                                 "actor_rollout_ref.ref")
 
         #  The rollout section also has log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
         check_mutually_exclusive(config.actor_rollout_ref.rollout.log_prob_micro_batch_size,
-                                config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
-                                "actor_rollout_ref.rollout")
+                                 config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
+                                 "actor_rollout_ref.rollout")
 
     if not config.critic.use_dynamic_bsz:
         # Check for critic micro-batch size conflicts
-        check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu, "critic")
+        check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu,
+                                 "critic")
 
     # Check for reward model micro-batch size conflicts
     if config.reward_model.enable and not config.reward_model.use_dynamic_bsz:
