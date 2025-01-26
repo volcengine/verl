@@ -188,7 +188,7 @@ class ActorRolloutRefWorker(Worker):
         init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
 
         with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")            
+            warnings.simplefilter("ignore")
             actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
                                                                 config=actor_model_config,
