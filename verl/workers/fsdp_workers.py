@@ -468,11 +468,11 @@ class ActorRolloutRefWorker(Worker):
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
-            old_log_probs = self.actor.compute_log_prob(data=data)
-            data.batch['old_log_probs'] = old_log_probs
-            data = self.ulysses_sharding_manager.postprocess_data(data)
+            output = self.actor.compute_log_prob(data=data)
+            output = DataProto.from_dict(tensors={'old_log_probs': output},
+                                         meta_info={'temperature': self.config.rollout.temperature})
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
-        output = data.select(batch_keys=['old_log_probs'])
         output = output.to('cpu')
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
