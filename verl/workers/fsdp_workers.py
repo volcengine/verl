@@ -120,6 +120,21 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
+            # micro bsz
+            if self.config.actor.ppo_micro_batch_size is not None:
+                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
+                                                            self.ulysses_sequence_parallel_size)
+                self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
+        # normalize rollout config
+        if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
+            self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+                                                               self.ulysses_sequence_parallel_size)
+            self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
+        # normalize ref config
+        if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
+            self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+                                                           self.ulysses_sequence_parallel_size)
+            self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_model_optimizer(self,
                                model_path,
@@ -560,6 +575,12 @@ class CriticWorker(Worker):
 
         # normalize config
         self.config.ppo_mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
+        if self.config.ppo_micro_batch_size is not None:
+            self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
+            self.config.forward_micro_batch_size //= (torch.distributed.get_world_size() //
+                                                    self.ulysses_sequence_parallel_size)
+            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
+            self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -822,6 +843,11 @@ class RewardModelWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
+
+        # normalize config
+        if self.config.micro_batch_size is not None:
+            self.config.micro_batch_size //= torch.distributed.get_world_size()
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_model(self, config):
         # the following line is necessary

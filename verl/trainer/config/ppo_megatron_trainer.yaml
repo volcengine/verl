@@ -21,7 +21,7 @@ actor_rollout_ref:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
-    ppo_micro_batch_size_per_gpu: 8
+    ppo_micro_batch_size_per_gpu: null
     clip_ratio: 0.2
     entropy_coeff: 0.001
     ppo_epochs: 1
@@ -50,7 +50,7 @@ actor_rollout_ref:
     load_weight: True
     param_offload: False
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
-    log_prob_micro_batch_size_per_gpu: 2
+    log_prob_micro_batch_size_per_gpu: null
   rollout:
     name: vllm
     temperature: 1.0
@@ -69,7 +69,7 @@ actor_rollout_ref:
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
-    log_prob_micro_batch_size_per_gpu: 2
+    log_prob_micro_batch_size_per_gpu: null
     # for hf rollout
     do_sample: True
     layer_name_map:
@@ -102,7 +102,7 @@ critic:
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
-  ppo_micro_batch_size_per_gpu: 2
+  ppo_micro_batch_size_per_gpu: null
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
@@ -126,7 +126,7 @@ reward_model:
   load_weight: True
   param_offload: False
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
-  micro_batch_size_per_gpu: 8
+  micro_batch_size_per_gpu: null
   max_length: null
 
 algorithm:
