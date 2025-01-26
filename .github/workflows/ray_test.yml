@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/ray_test.yml
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ray:
     runs-on: [self-hosted, l20-0]

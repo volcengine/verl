@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/dataset.yml
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ray:
     runs-on: [self-hosted, gpu]
