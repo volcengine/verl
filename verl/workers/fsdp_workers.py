@@ -199,10 +199,8 @@ class ActorRolloutRefWorker(Worker):
                     logger.info("Using Liger kernel for model loading")
                 except ImportError:
                     # Fallback to use AutoModelForCausalLM and print warning message
-                    logger.warning(
-                        "Liger kernel was requested but not installed - falling back to AutoModelForCausalLM",
-                        "To enable Liger kernel, install it with: pip install liger-kernel"
-                    )
+                    logger.warning("Liger kernel was requested but not installed - falling back to AutoModelForCausalLM")
+                    logger.warning("To enable Liger kernel, install it with: pip install liger-kernel")
 
             actor_module = model_loader.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
