@@ -140,6 +140,7 @@ class ActorRolloutRefWorker(Worker):
                                use_remove_padding=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False,
+                               use_liger=False,
                                role='actor'):
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -188,7 +189,22 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
+            # By default, use the original HF transformer module to load the model
+            model_loader = AutoModelForCausalLM
+            if use_liger:
+                try:
+                    # Import Liger kernel module and use it to load the model
+                    from liger_kernel.transformers import AutoLigerKernelForCausalLM
+                    model_loader = AutoLigerKernelForCausalLM
+                    logger.info("Using Liger kernel for model loading")
+                except ImportError:
+                    # Fallback to use AutoModelForCausalLM and print warning message
+                    logger.warning(
+                        "Liger kernel was requested but not installed - falling back to AutoModelForCausalLM",
+                        "To enable Liger kernel, install it with: pip install liger-kernel"
+                    )
+
+            actor_module = model_loader.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
                                                                 config=actor_model_config,
                                                                 attn_implementation='flash_attention_2',
@@ -333,6 +349,7 @@ class ActorRolloutRefWorker(Worker):
                 use_remove_padding=use_remove_padding,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False),
+                use_liger=self.config.model.get('use_liger', False),
                 role='actor')
 
             # get the original unwrapped module
@@ -365,6 +382,7 @@ class ActorRolloutRefWorker(Worker):
                                                                use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False),
+                                                               use_liger=self.config.model.get('use_liger', False),
                                                                role='ref')[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
