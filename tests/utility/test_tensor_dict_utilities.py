@@ -41,8 +41,12 @@ def test_union_tensor_dict():
         data = union_tensor_dict(data1, data_with_copied_obs)
 
     data = np.random.random(100)
-    a = {'a': data}
-    b = {'a': data}
+    data2 = [float('nan') for _ in range(99)]
+    data2.append('nan')
+    data2 = np.array(data2, dtype=object)
+    data3 = np.tile(data2, (2, 1))
+    a = {'a': data, 'b': data2, 'c': data3}
+    b = {'a': data, 'b': data2, 'c': data3}
     b_ = {'a': np.random.random(100)}
     union_numpy_dict(a, b)
     with pytest.raises(AssertionError):
