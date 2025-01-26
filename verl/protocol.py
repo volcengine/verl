@@ -82,7 +82,7 @@ def union_numpy_dict(tensor_dict1: dict[np.ndarray], tensor_dict2: dict[np.ndarr
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
-            assert np.all(tensor_dict2[key] == tensor_dict1[key]), \
+            assert np.array_equal(tensor_dict2[key] == tensor_dict1[key], equal_nan=True), \
                 f'{key} in tensor_dict1 and tensor_dict2 are not the same object'
         tensor_dict1[key] = val
 
