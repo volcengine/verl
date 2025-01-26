@@ -105,7 +105,6 @@ def main(config):
     from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
 
-
     # print the config
     # print initial config
     print('Config after normalizing batch_size')

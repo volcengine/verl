@@ -604,7 +604,6 @@ class RewardModelWorker(MegatronWorker):
 
         set_random_seed(seed=self.config.megatron.seed)
 
-
     def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
