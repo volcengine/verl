@@ -336,10 +336,10 @@ class RayPPOTrainer(object):
                 raise NotImplementedError
         else:
             self.kl_ctrl = core_algos.FixedKLController(kl_coef=0.)
-        
+
         self._validate_config()
         self._create_dataloader()
-    
+
     def _validate_config(self):
         from verl.utils.config import validate_config
         validate_config(self.config)

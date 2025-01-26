@@ -576,9 +576,10 @@ class CriticWorker(Worker):
         # normalize config
         self.config.ppo_mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
         if self.config.ppo_micro_batch_size is not None:
-            self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
+            self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() //
+                                                  self.ulysses_sequence_parallel_size)
             self.config.forward_micro_batch_size //= (torch.distributed.get_world_size() //
-                                                    self.ulysses_sequence_parallel_size)
+                                                      self.ulysses_sequence_parallel_size)
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
 

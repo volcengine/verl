@@ -22,6 +22,7 @@ def update_dict_with_config(dictionary: Dict, config: DictConfig):
         if hasattr(config, key):
             dictionary[key] = getattr(config, key)
 
+
 def validate_config(config):
     # number of GPUs total
     n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
@@ -35,52 +36,34 @@ def validate_config(config):
     # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
     def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
         if mbs is None and mbs_per_gpu is None:
-            raise ValueError(
-                f"[{name}] Please set at least one of '{name}.micro_batch_size' or "
-                f"'{name}.micro_batch_size_per_gpu'."
-            )
-    
+            raise ValueError(f"[{name}] Please set at least one of '{name}.micro_batch_size' or "
+                             f"'{name}.micro_batch_size_per_gpu'.")
+
         if mbs is not None and mbs_per_gpu is not None:
-            raise ValueError(
-                f"[{name}] You have set both '{name}.micro_batch_size' AND "
-                f"'{name}.micro_batch_size_per_gpu'. Please remove '{name}.micro_batch_size' "
-                f"because only '*_micro_batch_size_per_gpu' is supported (the former is deprecated)."
-            )
+            raise ValueError(f"[{name}] You have set both '{name}.micro_batch_size' AND "
+                             f"'{name}.micro_batch_size_per_gpu'. Please remove '{name}.micro_batch_size' "
+                             f"because only '*_micro_batch_size_per_gpu' is supported (the former is deprecated).")
+
     # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
-    check_mutually_exclusive(
-        config.actor_rollout_ref.actor.ppo_micro_batch_size,
-        config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
-        "actor_rollout_ref.actor"
-    )
+    check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
+                             config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu, "actor_rollout_ref.actor")
 
     # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
-    check_mutually_exclusive(
-        config.actor_rollout_ref.ref.log_prob_micro_batch_size,
-        config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu,
-        "actor_rollout_ref.ref"
-    )
+    check_mutually_exclusive(config.actor_rollout_ref.ref.log_prob_micro_batch_size,
+                             config.actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu, "actor_rollout_ref.ref")
 
     #  The rollout section also has log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
-    check_mutually_exclusive(
-        config.actor_rollout_ref.rollout.log_prob_micro_batch_size,
-        config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
-        "actor_rollout_ref.rollout"
-    )
+    check_mutually_exclusive(config.actor_rollout_ref.rollout.log_prob_micro_batch_size,
+                             config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
+                             "actor_rollout_ref.rollout")
 
     # Check for critic micro-batch size conflicts
-    check_mutually_exclusive(
-        config.critic.ppo_micro_batch_size,
-        config.critic.ppo_micro_batch_size_per_gpu,
-        "critic"
-    )
+    check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu, "critic")
 
     # Check for reward model micro-batch size conflicts
     if config.reward_model.enable:
-        check_mutually_exclusive(
-            config.reward_model.micro_batch_size,
-            config.reward_model.micro_batch_size_per_gpu,
-            "reward_model"
-        )
+        check_mutually_exclusive(config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu,
+                                 "reward_model")
 
     # Actor
     # if NOT dynamic_bsz, we must ensure:
@@ -98,5 +81,5 @@ def validate_config(config):
         if config.critic.ppo_micro_batch_size is not None:
             assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
             assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
-        
+
     print("[validate_config] All configuration checks passed successfully!")
