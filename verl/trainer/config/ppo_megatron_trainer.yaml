@@ -20,7 +20,7 @@ actor_rollout_ref:
   actor:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
-    ppo_micro_batch_size: 64
+    ppo_micro_batch_size_per_gpu: 8
     clip_ratio: 0.2
     entropy_coeff: 0.001
     ppo_epochs: 1
@@ -48,7 +48,7 @@ actor_rollout_ref:
       seed: 1
     load_weight: True
     param_offload: False
-    log_prob_micro_batch_size: 32
+    log_prob_micro_batch_size_per_gpu: 2
   rollout:
     name: vllm
     temperature: 1.0
@@ -66,7 +66,7 @@ actor_rollout_ref:
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
-    log_prob_micro_batch_size: 2
+    log_prob_micro_batch_size_per_gpu: 2
     # for hf rollout
     do_sample: True
     layer_name_map:
@@ -98,7 +98,7 @@ critic:
     seed: 1
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
-  ppo_micro_batch_size: 2
+  ppo_micro_batch_size_per_gpu: 2
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
@@ -121,7 +121,7 @@ reward_model:
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
   param_offload: False
-  micro_batch_size: 64
+  micro_batch_size_per_gpu: 8
   max_length: null
 
 algorithm:

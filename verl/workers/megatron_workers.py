@@ -112,13 +112,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         # normalize config
         if self._is_actor and self._is_rollout:
             self.config.actor.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-            self.config.actor.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
-            self.config.rollout.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
             self._is_offload_param = self.config.actor.get('param_offload', False)
             self._is_offload_grad = self.config.actor.get('grad_offload', False)
             self._is_offload_optimizer = self.config.actor.get('optimizer_offload', False)
         elif self._is_ref:
-            self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
     def _build_model_optimizer(self,
@@ -361,7 +358,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         validate = prompts.meta_info.get('validate', False)
         if self._is_actor and not validate:
             # we should always recompute old_log_probs when it is HybridEngine
-            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
+            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
             output.meta_info['temperature'] = self.config.rollout.temperature
             old_log_probs = self.actor.compute_log_prob(data=output)
             output.batch['old_log_probs'] = old_log_probs
@@ -380,7 +377,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_param_and_grad(self.ref_module, torch.cuda.current_device(), self._is_offload_grad)
 
-        micro_batch_size = self.config.rollout.log_prob_micro_batch_size
+        micro_batch_size = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         output = self.ref_policy.compute_log_prob(data=data)
@@ -439,7 +436,6 @@ class CriticWorker(MegatronWorker):
 
         # normalize config
         self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-        self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
 
         # TODO(sgm): support critic model offload
 
@@ -608,8 +604,6 @@ class RewardModelWorker(MegatronWorker):
 
         set_random_seed(seed=self.config.megatron.seed)
 
-        # normalize config
-        self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
 
     def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
