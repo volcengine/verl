@@ -20,9 +20,9 @@ import os
 import warnings
 
 import torch
+import torch_npu
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
-import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from verl import DataProto
@@ -37,6 +37,7 @@ from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_param_and
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from codetiming import Timer
@@ -47,12 +48,12 @@ logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
-        device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
+        device_mesh = init_device_mesh('npu', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
     else:
         raise ValueError(
             'HSDP is not supported yet because it produces incorrect results for now. Please set fsdp_size=-1')
         assert world_size % fsdp_size == 0
-        device_mesh = init_device_mesh('cuda',
+        device_mesh = init_device_mesh('npu',
                                        mesh_shape=(world_size // fsdp_size, fsdp_size),
                                        mesh_dim_names=['ddp', 'fsdp'])
     return device_mesh
@@ -80,7 +81,7 @@ class ActorRolloutRefWorker(Worker):
         self.config = config
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="hccl")
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -92,7 +93,7 @@ class ActorRolloutRefWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.actor.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda',
+            self.ulysses_device_mesh = init_device_mesh('npu',
                                                         mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
 
@@ -118,19 +119,23 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize config
         if self._is_actor:
-            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
-            self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
-                                                        self.ulysses_sequence_parallel_size)
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_micro_batch_size *= self.config.rollout.n
-        if self._is_rollout:
+
+            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
+
+            if self.config.actor.ppo_micro_batch_size is not None:
+                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
+                                                            self.ulysses_sequence_parallel_size)
+                self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
+                assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0
+        if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
             self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                                self.ulysses_sequence_parallel_size)
-            self.config.rollout.log_prob_micro_batch_size *= self.config.rollout.n
-        if self._is_ref:
+            self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
+        if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
             self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                            self.ulysses_sequence_parallel_size)
-            self.config.ref.log_prob_micro_batch_size *= self.config.rollout.n
+            self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_model_optimizer(self,
                                model_path,
@@ -140,11 +145,13 @@ class ActorRolloutRefWorker(Worker):
                                use_remove_padding=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False,
+                               use_liger=False,
                                role='actor'):
-        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.torch_dtypes import PrecisionType
         from transformers import AutoModelForCausalLM, AutoConfig
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, CPUOffload
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, \
+            CPUOffload
         from torch import optim
 
         assert role in ['actor', 'ref']
@@ -164,6 +171,7 @@ class ActorRolloutRefWorker(Worker):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
@@ -191,7 +199,7 @@ class ActorRolloutRefWorker(Worker):
             actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
                                                                 config=actor_model_config,
-                                                                attn_implementation='flash_attention_2',
+                                                                # attn_implementation='flash_attention2',
                                                                 trust_remote_code=trust_remote_code)
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
@@ -239,7 +247,7 @@ class ActorRolloutRefWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=torch.npu.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
             sync_module_states=True,
@@ -278,7 +286,7 @@ class ActorRolloutRefWorker(Worker):
         infer_tp = self.config.rollout.tensor_model_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
-        rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
+        rollout_device_mesh = init_device_mesh('npu', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
 
         if self.config.rollout.name == 'hf':
             from verl.workers.rollout import HFRollout
@@ -373,22 +381,26 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
+            self.checkpoint_manager = FSDPCheckpointManager(model=self.actor_module_fsdp,
+                                                            optimizer=self.actor_optimizer,
+                                                            lr_scheduler=self.actor_lr_scheduler,
+                                                            tokenizer=self.tokenizer)
 
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
-        data = data.to('cuda')
+        data = data.to("npu")
 
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.npu.current_device())
 
-        data.batch = data.batch.cuda()
+        data.batch = data.batch.to("npu")
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
@@ -418,23 +430,29 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
-        prompts = prompts.to('cuda')
+        prompts = prompts.to('npu')
         # set to False if it is validation
-        recompute_log_prob = prompts.meta_info.get('recompute_log_prob', True)
 
         assert self._is_rollout
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        prompts.batch = prompts.batch.cuda()
-        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
+        prompts.batch = prompts.batch.to("npu")
+        meta_info = {''
+                     'eos_token_id':
+                         self.generation_config.eos_token_id
+                         if self.generation_config is not None else self.tokenizer.eos_token_id,
+                     'pad_token_id':
+                         self.generation_config.pad_token_id
+                         if self.generation_config is not None else self.tokenizer.pad_token_id
+                     }
         prompts.meta_info.update(meta_info)
         with self.rollout_sharding_manager:
             log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
@@ -452,27 +470,32 @@ class ActorRolloutRefWorker(Worker):
             # NOTE(sgm): the grad is already in CPU, only offload param here
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
         # clear kv cache
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
-        data = data.to('cuda')
+        if self._is_offload_param:
+            load_fsdp_param_and_grad(module=self.actor._module_fsdp,
+                                     device_id=torch.npu.current_device(),
+                                     load_grad=self._is_offload_grad
+                                     )
+        data = data.to('npu')
         # we should always recompute old_log_probs when it is HybridEngine
-        data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
+        data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info['temperature'] = self.config.rollout.temperature
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
-            old_log_probs = self.actor.compute_log_prob(data=data)
-            data.batch['old_log_probs'] = old_log_probs
-            data = self.ulysses_sharding_manager.postprocess_data(data)
+            output = self.actor.compute_log_prob(data=data)
+            output = DataProto.from_dict(tensors={'old_log_probs': output},
+                                         meta_info={'temperature': self.config.rollout.temperature})
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
-        output = data.select(batch_keys=['old_log_probs'])
         output = output.to('cpu')
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
@@ -480,16 +503,20 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.actor.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
+        if self._is_offload_param:
+            offload_fsdp_param_and_grad(module=self.actor._module_fsdp, offload_grad=self._is_offload_grad)
+
+        torch_npu.npu.empty_cache()
+        log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
 
-        data = data.to('cuda')
+        data = data.to('npu')
 
-        micro_batch_size = self.config.ref.log_prob_micro_batch_size
+        micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         data.meta_info['max_token_len'] = self.config.ref.log_prob_max_token_len_per_gpu
@@ -507,35 +534,32 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
         assert self._is_actor
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
 
         # TODO: support DCP and save sharded checkpoints
-        import torch.distributed
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        with FSDP.state_dict_type(self.actor.actor_module, StateDictType.FULL_STATE_DICT, cfg):
-            state_dict = self.actor.actor_module.state_dict()
-        if self.rank == 0:
-            print(f'Saving actor checkpoint to {local_path}')
-            os.makedirs(local_path, exist_ok=True)
-            self.actor_module.save_pretrained(local_path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(local_path)
-            if hdfs_path is not None:
-                print(f'Uploading actor checkpoint to {hdfs_path}')
-                hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                hdfs_io.copy(src=local_path, dst=hdfs_path)
+        self._checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step)
 
         torch.distributed.barrier()
+        if self._is_offload_param:
+            offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, path, del_local_after_load=True):
+        if self._is_offload_param:
+            load_fsdp_param_and_grad(module=self.actor._module_fsdp,
+                                     device_id=torch.npu.current_device(),
+                                     load_grad=self._is_offload_grad)
+        self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
 
@@ -546,13 +570,12 @@ class CriticWorker(Worker):
         super().__init__()
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="hccl")
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
-
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
 
@@ -560,7 +583,7 @@ class CriticWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda',
+            self.ulysses_device_mesh = init_device_mesh('npu',
                                                         mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
 
@@ -573,9 +596,14 @@ class CriticWorker(Worker):
 
         # normalize config
         self.config.ppo_mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
-        self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
-        self.config.forward_micro_batch_size //= (torch.distributed.get_world_size() //
+        if self.config.ppo_micro_batch_size is not None:
+            self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() //
                                                   self.ulysses_sequence_parallel_size)
+            self.config.forward_micro_batch_size //= (torch.distributed.get_world_size() //
+                                                      self.ulysses_sequence_parallel_size)
+            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
+            self.config.forward_max_token_len_per_gpu = self.config.forward_micro_batch_size
+            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -629,7 +657,7 @@ class CriticWorker(Worker):
             critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             torch_dtype=torch_dtype,
                                                                             config=critic_model_config,
-                                                                            attn_implementation='flash_attention_2',
+                                                                            # attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
@@ -667,7 +695,7 @@ class CriticWorker(Worker):
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.cuda.current_device(),
+                             device_id=torch.npu.current_device(),
                              sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,
@@ -713,18 +741,22 @@ class CriticWorker(Worker):
                                             critic_optimizer=self.critic_optimizer)
 
         self.flops_counter = FlopsCounter(self.critic_model_config)
+        self.checkpoint_manager = FSDPCheckpointManager(model=self.critic_module,
+                                                        optimizer=self.critic_optimizer,
+                                                        lr_scheduler=self.critic_lr_scheduler,
+                                                        tokenizer=self.tokenizer)
 
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-        data = data.to('cuda')
+        data = data.to('npu')
 
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
-        micro_batch_size = self.config.forward_micro_batch_size
+        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
@@ -738,18 +770,18 @@ class CriticWorker(Worker):
         output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
-        data = data.to('cuda')
+        data = data.to('npu')
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.npu.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -774,33 +806,32 @@ class CriticWorker(Worker):
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         output = output.to('cpu')
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.cuda.current_device(),
+                                     device_id=torch_npu.npu.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        # TODO: support DCP and save sharded checkpoints
-        import torch.distributed
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        with FSDP.state_dict_type(self.critic_module, StateDictType.FULL_STATE_DICT, cfg):
-            state_dict = self.critic_module.state_dict()
-        if self.rank == 0:
-            print(f'Saving critic checkpoint to {local_path}')
-            os.makedirs(local_path, exist_ok=True)
-            self.critic_module._fsdp_wrapped_module.save_pretrained(local_path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(local_path)
-            if hdfs_path is not None:
-                print(f'Uploading critic checkpoint to {hdfs_path}')
-                hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                hdfs_io.copy(src=local_path, dst=hdfs_path)
+        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step)
+        torch.distributed.barrier()
+
+        if self._is_offload_param:
+            offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, path, del_local_after_load):
+        import torch
+        if self._is_offload_param:
+            load_fsdp_param_and_grad(module=self.critic_module,
+                                     device_id=torch.npu.current_device(),
+                                     load_grad=self._is_offload_grad)
+        self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
 
         torch.distributed.barrier()
         if self._is_offload_param:
@@ -817,7 +848,7 @@ class RewardModelWorker(Worker):
         super().__init__()
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group(backend="hccl")
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -831,14 +862,16 @@ class RewardModelWorker(Worker):
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
         dp = world_size // self.ulysses_sequence_parallel_size
         if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh('cuda',
+            self.ulysses_device_mesh = init_device_mesh('npu',
                                                         mesh_shape=(dp, self.ulysses_sequence_parallel_size),
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
-        self.config.micro_batch_size //= torch.distributed.get_world_size()
+        if self.config.micro_batch_size is not None:
+            self.config.micro_batch_size //= torch.distributed.get_world_size()
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_model(self, config):
         # the following line is necessary
@@ -879,7 +912,7 @@ class RewardModelWorker(Worker):
             reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             config=model_config,
                                                                             torch_dtype=torch.bfloat16,
-                                                                            attn_implementation='flash_attention_2',
+                                                                            # attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
@@ -892,7 +925,7 @@ class RewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=torch.npu.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             sync_module_states=True,
             cpu_offload=CPUOffload(offload_params=True),
@@ -906,13 +939,13 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
-        from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
+        from verl.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
         from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 
-        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.no_grad(), torch.autocast(device_type='npu', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
@@ -930,8 +963,8 @@ class RewardModelWorker(Worker):
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
-                                                                                                position_ids_rmpad, \
-                                                                                                sp_size=self.ulysses_sequence_parallel_size)
+                                                                                                 position_ids_rmpad, \
+                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.reward_module(input_ids=input_ids_rmpad,
@@ -1038,11 +1071,11 @@ class RewardModelWorker(Worker):
     def compute_rm_score(self, data: DataProto):
         import itertools
         from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-        data = data.to('cuda')
+        data = data.to('npu')
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
 
-        rm_data.batch = rm_data.batch.cuda()
+        rm_data.batch = rm_data.batch.to('npu')
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -1054,7 +1087,7 @@ class RewardModelWorker(Worker):
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
             else:
-                micro_batches = rm_data.batch.split(self.config.micro_batch_size)
+                micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
             output = []
             for micro_batch in micro_batches:
                 rm_score = self._forward_micro_batch(micro_batch)
@@ -1077,5 +1110,5 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         return output

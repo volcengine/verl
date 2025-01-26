@@ -41,7 +41,6 @@ def gather_from_labels(data, label):
     Returns:
 
     """
-
     output = torch.gather(data, -1, label.unsqueeze(-1)).squeeze(-1)
     return output
 
@@ -58,13 +57,13 @@ def logprobs_from_logits(logits, labels):
         output = logprobs_from_logits_flash_attn(logits, labels)
         output = output.view(*batch_dim)
     else:
-        output = logprobs_from_logits_naive(logits, labels)
+        output = logprobs_from_logits_v2(logits, labels)
     return output
 
 
 def logprobs_from_logits_flash_attn(logits, labels):
-    output = -cross_entropy_loss(logits, labels)[0]
-    return output
+    output = -cross_entropy_loss(logits, labels)
+    return -output[0]
 
 
 def logprobs_from_logits_naive(logits, labels):
@@ -73,14 +72,22 @@ def logprobs_from_logits_naive(logits, labels):
     return logpy
 
 
-def logprobs_of_labels_v2(logits: torch.FloatTensor, labels):
+def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
     """
     A memory efficient implementation of logprobs_from_logits
     """
-    assert logits.dtype == torch.float32, 'Using bf16 logits with logprobs_of_labels_v2 may lead to divergence'
-    logprobs_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1))
-    logprobs_labels = logprobs_labels - torch.logsumexp(logits, dim=-1, keepdim=True)
-    return logprobs_labels.squeeze(-1)
+    if logits.dtype in [torch.float32, torch.float64]:
+        logits_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+        logsumexp_values = torch.stack([torch.logsumexp(l, dim=-1) for l in logits])
+        logprobs_labels = logits_labels - logsumexp_values
+    else:
+        logprobs_labels = []
+        for row_logits, row_labels in zip(logits, labels):
+            row_logprobs = F.log_softmax(row_logits, dim=-1)
+            row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
+            logprobs_labels.append(row_logprobs_labels)
+        logprobs_labels = torch.stack(logprobs_labels)
+    return logprobs_labels
 
 
 def clip_by_value(x, tensor_min, tensor_max):
@@ -136,13 +143,19 @@ def masked_whiten(values, mask, shift_mean=True):
     return whitened
 
 
-def get_eos_mask(response_id: torch.Tensor, eos_token: int = 2, dtype=torch.int64):
+def get_eos_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2, dtype=torch.int64):
     '''
     e.g. end of sentence token=1
     response_id: [0, 0, 2, 42, 3, 5, 1, 0, 0]
     eos_mask:     [1, 1, 1, 1,  1, 1, 1, 0, 0]
     '''
-    eos_mask = response_id.eq(eos_token).long()
+    if isinstance(eos_token, int):
+        eos_token = [eos_token]
+    eos_mask = torch.zeros_like(response_id, dtype=torch.bool)
+    for token in eos_token:
+        eos_mask |= response_id.eq(token)
+
+    eos_mask = eos_mask.long()
     eos_mask = (torch.cumsum(eos_mask, dim=1) - eos_mask).bool()
     eos_mask = torch.logical_not(eos_mask).to(dtype)
     return eos_mask

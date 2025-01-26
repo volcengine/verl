@@ -1,6 +1,7 @@
 data:
   train_batch_size: 256
-  micro_batch_size: 16  # this is also val batch size
+  micro_batch_size: null  # this is also val batch size
+  micro_batch_size_per_gpu: null
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
   prompt_key: question
@@ -21,13 +22,16 @@ model:
   trust_remote_code: False
   lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
   lora_alpha: 16  # LoRA scaling factor
-  target_modules: [q_proj, v_proj]  # Target modules for LoRA adaptation
+  target_modules: all-liner  # Target modules for LoRA adaptation
+  use_liger: False
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]
   weight_decay: 0.01
   warmup_steps_ratio: 0.1
   clip_grad: 1.0
+  ulysses_sequence_parallel_size: 1
+  use_remove_padding: False
 
 trainer:
   default_local_dir: /tmp/sft_model

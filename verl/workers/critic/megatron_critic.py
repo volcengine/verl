@@ -19,6 +19,7 @@ from functools import partial
 from typing import Iterable
 
 import torch
+import torch_npu
 import torch.distributed
 from omegaconf import OmegaConf
 from torch import nn
@@ -43,6 +44,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
                  critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
         super().__init__(config=config)
+        self._validate_config(config)
 
         self.model_config = model_config
         self.megatron_config = megatron_config
@@ -74,6 +76,9 @@ class MegatronPPOCritic(BasePPOCritic):
         else:
             raise NotImplementedError
 
+    def _validate_config(self, config) -> None:
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
+
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
         responses = data.batch['responses']
@@ -99,7 +104,7 @@ class MegatronPPOCritic(BasePPOCritic):
                                         group=mpu.get_pipeline_model_parallel_group())
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
         return values
 
@@ -118,7 +123,7 @@ class MegatronPPOCritic(BasePPOCritic):
                               group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         data.batch['attention_mask'] = data.batch['attention_mask'].to(bool)
-        batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size)
+        batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size_per_gpu)
         n_micro_batch = len(batches)
         seq_len = batches[0]['input_ids'].shape[1]
 
@@ -182,7 +187,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
                 input_shapes=input_shapes,  # must set for flash-attn sequence packing
-                seq_length=self.config.ppo_micro_batch_size * seq_len,  # no use when input_shapes was set
+                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # no use when input_shapes was set
                 hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
@@ -193,7 +198,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 data_iterator=batch_generator,
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
-                seq_length=self.config.ppo_micro_batch_size * seq_len,  # in use for pp = 1
+                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # in use for pp = 1
                 hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
@@ -225,5 +230,5 @@ class MegatronPPOCritic(BasePPOCritic):
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         return metrics

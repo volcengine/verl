@@ -21,7 +21,8 @@ actor_rollout_ref:
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
-    ppo_micro_batch_size: 64
+    ppo_micro_batch_size: null
+    ppo_micro_batch_size_per_gpu: null
     use_dynamic_bsz: False
     ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
     grad_clip: 1.0
@@ -53,7 +54,8 @@ actor_rollout_ref:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
-    log_prob_micro_batch_size: 128
+    log_prob_micro_batch_size: null
+    log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
@@ -74,9 +76,12 @@ actor_rollout_ref:
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
-    log_prob_micro_batch_size: 128
+    log_prob_micro_batch_size: null
+    log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+    disable_log_stats: True
+    enable_chunked_prefill: False
     # for hf rollout
     do_sample: True
     # number of responses (i.e. num sample times)
@@ -95,7 +100,7 @@ critic:
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     use_remove_padding: False
     fsdp_config:
       param_offload: False
@@ -106,8 +111,10 @@ critic:
         min_num_params: 0
       fsdp_size: -1
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
-  ppo_micro_batch_size: 64
+  ppo_micro_batch_size: null
+  ppo_micro_batch_size_per_gpu: null
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+  forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
   forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
@@ -129,7 +136,8 @@ reward_model:
       min_num_params: 0
       param_offload: False
       fsdp_size: -1
-  micro_batch_size: 64
+  micro_batch_size: null
+  micro_batch_size_per_gpu: null
   max_length: null
   ulysses_sequence_parallel_size: 1 # sp size
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
@@ -150,10 +158,13 @@ trainer:
   project_name: verl_examples
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
+  val_generations_to_log_to_wandb: 0
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
   test_freq: -1
+  resume_mode: auto
+  resume_from_path: False
   critic_warmup: 0
-  default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
+  default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

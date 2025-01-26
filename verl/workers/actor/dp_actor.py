@@ -31,7 +31,7 @@ from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_u
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
-from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 __all__ = ['DataParallelPPOActor']
 
@@ -62,7 +62,7 @@ class DataParallelPPOActor(BasePPOActor):
             log_probs: # (bs, response_len)
         """
         response_length = micro_batch['responses'].size(-1)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type='npu', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
@@ -79,12 +79,14 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # for compute the log_prob
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-
+                input_ids_rmpad_rolled = input_ids_rmpad_rolled.long()
+                position_ids_rmpad = position_ids_rmpad.long()
+                position_ids_rmpad = position_ids_rmpad.long()
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
-                                                                                                position_ids_rmpad, \
-                                                                                                sp_size=self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad,
+                                                                                                 position_ids_rmpad,
+                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None,
                                                                                 self.ulysses_sequence_parallel_size)
 
@@ -128,14 +130,16 @@ class DataParallelPPOActor(BasePPOActor):
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
+                input_ids = input_ids.long()
+                position_ids = position_ids.long()
                 output = self.actor_module(input_ids=input_ids,
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits = output.logits
                 logits.div_(temperature)
-                logits = logits[:, -response_length - 1:-1]  # (bsz, response_length)
-                log_probs = logprobs_from_logits(logits, micro_batch['responses'])
+                logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length)
+                log_probs = logprobs_from_logits(logits, micro_batch['responses'].long())
                 entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
 
             return entropy, log_probs
@@ -225,13 +229,14 @@ class DataParallelPPOActor(BasePPOActor):
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
+                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                 # split batch into micro_batches
-                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size)
+                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
             self.actor_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.cuda()  # actor device is cpu when using offload
+                data = data.to("npu")  # actor device is cpu when using offload
                 responses = data['responses']
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
@@ -264,11 +269,14 @@ class DataParallelPPOActor(BasePPOActor):
                                                 kl_penalty=self.config.kl_loss_type)
                     kl_loss = masked_mean(kld, response_mask)
 
-                    policy_loss = policy_loss - kl_loss * self.config.kl_loss_coef
+                    policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                     metrics['actor/kl_loss'] = kl_loss.detach().item()
                     metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
-                loss = policy_loss / self.gradient_accumulation
+                if self.config.use_dynamic_bsz:
+                    loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
+                else:
+                    loss = policy_loss / self.gradient_accumulation
                 loss.backward()
 
                 data = {

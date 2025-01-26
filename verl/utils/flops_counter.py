@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import torch
+import torch_npu
 from transformers import PretrainedConfig, Qwen2Config, LlamaConfig
 
 VALID_CONFIG_TYPE = (Qwen2Config, LlamaConfig)
@@ -30,7 +31,7 @@ def get_device_flops(unit="T"):
             ptr += 1
         return number
 
-    device_name = torch.cuda.get_device_name()
+    device_name = torch_npu.npu.get_device_name()
     flops = float("inf")  # INF flops for unkown gpu type
     if "H100" in device_name or "H800" in device_name:
         flops = 989e12

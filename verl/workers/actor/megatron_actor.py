@@ -23,6 +23,7 @@ from functools import partial
 from typing import Iterable, Dict
 
 import torch
+import torch_npu
 from torch import nn
 import torch.distributed
 # from megatron import get_args
@@ -54,7 +55,7 @@ class MegatronPPOActor(BasePPOActor):
         Args:
             config (OmegaConf): the basic config that contains the hyper-parameters of PPO Actor. It must contain
 
-                ``ppo_micro_batch_size``: minibatch size when updating ppo.
+                ``ppo_micro_batch_size_per_gpu``: minibatch size when updating ppo.
 
                 ``ppo_mini_batch_size``: minibatch size when updating ppo using the batch data.
 
@@ -107,6 +108,7 @@ class MegatronPPOActor(BasePPOActor):
         >>>                          actor_optimizer=actor_optimizer)
         """
         super().__init__(config)
+        self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
         # self.megatron_args = get_args()
@@ -125,7 +127,10 @@ class MegatronPPOActor(BasePPOActor):
             'pipeline_model_parallel_split_rank': None,
             'reduce_grads_use_alltoall': False
         })
-
+        
+    def _validate_config(self, config) -> None:
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
+        
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -183,7 +188,7 @@ class MegatronPPOActor(BasePPOActor):
                                             async_op=False)
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
         return log_probs
 
@@ -232,7 +237,7 @@ class MegatronPPOActor(BasePPOActor):
         if data.meta_info.get('micro_batch_size', None) is not None:
             batch_size = data.meta_info['micro_batch_size']
         else:
-            batch_size = self.config.ppo_micro_batch_size
+            batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
         input_shapes = compute_transformers_input_shapes(
@@ -359,10 +364,7 @@ class MegatronPPOActor(BasePPOActor):
             else:
                 raise NotImplementedError
 
-            for metric in metric_micro_batch:
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
         return metrics

@@ -196,8 +196,8 @@ class MegatronRewardModel(BasePPORewardModel):
                               group=mpu.get_pipeline_model_parallel_group())
 
         # split into micro-batches
-        if self.config is not None and 'ppo_micro_batch_size' in self.config:
-            infer_batch_size = self.config.ppo_micro_batch_size
+        if self.config is not None and 'ppo_micro_batch_size_per_gpu' in self.config:
+            infer_batch_size = self.config.ppo_micro_batch_size_per_gpu
         else:
             infer_batch_size = data.batch.batch_size[0]
 

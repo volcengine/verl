@@ -57,7 +57,8 @@ class NaiveRollout(BaseRollout):
 
         # used to construct attention_mask
         eos_token_id = prompts.meta_info['eos_token_id']
-
+        if isinstance(eos_token_id, int):
+            eos_token_id = [eos_token_id]
         batch_size = idx.size(0)
         prompt_length = idx.size(1)
 
@@ -89,8 +90,8 @@ class NaiveRollout(BaseRollout):
                 idx_next = torch.argmax(probs, dim=-1, keepdim=True)
 
             attention_mask = torch.cat((attention_mask, prev_attention_mask), dim=-1)
-
-            prev_attention_mask = torch.logical_and(idx_next != eos_token_id, prev_attention_mask.bool())
+            for token_id in eos_token_id:
+                prev_attention_mask = torch.logical_and(idx_next != token_id, prev_attention_mask.bool())
             prev_attention_mask.to(attention_mask.dtype)
 
             position_ids = torch.cat((position_ids, position_ids[:, -1:] + 1), dim=-1)

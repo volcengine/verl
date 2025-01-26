@@ -223,8 +223,8 @@ class LLMEngine(LLMEngine):
             observability_config=self.observability_config,
         )
 
-        if not self.model_config.embedding_mode:
-            self._initialize_kv_caches()
+        # if not self.model_config.embedding_mode:
+        #     self._initialize_kv_caches()
 
         # If usage stat is enabled, collect relevant info.
         if is_usage_stats_enabled():
@@ -355,8 +355,8 @@ class LLMEngine(LLMEngine):
     def _get_executor_cls(cls, engine_config: EngineConfig) -> Type[ExecutorBase]:
         distributed_executor_backend = engine_config.parallel_config.distributed_executor_backend
         # Initialize the cluster and specify the executor class.]
-        assert (engine_config.device_config.device_type == "cuda"
-               ), "Currently, the vllm in verl only support running on GPU"
+        # assert (engine_config.device_config.device_type == "cuda"
+        #        ), "Currently, the vllm in verl only support running on GPU"
 
         # print('Waiting for debugger'); import os,debugpy; debugpy.listen(('localhost', 5678 + int(os.getenv('RANK', '0')))); debugpy.wait_for_client()
         if engine_config.parallel_config.world_size == 1:
@@ -382,8 +382,8 @@ class LLMEngine(LLMEngine):
         engine_config = engine_args.create_engine_config()
         executor_class = cls._get_executor_cls(engine_config)
         # Initialize the cluster and specify the executor class.
-        assert (engine_config.device_config.device_type == "cuda"
-               ), "Currently, the vllm in verl only support running on GPU"
+        # assert (engine_config.device_config.device_type == "cuda"
+        #        ), "Currently, the vllm in verl only support running on GPU"
 
         from .spmd_gpu_executor import SPMDGPUExecutor
 

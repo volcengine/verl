@@ -15,6 +15,7 @@
 import os
 import logging
 import torch
+import torch_npu
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -56,13 +57,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                                      state_dict_config=ShardedStateDictConfig())
 
         # Note that torch_random_states may be different on each dp rank
-        self.torch_random_states = torch.cuda.get_rng_state()
+        self.torch_random_states = torch_npu.npu.get_rng_state()
         # get a random rng states
         if self.device_mesh is not None:
             gen_dp_rank = self.device_mesh['dp'].get_local_rank()
-            torch.cuda.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            torch_npu.npu.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+            self.gen_random_states = torch_npu.npu.get_rng_state()
+            torch_npu.npu.set_rng_state(self.torch_random_states)
         else:
             self.gen_random_states = None
 
@@ -76,19 +77,19 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
         # self.module.cpu()
-        # torch.cuda.empty_cache()
+        # torch_npu.npu.empty_cache()
         # if torch.distributed.get_rank() == 0:
         # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
-            self.torch_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.gen_random_states)
+            self.torch_random_states = torch_npu.npu.get_rng_state()
+            torch_npu.npu.set_rng_state(self.gen_random_states)
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
@@ -102,12 +103,12 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.module.train()
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch_npu.npu.empty_cache()
 
         # restore random states
         if self.device_mesh is not None:
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            self.gen_random_states = torch_npu.npu.get_rng_state()
+            torch_npu.npu.set_rng_state(self.torch_random_states)
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp

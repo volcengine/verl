@@ -38,4 +38,4 @@ def load_hf_weights(actor_weights: Dict, vllm_model: nn.Module):
         # to use quant_method.
         if hasattr(module, "process_weights_after_loading"):
             module.process_weights_after_loading()
-    vllm_model = vllm_model.cuda()
+    vllm_model = vllm_model.to("npu")

@@ -365,7 +365,7 @@ def load_dtensor_weights(actor_weights: Dict, vllm_model: nn.Module):
     weight_loader(actor_weights, vllm_model)
     # NOTE(sgm) to reduce peak memory usage, we offload vllm model to cpu
     # after init, and we need this after sync model weights for in first iter.
-    vllm_model = vllm_model.cuda()
+    vllm_model = vllm_model.to("npu")
 
 
 def _get_model_weight_loader(arch: str):

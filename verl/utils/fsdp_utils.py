@@ -22,14 +22,15 @@ from contextlib import contextmanager
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
 import torch
+import torch_npu
 import torch.nn as nn
 import torch.distributed as dist
 
 
 def init_fn(x: torch.nn.Module):
     if not torch.distributed.get_rank() == 0:
-        x = x.to_empty(device=torch.cuda.current_device(), recurse=False)
-        torch.cuda.empty_cache()
+        x = x.to_empty(device=torch_npu.npu.current_device(), recurse=False)
+        torch_npu.npu.empty_cache()
     return x
 
 
@@ -109,14 +110,14 @@ def offload_fsdp_grad(module):
     for _, param in module.named_parameters():
         if param.grad is not None:
             param.grad = param.grad.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 def load_fsdp_grad(module, device_id):
     for _, param in module.named_parameters():
         if param.grad is not None:
             param.grad = param.grad.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 def offload_fsdp_param_and_grad(module, offload_grad=False):
@@ -126,7 +127,7 @@ def offload_fsdp_param_and_grad(module, offload_grad=False):
         param.data = param.data.to('cpu', non_blocking=True)
         if offload_grad and param.grad is not None:
             param.grad = param.grad.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 def load_fsdp_param_and_grad(module, device_id, load_grad=False):
@@ -136,7 +137,7 @@ def load_fsdp_param_and_grad(module, device_id, load_grad=False):
         param.data = param.data.to(device_id, non_blocking=True)
         if load_grad and param.grad is not None:
             param.grad = param.grad.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 def offload_fsdp_optimizer(optimizer):
@@ -146,7 +147,7 @@ def offload_fsdp_optimizer(optimizer):
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):
                     state[key] = value.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 def load_fsdp_optimizer(optimizer, device_id):
@@ -156,7 +157,7 @@ def load_fsdp_optimizer(optimizer, device_id):
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):
                     state[key] = value.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
+    torch_npu.npu.empty_cache()
 
 
 @contextmanager
@@ -232,7 +233,7 @@ def parallel_load_safetensors(filepath):
     ckpt_chunks = [ckpt_chunks[rank * size:rank * size + size] for rank in range(world_size)]
 
     shard_states = {}
-    device = torch.cuda.current_device()
+    device = torch_npu.npu.current_device()
     for rank, files in enumerate(ckpt_chunks):
         if rank == dist.get_rank():
             for file in files:
@@ -271,7 +272,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
     @torch.no_grad()
     def create_and_sync_state(param_name, state, is_param):
         assert param_name in shard_states, f"{param_name} not loaded"
-        device = torch.cuda.current_device()
+        device = torch_npu.npu.current_device()
         if is_param:
             param = torch.nn.Parameter(torch.empty_like(state.data, device=device), requires_grad=state.requires_grad)
         else:  # buffer
