@@ -188,25 +188,23 @@ class ActorRolloutRefWorker(Worker):
         init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
 
         with init_context(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # By default, use the original HF transformer module to load the model
-            model_loader = AutoModelForCausalLM
-            if use_liger:
-                try:
-                    # Import Liger kernel module and use it to load the model
-                    from liger_kernel.transformers import AutoLigerKernelForCausalLM
-                    model_loader = AutoLigerKernelForCausalLM
-                    logger.info("Using Liger kernel for model loading")
-                except ImportError:
-                    # Fallback to use AutoModelForCausalLM and print warning message
-                    logger.warning("Liger kernel was requested but not installed - falling back to AutoModelForCausalLM")
-                    logger.warning("To enable Liger kernel, install it with: pip install liger-kernel")
-
-            actor_module = model_loader.from_pretrained(pretrained_model_name_or_path=local_path,
+            warnings.simplefilter("ignore")            
+            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
                                                                 config=actor_model_config,
                                                                 attn_implementation='flash_attention_2',
                                                                 trust_remote_code=trust_remote_code)
+            # Apply Liger kernel to the model if use_liger is set to True
+            if use_liger:
+                try:
+                    # Import Liger kernel module and use it to load the model
+                    from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+                    _apply_liger_kernel_to_instance(model=actor_module)
+                except ImportError:
+                    # Fallback to use AutoModelForCausalLM and print warning message
+                    logger.warning("Liger kernel was requested but not installed - falling back to AutoModelForCausalLM")
+                    logger.warning("To enable Liger kernel, install it with: pip install liger-kernel")
+                    
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
 
