@@ -43,6 +43,7 @@ from torch.distributed.device_mesh import DeviceMesh
 
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.debug import log_gpu_memory_usage
+from peft import LoraConfig, TaskType, get_peft_model
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN'))
@@ -53,6 +54,18 @@ def extract_step(path):
     if match:
         return int(match.group(1))
     return None
+
+
+def convert_to_regular_types(obj):
+    """Convert Hydra configs and other special types to regular Python types."""
+    from omegaconf import ListConfig, DictConfig
+    if isinstance(obj, (ListConfig, DictConfig)):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_regular_types(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()}
+    return obj
 
 
 class FSDPSFTTrainer(object):
@@ -163,6 +176,18 @@ class FSDPSFTTrainer(object):
                                                                                attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
 
+            if self.config.model.get('lora_rank', 0) > 0:
+                self.model.enable_input_require_grads()
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    'task_type': TaskType.CAUSAL_LM,
+                    'r': self.config.model.lora_rank,
+                    'lora_alpha': self.config.model.lora_alpha,
+                    'target_modules': convert_to_regular_types(self.config.model.target_modules),
+                    'bias': "none"
+                }
+                self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+
         if self.config.model.enable_gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
@@ -172,7 +197,9 @@ class FSDPSFTTrainer(object):
                                          reduce_dtype=torch.float32,
                                          buffer_dtype=torch.float32)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(self.model, config=self.config.model.fsdp_config.wrap_policy)
+        auto_wrap_policy = get_fsdp_wrap_policy(self.model,
+                                                config=self.config.model.fsdp_config.wrap_policy,
+                                                is_lora=self.config.model.get('lora_rank', 0) > 0)
         if self.device_mesh.get_rank() == 0:
             print(auto_wrap_policy)
 
@@ -320,6 +347,15 @@ class FSDPSFTTrainer(object):
                                 default_backend=self.config.trainer.logger)
 
         global_step = 0
+        # compute the total training steps.
+        # the total training steps in SFT is mainly for early exit
+        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        print(f'Total training steps: {self.total_training_steps}')
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
 
@@ -331,6 +367,24 @@ class FSDPSFTTrainer(object):
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
                 global_step += 1
+
+                # for early exit validation
+                if global_step >= self.total_training_steps:
+                    # Perform final validation
+                    val_losses = []
+                    for val_data in self.val_dataloader:
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size).cuda()
+                        val_loss = self.validation_step(val_data)
+                        val_losses.append(val_loss)
+                    if rank == 0:
+                        avg_val_loss = torch.mean(torch.stack(val_losses))
+                        metric = {'val/loss': avg_val_loss.detach().item()}
+                        tracking.log(data=metric, step=global_step)
+                    torch.distributed.barrier()
+
+                    # Save final checkpoint
+                    self.save_checkpoint(step=global_step)
+                    return
 
             # validation
             val_losses = []
