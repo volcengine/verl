@@ -185,7 +185,12 @@ class DataParallelPPOCritic(BasePPOCritic):
                                                                      returns=returns,
                                                                      eos_mask=eos_mask,
                                                                      cliprange_value=self.config.cliprange_value)
-                loss = vf_loss / self.gradient_accumulation
+                if self.config.use_dynamic_bsz:
+                    # relative to the dynamic bsz
+                    loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
+                else:
+                    loss = vf_loss / self.gradient_accumulation
+                
                 loss.backward()
 
                 data = {

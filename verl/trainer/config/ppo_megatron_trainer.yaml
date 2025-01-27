@@ -71,6 +71,8 @@ actor_rollout_ref:
     max_num_seqs: 1024
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
+    disable_log_stats: True
+    enable_chunked_prefill: False # could get higher throughput
     # for hf rollout
     do_sample: True
     layer_name_map:

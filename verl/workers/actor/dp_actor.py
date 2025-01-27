@@ -268,7 +268,11 @@ class DataParallelPPOActor(BasePPOActor):
                     metrics['actor/kl_loss'] = kl_loss.detach().item()
                     metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
-                loss = policy_loss / self.gradient_accumulation
+                if self.config.use_dynamic_bsz:
+                    # relative to the dynamic bsz
+                    loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
+                else:
+                    loss = policy_loss / self.gradient_accumulation
                 loss.backward()
 
                 data = {
