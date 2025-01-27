@@ -1,7 +1,7 @@
 Performance Tuning Guide
 =========================
 
-In this ssection, we will discuss how to tune the performance of all the stages in veRL, including:
+In this section, we will discuss how to tune the performance of all the stages in veRL, including:
 
 1. Rollout generation throughput.
 
