@@ -97,10 +97,10 @@ class FSDPSFTTrainer(object):
             print(f'Normalize batch size by dp {dp_size}')
 
         assert self.config.data.train_batch_size % dp_size == 0
-        assert self.config.data.micro_batch_size % dp_size == 0
 
         self.config.data.train_batch_size //= dp_size
-        self.config.data.micro_batch_size //= dp_size
+
+        assert self.config.data.train_batch_size % self.config.data.micro_batch_size_per_gpu == 0
 
     def _build_dataloader(self):
         config = self.config
@@ -143,7 +143,7 @@ class FSDPSFTTrainer(object):
                                               rank=rank,
                                               drop_last=True)
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=config.data.micro_batch_size,
+                                         batch_size=config.data.micro_batch_size_per_gpu,
                                          sampler=self.val_sampler,
                                          num_workers=8,
                                          pin_memory=True,
@@ -285,7 +285,7 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
 
-        micro_batches = batch.split(self.config.data.micro_batch_size)
+        micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
         step_loss = 0
         for micro_batch in micro_batches:
@@ -373,7 +373,7 @@ class FSDPSFTTrainer(object):
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size).cuda()
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
@@ -389,7 +389,7 @@ class FSDPSFTTrainer(object):
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size).cuda()
+                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:
