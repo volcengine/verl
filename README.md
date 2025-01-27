@@ -80,6 +80,8 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
   - [Add models with the FSDP backend](https://verl.readthedocs.io/en/latest/advance/fsdp_extension.html)
   - [Add models with the Megatron-LM backend](https://verl.readthedocs.io/en/latest/advance/megatron_extension.html)
 
+## Performance Tuning Guide
+The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
 
 ## Citation and acknowledgement
 
