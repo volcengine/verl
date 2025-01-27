@@ -59,60 +59,79 @@ Actor/Rollout/Reference Policy
 .. code:: yaml
 
    actor_rollout_ref:
-     hybrid_engine: True
-     model:
-       path: ~/models/deepseek-llm-7b-chat
-       external_lib: null
-       override_config: {}
-       enable_gradient_checkpointing: False
-     actor:
-       strategy: fsdp  # This is for backward-compatibility
-       ppo_mini_batch_size: 256
-       ppo_micro_batch_size: 64
-       grad_clip: 1.0
-       clip_ratio: 0.2
-       entropy_coeff: 0.001
-       ppo_epochs: 1
-       shuffle: True
-       optim:
-         lr: 1e-6
-         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-         min_lr_ratio: null   # only useful for warmup with cosine
-         warmup_style: constant  # select from constant/cosine
-         total_training_steps: -1  # must be override by program
-       fsdp_config:
-         wrap_policy:
-           # transformer_layer_cls_to_wrap: None
-           min_num_params: 0
-         param_offload: False
-         grad_offload: False
-         optimizer_offload: False
-     ref:
-       fsdp_config:
-         param_offload: False
-         wrap_policy:
-           # transformer_layer_cls_to_wrap: None
-           min_num_params: 0
-       log_prob_micro_batch_size: 128
-     rollout:
-       name: vllm
-       temperature: 1.0
-       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
-       top_p: 1
-       response_length: ${data.max_response_length}
-       # for vllm rollout
-       dtype: bfloat16 # should align with FSDP
-       gpu_memory_utilization: 0.5
-       ignore_eos: False
-       enforce_eager: True
-       free_cache_engine: True
-       load_format: dummy_dtensor # or dummy_hf or dummy_megatron
-       tensor_model_parallel_size: 2
-       max_num_batched_tokens: 8192
-       max_num_seqs: 1024
-       log_prob_micro_batch_size: 128
-       # for vllm and hf rollout
-       do_sample: True
+    hybrid_engine: True
+    model:
+      path: ~/models/deepseek-llm-7b-chat
+      external_lib: null
+      override_config: { }
+      enable_gradient_checkpointing: False
+      use_remove_padding: False
+    actor:
+      strategy: fsdp  # This is for backward-compatibility
+      ppo_mini_batch_size: 256
+      ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
+      ppo_micro_batch_size_per_gpu: 8
+      use_dynamic_bsz: False
+      ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
+      grad_clip: 1.0
+      clip_ratio: 0.2
+      entropy_coeff: 0.001
+      use_kl_loss: False # True for GRPO
+      kl_loss_coef: 0.001 # for grpo
+      kl_loss_type: low_var_kl # for grpo
+      ppo_epochs: 1
+      shuffle: False
+      ulysses_sequence_parallel_size: 1 # sp size
+      optim:
+        lr: 1e-6
+        lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+        min_lr_ratio: null   # only useful for warmup with cosine
+        warmup_style: constant  # select from constant/cosine
+        total_training_steps: -1  # must be override by program
+      fsdp_config:
+        wrap_policy:
+          # transformer_layer_cls_to_wrap: None
+          min_num_params: 0
+        param_offload: False
+        grad_offload: False
+        optimizer_offload: False
+        fsdp_size: -1
+    ref:
+      fsdp_config:
+        param_offload: False
+        wrap_policy:
+          # transformer_layer_cls_to_wrap: None
+          min_num_params: 0
+      log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+      log_prob_micro_batch_size_per_gpu: 16
+      log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+      log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+      ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
+    rollout:
+      name: vllm
+      temperature: 1.0
+      top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+      top_p: 1
+      prompt_length: ${data.max_prompt_length}  # not use for opensource
+      response_length: ${data.max_response_length}
+      # for vllm rollout
+      dtype: bfloat16 # should align with FSDP
+      gpu_memory_utilization: 0.5
+      ignore_eos: False
+      enforce_eager: True
+      free_cache_engine: True
+      load_format: dummy_dtensor
+      tensor_model_parallel_size: 2
+      max_num_batched_tokens: 8192
+      max_num_seqs: 1024
+      log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+      log_prob_micro_batch_size_per_gpu: 16
+      log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+      log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+      # for hf rollout
+      do_sample: True
+      # number of responses (i.e. num sample times)
+      n: 1 # > 1 for grpo
 
 **Common config for actor, rollout and reference model**
 
@@ -136,11 +155,15 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.ppo_mini_batch_size``: One sample is split
   into multiple sub-batches with batch_size=ppo_mini_batch_size for PPO
-  updates
+  updates. The ppo_mini_batch_size is a global num across all workers/gpus
 
-- ``actor_rollout_ref.actor.ppo_micro_batch_size``: Similar to gradient
-  accumulation, the micro_batch_size for one forward pass, trading speed
-  for GPU memory
+- ``actor_rollout_ref.actor.ppo_micro_batch_size``: [Will be deprecated, use ppo_micro_batch_size_per_gpu] 
+  Similar to gradient accumulation, the micro_batch_size_per_gpu for one forward pass,
+  trading speed for GPU memory. The value represent the global view.
+
+- ``actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu``: Similar to gradient
+  accumulation, the micro_batch_size_per_gpu for one forward pass, trading speed
+  for GPU memory. The value represent the local num per gpu.
 
 - ``actor_rollout_ref.actor.grad_clip``: Gradient clipping for actor
   updates
@@ -176,8 +199,12 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
   larger than 7B, it's recommended to turn on offload for ref by
   default**
-- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: The batch size
-  for one forward pass in the computation of ``ref_log_prob``.
+
+- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
+  The batch size for one forward pass in the computation of ``ref_log_prob``. The value represent the global num.
+
+- ``actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu``: The batch size
+  for one forward pass in the computation of ``ref_log_prob``. The value represent the local num per gpu.
 
 **Rollout Model**
 
@@ -201,8 +228,11 @@ Actor/Rollout/Reference Policy
 - ``tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.
 
-- ``log_prob_micro_batch_size``: Micro_batch_size (The batch size for
-  one forward pass) for recalculating log_prob.
+- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
+  The batch size for one forward pass in the computation of ``log_prob``. The value represent the global num.
+
+- ``log_prob_micro_batch_size_per_gpu``: Micro batch size per gpu (The batch size for
+  one forward pass) for recalculating ``log_prob``. The value represent the local num per gpu.
 
 - ``do_sample``: Whether to sample. If set to False, the rollout model
   will perform greedy sampling. We disable ``do_sample`` during
@@ -260,7 +290,7 @@ Reward Model
        fsdp_config:
          min_num_params: 0
          param_offload: False
-     micro_batch_size: 64
+     micro_batch_size_per_gpu: 16
      max_length: null
 
 - ``reward_model.enable``: Whether to enable reward model. If False, we
