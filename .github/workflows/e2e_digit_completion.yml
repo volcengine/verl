@@ -17,6 +17,8 @@ on:
       - .github/workflows/e2e_digit_completion.yml
       - "tests/e2e/*.sh"
 
+
+
 jobs:
   e2e_digit_completion:
     runs-on: [self-hosted, l20-0]
