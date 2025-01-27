@@ -10,7 +10,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 \
     data.response_key=extra_info \
     +data.prompt_dict_keys=['question'] \
     +data.response_dict_keys=['answer'] \
-    data.micro_batch_size=32 \
+    data.micro_batch_size_per_gpu=32 \
     model.partial_pretrain=Qwen/Qwen2.5-0.5B-Instruct \
     trainer.default_local_dir=$HOME/ckpts/ \
     trainer.project_name=qwen2.5-sft \
