@@ -16,6 +16,8 @@ on:
       - "**/*.py"
       - .github/workflows/ray_test.yml
 
+
+
 jobs:
   ray:
     runs-on: [self-hosted, l20-0]
