@@ -125,6 +125,7 @@ class ActorRolloutRefWorker(Worker):
                 self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
                                                             self.ulysses_sequence_parallel_size)
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
+                assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
             self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
@@ -582,6 +583,7 @@ class CriticWorker(Worker):
                                                       self.ulysses_sequence_parallel_size)
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
+            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
