@@ -16,10 +16,6 @@ on:
       - "**/*.py"
       - .github/workflows/vllm.yml
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   vllm:
     runs-on: [self-hosted, l20-0]

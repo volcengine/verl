@@ -16,9 +16,7 @@ on:
       - "**/*.py"
       - .github/workflows/model.yml
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
+
 
 jobs:
   model_rmpad:

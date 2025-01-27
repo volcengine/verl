@@ -17,9 +17,7 @@ on:
       - .github/workflows/e2e_digit_completion.yml
       - "tests/e2e/*.sh"
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
+
 
 jobs:
   e2e_digit_completion:

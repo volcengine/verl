@@ -16,9 +16,7 @@ on:
       - "**/*.py"
       - .github/workflows/ray_test.yml
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
+
 
 jobs:
   ray:
