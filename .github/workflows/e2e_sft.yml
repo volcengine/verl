@@ -44,3 +44,11 @@ jobs:
         run: |
           ray stop --force
           bash tests/sft/run_sft.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with sequence parallism
+        run: |
+          ray stop --force
+          bash examples/sft/gsm8k/run_qwen_05_sp2.sh 8 $HOME/ckpts/
+      - name: Check loss difference between sequence parallel vs. default implementation
+        run: |
+          ray stop --force
+          bash tests/sft/run_sft_sp_loss_match.sh
