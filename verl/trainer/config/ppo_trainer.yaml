@@ -16,7 +16,7 @@ actor_rollout_ref:
     path: ~/models/deepseek-llm-7b-chat
     external_lib: null
     override_config: { }
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     use_remove_padding: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
@@ -81,7 +81,7 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
-    enable_chunked_prefill: False # could get higher throughput
+    enable_chunked_prefill: True # could get higher throughput
     # for hf rollout
     do_sample: True
     # number of responses (i.e. num sample times)
@@ -100,7 +100,7 @@ critic:
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
-    enable_gradient_checkpointing: False
+    enable_gradient_checkpointing: True
     use_remove_padding: False
     fsdp_config:
       param_offload: False
