@@ -17,7 +17,7 @@ on:
       - .github/workflows/dataset.yml
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

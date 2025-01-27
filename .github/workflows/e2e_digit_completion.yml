@@ -18,7 +18,7 @@ on:
       - "tests/e2e/*.sh"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
