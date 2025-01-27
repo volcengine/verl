@@ -54,7 +54,7 @@ class MegatronPPOActor(BasePPOActor):
         Args:
             config (OmegaConf): the basic config that contains the hyper-parameters of PPO Actor. It must contain
 
-                ``ppo_micro_batch_size``: minibatch size when updating ppo.
+                ``ppo_micro_batch_size_per_gpu``: micro batch size when updating ppo.
 
                 ``ppo_mini_batch_size``: minibatch size when updating ppo using the batch data.
 
@@ -232,7 +232,7 @@ class MegatronPPOActor(BasePPOActor):
         if data.meta_info.get('micro_batch_size', None) is not None:
             batch_size = data.meta_info['micro_batch_size']
         else:
-            batch_size = self.config.ppo_micro_batch_size
+            batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
         input_shapes = compute_transformers_input_shapes(

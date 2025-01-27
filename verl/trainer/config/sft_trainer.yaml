@@ -1,6 +1,7 @@
 data:
   train_batch_size: 256
-  micro_batch_size: 16  # this is also val batch size
+  micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
+  micro_batch_size_per_gpu: 4  # this is also val batch size
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
   prompt_key: question

@@ -23,13 +23,13 @@ rollout:
   dtype: bfloat16 # should align with FSDP
   gpu_memory_utilization: 0.5
   ignore_eos: False
-  micro_batch_size: 256
   enforce_eager: True
   free_cache_engine: True
   load_format: dummy_dtensor
   tensor_model_parallel_size: 1
   max_num_batched_tokens: 8192
   max_num_seqs: 1024
-  log_prob_micro_batch_size: 8
+  log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+  log_prob_micro_batch_size_per_gpu: 8
   # for hf rollout
   do_sample: True

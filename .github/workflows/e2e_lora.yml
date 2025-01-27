@@ -43,4 +43,4 @@ jobs:
       - name: Running gsm8k e2e training tests with LoRA
         run: |
           ray stop --force
-          bash examples/sft/gsm8k/run_qwen_05_peft.sh 8 $HOME/ckpts/
+          bash tests/sft/run_sft_qwen05_peft.sh 8 $HOME/ckpts/
