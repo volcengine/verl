@@ -7,15 +7,12 @@ In this ssection, we will discuss how to tune the performance of all the stages 
 
 2. Batch size tuning for forward and backward computation
 
-3. Enable ``use_dynamic_bsz`` for higher throughput.
+3. Enable ``use_dynamic_bsz=True`` for higher throughput.
 
 4. Utilize Ulysses Sequence Parallel for Long Context Training
 
 Rollout Generation Tuning
 --------------------------
-
-Currently, we support two types rollout backend: vLLM and TGI. We will support SGLang soon.
-We will discuss some key factors to tune the vLLM rollout:
 
 veRL currently supports two rollout backends: vLLM and TGI (with SGLang support coming soon). 
 
