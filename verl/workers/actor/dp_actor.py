@@ -204,8 +204,6 @@ class DataParallelPPOActor(BasePPOActor):
         # make sure we are in training mode
         self.actor_module.train()
 
-        assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
-        self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
@@ -224,7 +222,9 @@ class DataParallelPPOActor(BasePPOActor):
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+                self.gradient_accumulation = len(micro_batches)
             else:
+                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                 # split batch into micro_batches
                 micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
