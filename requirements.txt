@@ -6,6 +6,7 @@ flash-attn
 hydra-core
 numpy
 pandas
+peft
 pybind11
 ray
 tensordict<0.6
