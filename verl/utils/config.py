@@ -86,4 +86,13 @@ def validate_config(config):
             assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
             assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
+    # Check if use_remove_padding is enabled when using sequence parallelism
+    if config.actor_rollout_ref.actor.ulysses_sequence_parallel_size > 1:
+        assert config.actor_rollout_ref.actor.use_remove_padding, \
+            "When using sequence parallelism for actor, you must enable `use_remove_padding`."
+    
+    if config.actor_rollout_ref.ref.ulysses_sequence_parallel_size > 1:
+        assert config.actor_rollout_ref.ref.use_remove_padding, \
+            "When using sequence parallelism for ref policy, you must enable `use_remove_padding`."
+
     print("[validate_config] All configuration checks passed successfully!")
