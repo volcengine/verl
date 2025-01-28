@@ -35,7 +35,7 @@ from torch import nn
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.third_party.vllm import parallel_state as vllm_ps
+from verl.third_party.vllm.vllm_v_0_6_3 import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
 
 # TODO
@@ -53,9 +53,9 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     return token_ids
 
 
-class vLLMRollout_spmd(BaseRollout):
+class vLLMRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, actor_module: nn.Module, rank: int, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -86,25 +86,34 @@ class vLLMRollout_spmd(BaseRollout):
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
-        self.inference_engine = LLM(actor_module,
-                                    tokenizer=tokenizer,
-                                    model_hf_config=model_hf_config,
-                                    tensor_parallel_size=tensor_parallel_size,
-                                    dtype=config.dtype,
-                                    enforce_eager=config.enforce_eager,
-                                    gpu_memory_utilization=config.gpu_memory_utilization,
-                                    skip_tokenizer_init=False,
-                                    max_model_len=config.prompt_length + config.response_length,
-                                    load_format=config.load_format)
         
-        # self.inference_engine = LLM(model=actor_module,
-        #                             tensor_parallel_size=tensor_parallel_size,
-        #                             distributed_executor_backend="external_launcher",
-        #                             dtype='bfloat16',
-        #                             gpu_memory_utilization=0.7)
+        import os
+        local_cache_path = '~/.cache/verl/rlhf'
+        local_cache_path = os.path.expanduser(local_cache_path)
+        hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2-7B-Instruct'
 
-        # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights()
+        from verl.utils.fs import copy_local_path_from_hdfs
+        local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
+        # self.inference_engine = LLM(actor_module,
+        #                             tokenizer=tokenizer,
+        #                             model_hf_config=model_hf_config,
+        #                             tensor_parallel_size=tensor_parallel_size,
+        #                             dtype=config.dtype,
+        #                             enforce_eager=config.enforce_eager,
+        #                             gpu_memory_utilization=config.gpu_memory_utilization,
+        #                             skip_tokenizer_init=False,
+        #                             max_model_len=config.prompt_length + config.response_length,
+        #                             load_format=config.load_format)
+        
+        print("rank-- ", rank)
+        self.inference_engine = LLM(model=local_model_path,
+                                    tensor_parallel_size=tensor_parallel_size,
+                                    distributed_executor_backend="external_launcher",
+                                    dtype='bfloat16',
+                                    gpu_memory_utilization=0.7)
+
+        # # Offload vllm model to reduce peak memory usage
+        # self.inference_engine.offload_model_weights()
 
         kwargs = dict(
             n=1,

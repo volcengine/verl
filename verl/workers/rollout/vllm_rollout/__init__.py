@@ -27,4 +27,4 @@ package_version = get_version(package_name)
 if package_version <= '0.6.3':
     from .vllm_rollout import vLLMRollout
 else:
-    from .vllm_rollout_spmd import vLLMRollout_spmd
+    from .vllm_rollout_spmd import vLLMRollout
