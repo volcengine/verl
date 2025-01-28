@@ -206,6 +206,20 @@ def test_dataproto_pad_unpad():
     assert (unpadd_data.non_tensor_batch['labels'] == labels).all()
     assert unpadd_data.meta_info == {'info': 'test_info'}
 
+    padded_data, pad_size = pad_dataproto_to_divisor(data, size_divisor=7)
+    assert pad_size == 4
+
+    expected_obs = torch.tensor([[1, 2], [3, 4], [5, 6], [1, 2], [3, 4], [5, 6], [1, 2]])
+    expected_labels = ['a', 'b', 'c', 'a', 'b', 'c', 'a']
+    assert torch.all(torch.eq(padded_data.batch['obs'], expected_obs))
+    assert (padded_data.non_tensor_batch['labels'] == expected_labels).all()
+    assert padded_data.meta_info == {'info': 'test_info'}
+
+    unpadd_data = unpad_dataproto(padded_data, pad_size=pad_size)
+    assert torch.all(torch.eq(unpadd_data.batch['obs'], obs))
+    assert (unpadd_data.non_tensor_batch['labels'] == labels).all()
+    assert unpadd_data.meta_info == {'info': 'test_info'}
+
 
 def test_dataproto_fold_unfold():
     from verl.protocol import fold_batch_dim, unfold_batch_dim, DataProto
