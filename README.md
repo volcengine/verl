@@ -106,5 +106,6 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
 - [Process Reinforcement Through Implicit Rewards](https://github.com/PRIME-RL/PRIME/)
 - [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of DeepSeek R1 Zero in countdown and multiplication tasks
+- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
 
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.
