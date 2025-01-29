@@ -90,7 +90,7 @@ def validate_config(config):
     if config.actor_rollout_ref.actor.ulysses_sequence_parallel_size > 1:
         assert config.actor_rollout_ref.actor.use_remove_padding, \
             "When using sequence parallelism for actor, you must enable `use_remove_padding`."
-    
+
     if config.actor_rollout_ref.ref.ulysses_sequence_parallel_size > 1:
         assert config.actor_rollout_ref.ref.use_remove_padding, \
             "When using sequence parallelism for ref policy, you must enable `use_remove_padding`."
