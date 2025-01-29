@@ -129,7 +129,6 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
     """
     response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
-    scores = (token_level_rewards * non_zero_mask).sum(dim=-1)
 
     id2score = defaultdict(list)
     id2mean = {}
@@ -154,18 +153,6 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
 
     return scores, scores
 
-def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, eos_mask: torch.Tensor,
-                                                  gamma: torch.Tensor):
-    with torch.no_grad():
-        returns = torch.zeros_like(token_level_rewards)
-        running_return = 0
-        for t in reversed(range(token_level_rewards.shape[1])):
-            running_return = token_level_rewards[:, t] ++ gamma * running_return
-            returns[:, t] = running_return
-            running_return = running_return * eos_mask[:, t]
-        advantages = verl_F.masked_whiten(returns, eos_mask)
-        advantages = advantages * eos_mask
-    return  advantages, returns
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     kl = old_log_prob - ref_log_prob
