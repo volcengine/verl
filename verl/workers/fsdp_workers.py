@@ -195,17 +195,10 @@ class ActorRolloutRefWorker(Worker):
                                                                 attn_implementation='flash_attention_2',
                                                                 trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
-            # TODO (hpguo): remove the try catch structure and make liger kernel a required dependency.
             if use_liger:
-                try:
-                    # Import Liger kernel module and use it to load the model
-                    from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
-                    _apply_liger_kernel_to_instance(model=actor_module)
-                except ImportError:
-                    # Fallback to use AutoModelForCausalLM and print warning message
-                    logger.warning("Liger kernel was requested but not installed - falling back to AutoModelForCausalLM")
-                    logger.warning("To enable Liger kernel, install it with: pip install liger-kernel")
-                    
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+                _apply_liger_kernel_to_instance(model=actor_module)
+
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
 
