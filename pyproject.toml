@@ -41,6 +41,7 @@ dependencies = [
     "tensordict",
     "transformers<4.48",
     "peft",
+    "liger-kernel",
 ]
 
 # Optional dependencies (extras_require in setup.py)
