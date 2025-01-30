@@ -17,8 +17,6 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-import torch_npu
-from torch_npu.contrib import transfer_to_npu
 from verl.utils.reward_score import gsm8k, math
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
@@ -26,7 +24,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 def _default_compute_score(data_source, solution_str, ground_truth):
     if data_source == 'openai/gsm8k':
         return gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
+    elif data_source == 'lighteval/MATH':
         return math.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
@@ -68,13 +66,12 @@ class RewardManager():
 
             # decode
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
-            sequences = sequences.long()
             sequences_str = self.tokenizer.decode(sequences)
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            # select rm_score
             data_source = data_item.non_tensor_batch['data_source']
+
             score = self.compute_score(
                 data_source=data_source,
                 solution_str=sequences_str,
@@ -99,6 +96,7 @@ import hydra
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
     run_ppo(config)
+
 
 def run_ppo(config, compute_score=None):
     if not ray.is_initialized():
