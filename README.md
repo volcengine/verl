@@ -86,7 +86,7 @@ The performance is essential for on-policy RL algorithm. We write a detailed per
 
 ## Contribution Guide
 ### Code formatting
-We use yapf (Google style) to enforce strict code formatting when reviewing MRs. To reformat you code locally, make sure you installed **latest** `yapf`
+We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat you code locally, make sure you installed **latest** `yapf`
 ```bash
 pip3 install yapf --upgrade
 ```
