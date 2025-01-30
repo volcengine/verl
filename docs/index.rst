@@ -70,7 +70,8 @@ veRL is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: HybridFlow Programming Abstraction
+   :caption: HybridFlow API Guide
+
    faq/hybrid_flow
 
 .. toctree::
