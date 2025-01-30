@@ -195,6 +195,7 @@ class ActorRolloutRefWorker(Worker):
                                                                 attn_implementation='flash_attention_2',
                                                                 trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
+            # TODO (hpguo): remove the try catch structure and make liger kernel a required dependency.
             if use_liger:
                 try:
                     # Import Liger kernel module and use it to load the model
