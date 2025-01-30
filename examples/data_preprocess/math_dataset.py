@@ -35,10 +35,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # 'lighteval/MATH' is no longer available on huggingface
-    data_source = 'DigitalLearningGmbH/MATH-lighteval'
-    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
-    dataset = datasets.load_dataset(data_source, trust_remote_code=True)
+    # 'lighteval/MATH' is no longer available on huggingface.
+    # Use mirror repo: DigitalLearningGmbH/MATH-lighteval
+    data_source = 'lighteval/MATH'
+    hf_data_source = 'DigitalLearningGmbH/MATH-lighteval'
+    print(f"Loading the {hf_data_source} dataset from huggingface...", flush=True)
+    dataset = datasets.load_dataset(hf_data_source, trust_remote_code=True)
 
     train_dataset = dataset['train']
     test_dataset = dataset['test']
