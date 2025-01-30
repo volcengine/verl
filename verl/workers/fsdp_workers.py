@@ -145,6 +145,7 @@ class ActorRolloutRefWorker(Worker):
                                use_remove_padding=False,
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False,
+                               use_liger=False,
                                role='actor'):
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -198,6 +199,11 @@ class ActorRolloutRefWorker(Worker):
                                                                 config=actor_model_config,
                                                                 attn_implementation='flash_attention_2',
                                                                 trust_remote_code=trust_remote_code)
+            # Apply Liger kernel to the model if use_liger is set to True
+            if use_liger:
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+                _apply_liger_kernel_to_instance(model=actor_module)
+
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
             actor_module.to(torch_dtype)
 
@@ -338,6 +344,7 @@ class ActorRolloutRefWorker(Worker):
                 use_remove_padding=use_remove_padding,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False),
+                use_liger=self.config.model.get('use_liger', False),
                 role='actor')
 
             # get the original unwrapped module
@@ -370,6 +377,7 @@ class ActorRolloutRefWorker(Worker):
                                                                use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False),
+                                                               use_liger=self.config.model.get('use_liger', False),
                                                                role='ref')[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
