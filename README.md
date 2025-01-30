@@ -84,6 +84,17 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 ## Performance Tuning Guide
 The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
 
+## Contribution Guide
+### Code formatting
+We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat you code locally, make sure you installed **latest** `yapf`
+```bash
+pip3 install yapf --upgrade
+```
+Then, make sure you are at top level of verl repo and run
+```bash
+bash scripts/format.sh
+```
+
 ## Citation and acknowledgement
 
 If you find the project helpful, please cite:
