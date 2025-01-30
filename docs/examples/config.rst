@@ -1,6 +1,6 @@
 .. _config-explain-page:
 
-Config Explaination
+Config Explanation
 ===================
 
 ppo_trainer.yaml for FSDP Backend

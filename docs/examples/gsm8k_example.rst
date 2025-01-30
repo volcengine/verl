@@ -101,7 +101,7 @@ Step 4: Perform PPO training with your model on GSM8K Dataset
 - Users could replace the ``data.train_files`` ,\ ``data.val_files``,
   ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on
   their environment.
-- See :doc:`config` for detailed explaination of each config field.
+- See :doc:`config` for detailed explanation of each config field.
 
 **Reward Model/Function**
 
