@@ -38,12 +38,22 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-
+from peft import LoraConfig, get_peft_model
 from codetiming import Timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
+def convert_to_regular_types(obj):
+    """Convert Hydra configs and other special types to regular Python types."""
+    from omegaconf import ListConfig, DictConfig
+    if isinstance(obj, (ListConfig, DictConfig)):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_regular_types(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()}
+    return obj
 
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
@@ -209,6 +219,18 @@ class ActorRolloutRefWorker(Worker):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+            if self.config.actor.get('lora_rank', 0) > 0:
+                print("Applying LoRA to actor module")
+                actor_module.enable_input_require_grads()
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    'task_type': TaskType.CAUSAL_LM,
+                    'r': self.config.actor.lora_rank,
+                    'lora_alpha': self.config.actor.lora_alpha,
+                    'target_modules': convert_to_regular_types(self.config.actor.target_modules),
+                    'bias': "none"
+                }
+                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -229,7 +251,7 @@ class ActorRolloutRefWorker(Worker):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None))
+        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None), is_lora=self.config.actor.get('lora_rank', 0) > 0)
 
         if self._is_rollout and self.config.rollout.name == 'hf':
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
@@ -290,7 +312,6 @@ class ActorRolloutRefWorker(Worker):
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
         rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
-
         if self.config.rollout.name == 'hf':
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager import BaseShardingManager
@@ -367,7 +388,9 @@ class ActorRolloutRefWorker(Worker):
                                               actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
+            #TODO merge adapter
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
+            #TODO unmerge adapter
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
