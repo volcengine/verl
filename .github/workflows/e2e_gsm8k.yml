@@ -66,3 +66,7 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_seq_balance.sh
+      - name: Running gsm8k e2e with rmpad using model rm with Liger Kernel enabled
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_model_rm_liger_kernel.sh

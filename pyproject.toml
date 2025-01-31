@@ -37,11 +37,12 @@ dependencies = [
     "hydra-core",
     "numpy",
     "pybind11",
-    "ray",
+    "ray>=2.38",
     "tensordict",
     "transformers<4.48",
     "vllm<=0.6.3",
     "peft",
+    "liger-kernel",
 ]
 
 # Optional dependencies (extras_require in setup.py)

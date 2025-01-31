@@ -136,7 +136,7 @@ If you encounter out of memory issues with HBM less than 32GB, enable the follow
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     critic.ppo_micro_batch_size_per_gpu=1 \
 
-For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
+For the full set of configs, please refer to :ref:`config-explain-page` for detailed explanation and performance tuning.
 
 
 .. [1] The original paper (https://arxiv.org/pdf/2110.14168) mainly focuses on training a verifier (a reward model) to solve math problems via Best-of-N sampling. In this example, we train an RL agent using a rule-based reward model.
