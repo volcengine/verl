@@ -213,6 +213,11 @@ class FSDPSFTTrainer(object):
                                                                                attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
 
+            # Apply Liger kernel if use_liger is enabled
+            if self.config.model.get('use_liger', False):
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+                _apply_liger_kernel_to_instance(model=self.model)
+
             if self.config.model.get('lora_rank', 0) > 0:
                 self.model.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model
