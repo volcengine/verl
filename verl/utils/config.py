@@ -94,7 +94,7 @@ def validate_config(config):
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
 
     if config.critic.strategy == 'fsdp':
-        if config.critic.ulysses_sequence_parallel_size:
+        if config.critic.ulysses_sequence_parallel_size > 1:
             assert config.critic.model.use_remove_padding, \
                 "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
