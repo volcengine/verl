@@ -397,10 +397,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    def compute_log_prob(self, data: DataProto):
-        raise NotImplementedError()
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path):
         pass
