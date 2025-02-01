@@ -7,6 +7,7 @@ hydra-core
 numpy
 pandas
 peft
+pyarrow>=15.0.0
 pybind11
 ray>=2.38
 tensordict<0.6
