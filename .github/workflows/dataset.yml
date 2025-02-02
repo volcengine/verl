@@ -30,8 +30,11 @@ jobs:
           pip install -e .[test] --user
       - name: Running dataset tests
         run: |
-          pip3 list
+          cd $HOME
           nvidia-smi
+          git clone https://github.com/NVIDIA/apex --recursive --depth 1
+          git clone -b v1.7.0 https://github.com/eric-haibin-lin/TransformerEngine.git --recursive --depth 1
+          git clone -b v1.0.9.x https://github.com/eric-haibin-lin/flash-attention --recursive --depth 1
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           pytest -s -x tests/verl
       - name: Running ray test using cupy (move it to L20 when dockerfile ready)
