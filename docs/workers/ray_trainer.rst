@@ -12,7 +12,7 @@ Data Preparation
 
 The ``PPORayTrainer``, as a single process, is responsible for loading a
 complete batch of samples (prompts) from the dataset and then dispatch
-to different worker_groups runnning on different GPUs.
+to different worker_groups running on different GPUs.
 
 To generalize the data loading, we implement the ``RLHFDataset`` class
 to load the preprocessed parquet files, apply chat templates to the
