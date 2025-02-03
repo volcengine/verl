@@ -40,10 +40,10 @@ jobs:
           pip3 install -e .[test]
       - name: Prepare gsm8k dataset
         run: |
-          ray stop --force
           python3 examples/data_preprocess/gsm8k.py
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron
         run: |
-          [ ! -d "$HOME/Megatron-LM" ] && gitgit clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
+          ray stop --force
+          [ ! -d "$HOME/Megatron-LM" ] && git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
           export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
           bash tests/e2e/run_deepseek_megatron.sh
