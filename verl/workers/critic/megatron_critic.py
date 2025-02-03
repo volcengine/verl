@@ -43,7 +43,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
                  critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
         super().__init__(config=config)
-
+        self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
 
@@ -73,6 +73,10 @@ class MegatronPPOCritic(BasePPOCritic):
                                                            horizon=self.config.kl_ctrl.horizon)
         else:
             raise NotImplementedError
+
+    def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
 
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
