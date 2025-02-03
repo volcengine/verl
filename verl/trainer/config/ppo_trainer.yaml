@@ -18,6 +18,9 @@ actor_rollout_ref:
     override_config: { }
     enable_gradient_checkpointing: True
     use_remove_padding: False
+    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
+    lora_alpha: 16  # LoRA scaling factor
+    target_modules: all-linear  # Target modules for LoRA adaptation
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -48,9 +51,6 @@ actor_rollout_ref:
       grad_offload: False
       optimizer_offload: False
       fsdp_size: -1
-    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
-    lora_alpha: 16  # LoRA scaling factor
-    target_modules: all-linear  # Target modules for LoRA adaptation
   ref:
     fsdp_config:
       param_offload: False

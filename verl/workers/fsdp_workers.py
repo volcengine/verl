@@ -38,7 +38,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model
 from codetiming import Timer
 
 logger = logging.getLogger(__file__)
@@ -147,6 +147,8 @@ class ActorRolloutRefWorker(Worker):
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
+        self._is_lora = self.config.model.get('lora_rank', 0) > 0
+
     def _build_model_optimizer(self,
                                model_path,
                                fsdp_config,
@@ -219,15 +221,15 @@ class ActorRolloutRefWorker(Worker):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
-            if self.config.actor.get('lora_rank', 0) > 0:
+            if self._is_lora:
                 print("Applying LoRA to actor module")
                 actor_module.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     'task_type': TaskType.CAUSAL_LM,
-                    'r': self.config.actor.lora_rank,
-                    'lora_alpha': self.config.actor.lora_alpha,
-                    'target_modules': convert_to_regular_types(self.config.actor.target_modules),
+                    'r': self.config.model.lora_rank,
+                    'lora_alpha': self.config.model.lora_alpha,
+                    'target_modules': convert_to_regular_types(self.config.model.target_modules),
                     'bias': "none"
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
@@ -251,7 +253,7 @@ class ActorRolloutRefWorker(Worker):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None), is_lora=self.config.actor.get('lora_rank', 0) > 0)
+        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None), is_lora=self.config.model.get('lora_rank', 0) > 0)
 
         if self._is_rollout and self.config.rollout.name == 'hf':
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
@@ -388,9 +390,15 @@ class ActorRolloutRefWorker(Worker):
                                               actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
-            #TODO merge adapter
+            if self._is_lora:
+                print("Merge adapter")
+                print(self.actor_module_fsdp._fsdp_wrapped_module)
+                import ipdb; ipdb.set_trace()
+                self.actor_module_fsdp.merge_adapter()
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
-            #TODO unmerge adapter
+            if self._is_lora:
+                print("Unmerge adapter")
+                self.actor_module_fsdp.unmerge_adapter()
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
@@ -615,6 +623,8 @@ class CriticWorker(Worker):
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
             assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
+        
+        self._is_lora = self.config.model.get('lora_rank', 0) > 0
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -676,6 +686,20 @@ class CriticWorker(Worker):
 
             if config.model.get('enable_gradient_checkpointing', False):
                 critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+        
+        if self._is_lora:
+            print("Applying LoRA to critic module")
+            critic_module.enable_input_require_grads()
+            # Convert config to regular Python types before creating PEFT model
+            lora_config = {
+                'task_type': TaskType.CAUSAL_LM,
+                'r': self.config.model.lora_rank,
+                'lora_alpha': self.config.model.lora_alpha,
+                'target_modules': convert_to_regular_types(self.config.model.target_modules),
+                'bias': "none"
+            }
+            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+                
         if self.rank == 0:
             print_model_size(critic_module)
 
