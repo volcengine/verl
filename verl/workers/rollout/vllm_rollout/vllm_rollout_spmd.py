@@ -55,7 +55,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
 
 class vLLMRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, rank: int, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -105,15 +105,16 @@ class vLLMRollout(BaseRollout):
         #                             max_model_len=config.prompt_length + config.response_length,
         #                             load_format=config.load_format)
         
-        print("rank-- ", rank)
         self.inference_engine = LLM(model=local_model_path,
+                                    enable_sleep_mode=True,
                                     tensor_parallel_size=tensor_parallel_size,
                                     distributed_executor_backend="external_launcher",
                                     dtype='bfloat16',
                                     gpu_memory_utilization=0.7)
 
-        # # Offload vllm model to reduce peak memory usage
+        # Offload vllm model to reduce peak memory usage
         # self.inference_engine.offload_model_weights()
+        self.inference_engine.sleep(level=2)
 
         kwargs = dict(
             n=1,
@@ -121,9 +122,11 @@ class vLLMRollout(BaseRollout):
             max_tokens=config.response_length,
         )
 
-        # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            kwargs['detokenize'] = False
+        # # we may detokenize the result all together later
+        # if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        #     kwargs['detokenize'] = False
+        # TODO(ZSL): check this
+        kwargs['detokenize'] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -153,9 +156,10 @@ class vLLMRollout(BaseRollout):
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # rebuild vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.init_cache_engine()
+        # TODO(ZSL): check this
+        # # rebuild vllm cache engine
+        # if self.config.free_cache_engine:
+        #     self.inference_engine.init_cache_engine()
 
         idx = prompts.batch['input_ids']  # (bs, prompt_length)
         # left-padded attention_mask
@@ -185,7 +189,7 @@ class vLLMRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            output = self.inference_engine.generate(
+            outputs = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
                 prompt_token_ids=idx_list,
@@ -193,12 +197,34 @@ class vLLMRollout(BaseRollout):
 
         # TODO(sgm): disable logprob when recompute_log_prob is enable
         # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        response = output[0].to(idx.device)
-        log_probs = output[1].to(idx.device)
 
-        if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+        response = []
+        log_probs = []
+        for output in outputs:
+            response.append(output.outputs[0].token_ids)
+            log_probs.append(output.outputs[0].token_ids)
+
+        # from typing import Sequence
+        def pad_2d_list(response, pad_token_id, max_length=None):
+            response_length = max(len(sub_list) for sub_list in response)
+            if max_length is not None and max_length > response_length:
+                target_length = max_length
+            else:
+                target_length = response_length
+            padded_response = [tuple(sub_list) + (pad_token_id,) * (target_length - len(sub_list)) for sub_list in response]
+            tensor = torch.tensor(padded_response)
+            return tensor
+        
+        response = pad_2d_list(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+        log_probs = pad_2d_list(log_probs, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+
+        # response = torch.tensor(response).to(idx.device)
+        # log_probs = torch.tensor(log_probs).to(idx.device)
+        # print("response: ", response.shape)
+        # print("log_probs: ", log_probs.shape)
+        # if response.shape[1] < self.config.response_length:
+        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+        #     log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
@@ -232,8 +258,9 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size)
 
-        # free vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.free_cache_engine()
+        # TODO(ZSL): check this
+        # # free vllm cache engine
+        # if self.config.free_cache_engine:
+        #     self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)
