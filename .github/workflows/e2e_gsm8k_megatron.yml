@@ -45,4 +45,6 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
+          [ ! -d "$HOME/Megatron-LM" ] && gitgit clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
+          export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
           bash tests/e2e/run_deepseek_megatron.sh
