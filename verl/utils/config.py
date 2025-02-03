@@ -74,27 +74,27 @@ def validate_config(config):
     #    ppo_mini_batch_size is divisible by ppo_micro_batch_size
     #    ppo_micro_batch_size * sequence_parallel_size >= n_gpus
     if not config.actor_rollout_ref.actor.use_dynamic_bsz:
-        sp_size = config.actor_rollout_ref.actor.ulysses_sequence_parallel_size
+        sp_size = config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1)
         if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
             assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
             assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
     # critic
     if not config.critic.use_dynamic_bsz:
-        sp_size = config.critic.ulysses_sequence_parallel_size
+        sp_size = config.critic.get('ulysses_sequence_parallel_size', 1)
         if config.critic.ppo_micro_batch_size is not None:
             assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
             assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
     # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
-        if config.actor_rollout_ref.actor.ulysses_sequence_parallel_size > 1 or \
-                config.actor_rollout_ref.ref.ulysses_sequence_parallel_size > 1:
+        if config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1) > 1 or \
+                config.actor_rollout_ref.ref.get('ulysses_sequence_parallel_size', 1) > 1:
             assert config.actor_rollout_ref.model.use_remove_padding, \
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
 
     if config.critic.strategy == 'fsdp':
-        if config.critic.ulysses_sequence_parallel_size > 1:
+        if config.critic.get('ulysses_sequence_parallel_size', 1) > 1:
             assert config.critic.model.use_remove_padding, \
                 "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
