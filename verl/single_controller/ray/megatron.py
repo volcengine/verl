@@ -21,7 +21,7 @@ from verl.single_controller.base.megatron.worker import DistRankInfo, DistGlobal
 from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
 
 
-# NOTE(sgm): for opensource megatron-core
+# NOTE(sgm): for open-source megatron-core
 class NVMegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
     """
     MegatronWorkerGroup will query each worker of its megatron rank info and store it inside the WorkerGroup
