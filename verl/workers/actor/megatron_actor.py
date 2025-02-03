@@ -107,6 +107,7 @@ class MegatronPPOActor(BasePPOActor):
         >>>                          actor_optimizer=actor_optimizer)
         """
         super().__init__(config)
+        self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
         # self.megatron_args = get_args()
@@ -125,6 +126,10 @@ class MegatronPPOActor(BasePPOActor):
             'pipeline_model_parallel_split_rank': None,
             'reduce_grads_use_alltoall': False
         })
+
+    def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
