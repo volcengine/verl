@@ -42,4 +42,8 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+  push_to_hub: False
+  hub_model_id: null
+  hub_private: False
+  hub_token: null
 

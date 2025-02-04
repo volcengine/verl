@@ -439,6 +439,64 @@ class FSDPSFTTrainer(object):
             if self.config.trainer.default_hdfs_dir:
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+
+            # Push to hub if enabled
+            if self.config.trainer.push_to_hub:
+                from verl.utils.model_card import generate_model_card
+                import wandb
+
+                # Get base model name from config
+                base_model = self.config.model.partial_pretrain
+                if base_model.startswith("~/"):
+                    base_model = os.path.expanduser(base_model)
+                if os.path.isdir(base_model):
+                    # If it's a local path, try to get the original model name from the config
+                    base_model = os.path.basename(base_model)
+                
+                # Get dataset name
+                train_files = self.config.data.train_files
+                if isinstance(train_files, str):
+                    dataset_name = os.path.basename(os.path.dirname(train_files))
+                elif isinstance(train_files, (list, tuple)):
+                    dataset_names = [os.path.basename(os.path.dirname(f)) for f in train_files]
+                    dataset_name = ", ".join(dataset_names)
+                else:
+                    dataset_name = None
+
+                # Get wandb URL if available
+                wandb_url = None
+                if wandb.run is not None:
+                    wandb_url = wandb.run.get_url()
+
+                # Generate model card
+                model_card = generate_model_card(
+                    base_model=base_model,
+                    model_name=self.config.trainer.experiment_name,
+                    hub_model_id=self.config.trainer.hub_model_id,
+                    dataset_name=dataset_name,
+                    tags=["verl", "sft"],
+                    wandb_url=wandb_url,
+                    trainer_name="SFT",
+                )
+
+                # Save model card
+                model_card.save(os.path.join(path, "README.md"))
+
+                # Push to hub
+                from huggingface_hub import HfApi
+                api = HfApi()
+                api.create_repo(
+                    repo_id=self.config.trainer.hub_model_id,
+                    private=self.config.trainer.hub_private,
+                    token=self.config.trainer.hub_token,
+                    exist_ok=True
+                )
+                api.upload_folder(
+                    folder_path=path,
+                    repo_id=self.config.trainer.hub_model_id,
+                    token=self.config.trainer.hub_token,
+                )
+
         torch.distributed.barrier()
 
     def fit(self):
