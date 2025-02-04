@@ -24,6 +24,7 @@ from vllm.distributed import parallel_state as vllm_ps
 from verl import DataProto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.utils.debug import log_gpu_memory_usage
+from verl.third_party.vllm.vllm_v_0_6_3.dtensor_weight_loaders import *
 
 from .base import BaseShardingManager
 
@@ -75,6 +76,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # TODO(ZSL): check this
         # self.inference_engine.sync_model_weights(params, load_format=load_format)
         self.inference_engine.wake_up()
+        load_dtensor_weights(params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
@@ -96,7 +98,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # TODO(ZSL): check this
         # self.inference_engine.offload_model_weights()
-        self.inference_engine.sleep(level=2)
+        self.inference_engine.sleep(level=1)
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')

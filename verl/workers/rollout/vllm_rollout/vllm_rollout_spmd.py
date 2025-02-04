@@ -35,7 +35,7 @@ from torch import nn
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.third_party.vllm.vllm_v_0_6_3 import parallel_state as vllm_ps
+from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
 
 # TODO
@@ -90,31 +90,22 @@ class vLLMRollout(BaseRollout):
         import os
         local_cache_path = '~/.cache/verl/rlhf'
         local_cache_path = os.path.expanduser(local_cache_path)
-        hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2-7B-Instruct'
+        hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2.5-3B-Instruct'
 
         from verl.utils.fs import copy_local_path_from_hdfs
         local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
-        # self.inference_engine = LLM(actor_module,
-        #                             tokenizer=tokenizer,
-        #                             model_hf_config=model_hf_config,
-        #                             tensor_parallel_size=tensor_parallel_size,
-        #                             dtype=config.dtype,
-        #                             enforce_eager=config.enforce_eager,
-        #                             gpu_memory_utilization=config.gpu_memory_utilization,
-        #                             skip_tokenizer_init=False,
-        #                             max_model_len=config.prompt_length + config.response_length,
-        #                             load_format=config.load_format)
         
         self.inference_engine = LLM(model=local_model_path,
                                     enable_sleep_mode=True,
                                     tensor_parallel_size=tensor_parallel_size,
                                     distributed_executor_backend="external_launcher",
                                     dtype='bfloat16',
-                                    gpu_memory_utilization=0.7)
+                                    enforce_eager=False,
+                                    gpu_memory_utilization=0.5)
 
         # Offload vllm model to reduce peak memory usage
         # self.inference_engine.offload_model_weights()
-        self.inference_engine.sleep(level=2)
+        self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,
@@ -204,6 +195,22 @@ class vLLMRollout(BaseRollout):
             response.append(output.outputs[0].token_ids)
             log_probs.append(output.outputs[0].token_ids)
 
+        # print('zzzssslll: ')
+        # print(idx_list[0])
+
+        # import os
+        # local_cache_path = '~/.cache/verl/rlhf'
+        # local_cache_path = os.path.expanduser(local_cache_path)
+        # hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2.5-3B-Instruct'
+
+        # from verl.utils.fs import copy_local_path_from_hdfs
+        # local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
+
+        # from verl.utils import hf_tokenizer
+        # tokenizer = hf_tokenizer(local_model_path)
+        # print('zzzssslll: ')
+        # print(tokenizer.decode(response[0]))
+        
         # from typing import Sequence
         def pad_2d_list(response, pad_token_id, max_length=None):
             response_length = max(len(sub_list) for sub_list in response)
