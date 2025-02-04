@@ -57,6 +57,10 @@ class Tracking(object):
             if backend is None or default_backend in backend:
                 logger_instance.log(data=data, step=step)
 
+    def __del__(self):
+        if 'wandb' in self.logger:
+            self.logger['wandb'].finish(exit_code=0)
+
 
 class _MlflowLoggingAdapter:
 
