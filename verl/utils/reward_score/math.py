@@ -1337,25 +1337,6 @@ def check_correctness_of_multiple_answer_cases(prediction, reference, all_matche
         return True
 
 
-def compute_score(solution_str, ground_truth):
-    
-    try:
-        extracted_model_answer = extract_answer(solution_str, 'math', use_last_number=True)
-    except:
-        extracted_model_answer = None
-        
-    if extracted_model_answer is None or ground_truth is None:
-        return = -1.0
-    if 'boxed' not in solution_str:
-        return -1.0
-
-    extracted_model_answer = math_answer_cleaning(extracted_model_answer, dataset_name)
-    ground_truth = math_answer_cleaning(ground_truth, dataset_name)
-
-    if math_equal(extracted_model_answer, ground_truth, timeout=True):
-        return 1.0
-    else
-        return -0.5
 
 import random
 import regex
@@ -1381,20 +1362,6 @@ from word2number import w2n
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
-
-
-def compute_score(solution_str, ground_truth) -> float:
-    retval = 0.
-    try:
-        string_in_last_boxed = last_boxed_only_string(solution_str)
-        if string_in_last_boxed is not None:
-            answer = remove_boxed(string_in_last_boxed)
-            if is_equiv(answer, ground_truth):
-                retval = 1.
-    except Exception as e:
-        print(e)
-
-    return retval
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
@@ -1594,3 +1561,23 @@ def strip_string(string):
     string = fix_a_slash_b(string)
 
     return string
+
+def compute_score(solution_str, ground_truth):
+    
+    try:
+        extracted_model_answer = extract_answer(solution_str, 'math', use_last_number=True)
+    except:
+        extracted_model_answer = None
+        
+    if extracted_model_answer is None or ground_truth is None:
+        return = -1.0
+    if 'boxed' not in solution_str:
+        return -1.0
+
+    extracted_model_answer = math_answer_cleaning(extracted_model_answer, dataset_name)
+    ground_truth = math_answer_cleaning(ground_truth, dataset_name)
+
+    if math_equal(extracted_model_answer, ground_truth, timeout=True):
+        return 1.0
+    else
+        return -0.5
