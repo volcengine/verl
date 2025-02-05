@@ -63,8 +63,10 @@ def logprobs_from_logits(logits, labels):
 
 
 def logprobs_from_logits_flash_attn(logits, labels):
-    output = -cross_entropy_loss(logits, labels)[0]
-    return output
+    output = cross_entropy_loss(logits, labels)
+    assert isinstance(
+        output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
+    return -output[0]
 
 
 def logprobs_from_logits_naive(logits, labels):
