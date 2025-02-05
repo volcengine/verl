@@ -33,7 +33,7 @@ from tensordict import TensorDict
 from torch import nn
 
 from verl import DataProto
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
@@ -55,7 +55,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
 
 class vLLMRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -87,24 +87,15 @@ class vLLMRollout(BaseRollout):
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
         
-        import os
-        local_cache_path = '~/.cache/verl/rlhf'
-        local_cache_path = os.path.expanduser(local_cache_path)
-        hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2.5-3B-Instruct'
-
-        from verl.utils.fs import copy_local_path_from_hdfs
-        local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
-        
-        self.inference_engine = LLM(model=local_model_path,
+        self.inference_engine = LLM(model=model_path,
                                     enable_sleep_mode=True,
                                     tensor_parallel_size=tensor_parallel_size,
                                     distributed_executor_backend="external_launcher",
                                     dtype='bfloat16',
                                     enforce_eager=False,
-                                    gpu_memory_utilization=0.5)
+                                    gpu_memory_utilization=config.gpu_memory_utilization)
 
         # Offload vllm model to reduce peak memory usage
-        # self.inference_engine.offload_model_weights()
         self.inference_engine.sleep(level=1)
 
         kwargs = dict(
@@ -147,7 +138,7 @@ class vLLMRollout(BaseRollout):
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # TODO(ZSL): check this
+        # TODO(ZSL): check if we still need this
         # # rebuild vllm cache engine
         # if self.config.free_cache_engine:
         #     self.inference_engine.init_cache_engine()
@@ -190,48 +181,10 @@ class vLLMRollout(BaseRollout):
         # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
         response = []
-        log_probs = []
         for output in outputs:
             response.append(output.outputs[0].token_ids)
-            log_probs.append(output.outputs[0].token_ids)
-
-        # print('zzzssslll: ')
-        # print(idx_list[0])
-
-        # import os
-        # local_cache_path = '~/.cache/verl/rlhf'
-        # local_cache_path = os.path.expanduser(local_cache_path)
-        # hdfs_path = 'hdfs://haruna/home/byte_data_seed/lf_lq/user/zhangchi.usc1992/models/Qwen2.5-3B-Instruct'
-
-        # from verl.utils.fs import copy_local_path_from_hdfs
-        # local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
-
-        # from verl.utils import hf_tokenizer
-        # tokenizer = hf_tokenizer(local_model_path)
-        # print('zzzssslll: ')
-        # print(tokenizer.decode(response[0]))
         
-        # from typing import Sequence
-        def pad_2d_list(response, pad_token_id, max_length=None):
-            response_length = max(len(sub_list) for sub_list in response)
-            if max_length is not None and max_length > response_length:
-                target_length = max_length
-            else:
-                target_length = response_length
-            padded_response = [tuple(sub_list) + (pad_token_id,) * (target_length - len(sub_list)) for sub_list in response]
-            tensor = torch.tensor(padded_response)
-            return tensor
-        
-        response = pad_2d_list(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
-        log_probs = pad_2d_list(log_probs, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
-
-        # response = torch.tensor(response).to(idx.device)
-        # log_probs = torch.tensor(log_probs).to(idx.device)
-        # print("response: ", response.shape)
-        # print("log_probs: ", log_probs.shape)
-        # if response.shape[1] < self.config.response_length:
-        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-        #     log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+        response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
 
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
@@ -265,7 +218,7 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size)
 
-        # TODO(ZSL): check this
+        # TODO(ZSL): check if we still need this
         # # free vllm cache engine
         # if self.config.free_cache_engine:
         #     self.inference_engine.free_cache_engine()

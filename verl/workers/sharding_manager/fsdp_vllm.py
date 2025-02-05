@@ -73,10 +73,12 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = 'hf' if self.full_params else 'dtensor'
-        # TODO(ZSL): check this
-        # self.inference_engine.sync_model_weights(params, load_format=load_format)
         self.inference_engine.wake_up()
-        load_dtensor_weights(params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
+        # TODO(ZSL): deal with 'hf' format
+        if load_format == 'dtensor':
+            load_dtensor_weights(params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
+        else:
+            raise NotImplementedError(f'load_format {load_format} not implemented')
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
@@ -97,7 +99,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # TODO(ZSL): check this
-        # self.inference_engine.offload_model_weights()
         self.inference_engine.sleep(level=1)
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
