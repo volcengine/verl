@@ -222,7 +222,7 @@ def ceildiv(a, b):
 
 
 def rearrange_micro_batches(batch: TensorDict, max_token_len, dp_group=None):
-    """Split the batch into a list of micro_batches, where the max_token_len is greater than max_seq_len
+    """Split the batch into a list of micro_batches, where the length of each micro_batch is smaller than max_token_len
     and the number of valid tokens in each micro batch is well balanced.
     """
     # this is per local micro_bsz
