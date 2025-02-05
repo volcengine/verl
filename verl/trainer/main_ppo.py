@@ -23,20 +23,8 @@ from tqdm.asyncio import tqdm
 from verl import DataProto
 import torch
 from verl.utils.reward_score import gsm8k, math, prime_math, prime_code
+from verl.utils.reward_score import _default_compute_score
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-
-
-def _default_compute_score(data_source, solution_str, ground_truth):
-    if data_source == 'openai/gsm8k':
-        return gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
-        return math.compute_score(solution_str, ground_truth)
-    elif data_source == 'math':
-        return prime_math.compute_score(solution_str, ground_truth)
-    elif data_source == 'code':
-        return prime_code.compute_score(solution_str, ground_truth)
-    else:
-        raise NotImplementedError
 
 async def single_compute_score(completion, reference, task, executor, timeout=300.):
     loop = asyncio.get_running_loop()
@@ -114,10 +102,10 @@ class RewardManager():
             scores = asyncio.run(parallel_compute_score_async(sequences_str, ground_truth, data_sources, num_processes=64))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
-            return [0. for _ in range(len(sequences_str))]
+            scores= [0. for _ in range(len(sequences_str))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
-            return [0. for _ in range(len(sequences_str))]
+            scores= [0. for _ in range(len(sequences_str))]
 
         for i in range(len(data)):
             data_source=data_sources[i]

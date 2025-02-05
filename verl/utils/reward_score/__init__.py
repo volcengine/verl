@@ -11,3 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from . import gsm8k, math, prime_math, prime_code
+def _default_compute_score(data_source, solution_str, ground_truth):
+    if data_source == 'openai/gsm8k':
+        return gsm8k.compute_score(solution_str, ground_truth)
+    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
+        return math.compute_score(solution_str, ground_truth)
+    elif data_source in ['numina_aops_forum', 'numina_synthetic_math', 'numina_amc_aime', 'numina_synthetic_amc', 'numina_cn_k12', 'numina_olympiads']:
+        return prime_math.compute_score(solution_str, ground_truth)
+    elif data_source in ['codecontests', 'apps', 'codeforces', 'taco']:
+        return prime_code.compute_score(solution_str, ground_truth)
+    else:
+        raise NotImplementedError
