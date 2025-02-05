@@ -62,6 +62,7 @@ You can also get the Megatron code after verl's patch via
 .. code:: bash
 
     git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
 
 Install from custom environment
 ---------------------------------
