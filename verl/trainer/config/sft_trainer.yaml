@@ -23,6 +23,7 @@ model:
   lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
   lora_alpha: 16  # LoRA scaling factor
   target_modules: all-linear  # Target modules for LoRA adaptation
+  use_liger: False
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]
