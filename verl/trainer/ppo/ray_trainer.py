@@ -337,6 +337,14 @@ class RayPPOTrainer(object):
         else:
             self.kl_ctrl = core_algos.FixedKLController(kl_coef=0.)
 
+        if self.config.algorithm.adv_estimator == 'gae':
+            self.use_critic = True
+        elif self.config.algorithm.adv_estimator == 'grpo':
+            self.use_critic = False
+        else:
+            raise NotImplementedError
+
+
         self._validate_config()
         self._create_dataloader()
 
@@ -538,15 +546,10 @@ class RayPPOTrainer(object):
             raise NotImplementedError
 
         # create critic
-        if self.config.algorithm.adv_estimator == 'gae':
+        if self.use_critic:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
             self.resource_pool_to_cls[resource_pool]['critic'] = critic_cls
-            self.use_critic = True
-        elif self.config.algorithm.adv_estimator == 'grpo':
-            self.use_critic = False
-        else:
-            raise NotImplementedError
 
         # create reference policy if needed
         if self.use_reference_policy:
