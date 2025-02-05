@@ -14,10 +14,15 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
+from concurrent.futures import ProcessPoolExecutor
+import asyncio
+from functools import partial
+
+from tqdm.asyncio import tqdm
 
 from verl import DataProto
 import torch
-from verl.utils.reward_score import gsm8k, math
+from verl.utils.reward_score import gsm8k, math, prime_math, prime_code
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 
@@ -26,9 +31,53 @@ def _default_compute_score(data_source, solution_str, ground_truth):
         return gsm8k.compute_score(solution_str, ground_truth)
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
         return math.compute_score(solution_str, ground_truth)
+    elif data_source == 'math':
+        return prime_math.compute_score(solution_str, ground_truth)
+    elif data_source == 'code':
+        return prime_code.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
 
+async def single_compute_score(completion, reference, task, executor, timeout=300.):
+    loop = asyncio.get_running_loop()
+    try:
+        # Ensure process_completion is called properly
+        tasks = [asyncio.wait_for(
+            loop.run_in_executor(
+                executor,
+                partial(_default_compute_score, task, completion,  reference)  # Ensure synchronous
+            ),
+            timeout=timeout
+        )
+        ]
+        return await asyncio.gather(*tasks)
+    except asyncio.TimeoutError:
+        print(f"Timeout occurred for completion: {completion}")
+        return None  # Default value for timed-out rows
+    except Exception as e:
+        print(f"Error processing completion: {completion[:10]}, Error: {e}")
+        return None  # Default value for failed rows
+async def parallel_compute_score_async(completions, references, tasks, num_processes=64):
+    scores = []
+    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        # Create tasks for all rows
+        tasks_async = [
+            single_compute_score(completion, reference, task, executor, timeout=300.)
+            for completion, reference, task in zip(completions, references, tasks)
+        ]
+        # Use tqdm for progress tracking
+        results = await tqdm.gather(*tasks_async, disable=True)
+
+    # Process results
+    for result, completion, reference, task in zip(results, completions, references, tasks):
+        if isinstance(result, Exception) or result is None:
+            # Handle failed or timed-out tasks
+            scores.append(0.0)
+            continue
+        else:
+            scores.append(float(int(result[0][0])))
+        # TODO: implement continual code scoring in sandboxes
+    return scores
 
 class RewardManager():
     """The reward manager.
@@ -50,34 +99,29 @@ class RewardManager():
 
         already_print_data_sources = {}
 
+        # batched scoring
+        prompt_ids = data.batch['prompts']
+        prompt_length = prompt_ids.shape[-1]
+
+        response_ids = data.batch['responses']
+        valid_response_length=data.batch['attention_mask'][:,prompt_length:].sum(dim=-1)
+        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+        ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
+        data_sources = data.non_tensor_batch['data_source']
+
+        assert len(sequences_str) == len(ground_truth) == len(data_sources)
+        try:
+            scores = asyncio.run(parallel_compute_score_async(sequences_str, ground_truth, data_sources, num_processes=64))
+        except asyncio.TimeoutError as e:
+            print('Global timeout in reward computing! Setting all as 0.')
+            return [0. for _ in range(len(sequences_str))]
+        except Exception as e:
+            print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
+            return [0. for _ in range(len(sequences_str))]
+
         for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
-
-            prompt_ids = data_item.batch['prompts']
-
-            prompt_length = prompt_ids.shape[-1]
-
-            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
-            response_ids = data_item.batch['responses']
-            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
-
-            # decode
-            sequences = torch.cat((valid_prompt_ids, valid_response_ids))
-            sequences_str = self.tokenizer.decode(sequences)
-
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
-            data_source = data_item.non_tensor_batch['data_source']
-
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=sequences_str,
-                ground_truth=ground_truth,
-            )
-            reward_tensor[i, valid_response_length - 1] = score
+            data_source=data_sources[i]
+            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
