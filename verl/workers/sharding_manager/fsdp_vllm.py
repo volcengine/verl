@@ -89,7 +89,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
             with FSDP.summon_full_params(self.module):
-                self.module._fsdp_wrapped_module.unmerge_adapter()
+                self.module.unmerge_adapter()
         del params
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
