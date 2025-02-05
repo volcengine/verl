@@ -390,15 +390,7 @@ class ActorRolloutRefWorker(Worker):
                                               actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
-            if self._is_lora:
-                print("Merge adapter")
-                print(self.actor_module_fsdp._fsdp_wrapped_module)
-                import ipdb; ipdb.set_trace()
-                self.actor_module_fsdp.merge_adapter()
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
-            if self._is_lora:
-                print("Unmerge adapter")
-                self.actor_module_fsdp.unmerge_adapter()
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
