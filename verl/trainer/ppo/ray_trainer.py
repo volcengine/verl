@@ -344,7 +344,6 @@ class RayPPOTrainer(object):
         else:
             raise NotImplementedError
 
-
         self._validate_config()
         self._create_dataloader()
 
