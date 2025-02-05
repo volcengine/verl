@@ -108,6 +108,8 @@ class ActorRolloutRefWorker(Worker):
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
+        self._is_lora = self.config.model.get('lora_rank', 0) > 0
+
         self.role = role
         assert self.role in ['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']
 
@@ -147,7 +149,6 @@ class ActorRolloutRefWorker(Worker):
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
-        self._is_lora = self.config.model.get('lora_rank', 0) > 0
 
     def _build_model_optimizer(self,
                                model_path,
@@ -491,36 +492,47 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_log_prob(self, data: DataProto):
+    def compute_log_prob(self, data: DataProto, no_lora=False):
+        # when no_lora is True, we use the actor without lora applied to calculate the log_prob
+        # which is mostly used for ref log_prob calculation
         assert self._is_actor
-        data = data.to('cuda')
-        # we should always recompute old_log_probs when it is HybridEngine
-        data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
-        data.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
-        data.meta_info['temperature'] = self.config.rollout.temperature
-        # perform recompute log_prob
-        with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data)
-            output = self.actor.compute_log_prob(data=data)
-            output = DataProto.from_dict(tensors={'old_log_probs': output},
-                                         meta_info={'temperature': self.config.rollout.temperature})
-            output = self.ulysses_sharding_manager.postprocess_data(output)
+        from contextlib import nullcontext
+        adapter_ctx = self.actor.actor_module.disable_adapter() if no_lora else nullcontext()
+        with adapter_ctx:
+            data = data.to('cuda')
+            # we should always recompute old_log_probs when it is HybridEngine
+            data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+            data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
+            data.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
+            data.meta_info['temperature'] = self.config.rollout.temperature
+            # perform recompute log_prob
+            with self.ulysses_sharding_manager:
+                data = self.ulysses_sharding_manager.preprocess_data(data)
+                output = self.actor.compute_log_prob(data=data)
+                output = DataProto.from_dict(tensors={'old_log_probs': output},
+                                            meta_info={'temperature': self.config.rollout.temperature})
+                output = self.ulysses_sharding_manager.postprocess_data(output)
 
-        output = output.to('cpu')
+            output = output.to('cpu')
 
-        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
-        # unshard the root FSDP module
-        if self.world_size > 1:
-            self.actor.actor_module._handle.reshard(True)
+            # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+            # unshard the root FSDP module
+            if self.world_size > 1:
+                self.actor.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
-        return output
+            torch.cuda.empty_cache()
+            return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
-
+        if self._is_lora:
+            # TODO
+            pass
+            # if _is_lora, actor without lora applied is the ref
+            # return self.compute_log_prob(data, no_lora=True)
+        # else:
+        # otherwise, the class have a standalone ref model
         data = data.to('cuda')
 
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
