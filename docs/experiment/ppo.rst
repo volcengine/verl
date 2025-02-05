@@ -33,9 +33,9 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-0.5B-Instruct       | PPO                    | 56.7       |   `PPO Command and Logs`_                                                                     |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| deepseek-ai/deepseek-llm-7b-chat | PPO                    | 69.5[1]    |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
+| deepseek-ai/deepseek-llm-7b-chat | PPO                    | 69.5[1]_   |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b PPO Command and Logs`_                                                              |
+| Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b PPO Script`_                                                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 .. [1] During the evaluation, we have only extracted answers following the format "####". A more flexible answer exaction, longer response length and better prompt engineering may lead to higher score.
