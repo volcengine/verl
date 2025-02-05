@@ -37,6 +37,8 @@ from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
+from verl.third_party.vllm import VerlExecutor
+from verl.third_party.vllm import VerlWorker
 
 # TODO
 # 1. support pp in vllm
@@ -87,12 +89,23 @@ class vLLMRollout(BaseRollout):
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
         
+        # self.inference_engine = LLM(model=model_path,
+        #                             enable_sleep_mode=True,
+        #                             tensor_parallel_size=tensor_parallel_size,
+        #                             worker_cls=VerlWorker,
+        #                             distributed_executor_backend=VerlExecutor,
+        #                             dtype='bfloat16',
+        #                             enforce_eager=False,
+        #                             disable_custom_all_reduce=True,
+        #                             gpu_memory_utilization=config.gpu_memory_utilization)
+
         self.inference_engine = LLM(model=model_path,
                                     enable_sleep_mode=True,
                                     tensor_parallel_size=tensor_parallel_size,
                                     distributed_executor_backend="external_launcher",
                                     dtype='bfloat16',
                                     enforce_eager=False,
+                                    disable_custom_all_reduce=True,
                                     gpu_memory_utilization=config.gpu_memory_utilization)
 
         # Offload vllm model to reduce peak memory usage
