@@ -525,12 +525,13 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
-        assert self._is_ref
         if self._is_lora:
-            # TODO
-            pass
             # if _is_lora, actor without lora applied is the ref
-            # return self.compute_log_prob(data, no_lora=True)
+            data = self.compute_log_prob(data, no_lora=True)
+            # this old_log_probs is in fact ref_log_prob
+            data = DataProto.from_dict(tensors={'ref_log_prob': data.batch['old_log_probs']})
+            return data
+        assert self._is_ref
         # else:
         # otherwise, the class have a standalone ref model
         data = data.to('cuda')
