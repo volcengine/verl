@@ -74,7 +74,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
             # the model to sync weights to is a vLLM model (not a peft model), so we need to merge the adapters
             with FSDP.summon_full_params(self.module):
-                self.module._fsdp_wrapped_module.merge_adapter()
+                self.module.merge_adapter()
                 params = self.module._fsdp_wrapped_module.base_model.model.state_dict()
             # FIXME: use more rigorous way to filter out the adapter weights
             params = OrderedDict((k.replace(".base_layer.", "."), v) for k, v in params.items() if not ".lora_" in k)
