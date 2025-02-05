@@ -1,11 +1,12 @@
 set -x
 
-# the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
-
+# prepare pre-trained model ckpt
 huggingface-cli download deepseek-ai/deepseek-llm-7b-chat --local-dir $HOME/models/deepseek-llm-7b-chat
 
 # ``actor_rollout_ref.rollout.tensor_model_parallel_size`` in theory could be different from
 # ``**.megatron.tensor_model_parallel_size``
+
+# the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
