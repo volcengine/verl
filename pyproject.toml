@@ -18,7 +18,7 @@ name = "verl"
 # The actual version is specified in the [tool.setuptools.dynamic] section below.
 dynamic = ["version"]
 
-description = "veRL: Volcano Engine Reinforcement Learning for LLM"
+description = "verl: Volcano Engine Reinforcement Learning for LLM"
 license = {file = "LICENSE"}  # or "Apache-2.0", if you prefer an SPDX identifier
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
