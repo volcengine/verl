@@ -206,7 +206,7 @@ def initialize_model_parallel(
     backend = backend or torch.distributed.get_backend()
 
     # NOTE(sgm) we don't assert world_size == tp * pp
-    # DP is not managed by vllm but by the veRL WorkerGroup
+    # DP is not managed by vllm but by the verl WorkerGroup
 
     num_tensor_model_parallel_groups: int = (world_size // tensor_model_parallel_size)
     num_pipeline_model_parallel_groups: int = (world_size // pipeline_model_parallel_size)

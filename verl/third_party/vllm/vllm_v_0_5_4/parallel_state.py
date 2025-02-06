@@ -224,7 +224,7 @@ def initialize_model_parallel(
     backend = backend or torch.distributed.get_backend(ps.get_world_group().device_group)
 
     # NOTE(sgm) we don't assert world_size == tp * pp
-    # DP is not managed by vllm but by the veRL WorkerGroup
+    # DP is not managed by vllm but by the verl WorkerGroup
     # if (world_size !=
     #         tensor_model_parallel_size * pipeline_model_parallel_size):
     #     raise RuntimeError(

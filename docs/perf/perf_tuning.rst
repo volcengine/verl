@@ -1,7 +1,7 @@
 Performance Tuning Guide
 =========================
 
-In this section, we will discuss how to tune the performance of all the stages in veRL, including:
+In this section, we will discuss how to tune the performance of all the stages in verl, including:
 
 1. Rollout generation throughput.
 
@@ -16,7 +16,7 @@ In this section, we will discuss how to tune the performance of all the stages i
 Rollout Generation Tuning
 --------------------------
 
-veRL currently supports two rollout backends: vLLM and TGI (with SGLang support coming soon). 
+verl currently supports two rollout backends: vLLM and TGI (with SGLang support coming soon). 
 
 Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend setting ``actor_rollout_ref.rollout.disable_log_stats=False`` so that rollout statistics are logged.
 
@@ -45,7 +45,7 @@ Batch Size Tuning
 To achieve higher throughput in experience preparation (i.e., model fwd) and model update (i.e., actor/critic fwd/bwd), 
 users may need to tune the ``*micro_batch_size_per_gpu`` for different computation.
 
-In veRL, the core principle for setting batch sizes is:
+In verl, the core principle for setting batch sizes is:
 
 - **Algorithmic metrics** (train batch size, PPO mini-batch size) are *global* (from a single-controller perspective), 
   normalized in each worker. See the `normalization code <https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py#L120-L122>`_.
