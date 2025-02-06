@@ -40,7 +40,7 @@ dependencies = [
     "ray>=2.38",
     "tensordict",
     "transformers<4.48",
-    "vllm",
+    "vllm<=0.7.2",
     "peft",
     "liger-kernel",
 ]
