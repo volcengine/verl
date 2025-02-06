@@ -64,7 +64,8 @@ async def parallel_compute_score_async(completions, references, tasks, num_proce
         if isinstance(result, Exception) or result is None:
             # Handle failed or timed-out tasks
             scores.append(0.0)
-            continue
+        elif isinstance(result[0], (int, float, bool)):
+            scores.append(float(result[0]))
         else:
             scores.append(float(int(result[0][0])))
         # TODO: implement continual code scoring in sandboxes
