@@ -52,12 +52,17 @@ class Tracking(object):
             import os
 
             SWANLAB_API_KEY = os.environ.get("SWANLAB_API_KEY", None)
+            SWANLAB_LOG_DIR=os.environ.get("SWANLAB_LOG_DIR","swanlog")
+            SWANLAB_MODE = os.environ.get("SWANLAB_MODE", "cloud")
             if SWANLAB_API_KEY:
                 swanlab.login(
                     SWANLAB_API_KEY
                 )  # NOTE: previous login information will be overwritten
             swanlab.init(
-                project=project_name, experiment_name=experiment_name, config=config
+                project=project_name, 
+                experiment_name=experiment_name, 
+                config=config,logdir=SWANLAB_LOG_DIR, 
+                mode=SWANLAB_MODE
             )
             self.logger["swanlab"] = swanlab
 
