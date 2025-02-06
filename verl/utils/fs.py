@@ -19,7 +19,10 @@ import os
 import tempfile
 import hashlib
 
-from .hdfs_io import copy, makedirs, exists
+try:
+    from hdfs_io import copy, makedirs, exists
+except ImportError:
+    from .hdfs_io import copy, makedirs, exists
 
 __all__ = ["copy", "exists", "makedirs"]
 
