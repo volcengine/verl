@@ -112,9 +112,8 @@ def test_fsdp_ckpt():
         logits_after_load = model(input_ids=input_ids2, attention_mask=attention_mask2).logits
 
     # Step 4: Verify outputs match
-    if rank == 0:
-        torch.testing.assert_close(logits_before_load, logits_after_load, atol=1e-2, rtol=1e-4)
-        print("Checkpoint save/load test passed!")
+    torch.testing.assert_close(logits_before_load, logits_after_load)
+    print("Checkpoint save/load test passed!")
 
     # Cleanup
     shutil.rmtree(temp_dir)
