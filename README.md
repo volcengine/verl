@@ -69,7 +69,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
   - [Run GSM8K Example](https://verl.readthedocs.io/en/latest/examples/gsm8k_example.html)
 
 **Reproducible algorithm baselines:**
-- [PPO](https://verl.readthedocs.io/en/latest/experiment/ppo.html)
+- [PPO and GRPO](https://verl.readthedocs.io/en/latest/experiment/ppo.html)
 
 **For code explanation and advance usage (extension):**
 - PPO Trainer and Workers

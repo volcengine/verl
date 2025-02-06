@@ -31,7 +31,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = u'veRL'
+project = u'verl'
 # pylint: disable=W0622
 copyright = u'2024 ByteDance Seed Foundation MLSys Team'
 author = u'Guangming Sheng, Chi Zhang, Yanghua Peng, Haibin Lin'
