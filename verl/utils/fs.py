@@ -20,7 +20,7 @@ import tempfile
 import hashlib
 
 try:
-    from hdfs_io import copy, makedirs, exists
+    from hdfs_io import copy, makedirs, exists  # for internal use only
 except ImportError:
     from .hdfs_io import copy, makedirs, exists
 
