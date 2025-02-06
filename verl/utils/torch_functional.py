@@ -140,7 +140,8 @@ def masked_whiten(values, mask, shift_mean=True):
 
 def get_eos_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2, dtype=torch.int64):
     '''
-    e.g. end of sentence token can be int or list: 1 or [1, 2]
+    end of sentence token can be int or list: 1 or [1, 2]
+    e.g. eos_token=1
     response_id: [0, 0, 2, 42, 3, 5, 1, 0, 0]
     eos_mask:     [1, 1, 1, 1,  1, 1, 1, 0, 0]
     '''
