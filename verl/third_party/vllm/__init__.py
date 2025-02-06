@@ -47,11 +47,9 @@ elif package_version == '0.6.3':
     from .vllm_v_0_6_3.llm import LLMEngine
     from .vllm_v_0_6_3 import parallel_state
 elif vs.parse(package_version) >= vs.parse('0.6.6.post2.dev252+g8027a724'):
-    # From 0.7.0 on, vllm supports SPMD inference
+    # From 0.6.6.post2 on, vllm supports SPMD inference
     # See https://github.com/vllm-project/vllm/pull/12071
-
-    from .vllm_spmd.verl_executor import VerlExecutor
-    from .vllm_spmd.worker import VerlWorker
+    
     # TODO(ZSL): parallel_state is seemingly needed to be maintained by verl
     from vllm.distributed import parallel_state
     from .vllm_spmd.dtensor_weight_loaders import load_dtensor_weights

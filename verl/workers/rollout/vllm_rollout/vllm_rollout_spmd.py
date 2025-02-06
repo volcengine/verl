@@ -37,8 +37,7 @@ from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
-from verl.third_party.vllm import VerlExecutor
-from verl.third_party.vllm import VerlWorker
+from verl.third_party.vllm import vllm_version
 
 # TODO
 # 1. support pp in vllm
@@ -75,6 +74,7 @@ class vLLMRollout(BaseRollout):
         tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), \
             "tensor parallel size should be less than or equal to the world size"
+        max_num_batched_tokens = self.config.get('max_num_batched_tokens', 8192)
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
@@ -89,24 +89,21 @@ class vLLMRollout(BaseRollout):
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
         
-        # self.inference_engine = LLM(model=model_path,
-        #                             enable_sleep_mode=True,
-        #                             tensor_parallel_size=tensor_parallel_size,
-        #                             worker_cls=VerlWorker,
-        #                             distributed_executor_backend=VerlExecutor,
-        #                             dtype='bfloat16',
-        #                             enforce_eager=False,
-        #                             disable_custom_all_reduce=True,
-        #                             gpu_memory_utilization=config.gpu_memory_utilization)
 
         self.inference_engine = LLM(model=model_path,
                                     enable_sleep_mode=True,
                                     tensor_parallel_size=tensor_parallel_size,
                                     distributed_executor_backend="external_launcher",
-                                    dtype='bfloat16',
-                                    enforce_eager=False,
+                                    dtype=config.dtype,
+                                    enforce_eager=config.enforce_eager,
+                                    gpu_memory_utilization=config.gpu_memory_utilization,
                                     disable_custom_all_reduce=True,
-                                    gpu_memory_utilization=config.gpu_memory_utilization)
+                                    skip_tokenizer_init=False,
+                                    max_model_len=config.prompt_length + config.response_length,
+                                    disable_log_stats=config.disable_log_stats,
+                                    max_num_batched_tokens=max_num_batched_tokens,
+                                    enable_chunked_prefill=config.enable_chunked_prefill,
+                                    )
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.sleep(level=1)
@@ -118,10 +115,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # # we may detokenize the result all together later
-        # if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-        #     kwargs['detokenize'] = False
-        # TODO(ZSL): check this
-        kwargs['detokenize'] = False
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            kwargs['detokenize'] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -151,10 +146,9 @@ class vLLMRollout(BaseRollout):
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # TODO(ZSL): check if we still need this
-        # # rebuild vllm cache engine
-        # if self.config.free_cache_engine:
-        #     self.inference_engine.init_cache_engine()
+        # rebuild vllm cache engine
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
+            self.inference_engine.init_cache_engine()
 
         idx = prompts.batch['input_ids']  # (bs, prompt_length)
         # left-padded attention_mask
@@ -231,9 +225,8 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size)
 
-        # TODO(ZSL): check if we still need this
-        # # free vllm cache engine
-        # if self.config.free_cache_engine:
-        #     self.inference_engine.free_cache_engine()
+        # free vllm cache engine
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
+            self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)

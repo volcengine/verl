@@ -125,7 +125,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
             data.batch = allgather_dict_tensors(data.batch.contiguous(),
                                                 size=vllm_ps.get_tensor_model_parallel_world_size(),
                                                 group=vllm_ps.get_tensor_model_parallel_group(),
@@ -142,7 +142,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
         local_world_size = vllm_ps.get_tensor_model_parallel_world_size()
         src_rank = (torch.distributed.get_rank() // local_world_size) * local_world_size
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
             broadcast_dict_tensor(data.batch,
                                 src=src_rank,
                                 group=vllm_ps.get_tensor_model_parallel_group())
