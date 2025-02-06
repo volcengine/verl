@@ -147,11 +147,11 @@ def get_eos_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2
     '''
     if isinstance(eos_token, int):
         eos_token = [eos_token]
-    
+
     eos_mask = torch.zeros_like(response_id, dtype=torch.bool)
     for token in eos_token:
         eos_mask |= response_id.eq(token)
-    
+
     eos_mask = eos_mask.long()
     eos_mask = (torch.cumsum(eos_mask, dim=1) - eos_mask).bool()
     eos_mask = torch.logical_not(eos_mask).to(dtype)
