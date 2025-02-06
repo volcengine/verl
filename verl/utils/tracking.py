@@ -74,6 +74,8 @@ class Tracking(object):
     def __del__(self):
         if 'wandb' in self.logger:
             self.logger['wandb'].finish(exit_code=0)
+        if 'swanlab' in self.logger:
+            self.logger['swanlab'].finish()
 
 
 class _MlflowLoggingAdapter:
