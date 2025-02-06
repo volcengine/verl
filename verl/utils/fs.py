@@ -29,7 +29,7 @@ __all__ = ["copy", "exists", "makedirs"]
 _HDFS_PREFIX = "hdfs://"
 
 
-def _is_non_local(path):
+def is_non_local(path):
     return path.startswith(_HDFS_PREFIX)
 
 
@@ -70,7 +70,7 @@ def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock='.file.lock', v
 
     assert src[-1] != '/', f'Make sure the last char in src is not / because it will cause error. Got {src}'
 
-    if _is_non_local(src):
+    if is_non_local(src):
         # download from hdfs to local
         if cache_dir is None:
             # get a temp folder
