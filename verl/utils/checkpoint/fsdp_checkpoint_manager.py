@@ -83,13 +83,20 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, *args, **kwargs):
+    def save_checkpoint(self,
+                        local_path: str,
+                        hdfs_path: str,
+                        global_step: int,
+                        remove_previous_ckpt=True,
+                        *args,
+                        **kwargs):
         # record the previous global step
         self.previous_global_step = global_step
 
         # remove previous local_path
-        # TODO: shall we remove previous ckpt every iter?
-        self.remove_previous_save_local_path()
+        # TODO: shall we remove previous ckpt every save?
+        if remove_previous_ckpt:
+            self.remove_previous_save_local_path()
         local_path = self.local_mkdir(local_path, is_abs=kwargs.get('is_abs', True))
         torch.distributed.barrier()
 
