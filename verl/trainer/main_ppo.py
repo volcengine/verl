@@ -67,8 +67,7 @@ async def parallel_compute_score_async(completions, references, tasks, num_proce
         elif isinstance(result[0], (int, float, bool)):
             scores.append(float(result[0]))
         else:
-            scores.append(float(int(result[0][0])))
-        # TODO: implement continual code scoring in sandboxes
+            scores.append(float(result[0][0]))
     return scores
 
 
