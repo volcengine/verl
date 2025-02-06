@@ -1,3 +1,17 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import ray
 import os
 
@@ -76,8 +90,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # remove previous local_path
         # TODO: shall we remove previous ckpt every iter?
         self.remove_previous_save_local_path()
-        local_path = self.local_mkdir(local_path,
-                                      is_abs=kwargs.get('is_abs', True))
+        local_path = self.local_mkdir(local_path, is_abs=kwargs.get('is_abs', True))
         torch.distributed.barrier()
 
         # every rank will save its own model and optim shard
@@ -109,7 +122,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         if hdfs_path is not None:
             raise NotImplementedError('upload model to hdfs_path is not supported yet')
-        
+
         # wait for everyone to dump to local
         torch.distributed.barrier()
 
