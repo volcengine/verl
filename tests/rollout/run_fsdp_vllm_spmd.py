@@ -22,7 +22,7 @@ import torch.distributed as dist
 from vllm.distributed.parallel_state import get_world_group
 from verl.utils.distributed import initialize_global_process_group
 from vllm import LLM
-from verl.third_party.vllm.vllm_v_0_6_3.dtensor_weight_loaders import *
+from verl.third_party.vllm.vllm_v_0_6_3.dtensor_weight_loaders import load_dtensor_weights
 
 from vllm import SamplingParams
 import time
@@ -103,27 +103,27 @@ def main():
 
     # print(actor_model_config)
     llm = LLM(model=local_model_path,
+              enable_sleep_mode=True,
               tensor_parallel_size=tensor_model_parallel_size,
               distributed_executor_backend="external_launcher",
               dtype='bfloat16',
               gpu_memory_utilization=0.7)
 
-    # Warmup iterations
-    for _ in range(10):
-        torch.cuda.synchronize()
-        load_dtensor_weights(state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
-        torch.cuda.synchronize()
-        dist.barrier()
+    # # Warmup iterations
+    # for _ in range(10):
+    #     torch.cuda.synchronize()
+    #     load_dtensor_weights(state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
+    #     torch.cuda.synchronize()
+    #     dist.barrier()
 
-    start_time = time.time()
+    empty_state_dict = {}
+    for key, value in state_dict.items():
+        empty_state_dict[key] = torch.zeros_like(value)
+
+    llm.sleep(level=2)
+    llm.wake_up()
+    load_dtensor_weights(empty_state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
     load_dtensor_weights(state_dict, llm.llm_engine.model_executor.driver_worker.worker.model_runner.model)
-    torch.cuda.synchronize()
-    dist.barrier()
-    end_time = time.time()
-
-    # Calculate elapsed time
-    elapsed_time = end_time - start_time
-    print(f"Weight sync time taken: {elapsed_time:.6f} seconds")
 
     outputs = llm.generate(preencode_prompts, sampling_params)
     cpu_group = get_world_group().cpu_group
