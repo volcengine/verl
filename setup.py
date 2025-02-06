@@ -43,7 +43,7 @@ setup(
     license='Apache 2.0',
     author='Bytedance - Seed - MLSys',
     author_email='zhangchi.usc1992@bytedance.com, gmsheng@connect.hku.hk',
-    description='veRL: Volcano Engine Reinforcement Learning for LLM',
+    description='verl: Volcano Engine Reinforcement Learning for LLM',
     install_requires=install_requires,
     extras_require=extras_require,
     package_data={'': ['version/*'],
