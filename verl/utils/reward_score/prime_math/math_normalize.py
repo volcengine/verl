@@ -96,25 +96,20 @@ def _fix_sqrt(string):
 def _strip_string(string):
     # linebreaks
     string = string.replace("\n", "")
-    # print(string)
 
     # remove inverse spaces
     string = string.replace("\\!", "")
-    # print(string)
 
     # replace \\ with \
     string = string.replace("\\\\", "\\")
-    # print(string)
 
     # replace tfrac and dfrac with frac
     string = string.replace("tfrac", "frac")
     string = string.replace("dfrac", "frac")
-    # print(string)
 
     # remove \left and \right
     string = string.replace("\\left", "")
     string = string.replace("\\right", "")
-    # print(string)
 
     # Remove circ (degrees)
     string = string.replace("^{\\circ}", "")

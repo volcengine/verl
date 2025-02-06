@@ -9,7 +9,6 @@ import os, sys
 
 
 def _temp_run(sample, generation, debug, result, metadata_list, timeout):
-    # 静默评测，程序被杀不要输出，仅输出评测过程抛出的exception
     with open(os.devnull, 'w') as devnull:
         sys.stdout = devnull
         sys.stderr = devnull

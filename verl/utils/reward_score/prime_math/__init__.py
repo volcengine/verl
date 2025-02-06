@@ -146,7 +146,6 @@ def _normalize(expr: str) -> str:
     ]:
         expr = re.sub(f"{unit}(es)?(s)? *(\^[0-9]+)?", "", expr)
     expr = re.sub(f"\^ *\\\\circ", "", expr)
-    # expr = re.sub(f"\^*\\\\circ", "", expr)
 
     if len(expr) > 0 and expr[0] == "{" and expr[-1] == "}":
         expr = expr[1:-1]
@@ -164,11 +163,6 @@ def _normalize(expr: str) -> str:
     expr = re.sub("- *", "-", expr)
 
     expr = _inject_implicit_mixed_number(expr)
-    # expr = expr.replace(" ", "")
-
-    # # if we somehow still have latex braces here, just drop them
-    # expr = expr.replace("{", "")
-    # expr = expr.replace("}", "")
 
     # don't be case sensitive for text answers
     expr = expr.lower()
@@ -376,18 +370,10 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
 
     is_matched, extracted_model_output = match_answer(model_output)
     format_correctness = "Step 2:" in model_output and "\\box" in model_output
-    # print(f"{model_output=}")
-    # print("\n")
-    # print(f"{extracted_model_output=}")
-    # print("\n")
-    # print(f"{ground_truth=}")
-    # print("="*20)
-    # print("\n\n")
 
-    # grade simple algebra questions. if succeed, return; otherwise, proceed to more complex grading
+    # grade simple algebra questions. if succeeded, return; otherwise, proceed to more complex grading
     if grade_answer(extracted_model_output, ground_truth):
         return True, True, extracted_model_output
-        # return True
 
     try:
         if "\pi" in extracted_model_output or "\pi" in ground_truth:
@@ -399,7 +385,5 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
             is_correct = math_equal(extracted_model_output, ground_truth, timeout=True)
     except:
         is_correct = False
-
-    # print(f"{extracted_model_output=}\n", f"{model_output=}\n", f"{ground_truth=}\n")
 
     return is_correct, format_correctness, extracted_model_output

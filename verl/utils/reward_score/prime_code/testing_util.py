@@ -102,10 +102,6 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
     if debug:
         print(f"start = {datetime.now().time()}")
 
-    # try:
-    #     in_outs = json.loads(sample["input_output"])
-    # except ValueError:
-    #     in_outs = None
     if in_outs:
         if in_outs.get("fn_name") is None:
             which_type = CODE_TYPE.standard_input  # Standard input
