@@ -1,10 +1,10 @@
-<h1 style="text-align: center;">veRL: Volcano Engine Reinforcement Learning for LLM</h1>
+<h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLM</h1>
 
-veRL is a flexible, efficient and production-ready RL training library for large language models (LLMs).
+verl is a flexible, efficient and production-ready RL training library for large language models (LLMs).
 
-veRL is the open-source version of **[HybridFlow: A Flexible and Efficient RLHF Framework](https://arxiv.org/abs/2409.19256v2)** paper.
+verl is the open-source version of **[HybridFlow: A Flexible and Efficient RLHF Framework](https://arxiv.org/abs/2409.19256v2)** paper.
 
-veRL is flexible and easy to use with:
+verl is flexible and easy to use with:
 
 - **Easy extension of diverse RL algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
 
@@ -15,9 +15,9 @@ veRL is flexible and easy to use with:
 - Readily integration with popular HuggingFace models
 
 
-veRL is fast with:
+verl is fast with:
 
-- **State-of-the-art throughput**: By seamlessly integrating existing SOTA LLM training and inference frameworks, veRL achieves high generation and training throughput.
+- **State-of-the-art throughput**: By seamlessly integrating existing SOTA LLM training and inference frameworks, verl achieves high generation and training throughput.
 
 - **Efficient actor model resharding with 3D-HybridEngine**: Eliminates memory redundancy and significantly reduces communication overhead during transitions between training and generation phases.
 
@@ -29,9 +29,10 @@ veRL is fast with:
 
 ## News
 
-- [2025/1] [Doubao-1.5-pro](https://team.doubao.com/zh/special/doubao_1_5_pro) is released with SOTA-level performance on LLM & VLM. The RL scaling preview model is trained using veRL, reaching OpenAI O1-level performance on math benchmarks (70.0 pass@1 on AIME).
+- [2025/2] We will present verl in the [Bytedance/NVIDIA/Anyscale Ray Meetup](https://lu.ma/ji7atxux) in bay area on Feb 13th. Come join us in person!
+- [2025/1] [Doubao-1.5-pro](https://team.doubao.com/zh/special/doubao_1_5_pro) is released with SOTA-level performance on LLM & VLM. The RL scaling preview model is trained using verl, reaching OpenAI O1-level performance on math benchmarks (70.0 pass@1 on AIME).
 - [2024/12] The team presented <a href="https://neurips.cc/Expo/Conferences/2024/workshop/100677">Post-training LLMs: From Algorithms to Infrastructure</a> at NeurIPS 2024. [Slides](https://github.com/eric-haibin-lin/verl-data/tree/neurips) and [video](https://neurips.cc/Expo/Conferences/2024/workshop/100677) available.
-- [2024/10] veRL is presented at Ray Summit. [Youtube video](https://www.youtube.com/watch?v=MrhMcXkXvJU&list=PLzTswPQNepXntmT8jr9WaNfqQ60QwW7-U&index=37) available.
+- [2024/10] verl is presented at Ray Summit. [Youtube video](https://www.youtube.com/watch?v=MrhMcXkXvJU&list=PLzTswPQNepXntmT8jr9WaNfqQ60QwW7-U&index=37) available.
 - [2024/08] HybridFlow (verl) is accepted to EuroSys 2025.
 
 ## Key Features
@@ -115,7 +116,7 @@ If you find the project helpful, please cite:
 
 verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The project is adopted and supported by Anyscale, Bytedance, LMSys.org, Shanghai AI Lab, Tsinghua University, UC Berkeley, UCLA, UIUC, and University of Hong Kong.
 
-## Awesome work using veRL
+## Awesome work using verl
 - [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
 - [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
 - [Process Reinforcement Through Implicit Rewards](https://github.com/PRIME-RL/PRIME/)
