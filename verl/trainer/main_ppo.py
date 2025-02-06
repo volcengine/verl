@@ -26,17 +26,18 @@ from verl.utils.reward_score import gsm8k, math, prime_math, prime_code
 from verl.utils.reward_score import _default_compute_score
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
+
 async def single_compute_score(completion, reference, task, executor, timeout=300.):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
-        tasks = [asyncio.wait_for(
-            loop.run_in_executor(
-                executor,
-                partial(_default_compute_score, task, completion,  reference)  # Ensure synchronous
-            ),
-            timeout=timeout
-        )
+        tasks = [
+            asyncio.wait_for(
+                loop.run_in_executor(
+                    executor,
+                    partial(_default_compute_score, task, completion, reference)  # Ensure synchronous
+                ),
+                timeout=timeout)
         ]
         return await asyncio.gather(*tasks)
     except asyncio.TimeoutError:
@@ -45,6 +46,8 @@ async def single_compute_score(completion, reference, task, executor, timeout=30
     except Exception as e:
         print(f"Error processing completion: {completion[:10]}, Error: {e}")
         return None  # Default value for failed rows
+
+
 async def parallel_compute_score_async(completions, references, tasks, num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
@@ -66,6 +69,7 @@ async def parallel_compute_score_async(completions, references, tasks, num_proce
             scores.append(float(int(result[0][0])))
         # TODO: implement continual code scoring in sandboxes
     return scores
+
 
 class RewardManager():
     """The reward manager.
@@ -92,23 +96,24 @@ class RewardManager():
         prompt_length = prompt_ids.shape[-1]
 
         response_ids = data.batch['responses']
-        valid_response_length=data.batch['attention_mask'][:,prompt_length:].sum(dim=-1)
+        valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
         sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
 
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
-            scores = asyncio.run(parallel_compute_score_async(sequences_str, ground_truth, data_sources, num_processes=64))
+            scores = asyncio.run(
+                parallel_compute_score_async(sequences_str, ground_truth, data_sources, num_processes=64))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
-            scores= [0. for _ in range(len(sequences_str))]
+            scores = [0. for _ in range(len(sequences_str))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
-            scores= [0. for _ in range(len(sequences_str))]
+            scores = [0. for _ in range(len(sequences_str))]
 
         for i in range(len(data)):
-            data_source=data_sources[i]
+            data_source = data_sources[i]
             reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
 
             if data_source not in already_print_data_sources:

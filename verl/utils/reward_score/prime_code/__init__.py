@@ -16,12 +16,7 @@ def compute_score(completion, test_cases):
 
         # 先检查正确性，如果正确，则再one by one 检查test case
         try:
-            res, metadata = apps_check_correctness(
-                in_outs=test_cases,
-                generation=solution,
-                timeout=5,
-                debug=False
-            )
+            res, metadata = apps_check_correctness(in_outs=test_cases, generation=solution, timeout=5, debug=False)
             metadata = dict(enumerate(metadata))[0]
             success = all(map(lambda x: x == True, res))
             if success:
@@ -33,20 +28,12 @@ def compute_score(completion, test_cases):
         inputs = test_cases["inputs"]
         outputs = test_cases["outputs"]
         for i in range(len(inputs)):
-            test_cases_list.append({
-                "inputs": [inputs[i]],
-                "outputs": [outputs[i]]
-            })
+            test_cases_list.append({"inputs": [inputs[i]], "outputs": [outputs[i]]})
 
         metadata_list = []
         res_list = []
         for test_case_id, test_case in enumerate(test_cases_list):
-            res, metadata = apps_check_correctness(
-                in_outs=test_case,
-                generation=solution,
-                timeout=5,
-                debug=False
-            )
+            res, metadata = apps_check_correctness(in_outs=test_case, generation=solution, timeout=5, debug=False)
             try:
                 metadata = dict(enumerate(metadata))[0]  # 运算失败时metadata有可能为空
             except Exception as e:
