@@ -16,12 +16,12 @@ Utilities to create common models from huggingface
 """
 import os
 import warnings
-from typing import Dict, Type
+from typing import Dict, Type, Optional
 
 import numpy as np
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification
+from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification, GenerationConfig
 from verl.models.registry import ModelRegistry
 
 
@@ -53,6 +53,23 @@ def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, t
     update_model_config(module_config, override_config_kwargs)
 
     return module_config
+
+
+def get_generation_config(
+    model: str,
+    trust_remote_code: bool = False,
+) -> Optional[GenerationConfig]:
+    try:
+        return GenerationConfig.from_pretrained(model)
+    except OSError:  # Not found
+        try:
+            config = get_huggingface_actor_config(
+                model,
+                trust_remote_code=trust_remote_code,
+            )
+            return GenerationConfig.from_model_config(config)
+        except OSError:  # Not found
+            return None
 
 
 def create_huggingface_actor(model_name: str, override_config_kwargs=None, automodel_kwargs=None) -> nn.Module:
