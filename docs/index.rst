@@ -1,11 +1,11 @@
-Welcome to veRL's documentation!
+Welcome to verl's documentation!
 ================================================
 
 .. _hf_arxiv: https://arxiv.org/pdf/2409.19256
 
-veRL is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <hf_arxiv>`_ paper.
+verl is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <hf_arxiv>`_ paper.
 
-veRL is flexible and easy to use with:
+verl is flexible and easy to use with:
 
 - **Easy extension of diverse RL algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
 
@@ -16,9 +16,9 @@ veRL is flexible and easy to use with:
 - Readily integration with popular HuggingFace models
 
 
-veRL is fast with:
+verl is fast with:
 
-- **State-of-the-art throughput**: By seamlessly integrating existing SOTA LLM training and inference frameworks, veRL achieves high generation and training throughput.
+- **State-of-the-art throughput**: By seamlessly integrating existing SOTA LLM training and inference frameworks, verl achieves high generation and training throughput.
 
 - **Efficient actor model resharding with 3D-HybridEngine**: Eliminates memory redundancy and significantly reduces communication overhead during transitions between training and generation phases.
 
@@ -92,7 +92,7 @@ veRL is fast with:
 Contribution
 -------------
 
-veRL is free software; you can redistribute it and/or modify it under the terms
+verl is free software; you can redistribute it and/or modify it under the terms
 of the Apache License 2.0. We welcome contributions.
 Join us on `GitHub <https://github.com/volcengine/verl>`_, `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ and `Wechat <https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG>`_ for discussions.
 

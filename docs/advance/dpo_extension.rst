@@ -3,7 +3,7 @@ Extend to other RL(HF) algorithms
 
 We already implemented the complete training pipeline of the PPO
 algorithms. To extend to other algorithms, we analyze the high-level
-principle to use veRL and provide a tutorial to implement the DPO
+principle to use verl and provide a tutorial to implement the DPO
 algorithm. Users can follow the similar paradigm to extend to other RL algorithms.
 
 .. note:: **Key ideas**: Single process drives multi-process computation and data communication.
@@ -26,7 +26,7 @@ Step 3: Utilize the encapsulated APIs to implement the control flow
 Example: Online DPO
 -------------------
 
-We use veRL to implement a simple online DPO algorithm. The algorithm
+We use verl to implement a simple online DPO algorithm. The algorithm
 flow of Online DPO is as follows:
 
 1. There is a prompt (rollout) generator which has the same weight as
@@ -178,7 +178,7 @@ steps:
    and merge them.
 
 Frequently calling these 3 steps on the controller process greatly hurts
-code readability. **In veRL, we have abstracted and encapsulated these 3
+code readability. **In verl, we have abstracted and encapsulated these 3
 steps, so that the worker's method + dispatch + collect can be
 registered into the worker_group**
 

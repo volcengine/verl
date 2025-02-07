@@ -74,7 +74,7 @@ We provide a SFT Trainer using PyTorch FSDP in
 Users can customize their own SFT
 script using our FSDP SFT Trainer.
 
-We also provide various training scripts for SFT on GSM8K dataset in `gsm8k sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_.
+We also provide various training scripts for SFT on GSM8K dataset in `gsm8k sft directory <https://github.com/volcengine/verl/blob/main/examples/sft/gsm8k/>`_.
 
 .. code:: shell
 
