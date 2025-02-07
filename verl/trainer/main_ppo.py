@@ -27,7 +27,7 @@ from verl.utils.reward_score import _default_compute_score
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 
-async def single_compute_score(completion, reference, task, executor, timeout=300.):
+async def single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
@@ -35,7 +35,7 @@ async def single_compute_score(completion, reference, task, executor, timeout=30
             asyncio.wait_for(
                 loop.run_in_executor(
                     executor,
-                    partial(_default_compute_score, task, completion, reference)  # Ensure synchronous
+                    partial(evaluation_func, task, completion, reference)  # Ensure synchronous
                 ),
                 timeout=timeout)
         ]
@@ -48,12 +48,12 @@ async def single_compute_score(completion, reference, task, executor, timeout=30
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(completions, references, tasks, num_processes=64):
+async def parallel_compute_score_async(evaluation_func, completions, references, tasks, num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all rows
         tasks_async = [
-            single_compute_score(completion, reference, task, executor, timeout=300.)
+            single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.)
             for completion, reference, task in zip(completions, references, tasks)
         ]
         # Use tqdm for progress tracking
@@ -104,7 +104,7 @@ class RewardManager():
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
             scores = asyncio.run(
-                parallel_compute_score_async(sequences_str, ground_truth, data_sources, num_processes=64))
+                parallel_compute_score_async(self.compute_score, sequences_str, ground_truth, data_sources, num_processes=64))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
             scores = [0. for _ in range(len(sequences_str))]
