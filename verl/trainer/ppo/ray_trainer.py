@@ -35,6 +35,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 WorkerType = Type[Worker]
 
 
@@ -427,9 +428,8 @@ class RayPPOTrainer(object):
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
-        from torch.utils.data import DataLoader
+        from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          prompt_key=self.config.data.prompt_key,
@@ -437,11 +437,21 @@ class RayPPOTrainer(object):
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation='error')
+        # use sampler for better ckpt resume
+        if self.config.data.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+            sampler = RandomSampler(data_source=self.train_dataset, 
+                                    generator=train_dataloader_generator)
+        else:
+            sampler = SequentialSampler(data_source=self.train_dataset)
+
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=self.config.data.train_batch_size,
                                            shuffle=True,
                                            drop_last=True,
-                                           collate_fn=collate_fn)
+                                           collate_fn=collate_fn,
+                                           sampler=sampler)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
@@ -610,6 +620,12 @@ class RayPPOTrainer(object):
                 self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
         
+        
+        # save dataloader
+        dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
+        import dill
+        torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
+
         # latest checkpointed iteration tracker (for atomic usage)
         local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
                                                            'latest_checkpointed_iteration.txt')
@@ -657,6 +673,13 @@ class RayPPOTrainer(object):
         # load critic
         if self.use_critic:
             self.critic_wg.load_checkpoint(critic_path)
+        
+        # load dataloader, 
+        # TODO: from remote not implemented yet
+        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
+        self.train_dataloader = torch.load(dataloader_local_path)
+        if isinstance(self.train_dataloader.dataset, RLHFDataset):
+            self.train_dataloader.dataset.resume_dataset_state()
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
