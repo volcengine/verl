@@ -109,7 +109,7 @@ def find_latest_ckpt_path(path, directory_format="global_step_{}"):
         print("Checkpoint does not exist: %s", tracker_file)
         return None
 
-    with os.path.exists(tracker_file, "rb", skip_encryption=True) as f:
+    with open(tracker_file, "rb") as f:
         iteration = int(f.read().decode())
     ckpt_path = os.path.join(path, directory_format.format(iteration))
     if not os.path.exists(ckpt_path):

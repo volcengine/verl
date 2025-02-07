@@ -596,21 +596,22 @@ class RayPPOTrainer(object):
         self.actor_rollout_wg.init_model()
 
     def _save_checkpoint(self):
-        actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
-                                        f'global_step_{self.global_steps}')
+        # path: given_path + `/global_step_{global_step}` + `/actor`
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f'global_step_{self.global_step}')
+        actor_local_path = os.path.join(local_global_step_folder,'actor')
+
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-            self.config.trainer.default_hdfs_dir, 'actor')
+            self.config.trainer.default_hdfs_dir, f'global_step_{self.global_step}', 'actor')
         self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps)
 
         if self.use_critic:
-            critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                             f'global_step_{self.global_steps}')
+            critic_local_path = os.path.join(local_global_step_folder, 'critic')
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-                self.config.trainer.default_hdfs_dir, 'critic')
+                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_step}', 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
         
         # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
+        local_latest_checkpointed_iteration = os.path.join(local_global_step_folder,
                                                            'latest_checkpointed_iteration.txt')
         with open(local_latest_checkpointed_iteration, 'w') as f:
             f.write(str(self.global_steps))
@@ -624,6 +625,9 @@ class RayPPOTrainer(object):
             NotImplementedError('load from hdfs is not implemented yet')
         else:
             checkpoint_folder = self.config.trainer.default_local_dir # TODO: check path
+            if not os.path.isabs(checkpoint_folder):
+                working_dir = os.getcwd()
+                checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
             global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
 
         # find global_step_folder
@@ -632,11 +636,14 @@ class RayPPOTrainer(object):
                 print('Training from scratch')
                 return 0
         else:
-            if not (self.config.trainer.resume_from_steps and global_step_folder is not None):
+            if not (self.config.trainer.resume_from_path and global_step_folder is not None):
                 assert isinstance(self.config.trainer.resume_mode, str), "resume ckpt must be str type"
                 assert 'global_step_' in self.config.trainer.resume_mode, "resume ckpt must specify the global_step"
                 global_step_folder = self.config.trainer.resume_mode
-
+                if not os.path.isabs(global_step_folder):
+                    working_dir = os.getcwd()
+                    global_step_folder = os.path.join(working_dir, global_step_folder)
+        print(f'Load from checkpoint folder: {global_step_folder}')
         # set global step
         self.global_step = int(global_step_folder.split('global_step_')[-1])
 
