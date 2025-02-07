@@ -2,7 +2,8 @@
 Here we introduce how to run the naive implementation of the split placement of PPO algorithm.
 We will release the complete version of flexible placement in the near future.
 
- For quickstart, you can only follow Step 2 to modify the code and then follow Step 4 to execute the split placement example.
+## Steps to Run the Demo
+For quickstart, you can only follow Step 2 to modify the code and then follow Step 4 to execute the split placement example.
 
 ### Step 1: Placing the models to different GPUs
 Specify the placement and resource allocation. In the example, we place the actor and reference in the first half of the GPUs while map the critic and reward model (if any) to the second half of the GPUs.

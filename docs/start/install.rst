@@ -51,18 +51,8 @@ If you want to enable training with Megatron, Megatron code must be added to PYT
 
     cd ..
     git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
-    cp verl/patches/megatron_v4.patch Megatron-LM/
-    cd Megatron-LM && git apply megatron_v4.patch
-    pip3 install -e .
-    export PYTHONPATH=$PYTHONPATH:$(pwd)
-
-
-You can also get the Megatron code after verl's patch via
-
-.. code:: bash
-
-    git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
     export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
+
 
 Install from custom environment
 ---------------------------------

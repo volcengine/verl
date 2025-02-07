@@ -138,3 +138,31 @@ LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that c
 
 3. LigerKernel is particularly useful for improving training performance in SFT scenarios.
 
+Split Placement
+--------------------------
+
+verl supports flexible placement of roles. Each role could be placed using dedicated resources. This allows for concurrent execution of independent tasks
+in the algorithm such as critic and actor training in PPO. For more details, see ``examples/split_placement`` for example.
+
+Megatron with variable model sizes
+-----------------------------------
+
+When using Megatron with models of various sizes to train in a single job, we recommend applying verl's Megatron patch in the ``patches`` folder to configure different parallelisms. The patch is not required for typical RL training with Megatron, only useful for improving system throughput. To apply the patch:
+
+.. code:: bash
+
+    cd ..
+    git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+    cp verl/patches/megatron_v4.patch Megatron-LM/
+    cd Megatron-LM && git apply megatron_v4.patch
+    pip3 install -e .
+    export PYTHONPATH=$PYTHONPATH:$(pwd)
+
+You can also get the Megatron code after verl's patch via
+
+.. code:: bash
+
+    git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
+
+Now the models won't be sharing the global arguments in Megatron and can be configured separately. Note that we are working on integration with mcore-v0.7 to avoid the need for patches in the future, too.
