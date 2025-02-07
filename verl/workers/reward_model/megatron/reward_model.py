@@ -236,7 +236,7 @@ class MegatronRewardModel(BasePPORewardModel):
         # TODO: we may use the new schedule instead
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
-            schedule_kwargs['input_shapes'] = input_shapes # must set for flash-attn sequence packing
+            schedule_kwargs['input_shapes'] = input_shapes  # must set for flash-attn sequence packing
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
                 data_iterator=batch_generator,
@@ -245,7 +245,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 seq_length=infer_batch_size * seq_len,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=True,
-                **schedule_kwargs, # hidden size is of no use when input_shapes was set
+                **schedule_kwargs,  # hidden size is of no use when input_shapes was set
             )
         else:
             losses_reduced = forward_backward_func(
@@ -256,7 +256,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 seq_length=infer_batch_size * seq_len,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=True,
-                **schedule_kwargs, # hidden_size in use for pp = 1
+                **schedule_kwargs,  # hidden_size in use for pp = 1
             )
         # loss_reduces contains the stats returned from loss_func
 
