@@ -45,7 +45,7 @@ verl is fast with:
   - Support model-based reward and function-based reward (verifiable reward)
 - flash-attention, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [long context](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh)
 - scales up to 70B models and hundreds of GPUs
-- experiment tracking with wandb and mlflow
+- experiment tracking with wandb, swanlab and mlflow
 
 ## Upcoming Features
 - Reward model training
