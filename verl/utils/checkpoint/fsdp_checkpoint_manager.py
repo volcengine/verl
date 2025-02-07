@@ -95,7 +95,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
     def save_checkpoint(self,
                         local_path: str,
-                        hdfs_path: str,
                         global_step: int,
                         remove_previous_ckpt=True,
                         *args,
@@ -141,8 +140,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
 
-        if hdfs_path is not None:
-            raise NotImplementedError('upload model to hdfs_path is not supported yet')
 
         # wait for everyone to dump to local
         torch.distributed.barrier()
@@ -152,8 +149,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             os.makedirs(hf_local_path, exist_ok=True)
             self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
             self.tokenizer.save_pretrained(hf_local_path)
-            if hdfs_path is not None:
-                raise NotImplementedError('upload tokenizer to hdfs_path is not supported yet')
 
         torch.distributed.barrier()
 

@@ -34,7 +34,7 @@ from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClass
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 WorkerType = Type[Worker]
 
 
@@ -608,6 +608,50 @@ class RayPPOTrainer(object):
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
+        
+        # latest checkpointed iteration tracker (for atomic usage)
+        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
+                                                           'latest_checkpointed_iteration.txt')
+        with open(local_latest_checkpointed_iteration, 'w') as f:
+            f.write(str(self.global_steps))
+    
+    def _load_checkpoint(self):
+        if self.config.trainer.resume_mode == 'disable':
+            return 0
+        
+        # load from hdfs
+        if self.config.trainer.default_hdfs_dir is not None:
+            NotImplementedError('load from hdfs is not implemented yet')
+        else:
+            checkpoint_folder = self.config.trainer.default_local_dir # TODO: check path
+            global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
+
+        # find global_step_folder
+        if self.config.trainer.resume_mode == 'auto':
+            if global_step_folder is None:
+                print('Training from scratch')
+                return 0
+        else:
+            if not (self.config.trainer.resume_from_steps and global_step_folder is not None):
+                assert isinstance(self.config.trainer.resume_mode, str), "resume ckpt must be str type"
+                assert 'global_step_' in self.config.trainer.resume_mode, "resume ckpt must specify the global_step"
+                global_step_folder = self.config.trainer.resume_mode
+
+        # set global step
+        self.global_step = int(global_step_folder.split('global_step_')[-1])
+
+        print(f'Setting global step to {self.global_step}')
+        print(f'Resuming from {global_step_folder}')
+
+        actor_path = os.path.join(global_step_folder, 'actor')
+        critic_path = os.path.join(global_step_folder, 'critic')
+        # load actor
+        self.actor_rollout_wg.load_checkpoint(actor_path)
+        # load critic
+        if self.use_critic:
+            self.critic_wg.load_checkpoint(critic_path)
+
+        return self.global_step
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -755,6 +799,7 @@ class RayPPOTrainer(object):
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
+
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
