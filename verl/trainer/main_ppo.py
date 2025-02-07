@@ -22,7 +22,18 @@ import hydra
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
-    run_ppo(config)
+    # Get the compute_score_path from config if specified
+    compute_score_path = config.get('compute_score_path', None)
+    
+    # Import the custom compute_score if path is provided
+    compute_score = None
+    if compute_score_path:
+        module_path, function_name = compute_score_path.rsplit('.', 1)
+        import importlib
+        module = importlib.import_module(module_path)
+        compute_score = getattr(module, function_name)
+    
+    run_ppo(config, compute_score)
 
 
 def run_ppo(config, compute_score=None):
