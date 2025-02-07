@@ -79,10 +79,21 @@ def logprobs_of_labels_v2(logits: torch.FloatTensor, labels):
     """
     A memory efficient implementation of logprobs_from_logits
     """
-    assert logits.dtype == torch.float32, 'Using bf16 logits with logprobs_of_labels_v2 may lead to divergence'
-    logprobs_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1))
-    logprobs_labels = logprobs_labels - torch.logsumexp(logits, dim=-1, keepdim=True)
-    return logprobs_labels.squeeze(-1)
+    if logits.dtype in [torch.float32, torch.float64]:
+        logits_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+        logsumexp_values = torch.stack(
+            [torch.logsumexp(l, dim=-1) for l in logits]  # loop to reduce peak mem consumption
+        )
+        logprobs_labels = logits_labels - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
+    else:
+        # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
+        logprobs_labels = []
+        for row_logits, row_labels in zip(logits, labels):  # loop to reduce peak mem consumption
+            row_logprobs = F.log_softmax(row_logits, dim=-1)
+            row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
+            logprobs_labels.append(row_logprobs_labels)
+        logprobs_labels = torch.stack(logprobs_labels)
+    return logprobs_labels
 
 
 def clip_by_value(x, tensor_min, tensor_max):
@@ -269,7 +280,7 @@ def tokenize_and_postprocess_data(prompt: str,
 
 
 def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
-    """ Remove the pad token. 
+    """ Remove the pad token.
 
     Args:
         input_ids shape: [bs, seq_length]
@@ -285,13 +296,13 @@ def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
 
 def log_probs_from_logits_response(input_ids, logits, response_length):
     """Compute the response log_probs from full logits. Note that logits = model(input_ids)
-    
+
     Args:
         input_ids: [batch_size, seqlen]
         logits: [batch_size, seqlen, vocab_size]
-    
+
     Returns:
-        response_log_prob: 
+        response_log_prob:
     """
     response_logits = logits[:, -response_length - 1:-1]
     response = input_ids[:, -response_length:]
@@ -305,7 +316,7 @@ def log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad
     logits and input_ids.
     The reason for this function to is to compute logprobs_from_logits in rmpad mode because it is memory-intensive
     for large vocab_size
-    
+
     Args:
         input_ids: [batch_size, seqlen]
         attention_mask: [batch_size, seqlen]
@@ -333,7 +344,7 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
     logits and input_ids.
     The reason for this function to is to compute logprobs_from_logits in rmpad mode because it is memory-intensive
     for large vocab_size
-    
+
     Args:
         input_ids_rmpad: [1, total_nnz]
         logits_rmpad: [total_nnz, vocab_size]
