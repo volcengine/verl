@@ -49,3 +49,17 @@ def make_batch_generator(batches, vpp_size):
         # no vpp
         batch_generator = iter(batches)
     return batch_generator
+
+def require_extra_schedule_kwargs():
+    """Used to work around megatron get_args() issues. To be dropped after mcore v0.7"""
+    from megatron.core.pipeline_parallel.schedules import forward_backward_no_pipelining
+    import inspect
+    num_args = len(inspect.signature(forward_backward_no_pipelining).parameters)
+    # mcore v0.4
+    if num_args == 9:
+        return False
+    elif num_args == 11:
+        # mcore v0.4 patched version
+        return True
+    else:
+        raise NotImplementedError("Unknown megatron version")

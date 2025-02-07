@@ -176,10 +176,15 @@ class MegatronPPOCritic(BasePPOCritic):
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(batches, vpp_size=len(self.critic_module))
+        from verl.utils.megatron.pipeline_parallel import require_extra_schedule_kwargs
+        schedule_kwargs = {}
+        if require_extra_schedule_kwargs():
+            schedule_kwargs = {'hidden_size': self.model_config.hidden_size}
 
         # TODO: we may use the new schedule instead
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
+            schedule_kwargs['input_shapes'] = input_shapes
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
                 data_iterator=batch_generator,
@@ -187,9 +192,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 num_microbatches=n_micro_batch,
                 input_shapes=input_shapes,  # must set for flash-attn sequence packing
                 seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # no use when input_shapes was set
-                hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
+                **schedule_kwargs,
             )
         else:
             losses_reduced = forward_backward_func(
@@ -198,9 +203,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
                 seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # in use for pp = 1
-                hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
+                **schedule_kwargs,
             )
         # loss_reduces contains the stats returned from loss_func
         return losses_reduced
@@ -231,3 +236,15 @@ class MegatronPPOCritic(BasePPOCritic):
         # add empty cache after each compute
         torch.cuda.empty_cache()
         return metrics
+
+    def _schedule_require_args(self):
+        """Used to work around megatron get_args() issues. To be dropped after mcore v0.7"""
+        from megatron.core.pipeline_parallel.schedules import forward_backward_no_pipelining
+        import inspect
+        num_args = len(inspect.signature(forward_backward_no_pipelining).parameters)
+        if num_args == 9:
+            return False
+        elif num_args == 11:
+            return True
+        else:
+            raise NotImplementedError("Unknown megatron version")

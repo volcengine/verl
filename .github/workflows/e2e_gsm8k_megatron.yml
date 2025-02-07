@@ -45,5 +45,9 @@ jobs:
         run: |
           ray stop --force
           [ ! -d "$HOME/Megatron-LM" ] && git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
+          [ ! -d "$HOME/Megatron-LM-v0.4" ] && git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM $HOME/Megatron-LM-v0.4
           export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
+          bash tests/e2e/run_deepseek_megatron.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron without patches
+          export PYTHONPATH=$HOME/Megatron-LM-v0.4:$PYTHONPATH
           bash tests/e2e/run_deepseek_megatron.sh

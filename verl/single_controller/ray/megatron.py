@@ -37,6 +37,8 @@ class NVMegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
 
 class MegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
     """
+    Note(haibin.lin): this class is not used in the open source version of verl. Kept for internal reference only.
+
     MegatronWorkerGroup will query each worker of its megatron rank info and store it inside the WorkerGroup
     so that the dispatcher can use it to dispatch data.
     """

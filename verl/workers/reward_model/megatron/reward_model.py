@@ -229,20 +229,23 @@ class MegatronRewardModel(BasePPORewardModel):
 
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(batches, vpp_size=len(self.reward_model_module))
-
+        from verl.utils.megatron.pipeline_parallel import require_extra_schedule_kwargs
+        schedule_kwargs = {}
+        if require_extra_schedule_kwargs():
+            schedule_kwargs = {'hidden_size': self.model_config.hidden_size}
         # TODO: we may use the new schedule instead
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
+            schedule_kwargs['input_shapes'] = input_shapes # must set for flash-attn sequence packing
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
                 data_iterator=batch_generator,
                 model=self.reward_model_module,
                 num_microbatches=n_micro_batch,
-                input_shapes=input_shapes,  # must set for flash-attn sequence packing
                 seq_length=infer_batch_size * seq_len,  # no use when input_shapes was set
-                hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=True,
+                **schedule_kwargs, # hidden size is of no use when input_shapes was set
             )
         else:
             losses_reduced = forward_backward_func(
@@ -251,9 +254,9 @@ class MegatronRewardModel(BasePPORewardModel):
                 model=self.reward_model_module,
                 num_microbatches=n_micro_batch,
                 seq_length=infer_batch_size * seq_len,  # in use for pp = 1
-                hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=True,
+                **schedule_kwargs, # hidden_size in use for pp = 1
             )
         # loss_reduces contains the stats returned from loss_func
 
