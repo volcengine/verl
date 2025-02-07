@@ -104,7 +104,11 @@ class RewardManager():
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
             scores = asyncio.run(
-                parallel_compute_score_async(self.compute_score, sequences_str, ground_truth, data_sources, num_processes=64))
+                parallel_compute_score_async(self.compute_score,
+                                             sequences_str,
+                                             ground_truth,
+                                             data_sources,
+                                             num_processes=64))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
             scores = [0. for _ in range(len(sequences_str))]
