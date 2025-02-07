@@ -25,6 +25,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
       image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
       options: --gpus all --shm-size=10g
@@ -36,10 +37,14 @@ jobs:
         run: |
           pip3 install -e .[test]
           pip3 install --upgrade transformers
-      - name: Running digit completon e2e training tests on 8 L20 GPUs + flash_attn 2.5.8
+      - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
           pytest -s tests/model/test_transformer.py
-      - name: Running digit completon e2e training tests on 8 L20 GPUs + latest flash_attn
+      - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
           pytest -s tests/model/test_transformer.py
+      - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
+        run: |
+          pip3 install hf_transfer
+          torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py

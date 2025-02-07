@@ -70,11 +70,11 @@ class RMDataset(Dataset):
     def _download(self):
 
         def _download_files():
-            from verl.utils.fs import copy, _is_non_local
+            from verl.utils.fs import copy, is_non_local
             os.makedirs(self.cache_dir, exist_ok=True)
             assert os.path.exists(self.cache_dir)
             for i, parquet_file in enumerate(self.parquet_files):
-                if _is_non_local(parquet_file):
+                if is_non_local(parquet_file):
                     dst = os.path.join(self.cache_dir, os.path.basename(parquet_file))
                     if not os.path.exists(dst):
                         copy(src=parquet_file, dst=dst)
