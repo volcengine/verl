@@ -651,8 +651,6 @@ class RayPPOTrainer(object):
         if self.use_critic:
             self.critic_wg.load_checkpoint(critic_path)
 
-        return self.global_step
-
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch['attention_mask']
@@ -685,6 +683,9 @@ class RayPPOTrainer(object):
                           config=OmegaConf.to_container(self.config, resolve=True))
 
         self.global_steps = 0
+
+        # load checkpoint before doing anything
+        self._load_checkpoint()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
