@@ -135,7 +135,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                enable_gradient_checkpointing=False):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GenerationConfig
 
@@ -146,7 +146,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
 
-        self.generation_config = GenerationConfig.from_pretrained(local_path)
+        self.generation_config = get_generation_config(local_path)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -355,8 +355,12 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         prompts.batch = prompts.batch.cuda()
         meta_info = {
-            'eos_token_id': self.generation_config.eos_token_id,
-            'pad_token_id': self.generation_config.pad_token_id
+            'eos_token_id':
+                self.generation_config.eos_token_id
+                if self.generation_config.eos_token_id is not None else self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.generation_config.pad_token_id
+                if self.generation_config.pad_token_id is not None else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
