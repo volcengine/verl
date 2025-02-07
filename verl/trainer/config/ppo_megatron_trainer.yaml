@@ -154,5 +154,5 @@ trainer:
   save_freq: -1
   test_freq: 2
   critic_warmup: 0
-  default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name}
+  default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
