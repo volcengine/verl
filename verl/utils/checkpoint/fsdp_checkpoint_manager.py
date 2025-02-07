@@ -93,12 +93,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self,
-                        local_path: str,
-                        global_step: int,
-                        remove_previous_ckpt=True,
-                        *args,
-                        **kwargs):
+    def save_checkpoint(self, local_path: str, global_step: int, remove_previous_ckpt=True, *args, **kwargs):
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -139,7 +134,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(model_state_dict, model_path)
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
-
 
         # wait for everyone to dump to local
         torch.distributed.barrier()

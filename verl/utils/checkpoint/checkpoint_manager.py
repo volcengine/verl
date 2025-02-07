@@ -119,6 +119,7 @@ def find_latest_ckpt_path(path, directory_format="global_step_{}"):
     print("Found checkpoint: %s", ckpt_path)
     return ckpt_path
 
+
 def get_checkpoint_tracker_filename(root_path: str):
     """
     Tracker file rescords the latest chckpoint during training to restart from.

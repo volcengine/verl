@@ -74,7 +74,7 @@ class RLHFDataset(Dataset):
             parquet_files = [parquet_files]
 
         self.parquet_files = copy.deepcopy(parquet_files)
-        self.original_parquet_files = copy.deepcopy(parquet_files) # use for resume
+        self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
         self.cache_dir = os.path.expanduser(cache_dir)
         self.tokenizer = tokenizer
 
@@ -116,12 +116,12 @@ class RLHFDataset(Dataset):
                                                              axis=1)]
 
         print(f'filter dataset len: {len(self.dataframe)}')
-    
+
     def resume_dataset_state(self):
         self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
-            self._download(use_origin_parquet=True) # download and resume from original parquet files
+            self._download(use_origin_parquet=True)  # download and resume from original parquet files
             self._read_files_and_tokenize()
         else:
             print(r'old dataloader ckpt file is used, please train from scratch for better ckpt performance')

@@ -36,6 +36,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
 WorkerType = Type[Worker]
 
 
@@ -441,8 +442,7 @@ class RayPPOTrainer(object):
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
             train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
-            sampler = RandomSampler(data_source=self.train_dataset, 
-                                    generator=train_dataloader_generator)
+            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
 
@@ -606,8 +606,9 @@ class RayPPOTrainer(object):
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f'global_step_{self.global_steps}')
-        actor_local_path = os.path.join(local_global_step_folder,'actor')
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
+                                                f'global_step_{self.global_steps}')
+        actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
             self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
@@ -618,8 +619,7 @@ class RayPPOTrainer(object):
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
-        
-        
+
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
         import dill
@@ -630,16 +630,16 @@ class RayPPOTrainer(object):
                                                            'latest_checkpointed_iteration.txt')
         with open(local_latest_checkpointed_iteration, 'w') as f:
             f.write(str(self.global_steps))
-    
+
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == 'disable':
             return 0
-        
+
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
             NotImplementedError('load from hdfs is not implemented yet')
         else:
-            checkpoint_folder = self.config.trainer.default_local_dir # TODO: check path
+            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
             if not os.path.isabs(checkpoint_folder):
                 working_dir = os.getcwd()
                 checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
@@ -672,8 +672,8 @@ class RayPPOTrainer(object):
         # load critic
         if self.use_critic:
             self.critic_wg.load_checkpoint(critic_path)
-        
-        # load dataloader, 
+
+        # load dataloader,
         # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
         self.train_dataloader = torch.load(dataloader_local_path)
@@ -829,7 +829,6 @@ class RayPPOTrainer(object):
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
-
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))

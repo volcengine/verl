@@ -560,9 +560,10 @@ class ActorRolloutRefWorker(Worker):
                                      load_grad=self._is_offload_grad)
 
         self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
-        
+
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
 
 class CriticWorker(Worker):
 
@@ -838,6 +839,7 @@ class CriticWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
+
 
 # TODO(sgm): we may need to extract it to dp_reward_model.py
 class RewardModelWorker(Worker):
