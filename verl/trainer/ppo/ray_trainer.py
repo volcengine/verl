@@ -448,7 +448,6 @@ class RayPPOTrainer(object):
 
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=self.config.data.train_batch_size,
-                                           shuffle=True,
                                            drop_last=True,
                                            collate_fn=collate_fn,
                                            sampler=sampler)
