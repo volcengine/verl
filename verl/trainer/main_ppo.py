@@ -56,8 +56,16 @@ async def parallel_compute_score_async(evaluation_func, completions, references,
             single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.)
             for completion, reference, task in zip(completions, references, tasks)
         ]
-        # Use tqdm for progress tracking
-        results = await tqdm.gather(*tasks_async, disable=True)
+        # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
+        try:
+            results = await asyncio.gather(*tasks_async, return_exceptions=False)
+        except:
+            for pid, proc in executor._processes.items():
+                try:
+                    proc.kill()
+                except Exception as kill_err:
+                    print('shut down failed: ' + str(kill_err))
+            raise
 
     # Process results
     for result, completion, reference, task in zip(results, completions, references, tasks):
