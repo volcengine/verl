@@ -37,8 +37,8 @@ def test_fsdp_ckpt():
 
     with torch.device('cuda'):
         model = AutoModelForCausalLM.from_config(config=config,
-                                                     torch_dtype=torch.bfloat16,
-                                                     attn_implementation='flash_attention_2')
+                                                 torch_dtype=torch.bfloat16,
+                                                 attn_implementation='flash_attention_2')
         model = model.to(device='cuda')
 
     # Wrap model with FSDP
