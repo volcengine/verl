@@ -236,15 +236,3 @@ class MegatronPPOCritic(BasePPOCritic):
         # add empty cache after each compute
         torch.cuda.empty_cache()
         return metrics
-
-    def _schedule_require_args(self):
-        """Used to work around megatron get_args() issues. To be dropped after mcore v0.7"""
-        from megatron.core.pipeline_parallel.schedules import forward_backward_no_pipelining
-        import inspect
-        num_args = len(inspect.signature(forward_backward_no_pipelining).parameters)
-        if num_args == 9:
-            return False
-        elif num_args == 11:
-            return True
-        else:
-            raise NotImplementedError("Unknown megatron version")
