@@ -15,6 +15,7 @@
 from verl.utils.model import create_random_mask
 from flash_attn.bert_padding import unpad_input
 import torch
+import pytest
 
 
 def test_log_probs_from_logits_response_rmpad():
@@ -47,6 +48,25 @@ def test_log_probs_from_logits_response_rmpad():
 
     # This should bitwise align as only this operation only contains gather operators
     assert torch.all(torch.eq(actual_output * response_mask, expected_output * response_mask))
+
+
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
+def test_logprobs_from_logits_v2(dtype):
+    from verl.utils.torch_functional import logprobs_from_logits_v2, logprobs_from_logits_naive
+    vocab_size = 32000
+    batch_size = 2
+    seq_len = 512
+
+    labels = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len), device='cuda')
+    logits = torch.randn(batch_size, seq_len, vocab_size, device='cuda', dtype=dtype)
+
+    expected_output = logprobs_from_logits_naive(labels=labels, logits=logits)
+    actual_output = logprobs_from_logits_v2(labels=labels, logits=logits)
+
+    if dtype in [torch.float16, torch.bfloat16]:  # float16 falls back to an exactly equivalent method
+        assert torch.equal(actual_output, expected_output)
+    else:  # small numerical difference when using gather / logsumexp approach
+        torch.testing.assert_close(actual_output, expected_output, rtol=1e-5, atol=1e-5)
 
 
 def test_lr_scheduler():

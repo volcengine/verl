@@ -1,4 +1,4 @@
-# veRL documents
+# verl documents
 
 ## Build the docs
 

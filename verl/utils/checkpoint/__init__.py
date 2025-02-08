@@ -11,13 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from typing import Dict
-
-from omegaconf import DictConfig
-
-
-def update_dict_with_config(dictionary: Dict, config: DictConfig):
-    for key in dictionary:
-        if hasattr(config, key):
-            dictionary[key] = getattr(config, key)

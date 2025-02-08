@@ -200,7 +200,7 @@ Define, init and run the PPO Trainer
   on the allocated GPUs (in the resource pool)
 - The actual PPO training will be executed in ``trainer.fit()``
 
-veRL can be easily extended to other RL algorithms by reusing the Ray
+verl can be easily extended to other RL algorithms by reusing the Ray
 model workers, resource pool and reward functions. See :doc:`extension<../advance/dpo_extension>` for
 more information.
 
