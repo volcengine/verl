@@ -38,5 +38,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='qwen_e2e_ci_function_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=1 \
     trainer.total_training_steps=1 $@
