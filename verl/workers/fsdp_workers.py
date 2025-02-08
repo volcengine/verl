@@ -40,7 +40,6 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
-
 from codetiming import Timer
 
 logger = logging.getLogger(__file__)
@@ -545,7 +544,7 @@ class ActorRolloutRefWorker(Worker):
 
         torch.cuda.empty_cache()
         return output
-    
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
         # only support save and load ckpt for actor
