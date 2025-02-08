@@ -34,6 +34,8 @@ from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClass
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
 WorkerType = Type[Worker]
 
@@ -427,9 +429,8 @@ class RayPPOTrainer(object):
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
-        from torch.utils.data import DataLoader
+        from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          prompt_key=self.config.data.prompt_key,
@@ -437,11 +438,19 @@ class RayPPOTrainer(object):
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation='error')
+        # use sampler for better ckpt resume
+        if self.config.data.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
+        else:
+            sampler = SequentialSampler(data_source=self.train_dataset)
+
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=self.config.data.train_batch_size,
-                                           shuffle=True,
                                            drop_last=True,
-                                           collate_fn=collate_fn)
+                                           collate_fn=collate_fn,
+                                           sampler=sampler)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
@@ -596,18 +605,80 @@ class RayPPOTrainer(object):
         self.actor_rollout_wg.init_model()
 
     def _save_checkpoint(self):
-        actor_local_path = os.path.join(self.config.trainer.default_local_dir, 'actor',
-                                        f'global_step_{self.global_steps}')
+        # path: given_path + `/global_step_{global_steps}` + `/actor`
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
+                                                f'global_step_{self.global_steps}')
+        actor_local_path = os.path.join(local_global_step_folder, 'actor')
+
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-            self.config.trainer.default_hdfs_dir, 'actor')
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
+            self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
+        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps)
 
         if self.use_critic:
-            critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
-                                             f'global_step_{self.global_steps}')
+            critic_local_path = os.path.join(local_global_step_folder, 'critic')
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-                self.config.trainer.default_hdfs_dir, 'critic')
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
+                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
+            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
+
+        # save dataloader
+        dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
+        import dill
+        torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
+
+        # latest checkpointed iteration tracker (for atomic usage)
+        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
+                                                           'latest_checkpointed_iteration.txt')
+        with open(local_latest_checkpointed_iteration, 'w') as f:
+            f.write(str(self.global_steps))
+
+    def _load_checkpoint(self):
+        if self.config.trainer.resume_mode == 'disable':
+            return 0
+
+        # load from hdfs
+        if self.config.trainer.default_hdfs_dir is not None:
+            NotImplementedError('load from hdfs is not implemented yet')
+        else:
+            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
+            if not os.path.isabs(checkpoint_folder):
+                working_dir = os.getcwd()
+                checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
+            global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
+
+        # find global_step_folder
+        if self.config.trainer.resume_mode == 'auto':
+            if global_step_folder is None:
+                print('Training from scratch')
+                return 0
+        else:
+            if not (self.config.trainer.resume_from_path and global_step_folder is not None):
+                assert isinstance(self.config.trainer.resume_mode, str), "resume ckpt must be str type"
+                assert 'global_step_' in self.config.trainer.resume_mode, "resume ckpt must specify the global_steps"
+                global_step_folder = self.config.trainer.resume_mode
+                if not os.path.isabs(global_step_folder):
+                    working_dir = os.getcwd()
+                    global_step_folder = os.path.join(working_dir, global_step_folder)
+        print(f'Load from checkpoint folder: {global_step_folder}')
+        # set global step
+        self.global_steps = int(global_step_folder.split('global_step_')[-1])
+
+        print(f'Setting global step to {self.global_steps}')
+        print(f'Resuming from {global_step_folder}')
+
+        actor_path = os.path.join(global_step_folder, 'actor')
+        critic_path = os.path.join(global_step_folder, 'critic')
+        # load actor
+        self.actor_rollout_wg.load_checkpoint(actor_path)
+        # load critic
+        if self.use_critic:
+            self.critic_wg.load_checkpoint(critic_path)
+
+        # load dataloader,
+        # TODO: from remote not implemented yet
+        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
+        self.train_dataloader = torch.load(dataloader_local_path)
+        if isinstance(self.train_dataloader.dataset, RLHFDataset):
+            self.train_dataloader.dataset.resume_dataset_state()
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -641,6 +712,9 @@ class RayPPOTrainer(object):
                           config=OmegaConf.to_container(self.config, resolve=True))
 
         self.global_steps = 0
+
+        # load checkpoint before doing anything
+        self._load_checkpoint()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
