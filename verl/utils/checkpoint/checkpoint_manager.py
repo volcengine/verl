@@ -51,6 +51,7 @@ class BaseCheckpointManager:
 
         assert isinstance(self.model, FSDP)
         self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
 
     def load_checkpoint(self, *args, **kwargs):
         raise NotImplementedError

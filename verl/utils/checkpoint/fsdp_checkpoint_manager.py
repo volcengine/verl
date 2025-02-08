@@ -53,9 +53,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             return
 
         # every rank download its own checkpoint
-        remote_model_path = os.path.join(path, f'model_rank_{self.rank}.pt')
-        remote_optim_path = os.path.join(path, f'optim_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(path, f'extra_state_rank_{self.rank}.pt')
+        remote_model_path = os.path.join(path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
             f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
         )
@@ -124,9 +124,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     'lr_scheduler': lr_scheduler_state_dict,
                     'rng': self.get_rng_state(),
                 }
-                model_path = os.path.join(local_path, f'model_rank_{self.rank}.pt')
-                optim_path = os.path.join(local_path, f'optim_rank_{self.rank}.pt')
-                extra_path = os.path.join(local_path, f'extra_state_rank_{self.rank}.pt')
+                model_path = os.path.join(local_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+                optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+                extra_path = os.path.join(local_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
 
                 print(f'[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}')
                 print(f'[rank-{self.rank}]: Saving checkpoint to {os.path.abspath(model_path)}')
