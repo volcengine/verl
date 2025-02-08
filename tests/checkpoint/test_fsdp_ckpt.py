@@ -21,6 +21,7 @@ from torch.distributed import init_device_mesh
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import Qwen2Config
 
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, \
             CPUOffload
@@ -32,11 +33,12 @@ def test_fsdp_ckpt():
     device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=('dp',))
 
     model_name = 'Qwen/Qwen2.5-0.5B-Instruct'
+    config = Qwen2Config(num_hidden_layers=1)
 
     with torch.device('cuda'):
-        model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                     torch_dtype=torch.bfloat16,
-                                                     attn_implementation='flash_attention_2')
+        model = AutoModelForCausalLM.from_config(config=config,
+                                                 torch_dtype=torch.bfloat16,
+                                                 attn_implementation='flash_attention_2')
         model = model.to(device='cuda')
 
     # Wrap model with FSDP
