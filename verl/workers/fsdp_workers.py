@@ -520,7 +520,7 @@ class ActorRolloutRefWorker(Worker):
 
         torch.cuda.empty_cache()
         return output
-
+    
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None):
         assert self._is_actor
@@ -549,6 +549,31 @@ class ActorRolloutRefWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, execute_mode=Execute.RANK_ZERO)
+    def push_to_hub(self, repo_id: str, local_path: str, private: bool = False, token: str = None):
+        """Push a model to the Hugging Face Hub.
+
+        Args:
+            repo_id (`str`):
+                The name of the repository you want to push your model to. It should be in the format `username/model_name`.
+            local_path (`str`):
+                Path to the local directory containing the model files.
+            private (`bool`, *optional*, defaults to `False`):
+                Whether the model repository should be private.
+            token (`str`, *optional*):
+                The token to use as HTTP bearer authorization for remote files. If None, will use the token generated when
+                running `huggingface-cli login` (stored in `~/.huggingface`).
+        """
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        api.create_repo(repo_id=repo_id, private=private, token=token, exist_ok=True)
+        api.upload_folder(
+            folder_path=local_path,
+            repo_id=repo_id,
+            token=token,
+        )
 
 
 class CriticWorker(Worker):
