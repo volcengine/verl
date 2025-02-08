@@ -51,6 +51,7 @@ class BaseCheckpointManager:
 
         assert isinstance(self.model, FSDP)
         self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
 
     def load_checkpoint(self, *args, **kwargs):
         raise NotImplementedError
@@ -98,3 +99,30 @@ class BaseCheckpointManager:
         torch.cuda.set_rng_state(rng_state['cuda'])
         np.random.set_state(rng_state['numpy'])
         random.setstate(rng_state['random'])
+
+
+def find_latest_ckpt_path(path, directory_format="global_step_{}"):
+    if path is None:
+        return None
+
+    tracker_file = get_checkpoint_tracker_filename(path)
+    if not os.path.exists(tracker_file):
+        print("Checkpoint tracker file does not exist: %s", tracker_file)
+        return None
+
+    with open(tracker_file, "rb") as f:
+        iteration = int(f.read().decode())
+    ckpt_path = os.path.join(path, directory_format.format(iteration))
+    if not os.path.exists(ckpt_path):
+        print("Checkpoint does not exist: %s", ckpt_path)
+        return None
+
+    print("Found checkpoint: %s", ckpt_path)
+    return ckpt_path
+
+
+def get_checkpoint_tracker_filename(root_path: str):
+    """
+    Tracker file rescords the latest chckpoint during training to restart from.
+    """
+    return os.path.join(root_path, "latest_checkpointed_iteration.txt")
