@@ -504,9 +504,10 @@ class RayPPOTrainer(object):
 
         if generations_to_log == 0:
             return
-        
+
         if generations_to_log > 0 and 'wandb' not in self.config.trainer.logger:
-            print('WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no wandb logger is found. ')
+            print(
+                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no wandb logger is found. ')
             return
 
         import wandb
