@@ -14,18 +14,7 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
-from concurrent.futures import ProcessPoolExecutor
-import asyncio
-from functools import partial
-
-from tqdm.asyncio import tqdm
-
-from verl import DataProto
-import torch
-from verl.utils.reward_score import gsm8k, math, prime_math, prime_code
-from verl.utils.reward_score import _default_compute_score
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-
 
 import ray
 import hydra

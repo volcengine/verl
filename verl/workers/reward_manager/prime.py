@@ -118,4 +118,3 @@ class PrimeRewardManager:
                 print(sequences_str)
 
         return reward_tensor
-

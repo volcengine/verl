@@ -2,6 +2,7 @@ from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 import torch
 
+
 class NaiveRewardManager:
     """The reward manager.
     """

@@ -37,4 +37,3 @@ def _default_compute_score(data_source, solution_str, ground_truth):
         return float(res)
     else:
         return float(res[0])
-
