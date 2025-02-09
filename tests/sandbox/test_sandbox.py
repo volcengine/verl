@@ -3,7 +3,7 @@ import json
 from verl.utils.reward_score import _default_compute_score
 from verl.utils.reward_score.prime_code import apps_check_correctness
 import asyncio
-from verl.trainer.main_ppo import parallel_compute_score_async
+from verl.workers.reward_manager.prime import parallel_compute_score_async
 
 prime_math_answers = [
     """\\begin{bmatrix}\n -7 & 6 & -8 \\\\\n 11 & -9 & 12 \\\\\n 15 & -16 & 19 \n \\end{bmatrix}""",
