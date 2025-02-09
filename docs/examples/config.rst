@@ -324,9 +324,8 @@ Algorithm
 
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
-- ``adv_estimator``: gae. Currently only supports gae, will support GRPO
-  in the future
-- ``kl_penalty``\ ：Support ``kl``, ``abs``, ``mse`` and ``full``.How to
+- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``. 
+- ``kl_penalty``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
   specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
 
