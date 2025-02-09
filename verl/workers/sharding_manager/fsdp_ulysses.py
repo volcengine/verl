@@ -14,10 +14,8 @@
 """
 Contains a resharding manager that binds weights from FSDP zero3 to XPerfGPT
 """
-from typing import Optional
 from .base import BaseShardingManager
 
-import random
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.utils.torch_functional import allgather_dict_tensors
