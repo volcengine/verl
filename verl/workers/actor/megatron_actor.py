@@ -364,9 +364,6 @@ class MegatronPPOActor(BasePPOActor):
             else:
                 raise NotImplementedError
 
-            for metric in metric_micro_batch:
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
-
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
