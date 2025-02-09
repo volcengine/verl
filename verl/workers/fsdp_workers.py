@@ -22,7 +22,6 @@ import warnings
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
-import verl.utils.hdfs_io as hdfs_io
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from verl import DataProto
