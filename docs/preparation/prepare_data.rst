@@ -1,4 +1,4 @@
-Prepare Data (Parquet) for Post-Training
+Prepare Data for Post-Training
 ========================================
 
 Before starting the post-training job, we need to prepare the data for
