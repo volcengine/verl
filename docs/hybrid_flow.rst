@@ -4,11 +4,9 @@ HybridFlow Programming Guide
 
 .. _vermouth: https://github.com/vermouth1992
 
-Author: `Chi Zhang <vermouth>`_
+Author: `Chi Zhang <https://github.com/vermouth1992>`_
 
-.. _hybridflow: https://arxiv.org/pdf/2409.19256
-
-verl is an open source implementation of the paper `HybridFlow <hybridflow>`_ [1]_. In this section, we will introduce the basic concepts of HybridFlow, the motivation and how to program with verl APIs.
+verl is an open source implementation of the paper `HybridFlow <https://arxiv.org/abs/2409.19256v2>`_ [1]_. In this section, we will introduce the basic concepts of HybridFlow, the motivation and how to program with verl APIs.
 
 Motivation and Design
 ------------------------
@@ -83,7 +81,7 @@ Overall Execution Diagram
 
 Below is a simplified diagram denoting the execution of a reinforcement learning job. In the diagram, the controller runs on a single process, while the generator/actor workers, critic workers run on multiple processes, placed with specific resource groups. For rollout, the controller passes the data to the generator to perform sample generation. When the rollout is done, the data is passed back to controller for the next step of the algorithm. Similar execution is done for other workers. With the hybrid controller design, the data flow and computation is decoupled to provide both efficiency in computation and flexiblity in defining algorithm training loops.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/driver_worker.png?raw=true
+.. figure:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/driver_worker.png?raw=true
    :alt: The execution diagram
 
 Codebase walkthrough (PPO)
@@ -93,7 +91,7 @@ Entry function
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Code: https://github.com/volcengine/verl/blob/main/verl/trainer/main_ppo.py
 
-In this file, we define a remote function `main_task` that serves as the controller process as shown in Figure~\ref{}. We also define a ``RewardManager``, where users can customize their reward function based on the data source in the dataset. Note that `RewardManager` should return the final token-level reward that is optimized by RL algorithms. Note that users can combine model-based rewards and rule-based rewards.
+In this file, we define a remote function `main_task` that serves as the controller (driver) process as shown in the above figure. We also define a ``RewardManager``, where users can customize their reward function based on the data source in the dataset. Note that `RewardManager` should return the final token-level reward that is optimized by RL algorithms. Note that users can combine model-based rewards and rule-based rewards.
 The ``main_task`` constructs a RayPPOTrainer instance and launch the fit. Note that ``main_task`` **runs as a single process**.
 
 We highly recommend that the ``main_task`` is NOT schduled on the head of the ray cluster because ``main_task`` will consume a lot of memory but the head usually contains very few resources.
