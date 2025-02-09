@@ -152,6 +152,8 @@ class ActorRolloutRefWorker(Worker):
         from transformers import AutoModelForCausalLM, AutoConfig
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, CPUOffload
         from torch import optim
+        import bitsandbytes as bnb
+
 
         assert role in ['actor', 'ref']
 
@@ -264,10 +266,17 @@ class ActorRolloutRefWorker(Worker):
         # TODO: add more optimizer args into config
         if role == 'actor':
             from verl.utils.torch_functional import get_constant_schedule_with_warmup
-            actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
-                                          lr=optim_config.lr,
-                                          betas=optim_config.get('betas', (0.9, 0.999)),
-                                          weight_decay=optim_config.get('weight_decay', 1e-2))
+            if optim_config.get('eight_bit', False):
+                actor_optimizer = bnb.optim.Adam8bit(
+                    actor_module_fsdp.parameters(),
+                    lr=optim_config.lr,
+                    betas=optim_config.get('betas', (0.9, 0.999)),
+                    weight_decay=optim_config.get('weight_decay', 1e-2))
+            else:
+                actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
+                                              lr=optim_config.lr,
+                                              betas=optim_config.get('betas', (0.9, 0.999)),
+                                              weight_decay=optim_config.get('weight_decay', 1e-2))
 
             total_steps = optim_config.get('total_training_steps', 0)
             num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)

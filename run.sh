@@ -8,8 +8,6 @@ ibstatus
 
 nvidia-smi topo -m
 
-# /opt/nvbandwidth/nvbandwidth -t device_to_device_memcpy_read_ce
-
 set -x
 
 python -m verl.trainer.main_ppo \
@@ -19,9 +17,10 @@ python -m verl.trainer.main_ppo \
     data.train_batch_size=1024 \
     data.val_batch_size=1312 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
+    data.max_response_length=4096 \
     actor_rollout_ref.model.path=/mnt/models/phi-4 \
-    actor_rollout_ref.actor.optim.lr=1e-5 \
+    actor_rollout_ref.actor.optim.lr=5e-6 \
+    +actor_rollout_ref.actor.optim.eight_bit=True \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
@@ -37,9 +36,10 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
-    actor_rollout_ref.rollout.enable_chunked_prefill=True \
-    actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
-    +actor_rollout_ref.rollout.repetition_penalty=1.1 \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
+    actor_rollout_ref.rollout.max_num_batched_tokens=6000 \
+    actor_rollout_ref.rollout.disable_log_stats=False \
+    +actor_rollout_ref.rollout.repetition_penalty=1.2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
@@ -48,9 +48,11 @@ python -m verl.trainer.main_ppo \
     trainer.experiment_name='phi-4-aimo-math-gropo' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
-    trainer.test_freq=5 \
-    trainer.total_epochs=15 $@
+    trainer.save_freq=100 \
+    trainer.test_freq=10 \
+    trainer.default_hdfs_dir='/mnt/output/experiment'\
+    trainer.default_local_dir='/mnt/output/checkpoints'\
+    trainer.total_epochs=30 $@
 
 
-    # actor_rollout_ref.rollout.disable_log_stats=False \
+    # actor_rollout_ref.rollout.free_cache_engine=True \

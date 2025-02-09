@@ -14,24 +14,29 @@ def compute_acc_reward(solution_str, ground_truth):
     # First, use re to extract <answer>...</answer> from the completion. Note that the regex should handle multi-line strings.
     pattern = r"<answer>.*?</answer>"
     matches = re.findall(pattern, solution_str, re.DOTALL)  # Use re.DOTALL to match across newlines
-    if len(matches) == 1:
-        solution_str = matches[0]
-    else:
-        return 0.
 
-    try: # Implement a simple heuristic to check if the completion is correct.
+    extracted_sol = None
+    if len(matches) == 1:
+        extracted_sol = matches[0] 
+    else:
+        # return 0. # Edit: This sometimes lead to the actor just giving up and returning empty responses. Need to give correct answers a higher score even if they don't match the regex.
+
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
+
+            extracted_sol = string_in_last_boxed
+            # Implement a simple heuristic to check if the completion is correct.
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 return 1.
             elif answer.isnumeric() and ground_truth.isnumeric():
                 return 0.
-    except Exception as e: # fallback to more advanced API-based verification
-        pass
+
+    if extracted_sol is None:
+        return 0.
 
     payload = {
-        "answer": solution_str,
+        "answer": extracted_sol,
         "ground_truth": ground_truth
     }
     delay = 0.1   # initial delay (in seconds)
