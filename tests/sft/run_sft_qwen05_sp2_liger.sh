@@ -1,7 +1,7 @@
 set -x
 
 if [ "$#" -lt 2 ]; then
-    echo "Usage: run_qwen_05_sp2.sh <nproc_per_node> <save_path> [other_configs...]"
+    echo "Usage: run_sft_qwen05_sp2_liger.sh <nproc_per_node> <save_path> [other_configs...]"
     exit 1
 fi
 
