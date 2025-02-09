@@ -158,7 +158,8 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
                                    eos_mask: torch.Tensor,
                                    gamma: torch.Tensor):
     """
-    Compute advantage for REINFORCE++.
+    Compute advantage for REINFORCE++. 
+    This implementation is based on the paper: https://arxiv.org/abs/2501.03262
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
