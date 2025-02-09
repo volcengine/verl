@@ -109,8 +109,8 @@ Step 2: Define the worker class corresponding to this role
   ``Critic``, ``Reward Model`` and ``Reference model`` on two different
   backend: PyTorch FSDP
   and Megatron-LM.
-  See `FSDP Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/fsdp_workers.py>`_ 
-  and `Megatron-LM Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/megatron_workers.py>`_
+  See `FSDP Workers <https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py>`_ 
+  and `Megatron-LM Workers <https://github.com/volcengine/verl/blob/main/verl/workers/megatron_workers.py>`_
   for more information.
 
 Step 3: Define resource pool id and resource pool spec
