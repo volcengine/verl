@@ -150,9 +150,8 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         response_length = responses.size(-1)
         attention_mask = data.batch['attention_mask']
         response_mask = attention_mask[:, -response_length:]
-        advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(token_level_rewards=token_level_rewards,
-                                                                                      eos_mask=response_mask,
-                                                                                      gamma=gamma)
+        advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
+            token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
