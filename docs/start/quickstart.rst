@@ -54,7 +54,7 @@ Step 2: Download a model for post-training
 
 Usually we recommend starting with an "instruct" model variant so that the model follows instructions. In this example, we start with the ``Qwen2.5-0.5B-Instruct`` model.
 
-If you start from a "base" model variant, doing SFT before RL is recommended. Refer to the `sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
+If you start from a "base" model variant, doing SFT before RL is recommended. Refer to the `sft directory <https://github.com/volcengine/verl/blob/main/examples/sft/gsm8k>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
 
 .. code-block:: bash
 
@@ -136,7 +136,7 @@ If you encounter out of memory issues with HBM less than 32GB, enable the follow
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     critic.ppo_micro_batch_size_per_gpu=1 \
 
-For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
+For the full set of configs, please refer to :ref:`config-explain-page` for detailed explanation and performance tuning.
 
 
 .. [1] The original paper (https://arxiv.org/pdf/2110.14168) mainly focuses on training a verifier (a reward model) to solve math problems via Best-of-N sampling. In this example, we train an RL agent using a rule-based reward model.

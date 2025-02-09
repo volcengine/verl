@@ -21,11 +21,11 @@ from verl.utils.reward_score import gsm8k, math
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 
-def _select_rm_score_fn(data_source):
+def _default_compute_score(data_source, solution_str, ground_truth):
     if data_source == 'openai/gsm8k':
-        return gsm8k.compute_score
-    elif data_source == 'lighteval/MATH':
-        return math.compute_score
+        return gsm8k.compute_score(solution_str, ground_truth)
+    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
+        return math.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
 
@@ -34,9 +34,10 @@ class RewardManager():
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine) -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.compute_score = compute_score or _default_compute_score
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
@@ -69,11 +70,13 @@ class RewardManager():
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            # select rm_score
             data_source = data_item.non_tensor_batch['data_source']
-            compute_score_fn = _select_rm_score_fn(data_source)
 
-            score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth)
+            score = self.compute_score(
+                data_source=data_source,
+                solution_str=sequences_str,
+                ground_truth=ground_truth,
+            )
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -92,15 +95,19 @@ import hydra
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
+    run_ppo(config)
+
+
+def run_ppo(config, compute_score=None):
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
 
-    ray.get(main_task.remote(config))
+    ray.get(main_task.remote(config, compute_score))
 
 
 @ray.remote
-def main_task(config):
+def main_task(config, compute_score=None):
     from verl.utils.fs import copy_local_path_from_hdfs
     from transformers import AutoTokenizer
 
@@ -167,10 +174,10 @@ def main_task(config):
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
-    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)
+    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
 
     # Note that we always use function-based RM for validation
-    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1)
+    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 

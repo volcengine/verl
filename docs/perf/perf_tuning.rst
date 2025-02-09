@@ -1,7 +1,7 @@
 Performance Tuning Guide
 =========================
 
-In this section, we will discuss how to tune the performance of all the stages in veRL, including:
+In this section, we will discuss how to tune the performance of all the stages in verl, including:
 
 1. Rollout generation throughput.
 
@@ -11,10 +11,12 @@ In this section, we will discuss how to tune the performance of all the stages i
 
 4. Utilize Ulysses Sequence Parallel for Long Context Training
 
+5. LigerKernel for SFT performance optimization
+
 Rollout Generation Tuning
 --------------------------
 
-veRL currently supports two rollout backends: vLLM and TGI (with SGLang support coming soon). 
+verl currently supports two rollout backends: vLLM and TGI (with SGLang support coming soon). 
 
 Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend setting ``actor_rollout_ref.rollout.disable_log_stats=False`` so that rollout statistics are logged.
 
@@ -43,7 +45,7 @@ Batch Size Tuning
 To achieve higher throughput in experience preparation (i.e., model fwd) and model update (i.e., actor/critic fwd/bwd), 
 users may need to tune the ``*micro_batch_size_per_gpu`` for different computation.
 
-In veRL, the core principle for setting batch sizes is:
+In verl, the core principle for setting batch sizes is:
 
 - **Algorithmic metrics** (train batch size, PPO mini-batch size) are *global* (from a single-controller perspective), 
   normalized in each worker. See the `normalization code <https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py#L120-L122>`_.
@@ -119,3 +121,20 @@ To utilize this technique, users can set ``ulysses_sequence_parallel_size>1`` in
 We support different model utilize different ulysses_sequence_parallel_size sizes.
 
 To train log sequence (>32k), users may need to decrease the ``*micro_batch_size_per_gpu`` and ``*max_token_len_per_gpu`` to avoid OOM.
+
+LigerKernel for SFT
+----------------------
+
+LigerKernel is a high-performance kernel for Supervised Fine-Tuning (SFT) that can improve training efficiency. To enable LigerKernel in your SFT training:
+
+1. In your SFT configuration file (e.g., ``verl/trainer/config/sft_trainer.yaml``), set the ``use_liger`` parameter:
+
+   .. code-block:: yaml
+
+      model:
+        use_liger: True  # Enable LigerKernel for SFT
+
+2. The default value is ``False``. Enable it only when you want to use LigerKernel's optimizations.
+
+3. LigerKernel is particularly useful for improving training performance in SFT scenarios.
+

@@ -7,7 +7,7 @@ Requirements
 - **Python**: Version >= 3.9
 - **CUDA**: Version >= 12.1
 
-veRL supports various backends. Currently, the following configurations are available:
+verl supports various backends. Currently, the following configurations are available:
 
 - **FSDP** and **Megatron-LM** (optional) for training.
 - **vLLM** adn **TGI** for rollout generation, **SGLang** support coming soon.
@@ -34,7 +34,7 @@ Image and tag: ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`
     docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
 
 
-2.	Inside the container, install veRL:
+2.	Inside the container, install verl:
 
 .. code:: bash
 
@@ -62,6 +62,7 @@ You can also get the Megatron code after verl's patch via
 .. code:: bash
 
     git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
 
 Install from custom environment
 ---------------------------------
@@ -73,7 +74,7 @@ To manage environment, we recommend using conda:
    conda create -n verl python==3.9
    conda activate verl
 
-For installing the latest version of veRL, the best way is to clone and
+For installing the latest version of verl, the best way is to clone and
 install it from source. Then you can modify our code to customize your
 own post-training jobs.
 
@@ -84,7 +85,7 @@ own post-training jobs.
    cd verl
    pip3 install -e .
 
-You can also install veRL using ``pip3 install``
+You can also install verl using ``pip3 install``
 
 .. code:: bash
 
@@ -94,9 +95,9 @@ You can also install veRL using ``pip3 install``
 Dependencies
 ------------
 
-veRL requires Python >= 3.9 and CUDA >= 12.1.
+verl requires Python >= 3.9 and CUDA >= 12.1.
 
-veRL support various backend, we currently release FSDP and Megatron-LM
+verl support various backend, we currently release FSDP and Megatron-LM
 for actor training and vLLM for rollout generation.
 
 The following dependencies are required for all backends, PyTorch FSDP and Megatron-LM.

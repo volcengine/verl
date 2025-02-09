@@ -112,7 +112,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # normalize config
         if self._is_actor and self._is_rollout:
             self.config.actor.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-            if self.config.actor.ppo_micro_batch_size is not None:
+            if self.config.actor.get('ppo_micro_batch_size', None):
                 self.config.actor.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
                 self.config.rollout.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
@@ -122,7 +122,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             self._is_offload_grad = self.config.actor.get('grad_offload', False)
             self._is_offload_optimizer = self.config.actor.get('optimizer_offload', False)
         elif self._is_ref:
-            if self.config.ref.ppo_micro_batch_size is not None:
+            if self.config.ref.get('ppo_micro_batch_size', None):
                 self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._is_offload_param = self.config.ref.get('param_offload', False)
@@ -135,9 +135,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                                enable_gradient_checkpointing=False):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
-        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GenerationConfig
 
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
@@ -145,6 +145,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
+
+        self.generation_config = get_generation_config(local_path)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -352,7 +354,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         assert self._is_rollout
 
         prompts.batch = prompts.batch.cuda()
-        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
+        meta_info = {
+            'eos_token_id':
+                self.generation_config.eos_token_id
+                if self.generation_config is not None else self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.generation_config.pad_token_id
+                if self.generation_config is not None else self.tokenizer.pad_token_id,
+        }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)
@@ -363,14 +372,6 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After rollout generation', logger=logger)
 
             output = self.sharding_manager.postprocess_data(output)
-
-        validate = prompts.meta_info.get('validate', False)
-        if self._is_actor and not validate:
-            # we should always recompute old_log_probs when it is HybridEngine
-            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-            output.meta_info['temperature'] = self.config.rollout.temperature
-            old_log_probs = self.actor.compute_log_prob(data=output)
-            output.batch['old_log_probs'] = old_log_probs
 
         output = output.to('cpu')
         # clear kv cache
@@ -395,6 +396,22 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_param_and_grad(self.ref_module, self._is_offload_grad)
         torch.cuda.empty_cache()
+        return output
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_log_prob(self, data: DataProto):
+        assert self._is_actor
+        data = data.to('cuda')
+        output = data
+        # we should always recompute old_log_probs when it is HybridEngine
+        output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        output.meta_info['temperature'] = self.config.rollout.temperature
+        old_log_probs = self.actor.compute_log_prob(data=output)
+        output.batch['old_log_probs'] = old_log_probs
+        output = output.to('cpu')
+        # clear kv cache
+        torch.cuda.empty_cache()
+        log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -445,7 +462,7 @@ class CriticWorker(MegatronWorker):
 
         # normalize config
         self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-        if self.config.ppo_micro_batch_size is not None:
+        if self.config.get('ppo_micro_batch_size', None):
             self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
 

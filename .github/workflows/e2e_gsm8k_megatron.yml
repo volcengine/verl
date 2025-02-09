@@ -1,4 +1,4 @@
-name: e2e_sft
+name: e2e_gsm8k_megatron
 
 on:
   # Trigger the workflow on push or pull request,
@@ -8,20 +8,20 @@ on:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_sft.yml
+      - .github/workflows/e2e_gsm8k_megatron.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_sft.yml
+      - .github/workflows/e2e_gsm8k_megatron.yml
       - "tests/e2e/*.sh"
 
 
 
 jobs:
-  e2e_sft:
-    runs-on: [self-hosted, l20-1]
+  e2e_gsm8k_megatron:
+    runs-on: [self-hosted, l20-0]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -40,21 +40,10 @@ jobs:
           pip3 install -e .[test]
       - name: Prepare gsm8k dataset
         run: |
-          ray stop --force
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron
         run: |
           ray stop --force
-          bash tests/sft/run_sft.sh
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with sequence parallism
-        run: |
-          ray stop --force
-          bash examples/sft/gsm8k/run_qwen_05_sp2.sh 8 $HOME/ckpts/
-      - name: Check loss difference between sequence parallel vs. default implementation
-        run: |
-          ray stop --force
-          bash tests/sft/run_sft_sp_loss_match.sh
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with sequence parallism and liger
-        run: |
-          ray stop --force
-          bash tests/sft/run_sft_qwen05_sp2_liger.sh 8 $HOME/ckpts/
+          [ ! -d "$HOME/Megatron-LM" ] && git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
+          export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
+          bash tests/e2e/run_deepseek_megatron.sh

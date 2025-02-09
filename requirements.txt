@@ -7,9 +7,11 @@ hydra-core
 numpy
 pandas
 peft
+pyarrow>=15.0.0
 pybind11
-ray
+ray>=2.38
 tensordict<0.6
 transformers<4.48
 vllm<=0.6.3
 wandb
+liger-kernel
