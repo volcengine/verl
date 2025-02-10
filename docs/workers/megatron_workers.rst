@@ -130,7 +130,7 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/
 
 - In this function, the rollout model will perform auto-regressive
   generation and the actor model will recompute the old log prob for the
-  generetad response.
+  generated response.
 
 3. Update actor model
 
