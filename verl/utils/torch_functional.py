@@ -17,7 +17,6 @@ Contain small torch utilities
 
 from typing import Dict, Union, List, Optional
 
-import os
 import torch
 import torch.distributed
 import torch.nn.functional as F
