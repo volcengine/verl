@@ -109,8 +109,6 @@ def run_ppo(config, compute_score=None):
 @ray.remote
 def main_task(config, compute_score=None):
     from verl.utils.fs import copy_local_path_from_hdfs
-    from transformers import AutoTokenizer
-
     # print initial config
     from pprint import pprint
     from omegaconf import OmegaConf
