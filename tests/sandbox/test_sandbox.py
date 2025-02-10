@@ -1,3 +1,17 @@
+# Copyright 2024 PRIME team and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 
 from verl.utils.reward_score import _default_compute_score
@@ -107,7 +121,7 @@ def test_prime_code():
     data_source = 'codecontests'
     for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
         score = _default_compute_score(data_source, completion, ground_truth)
-        assert float(score[0]) == score_
+        assert float(score) == score_
 
 
 def test_check_correctness():
@@ -122,4 +136,4 @@ def test_prime_math():
     data_source = 'numina_aops_forum'
     for completion, ground_truth in zip(prime_math_answers, prime_math_gts):
         score = _default_compute_score(data_source, completion, ground_truth)
-        assert float(score[0]) == 1.0
+        assert float(score) == 1.0
