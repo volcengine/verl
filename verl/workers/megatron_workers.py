@@ -346,7 +346,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def update_actor(self, data: DataProto):
         assert self._is_actor
 
-        data.batch = data.batch.cuda()
+        data.batch = data.batch.to(torch.cuda.current_device())
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
