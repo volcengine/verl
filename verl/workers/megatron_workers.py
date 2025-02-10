@@ -15,6 +15,7 @@
 The main entry point to run the PPO algorithm
 """
 
+import importlib
 import os
 import logging
 import ray
@@ -83,6 +84,16 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             if self.config.actor.megatron.sequence_parallel:
                 os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
+            
+            # mindspeed adapter need to init global var
+            if importlib.util.find_spec('mindspeed') is not None:
+                from megatron.training.arguments import parse_args, validate_args
+                from megatron.training.global_vars import set_global_variables
+                
+                args = parse_args(ignore_unknown_args=True)
+                validate_args(args, {})
+                set_global_variables(args, build_tokenizer=False)
+
             mpu.initialize_model_parallel(
                 tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
                 pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
@@ -142,6 +153,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
         self.tokenizer = hf_tokenizer(local_path)
+        self.tokenizer.max_token_id = max(self.tokenizer.get_vocab().values())
 
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
@@ -353,15 +365,9 @@ class ActorRolloutRefWorker(MegatronWorker):
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
 
-        prompts.batch = prompts.batch.cuda()
-        meta_info = {
-            'eos_token_id':
-                self.generation_config.eos_token_id
-                if self.generation_config is not None else self.tokenizer.eos_token_id,
-            'pad_token_id':
-                self.generation_config.pad_token_id
-                if self.generation_config is not None else self.tokenizer.pad_token_id,
-        }
+        # prompts.batch = prompts.batch.cuda()
+        prompts.batch = prompts.batch.to(torch.cuda.current_device())
+        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)

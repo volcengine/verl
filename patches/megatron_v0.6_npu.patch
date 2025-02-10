@@ -1,0 +1,281 @@
+diff --git a/megatron/core/distributed/distributed_data_parallel.py b/megatron/core/distributed/distributed_data_parallel.py
+index 13e321f5..ddfbdc25 100644
+--- a/megatron/core/distributed/distributed_data_parallel.py
++++ b/megatron/core/distributed/distributed_data_parallel.py
+@@ -52,6 +52,7 @@ class DistributedDataParallel(MegatronModule):
+     ):
+         super().__init__(config=config)
+         self.module = module
++        self.data_parallel_group = data_parallel_group
+ 
+         # Set bucket_size to infinity if overlap_grad_reduce is False.
+         self.overlap_grad_reduce = overlap_grad_reduce
+@@ -268,7 +269,8 @@ class DistributedDataParallel(MegatronModule):
+             else:
+                 torch.distributed.broadcast(
+                     param.data,
+-                    src=torch.distributed.get_process_group_ranks(self.data_parallel_group),
++                    # refer to https://github.com/NVIDIA/Megatron-LM/pull/796
++                    src=torch.distributed.get_process_group_ranks(self.data_parallel_group)[0],
+                     group=self.data_parallel_group,
+                 )
+ 
+diff --git a/megatron/core/pipeline_parallel/schedules.py b/megatron/core/pipeline_parallel/schedules.py
+index eb251761..54a80f44 100644
+--- a/megatron/core/pipeline_parallel/schedules.py
++++ b/megatron/core/pipeline_parallel/schedules.py
+@@ -315,6 +315,7 @@ def forward_backward_no_pipelining(
+     model: Union[torch.nn.Module, List[torch.nn.Module]],
+     num_microbatches: int,
+     seq_length: int,  # unused
++    hidden_size: int, # unused
+     micro_batch_size: int,  # unused
+     decoder_seq_length: int = None,  # unused
+     forward_only: bool = False,
+@@ -403,8 +404,10 @@ def forward_backward_pipelining_with_interleaving(
+     data_iterator: Union[Iterator, List[Iterator]],
+     model: Union[torch.nn.Module, List[torch.nn.Module]],
+     num_microbatches: int,
+-    seq_length: int,
+-    micro_batch_size: int,
++    seq_length: int = None,
++    hidden_size: int = None,
++    micro_batch_size: int = None,
++    input_shapes: list = None,
+     decoder_seq_length: int = None,
+     forward_only: bool = False,
+     collect_non_loss_data: bool = False,
+@@ -491,7 +494,7 @@ def forward_backward_pipelining_with_interleaving(
+             "Interleaving is not supported with a different decoder sequence length."
+         )
+ 
+-    tensor_shape = [seq_length, micro_batch_size, config.hidden_size]
++    tensor_shape = [seq_length, micro_batch_size, hidden_size]
+     tensor_shape[0] = tensor_shape[0] // parallel_state.get_context_parallel_world_size()
+     if config.sequence_parallel:
+         tensor_shape[0] = tensor_shape[0] // parallel_state.get_tensor_model_parallel_world_size()
+@@ -983,6 +986,7 @@ def get_tensor_shapes(
+     rank: int,
+     model_type: ModelType,
+     seq_length: int,
++    hidden_size: int,
+     micro_batch_size: int,
+     decoder_seq_length: int,
+     config,
+@@ -1010,12 +1014,12 @@ def get_tensor_shapes(
+ 
+     if model_type == ModelType.encoder_and_decoder:
+         if parallel_state.is_pipeline_stage_before_split(rank):
+-            tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
++            tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
+         else:
+-            tensor_shapes.append((decoder_seq_length, micro_batch_size, config.hidden_size))
+-            tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
++            tensor_shapes.append((decoder_seq_length, micro_batch_size, hidden_size))
++            tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
+     else:
+-        tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
++        tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
+     return tensor_shapes
+ 
+ 
+@@ -1093,8 +1097,10 @@ def forward_backward_pipelining_without_interleaving(
+     data_iterator: Union[Iterator, List[Iterator]],
+     model: Union[torch.nn.Module, List[torch.nn.Module]],
+     num_microbatches: int,
+-    seq_length: int,
+-    micro_batch_size: int,
++    seq_length: int = None,
++    hidden_size: int = None,
++    micro_batch_size: int = None,
++    input_shapes: list = None,
+     decoder_seq_length: int = None,
+     forward_only: bool = False,
+     collect_non_loss_data: bool = False,
+@@ -1171,22 +1177,34 @@ def forward_backward_pipelining_without_interleaving(
+     model_type = get_model_type(model)
+ 
+     rank = parallel_state.get_pipeline_model_parallel_rank()
+-    recv_tensor_shapes = get_tensor_shapes(
+-        rank=rank - 1,
+-        model_type=model_type,
+-        seq_length=seq_length,
+-        micro_batch_size=micro_batch_size,
+-        decoder_seq_length=decoder_seq_length,
+-        config=config,
+-    )
+-    send_tensor_shapes = get_tensor_shapes(
+-        rank=rank,
+-        model_type=model_type,
+-        seq_length=seq_length,
+-        micro_batch_size=micro_batch_size,
+-        decoder_seq_length=decoder_seq_length,
+-        config=config,
+-    )
++
++    def get_recv_tensor_shapes(microbatch_id):
++        if input_shapes:
++            return [input_shapes[microbatch_id]]
++        recv_tensor_shapes = get_tensor_shapes(
++            rank=rank - 1,
++            model_type=model_type,
++            seq_length=seq_length,
++            hidden_size=hidden_size,
++            micro_batch_size=micro_batch_size,
++            decoder_seq_length=decoder_seq_length,
++            config=config,
++        )
++        return recv_tensor_shapes
++
++    def get_send_tensor_shapes(microbatch_id):
++        if input_shapes:
++            return [input_shapes[microbatch_id]]
++        send_tensor_shapes = get_tensor_shapes(
++            rank=rank,
++            model_type=model_type,
++            seq_length=seq_length,
++            hidden_size=hidden_size,
++            micro_batch_size=micro_batch_size,
++            decoder_seq_length=decoder_seq_length,
++            config=config,
++        )
++        return send_tensor_shapes
+ 
+     # Input, output tensors only need to be saved when doing backward passes
+     input_tensors = None
+@@ -1207,6 +1225,7 @@ def forward_backward_pipelining_without_interleaving(
+         else:
+             checkpoint_activations_microbatch = None
+ 
++        recv_tensor_shapes = get_recv_tensor_shapes(i)  # fwd recv shape
+         input_tensor = recv_forward(recv_tensor_shapes, config)
+         output_tensor = forward_step(
+             forward_step_func,
+@@ -1220,6 +1239,7 @@ def forward_backward_pipelining_without_interleaving(
+             checkpoint_activations_microbatch,
+             check_first_val_step(first_val_step, forward_only, i == 0),
+         )
++        send_tensor_shapes = get_send_tensor_shapes(i)  # fwd send shape
+         send_forward(output_tensor, send_tensor_shapes, config)
+ 
+         if not forward_only:
+@@ -1231,11 +1251,14 @@ def forward_backward_pipelining_without_interleaving(
+     # If all microbatches are run in warmup / cooldown phase, then no need to
+     # receive this tensor here.
+     if num_microbatches_remaining > 0:
++        recv_tensor_shapes = get_recv_tensor_shapes(num_warmup_microbatches)  # fwd recv shape
+         input_tensor = recv_forward(recv_tensor_shapes, config)
+ 
+     # Run 1F1B in steady state.
+     for i in range(num_microbatches_remaining):
+         last_iteration = i == (num_microbatches_remaining - 1)
++        next_forward_k = num_warmup_microbatches + i + 1
++        backward_k = i
+ 
+         # Decide to checkpoint all layers' activations of the current micro-batch
+         if max_outstanding_backprops is not None:
+@@ -1260,13 +1283,18 @@ def forward_backward_pipelining_without_interleaving(
+             ),
+         )
+ 
++        send_tensor_shapes = get_send_tensor_shapes(i)  # fwd send shape
++
+         if forward_only:
++            send_tensor_shapes = get_send_tensor_shapes(next_forward_k - 1)  # fwd send shape
+             send_forward(output_tensor, send_tensor_shapes, config)
+ 
+             if not last_iteration:
++                recv_tensor_shapes = get_recv_tensor_shapes(next_forward_k)  # fwd recv shape
+                 input_tensor = recv_forward(recv_tensor_shapes, config)
+ 
+         else:
++            send_tensor_shapes = get_send_tensor_shapes(backward_k)  # bwd recv shape
+             output_tensor_grad = send_forward_recv_backward(
+                 output_tensor, send_tensor_shapes, config
+             )
+@@ -1293,8 +1321,10 @@ def forward_backward_pipelining_without_interleaving(
+ 
+             if last_iteration:
+                 input_tensor = None
++                recv_tensor_shapes = get_recv_tensor_shapes(backward_k)  # bwd send shape
+                 send_backward(input_tensor_grad, recv_tensor_shapes, config)
+             else:
++                recv_tensor_shapes = get_recv_tensor_shapes(next_forward_k)  # fwd recv shape
+                 input_tensor = send_backward_recv_forward(
+                     input_tensor_grad, recv_tensor_shapes, config
+                 )
+@@ -1302,6 +1332,7 @@ def forward_backward_pipelining_without_interleaving(
+     # Run cooldown backward passes.
+     if not forward_only:
+         for i in range(num_warmup_microbatches):
++            backward_k = num_microbatches_remaining + i
+ 
+             # Enable async grad reduction in the last backward pass
+             # Note: If grad sync function is provided, only enable
+@@ -1315,12 +1346,14 @@ def forward_backward_pipelining_without_interleaving(
+             input_tensor = input_tensors.pop(0)
+             output_tensor = output_tensors.pop(0)
+ 
++            send_tensor_shapes = get_send_tensor_shapes(backward_k)  # bwd recv shape
+             output_tensor_grad = recv_backward(send_tensor_shapes, config)
+ 
+             input_tensor_grad = backward_step(
+                 input_tensor, output_tensor, output_tensor_grad, model_type, config
+             )
+ 
++            recv_tensor_shapes = get_recv_tensor_shapes(backward_k)  # bwd send shape
+             send_backward(input_tensor_grad, recv_tensor_shapes, config)
+ 
+         # Launch any remaining grad reductions.
+diff --git a/megatron/core/utils.py b/megatron/core/utils.py
+index 44abd182..969f0112 100644
+--- a/megatron/core/utils.py
++++ b/megatron/core/utils.py
+@@ -56,7 +56,7 @@ def get_model_type(model):
+ 
+ 
+ def get_model_config(model):
+-    return get_attr_wrapped_model(model, 'config', allow_none=False)
++    return get_attr_wrapped_model(model, 'megatron_config', allow_none=False)
+ 
+ 
+ class GlobalMemoryBuffer:
+diff --git a/megatron/training/arguments.py b/megatron/training/arguments.py
+index 6e3ff990..e190ee1a 100644
+--- a/megatron/training/arguments.py
++++ b/megatron/training/arguments.py
+@@ -49,7 +49,19 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
+ 
+     # Parse.
+     if ignore_unknown_args:
+-        args, _ = parser.parse_known_args()
++        # mindspeed need some args & global var so far, we need a more in-depth analysis to remove this part of the code.
++        arg_list = [
++            "--tensor-model-parallel-size", "2",
++            "--pipeline-model-parallel-size", "1",
++            "--num-layers", "16",
++            "--hidden-size", "2048",
++            "--num-attention-heads", "32",
++            "--seq-length", "512",
++            "--max-position-embeddings", "131072",
++            "--micro-batch-size", "8",
++        ]
++        args, _ = parser.parse_known_args(arg_list)
++        # args, _ = parser.parse_known_args()
+     else:
+         args = parser.parse_args()
+ 
+diff --git a/setup.py b/setup.py
+index 2071a62c..3c6cde5a 100644
+--- a/setup.py
++++ b/setup.py
+@@ -113,7 +113,8 @@ setuptools.setup(
+         'Natural Language :: English',
+         'Operating System :: OS Independent',
+     ],
+-    packages=setuptools.find_namespace_packages(include=["megatron.core", "megatron.core.*"]),
++    # make training and other megatron module available when use `pip install -e .`
++    packages=setuptools.find_namespace_packages(include=["megatron.core", "megatron.core.*", "megatron.training", "megatron.legacy", "megatron.inference"]),
+     ext_modules=[
+         Extension(
+             "megatron.core.datasets.helpers",

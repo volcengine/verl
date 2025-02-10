@@ -127,8 +127,10 @@ class Worker(WorkerHelper):
         master_addr = os.environ["MASTER_ADDR"]
         master_port = os.environ["MASTER_PORT"]
 
-        local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
-        local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        # HCCL communication on npu need to unset ASCEND_RT_VISIBLE_DEVICES (unlike CUDA_VISIBLE_DEVICES) in ray actor.
+        # so we need to RAY_LOCAL_RANK (instead of always 0 in ray on gpu) as device id.
+        local_world_size = int(os.getenv("RAY_LOCAL_WORLD_SIZE", "1"))
+        local_rank = int(os.getenv("RAY_LOCAL_RANK", "0"))
 
         store = {
             '_world_size': world_size,

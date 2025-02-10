@@ -45,6 +45,12 @@ elif package_version == '0.6.3':
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine
     from .vllm_v_0_6_3 import parallel_state
+# this package support npu could be build via https://github.com/vllm-project/vllm/pull/8054
+elif package_version == '0.1dev3628+g06f1b1d.npu':
+    vllm_version = '0.6.4'
+    from .vllm_v_0_6_4.llm import LLM
+    from .vllm_v_0_6_4.llm import LLMEngine
+    from .vllm_v_0_6_4 import parallel_state
 else:
     raise ValueError(
         f'vllm version {package_version} not supported. Currently supported versions are 0.3.1, 0.4.2, 0.5.4 and 0.6.3.'

@@ -216,7 +216,12 @@ class FakeTimers:
     """Disable All Megatron Timing with FakeTimers"""
 
     def __init__(self):
-        from megatron.timers import DummyTimer
+        import pkg_resources
+        megatron_version = pkg_resources.get_distribution('megatron_core').version
+        if pkg_resources.parse_version(megatron_version) < pkg_resources.parse_version('0.6.0'):
+            from megatron.timers import DummyTimer
+        else:
+            from megatron.core.timers import DummyTimer
         self.dummy_timer = DummyTimer()
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:

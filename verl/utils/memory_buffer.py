@@ -27,11 +27,14 @@ class MemoryBuffer:
     memory. It must have a unique type to support this behavior.
     """
 
-    def __init__(self, numel: int, numel_padded: int, dtype: torch.dtype):
+    def __init__(self, numel: int, numel_padded: int, dtype: torch.dtype, source: torch.Tensor = None):
         self.numel = numel
         self.numel_padded = numel_padded
         self.dtype = dtype
-        self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device='cuda', requires_grad=False)
+        if source is not None:
+            self.data = source
+        else:
+            self.data = torch.zeros(self.numel_padded, dtype=self.dtype, device='cuda', requires_grad=False)
 
     def zero(self):
         """Reset the buffer to zero."""
