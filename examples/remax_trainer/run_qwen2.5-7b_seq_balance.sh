@@ -5,11 +5,11 @@ export TRANSFORMERS_OFFLINE=1
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
-python3 -m verl.trainer.main_remax \
+python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=remax \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/train.parquet \
-    data.train_batch_size=512 \
+    data.train_batch_size=1024 \
     data.val_batch_size=1312 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
@@ -29,7 +29,7 @@ python3 -m verl.trainer.main_remax \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
-    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
@@ -41,4 +41,4 @@ python3 -m verl.trainer.main_remax \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=5 $@
+    trainer.total_epochs=15 $@
