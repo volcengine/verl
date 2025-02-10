@@ -105,7 +105,9 @@ class vLLMRollout(BaseRollout):
             enable_chunked_prefill=config.enable_chunked_prefill,
             swap_space=16,
             cpu_offload_gb=40,
-            kv_cache_dtype="fp8",
+            kv_cache_dtype=config.kv_cache_dtype,
+            enable_prefix_caching=False,
+            # preemption_mode="RECOMPUTE",
             # calculate_kv_scales=True
         )
 

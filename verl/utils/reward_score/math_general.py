@@ -23,14 +23,22 @@ def compute_acc_reward(solution_str, ground_truth):
 
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
-
-            extracted_sol = string_in_last_boxed
-            # Implement a simple heuristic to check if the completion is correct.
-            answer = remove_boxed(string_in_last_boxed)
-            if is_equiv(answer, ground_truth):
-                return 1.
-            elif answer.isnumeric() and ground_truth.isnumeric():
-                return 0.
+            try:
+                extracted_sol = string_in_last_boxed
+                if extracted_sol.strip() == "\\boxed{}": # If the completion is just \boxed{},
+                    return 0.
+                # Implement a simple heuristic to check if the completion is correct.
+                answer = remove_boxed(string_in_last_boxed)
+                if is_equiv(answer, ground_truth):
+                    return 1.
+                elif answer.isnumeric() and ground_truth.isnumeric():
+                    return 0.
+            except Exception as e:
+                pass
+                # print("Error in compute_acc_reward:")
+                # print(string_in_last_boxed)
+                # print(e)
+                # return 0.
 
     if extracted_sol is None:
         return 0.
@@ -63,25 +71,6 @@ def compute_format_reward(solution_str):
     
     return 0.
 
-def compute_score(solution_str, ground_truth):
-    """Reward function that checks if the completion is the same as the ground truth."""
-
-    if "<|im_start|>assistant<|im_end|>" in solution_str:
-        solution_str = solution_str.split("<|im_start|>assistant<|im_end|>")[1]
-    
-    solution_str = solution_str.replace("<|im_end|>", "").strip()
-
-    strict_format_reward = strict_format_reward_func([solution_str])[0]
-    soft_format_reward = soft_format_reward_func([solution_str])[0]
-    xml_reward = count_xml(solution_str)
-    acc_reward = compute_acc_reward(solution_str, ground_truth)
-
-
-    weights = [2, 0.5, 0.5, 0.5]
-
-    return sum([r*w for r, w in zip([acc_reward, strict_format_reward, soft_format_reward, xml_reward], weights)]) / sum(weights)
-
-
 def strict_format_reward_func(completions, **kwargs) -> list[float]:
     """Reward function that checks if the completion has a specific format."""
     pattern = r"^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>\s*$"
@@ -106,8 +95,36 @@ def count_xml(text) -> float:
         count += 0.25
     if text.count("\n</answer>") == 1:
         count += 0.25
-        # count -= (len(text.split("\n</answer>")[-1]) - 1)*0.001
+        count -= (len(text.split("\n</answer>")[-1]) - 1)*0.001
     return count
+
+def compute_score(solution_str, ground_truth):
+    """Reward function that checks if the completion is the same as the ground truth."""
+
+    split, ground_truth = ground_truth.split("######")
+
+    # Remove the prompt from the completion.
+    if "<|im_start|>assistant<|im_end|>" in solution_str:
+        solution_str = solution_str.split("<|im_start|>assistant<|im_end|>")[1]
+    solution_str = solution_str.replace("<|im_end|>", "").strip()
+
+
+    # If the split is test, we can directly compare the completion with the ground truth.
+    if split == "test":
+        return compute_acc_reward(solution_str, ground_truth)
+
+
+
+    strict_format_reward = strict_format_reward_func([solution_str])[0]
+    soft_format_reward = soft_format_reward_func([solution_str])[0]
+    xml_reward = count_xml(solution_str)
+    acc_reward = compute_acc_reward(solution_str, ground_truth)
+
+
+    weights = [2, 0.5, 0.5, 0.25]
+
+    return sum([r*w for r, w in zip([acc_reward, strict_format_reward, soft_format_reward, xml_reward], weights)]) / sum(weights)
+
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
