@@ -50,6 +50,10 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_function_rm_grpo.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (ReMax)
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_function_rm_remax.sh
       - name: Running gsm8k e2e without rmpad using function rm and load ckpt from previous step
         run: |
           ray stop --force

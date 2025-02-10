@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
+from copy import deepcopy
 
 import numpy as np
 from codetiming import Timer
@@ -152,6 +153,22 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         response_mask = attention_mask[:, -response_length:]
         advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
             token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
+    elif adv_estimator == 'remax':
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+
+        reward_baselines = data.batch['reward_baselines']
+
+        advantages, returns = core_algos.compute_remax_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                         reward_baselines=reward_baselines,
+                                                                         eos_mask=response_mask)
+
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
@@ -354,6 +371,8 @@ class RayPPOTrainer(object):
         elif self.config.algorithm.adv_estimator == 'grpo':
             self.use_critic = False
         elif self.config.algorithm.adv_estimator == 'reinforce_plus_plus':
+            self.use_critic = False
+        elif self.config.algorithm.adv_estimator == 'remax':
             self.use_critic = False
         else:
             raise NotImplementedError
@@ -825,6 +844,22 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+
+                    if self.config.algorithm.adv_estimator == 'remax':
+                        with _timer('gen_max', timing_raw):
+                            gen_baseline_batch = deepcopy(gen_batch)
+                            gen_baseline_batch.meta_info['do_sample'] = False
+                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
+                            batch = batch.union(gen_baseline_output)
+                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
+
+                            del gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
