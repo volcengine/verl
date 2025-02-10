@@ -191,7 +191,9 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
 def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor,
                                     eos_mask: torch.Tensor):
     """
-    Compute advantage for GRPO, operating only on Outcome reward 
+    Compute advantage for ReMax, operating only on Outcome reward 
+    This implementation is based on the paper: https://arxiv.org/abs/2310.10505
+
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
