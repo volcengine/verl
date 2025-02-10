@@ -43,6 +43,8 @@ dependencies = [
     "vllm<=0.6.3",
     "peft",
     "liger-kernel",
+    "pylatexenc",
+    "pyext"
 ]
 
 # Optional dependencies (extras_require in setup.py)
