@@ -189,7 +189,8 @@ class vLLMRollout(BaseRollout):
 
         response = []
         for output in outputs:
-            response.append(output.outputs[0].token_ids)
+            for sample_id in range(len(output.outputs)):
+                response.append(output.outputs[sample_id].token_ids)
         
         response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
 
