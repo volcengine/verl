@@ -442,15 +442,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 The token to use as HTTP bearer authorization for remote files. If None, will use the token generated when
                 running `huggingface-cli login` (stored in `~/.huggingface`).
         """
-        from huggingface_hub import HfApi
-
-        api = HfApi()
-        api.create_repo(repo_id=repo_id, private=private, token=token, exist_ok=True)
-        api.upload_folder(
-            folder_path=local_path,
-            repo_id=repo_id,
-            token=token,
-        )
+        from verl.utils.huggingface import push_to_hub as _push_to_hub
+        _push_to_hub(repo_id=repo_id, local_path=local_path, private=private, token=token)
 
 
 class CriticWorker(MegatronWorker):

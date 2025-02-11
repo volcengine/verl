@@ -1,6 +1,5 @@
 """Utilities for generating model cards."""
 
-import os
 from typing import Optional, List
 from huggingface_hub import ModelCard, ModelCardData
 from importlib.metadata import version
