@@ -98,6 +98,27 @@ def count_xml(text) -> float:
         count -= (len(text.split("\n</answer>")[-1]) - 1)*0.001
     return count
 
+def strict_xml(text) -> float:
+    # Encourage the patter by parts.
+
+    reward = 0.
+
+    # check if the think tag only occurs once
+    pattern = r"<think>.*?</think>"
+    matches = re.findall(pattern, text, re.DOTALL)
+    if len(matches) == 1:
+        reward += 0.5
+    
+    # check if the answer tag only occurs once
+    pattern = r"<answer>.*?</answer>"
+    matches = re.findall(pattern, text, re.DOTALL)
+    if len(matches) == 1:
+        reward += 0.5
+
+        reward -= (len(text.split("</answer>")[-1]) - 1)*0.001
+
+    return reward
+
 def compute_score(solution_str, ground_truth):
     """Reward function that checks if the completion is the same as the ground truth."""
 
@@ -118,6 +139,7 @@ def compute_score(solution_str, ground_truth):
     strict_format_reward = strict_format_reward_func([solution_str])[0]
     soft_format_reward = soft_format_reward_func([solution_str])[0]
     xml_reward = count_xml(solution_str)
+    # xml_reward = strict_xml(solution_str)
     acc_reward = compute_acc_reward(solution_str, ground_truth)
 
 
