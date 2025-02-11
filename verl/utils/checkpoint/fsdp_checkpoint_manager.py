@@ -53,9 +53,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             return
 
         # every rank download its own checkpoint
-        remote_model_path = os.path.join(path, f'model_rank_{self.rank}.pt')
-        remote_optim_path = os.path.join(path, f'optim_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(path, f'extra_state_rank_{self.rank}.pt')
+        remote_model_path = os.path.join(path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
             f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
         )
@@ -93,13 +93,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self,
-                        local_path: str,
-                        hdfs_path: str,
-                        global_step: int,
-                        remove_previous_ckpt=True,
-                        *args,
-                        **kwargs):
+    def save_checkpoint(self, local_path: str, global_step: int, remove_previous_ckpt=True, *args, **kwargs):
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -130,9 +124,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     'lr_scheduler': lr_scheduler_state_dict,
                     'rng': self.get_rng_state(),
                 }
-                model_path = os.path.join(local_path, f'model_rank_{self.rank}.pt')
-                optim_path = os.path.join(local_path, f'optim_rank_{self.rank}.pt')
-                extra_path = os.path.join(local_path, f'extra_state_rank_{self.rank}.pt')
+                model_path = os.path.join(local_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+                optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+                extra_path = os.path.join(local_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
 
                 print(f'[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}')
                 print(f'[rank-{self.rank}]: Saving checkpoint to {os.path.abspath(model_path)}')
@@ -140,9 +134,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(model_state_dict, model_path)
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
-
-        if hdfs_path is not None:
-            raise NotImplementedError('upload model to hdfs_path is not supported yet')
 
         # wait for everyone to dump to local
         torch.distributed.barrier()
@@ -152,8 +143,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             os.makedirs(hf_local_path, exist_ok=True)
             self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
             self.tokenizer.save_pretrained(hf_local_path)
-            if hdfs_path is not None:
-                raise NotImplementedError('upload tokenizer to hdfs_path is not supported yet')
 
         torch.distributed.barrier()
 

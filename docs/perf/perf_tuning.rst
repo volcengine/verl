@@ -1,5 +1,7 @@
 Performance Tuning Guide
-=========================
+==============================
+
+Author: `Guangming Sheng <https://github.com/PeterSH6>`_
 
 In this section, we will discuss how to tune the performance of all the stages in verl, including:
 

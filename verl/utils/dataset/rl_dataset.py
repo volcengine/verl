@@ -15,7 +15,7 @@
 from omegaconf import ListConfig
 import os
 from typing import List, Union
-
+import copy
 import pandas as pd
 
 import torch
@@ -73,7 +73,8 @@ class RLHFDataset(Dataset):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
-        self.parquet_files = parquet_files
+        self.parquet_files = copy.deepcopy(parquet_files)
+        self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
         self.cache_dir = os.path.expanduser(cache_dir)
         self.tokenizer = tokenizer
 
@@ -85,12 +86,16 @@ class RLHFDataset(Dataset):
         self.chat_template_func = chat_template_func
         self.truncation = truncation
 
+        # whether to store the dataset in state_dict()
+        # default not store
+        self.serialize_dataset = False
         self._download()
         self._read_files_and_tokenize()
 
-    def _download(self):
+    def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_local_path_from_hdfs
-        for i, parquet_file in enumerate(self.parquet_files):
+        parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
+        for i, parquet_file in enumerate(parquet_files):
             self.parquet_files[i] = copy_local_path_from_hdfs(src=parquet_file, cache_dir=self.cache_dir)
 
     def _read_files_and_tokenize(self):
@@ -111,6 +116,15 @@ class RLHFDataset(Dataset):
                                                              axis=1)]
 
         print(f'filter dataset len: {len(self.dataframe)}')
+
+    def resume_dataset_state(self):
+        self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
+        # resume dataframe if not it's serialized in data.pt
+        if not self.serialize_dataset:
+            self._download(use_origin_parquet=True)  # download and resume from original parquet files
+            self._read_files_and_tokenize()
+        else:
+            print(r'old dataloader ckpt file is used, please train from scratch for better ckpt performance')
 
     def __len__(self):
         return len(self.dataframe)
@@ -147,3 +161,12 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
 
         return row_dict
+
+    def __getstate__(self):
+        if not self.serialize_dataset:
+            state = self.__dict__.copy()
+
+            if 'dataframe' in state:
+                del state['dataframe']
+            return state
+        return self.__dict__.copy()

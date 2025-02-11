@@ -292,6 +292,7 @@ Reward Model
          param_offload: False
      micro_batch_size_per_gpu: 16
      max_length: null
+     reward_manager: naive
 
 - ``reward_model.enable``: Whether to enable reward model. If False, we
   compute the reward only with the user-defined reward functions. In
@@ -307,6 +308,10 @@ Reward Model
   - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
+- ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
+  of computing rule-based reward and handling different reward sources. Default
+  if ``naive``. If all verification functions are multiprocessing-safe, the reward
+  manager can be set to ``prime`` for parallel verification.
 
 Algorithm
 ~~~~~~~~~
@@ -324,9 +329,8 @@ Algorithm
 
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
-- ``adv_estimator``: gae. Currently only supports gae, will support GRPO
-  in the future
-- ``kl_penalty``\ ：Support ``kl``, ``abs``, ``mse`` and ``full``.How to
+- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``. 
+- ``kl_penalty``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
   specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
 

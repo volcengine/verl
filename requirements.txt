@@ -15,3 +15,5 @@ transformers<4.48
 vllm
 wandb
 liger-kernel
+pylatexenc
+pyext
