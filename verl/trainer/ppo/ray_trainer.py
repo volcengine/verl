@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
+from copy import deepcopy
 
 import numpy as np
 from codetiming import Timer
@@ -152,6 +153,22 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         response_mask = attention_mask[:, -response_length:]
         advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
             token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
+    elif adv_estimator == 'remax':
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+
+        reward_baselines = data.batch['reward_baselines']
+
+        advantages, returns = core_algos.compute_remax_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                         reward_baselines=reward_baselines,
+                                                                         eos_mask=response_mask)
+
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
@@ -355,6 +372,8 @@ class RayPPOTrainer(object):
             self.use_critic = False
         elif self.config.algorithm.adv_estimator == 'reinforce_plus_plus':
             self.use_critic = False
+        elif self.config.algorithm.adv_estimator == 'remax':
+            self.use_critic = False
         else:
             raise NotImplementedError
 
@@ -497,16 +516,76 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
+    def _maybe_log_val_generations_to_wandb(self, inputs, outputs, scores):
+        """Log a table of validation samples to wandb"""
+
+        generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
+
+        if generations_to_log == 0:
+            return
+
+        if generations_to_log > 0 and 'wandb' not in self.config.trainer.logger:
+            print(
+                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no wandb logger is found. ')
+            return
+
+        import wandb
+        import numpy as np
+
+        # Create tuples of (input, output, score) and sort by input text
+        samples = list(zip(inputs, outputs, scores))
+        samples.sort(key=lambda x: x[0])  # Sort by input text
+
+        # Use fixed random seed for deterministic shuffling
+        rng = np.random.RandomState(42)
+        rng.shuffle(samples)
+
+        # Take first N samples after shuffling
+        samples = samples[:generations_to_log]
+
+        # Create column names for all samples
+        columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
+
+        if not hasattr(self, 'validation_table'):
+            # Initialize the table on first call
+            self.validation_table = wandb.Table(columns=columns)
+
+        # Create a new table with same columns and existing data
+        # Workaround for https://github.com/wandb/wandb/issues/2981#issuecomment-1997445737
+        new_table = wandb.Table(columns=columns, data=self.validation_table.data)
+
+        # Add new row with all data
+        row_data = []
+        row_data.append(self.global_steps)
+        for sample in samples:
+            row_data.extend(sample)
+
+        new_table.add_data(*row_data)
+
+        # Update reference and log
+        wandb.log({"val/generations": new_table}, step=self.global_steps)
+        self.validation_table = new_table
+
     def _validate(self):
         reward_tensor_lst = []
         data_source_lst = []
+
+        # Lists to collect samples for the table
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
+
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
-            # test_batch = test_batch.to('cuda')
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
                 return {}
+
+            # Store original inputs
+            input_ids = test_batch.batch['input_ids']
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
 
             test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
             test_gen_batch.meta_info = {
@@ -524,17 +603,28 @@ class RayPPOTrainer(object):
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
 
+            # Store generated outputs
+            output_ids = test_output_gen_batch.batch['responses']
+            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            sample_outputs.extend(output_texts)
+
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            # for certain reward function (e.g. sandbox), the generation can overlap with reward
             reward_tensor = self.val_reward_fn(test_batch)
+
+            # Store scores
+            scores = reward_tensor.sum(-1).cpu().tolist()
+            sample_scores.extend(scores)
 
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
+        self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
+
         # evaluate test_score based on data source
         data_source_reward = {}
         for i in range(reward_tensor.shape[0]):
@@ -754,6 +844,22 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+
+                    if self.config.algorithm.adv_estimator == 'remax':
+                        with _timer('gen_max', timing_raw):
+                            gen_baseline_batch = deepcopy(gen_batch)
+                            gen_baseline_batch.meta_info['do_sample'] = False
+                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
+                            batch = batch.union(gen_baseline_output)
+                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
+
+                            del gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)

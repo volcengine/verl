@@ -29,29 +29,34 @@ verl is fast with:
 .. toctree::
    :maxdepth: 5
    :caption: Quickstart
-   :titlesonly:
-   :numbered:
 
    start/install
    start/quickstart
 
 .. toctree::
+   :maxdepth: 4
+   :caption: Programming guide
+
+   hybrid_flow
+
+.. toctree::
    :maxdepth: 5
    :caption: Data Preparation
-   :titlesonly:
-   :numbered:
 
    preparation/prepare_data
    preparation/reward_function
 
 .. toctree::
+   :maxdepth: 5
+   :caption: Configurations
+
+   examples/config
+
+.. toctree::
    :maxdepth: 2
    :caption: PPO Example
-   :titlesonly:
-   :numbered:
 
    examples/ppo_code_architecture
-   examples/config
    examples/gsm8k_example
 
 .. toctree:: 

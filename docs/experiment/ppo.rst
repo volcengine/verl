@@ -19,6 +19,8 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 .. _Megatron PPO Command and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/deepseek-llm-7b-chat-megatron-bsz256_4-prompt512-resp512-0.695.log
 .. _Qwen7b GRPO Script: https://github.com/volcengine/verl/blob/a65c9157bc0b85b64cd753de19f94e80a11bd871/examples/grpo_trainer/run_qwen2-7b_seq_balance.sh
 .. _Megatron wandb: https://wandb.ai/verl-team/verl_megatron_gsm8k_examples/runs/10fetyr3
+.. _Qwen7b ReMax Script: https://github.com/eric-haibin-lin/verl/blob/main/examples/remax_trainer/run_qwen2.5-3b_seq_balance.sh
+.. _Qwen7b ReMax Wandb: https://wandb.ai/liziniu1997/verl_remax_example_gsm8k/runs/vxl10pln
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
@@ -37,6 +39,7 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-
+| Qwen/Qwen2.5-7B-Instruct         | ReMax                  | 97         |   `Qwen7b ReMax Script`_, `Qwen7b ReMax Wandb`_                                                |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 .. [1] During the evaluation, we have only extracted answers following the format "####". A more flexible answer exaction, longer response length and better prompt engineering may lead to higher score.

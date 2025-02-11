@@ -143,6 +143,7 @@ reward_model:
   ulysses_sequence_parallel_size: 1 # sp size
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+  reward_manager: naive
 
 algorithm:
   gamma: 1.0
@@ -159,6 +160,7 @@ trainer:
   project_name: verl_examples
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
+  val_generations_to_log_to_wandb: 0
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
