@@ -80,7 +80,7 @@ class BaseCheckpointManager:
         # Using hash value of path as lock file name to avoid long file name
         lock_filename = f"ckpt_{hash(path) & 0xFFFFFFFF:08x}.lock"
         lock_path = os.path.join(tempfile.gettempdir(), lock_filename)
-        
+
         try:
             with FileLock(lock_path, timeout=60):  # Add timeout
                 # make a new dir
