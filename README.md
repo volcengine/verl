@@ -50,6 +50,8 @@ verl is fast with:
 ## Upcoming Features
 - Reward model training
 - DPO training
+- DeepSeek integration with Megatron backend
+- SGLang integration
 
 ## Getting Started
 
@@ -58,6 +60,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 **Quickstart:**
 - [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
+- [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html)
 
 **Running a PPO example step-by-step:**
 - Data and Reward Preparation
