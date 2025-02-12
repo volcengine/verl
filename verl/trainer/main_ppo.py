@@ -19,16 +19,16 @@ from verl import DataProto
 import torch
 from verl.utils.reward_score import gsm8k, math, math_general
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+import asyncio
 
-
-def _default_compute_score(data_source, solution_str, ground_truth):
+async def _default_compute_score(data_source, solution_str, ground_truth):
     if data_source == 'openai/gsm8k':
         return gsm8k.compute_score(solution_str, ground_truth)
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
         return math.compute_score(solution_str, ground_truth)
     else:
         # print(f"Unknown data source: {data_source}, using general math reward function")
-        return math_general.compute_score(solution_str, ground_truth)
+        return await math_general.compute_score(solution_str, ground_truth)
         # raise NotImplementedError
 
 
@@ -51,6 +51,7 @@ class RewardManager():
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
         already_print_data_sources = {}
+        task_inputs = []
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
@@ -74,11 +75,25 @@ class RewardManager():
 
             data_source = data_item.non_tensor_batch['data_source']
 
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=sequences_str,
-                ground_truth=ground_truth,
-            )
+                # self.compute_score(
+                #     data_source=data_source,
+                #     solution_str=sequences_str,
+                #     ground_truth=ground_truth,
+                # )
+            task_inputs.append((data_source, sequences_str, ground_truth))
+        
+        async def get_scores(task_inputs):
+            tasks = []
+            for task_input in task_inputs:
+                tasks.append(
+                    asyncio.create_task(self.compute_score(*task_input))
+                    )
+            return await asyncio.gather(*tasks)
+        
+        scores = asyncio.run(get_scores(task_inputs))
+        
+        for i in range(len(data)):
+            score = scores[i]
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:

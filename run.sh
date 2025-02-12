@@ -1,5 +1,8 @@
 git config --global credential.helper cache
 
+pip install pylatexenc
+pip install aiohttp
+
 # login to huggingface and wandb
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 wandb login $WANDB_TOKEN
@@ -46,7 +49,7 @@ python -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=10 \
-    trainer.default_local_dir='/mnt/output/checkpoints'\
+    trainer.default_local_dir=$AMLT_OUTPUT_DIR/checkpoints \
     trainer.total_epochs=30 $@
 
     # actor_rollout_ref.rollout.kv_cache_dtype="fp8" \

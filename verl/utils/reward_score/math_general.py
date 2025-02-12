@@ -1,6 +1,8 @@
-import requests
+import aiohttp
+import asyncio
 import time
 import re
+from .grader import grade_answer
 
 url = "https://verifier.yuewu.ml/api"
 headers = {
@@ -8,7 +10,7 @@ headers = {
     "Authentication": "RCbUvAw8nEv_jAuQa82uvAoZBiUv0fMEc28FUddmh78"  # Replace with your API key if needed.
 }
 
-def compute_acc_reward(solution_str, ground_truth):
+async def compute_acc_reward(solution_str, ground_truth):
     """Returns 1. if the completion is correct, 0. if not."""
 
     # First, use re to extract <answer>...</answer> from the completion. Note that the regex should handle multi-line strings.
@@ -49,18 +51,17 @@ def compute_acc_reward(solution_str, ground_truth):
     }
     delay = 0.1   # initial delay (in seconds)
     max_delay = 5 # maximum delay (in seconds)
-
-    while True:
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=600)
-            retval = response.json()['LaTeXAgreementScore']
-            break
-        except requests.exceptions.RequestException as e:
-            time.sleep(delay)
-            delay = min(delay * 2, max_delay)
-
-    return retval
-
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=600) as response:
+                    resp_json = await response.json()
+                    retval = resp_json['LaTeXAgreementScore']
+                    return retval
+            except aiohttp.ClientError as e:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, max_delay)
 
 def compute_format_reward(solution_str):
     """Returns 0.5 if the completion is in the correct format, 0. if not."""
@@ -119,7 +120,7 @@ def strict_xml(text) -> float:
 
     return reward
 
-def compute_score(solution_str, ground_truth):
+async def compute_score(solution_str, ground_truth):
     """Reward function that checks if the completion is the same as the ground truth."""
 
     split, ground_truth = ground_truth.split("######")
@@ -132,15 +133,13 @@ def compute_score(solution_str, ground_truth):
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
-        return compute_acc_reward(solution_str, ground_truth)
-
-
+        return await compute_acc_reward(solution_str, ground_truth)
 
     strict_format_reward = strict_format_reward_func([solution_str])[0]
     soft_format_reward = soft_format_reward_func([solution_str])[0]
-    xml_reward = count_xml(solution_str)
-    # xml_reward = strict_xml(solution_str)
-    acc_reward = compute_acc_reward(solution_str, ground_truth)
+    # xml_reward = count_xml(solution_str)
+    xml_reward = strict_xml(solution_str)
+    acc_reward = await compute_acc_reward(solution_str, ground_truth)
 
 
     weights = [2, 0.5, 0.5, 0.25]
@@ -171,14 +170,30 @@ def is_equiv(str1, str2, verbose=False):
     if str1 is None or str2 is None:
         return False
 
+    is_eq = str1 == str2 or grade_answer(str1, str2)
+    if is_eq:
+        return True
+
     try:
         ss1 = strip_string(str1)
         ss2 = strip_string(str2)
+
+        # normalize yes and true, no and false
+        if ss1.lower() in {"yes", "true"}:
+            ss1 = "__YES__"
+        if ss1.lower() in {"no", "false"}:
+            ss1 = "__NO__"
+        
+        if ss2.lower() in {"yes", "true"}:
+            ss2 = "__YES__"
+        if ss2.lower() in {"no", "false"}:
+            ss2 = "__NO__"
+
         if verbose:
             print(ss1, ss2)
         return ss1 == ss2
     except Exception:
-        return str1 == str2
+        return is_eq
 
 
 def remove_boxed(s):
