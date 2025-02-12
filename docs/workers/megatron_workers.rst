@@ -3,7 +3,7 @@ Megatron-LM Backend
 
 We support Megatron Backend by implementing various workers for actor,
 critic, reference, rollout and reward models. We also implement the
-``3DHybridEngine`` using Megatron-LM and vLLM in `megatron_vllm.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/hybrid_engine/megatron_vllm.py>`_.
+``3DHybridEngine`` using Megatron-LM and vLLM in `megatron_vllm.py <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/megatron_vllm.py>`_.
 
 **Pros**
 
@@ -76,7 +76,7 @@ highlighted below:
 4. ``MegatronVLLMShardingManager`` a context manager to perform actual
    resharding between actor and rollout.
 
-See `source code <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/megatron_workers.py#L63>`_ for more information.
+See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/megatron_workers.py#L63>`_ for more information.
 
 .. code:: python
 
