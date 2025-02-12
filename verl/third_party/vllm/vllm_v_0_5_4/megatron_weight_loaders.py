@@ -282,6 +282,7 @@ __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__ = {
     'LlamaForCausalLM': llama_megatron_weight_loader,  # use te backend for open-source megatron
     'LLaMAForCausalLM': llama_megatron_weight_loader,
     'MistralForCausalLM': mistral_megatron_weight_loader,
+    'Qwen2ForCausalLM': llama_megatron_weight_loader,
 }
 
 
