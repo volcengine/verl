@@ -89,6 +89,15 @@ class vLLMRollout(BaseRollout):
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
+        
+        max_model_len = self.config.max_model_len if self.config.max_model_len \
+                        else config.prompt_length + config.response_length
+        
+        if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
+            raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
+                             please increase max_num_batched_tokens or disable chunked prefill')
+
+
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -98,7 +107,7 @@ class vLLMRollout(BaseRollout):
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             skip_tokenizer_init=False,
-            max_model_len=config.prompt_length + config.response_length,
+            max_model_len=max_model_len,
             load_format=config.load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
