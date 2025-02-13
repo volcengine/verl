@@ -45,7 +45,7 @@ can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/perf
 Enable remove padding (sequence packing)
 -----------------------------------------
 
-Currently, for llama, mistral, gemma and qwen based models, users can enable `use_remove_padding=True` to utilize the 
+Currently, for llama, mistral, gemma1 and qwen based models, users can enable `use_remove_padding=True` to utilize the 
 sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
