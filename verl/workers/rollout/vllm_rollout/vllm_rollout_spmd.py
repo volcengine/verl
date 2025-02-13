@@ -115,7 +115,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version != '0.3.1':
             kwargs['detokenize'] = False
 
         # supporting adding any sampling params from the config file
