@@ -415,7 +415,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
