@@ -1,4 +1,4 @@
-# Readme for verl(vllm0.7) version
+# Readme for verl(vllm>=0.7) version
 
 ## Installation
 
@@ -14,7 +14,7 @@ git clone https://github.com/volcengine/verl.git
 cd verl
 pip3 install -e .
 # Install vLLM>=0.7
-pip3 install vllm==0.7.0
+pip3 install "vllm>=0.7.0"
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
 
