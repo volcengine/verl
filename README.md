@@ -50,6 +50,8 @@ verl is fast with:
 ## Upcoming Features
 - Reward model training
 - DPO training
+- DeepSeek integration with Megatron backend
+- SGLang integration
 
 ## Getting Started
 
@@ -58,6 +60,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 **Quickstart:**
 - [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
+- [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html)
 
 **Running a PPO example step-by-step:**
 - Data and Reward Preparation
@@ -124,5 +127,6 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
 - [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
+- [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
 
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.

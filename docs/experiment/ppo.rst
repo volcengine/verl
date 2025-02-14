@@ -39,7 +39,7 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Qwen/Qwen2.5-7B-Instruct         | ReMax                  | 97         |   `Qwen7b ReMax Script`_, `Qwen7b ReMax Wandb`_                                                |
+| Qwen/Qwen2.5-7B-Instruct         | ReMax                  | 97         |   `Qwen7b ReMax Script`_, `Qwen7b ReMax Wandb`_                                               |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 .. [1] During the evaluation, we have only extracted answers following the format "####". A more flexible answer exaction, longer response length and better prompt engineering may lead to higher score.
