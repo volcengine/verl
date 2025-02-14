@@ -11,23 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from importlib.metadata import version, PackageNotFoundError
-
-
-def get_version(pkg):
-    try:
-        return version(pkg)
-    except PackageNotFoundError:
-        return None
-
-
-package_name = 'vllm'
-package_version = get_version(package_name)
-
-if package_version <= '0.6.3':
-    vllm_mode = 'customized'
-    from .vllm_rollout import vLLMRollout
-else:
-    vllm_mode = 'spmd'
-    from .vllm_rollout_spmd import vLLMRollout

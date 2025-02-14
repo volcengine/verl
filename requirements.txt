@@ -2,6 +2,7 @@ accelerate
 codetiming
 datasets
 dill
+flash-attn
 hydra-core
 numpy
 pandas
@@ -11,6 +12,7 @@ pybind11
 ray>=2.38
 tensordict<0.6
 transformers<4.48
+vllm
 wandb
 liger-kernel
 pylatexenc

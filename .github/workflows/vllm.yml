@@ -40,3 +40,8 @@ jobs:
         run: |
           cd tests/rollout
           torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
+      - name: Test the latest vLLM
+        run: |
+          pip3 install --upgrade vllm
+          cd tests/rollout
+          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
