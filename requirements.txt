@@ -16,4 +16,3 @@ vllm
 wandb
 liger-kernel
 pylatexenc
-pyext
