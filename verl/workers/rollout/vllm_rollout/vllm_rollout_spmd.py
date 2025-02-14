@@ -84,26 +84,26 @@ class vLLMRollout(BaseRollout):
             train_tp = kwargs.get('train_tp', None)
             num_tp_per_train_tp = train_tp // tensor_parallel_size
             vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                num_tp_per_train_tp=num_tp_per_train_tp)
+                                              num_tp_per_train_tp=num_tp_per_train_tp)
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
-        
 
-        self.inference_engine = LLM(model=model_path,
-                                    enable_sleep_mode=True,
-                                    tensor_parallel_size=tensor_parallel_size,
-                                    distributed_executor_backend="external_launcher",
-                                    dtype=config.dtype,
-                                    enforce_eager=config.enforce_eager,
-                                    gpu_memory_utilization=config.gpu_memory_utilization,
-                                    disable_custom_all_reduce=True,
-                                    skip_tokenizer_init=False,
-                                    max_model_len=config.prompt_length + config.response_length,
-                                    disable_log_stats=config.disable_log_stats,
-                                    max_num_batched_tokens=max_num_batched_tokens,
-                                    enable_chunked_prefill=config.enable_chunked_prefill,
-                                    )
+        self.inference_engine = LLM(
+            model=model_path,
+            enable_sleep_mode=True,
+            tensor_parallel_size=tensor_parallel_size,
+            distributed_executor_backend="external_launcher",
+            dtype=config.dtype,
+            enforce_eager=config.enforce_eager,
+            gpu_memory_utilization=config.gpu_memory_utilization,
+            disable_custom_all_reduce=True,
+            skip_tokenizer_init=False,
+            max_model_len=config.prompt_length + config.response_length,
+            disable_log_stats=config.disable_log_stats,
+            max_num_batched_tokens=max_num_batched_tokens,
+            enable_chunked_prefill=config.enable_chunked_prefill,
+        )
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.sleep(level=1)
@@ -191,8 +191,9 @@ class vLLMRollout(BaseRollout):
         for output in outputs:
             for sample_id in range(len(output.outputs)):
                 response.append(output.outputs[sample_id].token_ids)
-        
-        response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+
+        response = pad_2d_list_to_length(response, self.pad_token_id,
+                                         max_length=self.config.response_length).to(idx.device)
 
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)

@@ -26,6 +26,7 @@ from vllm import SamplingParams
 import time
 import torch.distributed as dist
 
+
 def main():
     assert torch.cuda.is_available(), 'CUDA must be present to run FSDP vLLM example'
     local_rank, rank, world_size = initialize_global_process_group()

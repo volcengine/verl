@@ -80,7 +80,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             # TODO(ZSL): deal with 'hf' format
             if load_format == 'dtensor':
                 from verl.third_party.vllm import load_dtensor_weights
-                load_dtensor_weights(params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
+                load_dtensor_weights(
+                    params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
             else:
                 raise NotImplementedError(f'load_format {load_format} not implemented')
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
@@ -143,13 +144,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         local_world_size = vllm_ps.get_tensor_model_parallel_world_size()
         src_rank = (torch.distributed.get_rank() // local_world_size) * local_world_size
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            broadcast_dict_tensor(data.batch,
-                                src=src_rank,
-                                group=vllm_ps.get_tensor_model_parallel_group())
+            broadcast_dict_tensor(data.batch, src=src_rank, group=vllm_ps.get_tensor_model_parallel_group())
         else:
             broadcast_dict_tensor(data.batch,
-                                src=src_rank,
-                                group=vllm_ps.get_tensor_model_parallel_group().device_group)
+                                  src=src_rank,
+                                  group=vllm_ps.get_tensor_model_parallel_group().device_group)
         dp_rank = torch.distributed.get_rank()
         dp_size = torch.distributed.get_world_size()  # not consider torch micro-dp
         tp_size = vllm_ps.get_tensor_model_parallel_world_size()
