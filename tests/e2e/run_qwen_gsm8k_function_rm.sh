@@ -39,4 +39,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=1 \
+    trainer.default_local_dir=$HOME/ckpt/ \
     trainer.total_training_steps=1 $@
