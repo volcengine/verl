@@ -77,7 +77,7 @@ def test_vllm_spmd():
     # Initialize model and token
     local_cache_path = '~/.cache/verl/rlhf'
     local_cache_path = os.path.expanduser(local_cache_path)
-    hdfs_path = 'deepseek-ai/deepseek-llm-7b-chat'
+    hdfs_path = 'Qwen/Qwen2-7B-Instruct'
     from verl.utils.fs import copy_local_path_from_hdfs
     local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
     tokenizer = AutoTokenizer.from_pretrained(local_model_path)
