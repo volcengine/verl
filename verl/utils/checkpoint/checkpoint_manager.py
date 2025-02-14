@@ -77,8 +77,17 @@ class BaseCheckpointManager:
             working_dir = os.getcwd()
             path = os.path.join(working_dir, path)
 
-        with FileLock(os.path.join(tempfile.gettempdir(), path + '.lock')):
-            # make a new dir
+        # Using hash value of path as lock file name to avoid long file name
+        lock_filename = f"ckpt_{hash(path) & 0xFFFFFFFF:08x}.lock"
+        lock_path = os.path.join(tempfile.gettempdir(), lock_filename)
+
+        try:
+            with FileLock(lock_path, timeout=60):  # Add timeout
+                # make a new dir
+                os.makedirs(path, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: Failed to acquire lock for {path}: {e}")
+            # Even if the lock is not acquired, try to create the directory
             os.makedirs(path, exist_ok=True)
 
         return path
