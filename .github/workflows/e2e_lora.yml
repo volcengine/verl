@@ -46,3 +46,4 @@ jobs:
         run: |
           ray stop --force
           bash tests/sft/run_sft_qwen05_peft.sh 8 $HOME/ckpts/
+          rm -rf $HOME/ckpts/*
