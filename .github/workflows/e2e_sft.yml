@@ -58,3 +58,4 @@ jobs:
         run: |
           ray stop --force
           bash tests/sft/run_sft_qwen05_sp2_liger.sh 8 $HOME/ckpts/
+          rm -rf $HOME/ckpts/
