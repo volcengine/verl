@@ -51,7 +51,7 @@ dependencies = [
 test = [
   "pytest", "yapf"
 ]
-prime = ["pyest"]
+prime = ["pyext"]
 
 # URLs
 [project.urls]
