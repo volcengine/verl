@@ -116,7 +116,7 @@ def strict_xml(text) -> float:
     if len(matches) == 1:
         reward += 0.5
 
-        reward -= (len(text.split("</answer>")[-1]) - 1)*0.001
+        # reward -= (len(text.split("</answer>")[-1]) - 1)*0.001
 
     return reward
 

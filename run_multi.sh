@@ -1,11 +1,3 @@
-git config --global credential.helper cache
-
-pip install pylatexenc
-
-# login to huggingface and wandb
-huggingface-cli login --token $HF_TOKEN --add-to-git-credential
-wandb login $WANDB_TOKEN
-
 ibstatus
 
 nvidia-smi topo -m
@@ -40,8 +32,8 @@ ray status
 # submit the job to ray
 python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/data/data/aimo_math/train.parquet \
-    data.val_files=/mnt/data/data/aimo_math/test.parquet \
+    data.train_files=/mnt/data/data/phi_math/train.parquet \
+    data.val_files=/mnt/data/data/phi_math/test.parquet \
     data.train_batch_size=1024 \
     data.val_batch_size=1312 \
     data.max_prompt_length=512 \
@@ -68,9 +60,9 @@ python -m verl.trainer.main_ppo \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_grpo_aimo_math_dist' \
-    trainer.experiment_name='phi-4-aimo-math-gropo-dist' \
-    trainer.n_gpus_per_node=8 \
+    trainer.project_name='grpo_math_v8_dist' \
+    trainer.experiment_name='grpo_math_v8_dist' \
+    trainer.n_gpus_per_node=$GPUS \
     trainer.nnodes=$NODES \
     trainer.save_freq=100 \
     trainer.test_freq=10 \
