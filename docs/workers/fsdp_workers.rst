@@ -4,7 +4,7 @@ PyTorch FSDP Backend
 We support PyTorch FSDP Backend by implementing various workers for
 actor, critic, reference, rollout and reward models. We also implement
 the ``FSDPVLLMShardingManager`` that reshard weight between FSDP and
-vLLM in `fsdp_vllm.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/hybrid_engine/fsdp_vllm.py>`_.
+vLLM in `fsdp_vllm.py <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/fsdp_vllm.py>`_.
 
 **Pros**
 
