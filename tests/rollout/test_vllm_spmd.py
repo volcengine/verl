@@ -80,7 +80,7 @@ def test_vllm_spmd():
     hdfs_path = 'Qwen/Qwen2-7B-Instruct'
     from verl.utils.fs import copy_local_path_from_hdfs
     local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
-    tokenizer = AutoTokenizer.from_pretrained(local_model_path)
+    tokenizer = AutoTokenizer.from_pretrained(local_model_path, padding_side='left')
 
     preencode_prompts = [
         "Who won the Champions League in 2019?",
@@ -111,14 +111,14 @@ def test_vllm_spmd():
                   ignore_eos=True)
 
     sampling_params = SamplingParams(**kwargs)
-    tensor_parallel_size = 8
+    tensor_parallel_size = 4
 
     llm = LLM(model=local_model_path,
               enable_sleep_mode=True,
               tensor_parallel_size=tensor_parallel_size,
               distributed_executor_backend="external_launcher",
               dtype='bfloat16',
-              gpu_memory_utilization=0.1)
+              gpu_memory_utilization=0.5)
 
     print('start generation')
     input_ids = input_ids.cuda()
