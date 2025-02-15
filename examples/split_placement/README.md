@@ -44,7 +44,7 @@ def update_critic(self, data: DataProto):
     ...
 ```
 
-We can also parallelize the computation of `ref_log_prob` and `values` and `rewards` in the split placement. For simplicity of the tutorial, we 
+We can also parallelize the computation of `ref_log_prob` and `values` and `rewards` in the split placement. For simplicity of the tutorial, we don't do this in this example.
 
 ### Step 3: Execute these operation in parallel in the single controller process
 To implement the parallel execution of the actor and critic update, the only thing we need to modify in the `ray_trainer.py` is to `get` the concurrent  `futures` on the single controller process.
