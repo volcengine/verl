@@ -65,7 +65,7 @@ class NaiveRewardManager:
                 data_source=data_source,
                 solution_str=sequences_str,
                 ground_truth=ground_truth,
-                extra_info = extra_info,
+                extra_info=extra_info,
             )
             reward_tensor[i, valid_response_length - 1] = score
 
