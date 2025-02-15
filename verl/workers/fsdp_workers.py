@@ -461,6 +461,13 @@ class ActorRolloutRefWorker(Worker):
         }
         prompts.meta_info.update(meta_info)
         with self.rollout_sharding_manager:
+            
+            # after parameters sync with rollout, offload actor model to CPU
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            if self._is_offload_optimizer:
+                offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+            
             log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
@@ -472,8 +479,6 @@ class ActorRolloutRefWorker(Worker):
 
         output = output.to('cpu')
 
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
