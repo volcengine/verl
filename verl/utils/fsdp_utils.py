@@ -127,6 +127,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
     if empty_cache:
         torch.cuda.empty_cache()
 
+
 @torch.no_grad()
 def load_fsdp_model_to_gpu(model: FSDP):
     assert isinstance(model, FSDP)
@@ -141,6 +142,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
         handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
+
 
 @torch.no_grad()
 def offload_fsdp_optimizer(optimizer):
