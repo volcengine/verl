@@ -714,13 +714,19 @@ class RayPPOTrainer(object):
 
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
             self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps)
+        self.actor_rollout_wg.save_checkpoint(actor_local_path,
+                                              actor_remote_path,
+                                              self.global_steps,
+                                              remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, 'critic')
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
+            self.critic_wg.save_checkpoint(critic_local_path,
+                                           critic_remote_path,
+                                           self.global_steps,
+                                           remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
@@ -770,10 +776,12 @@ class RayPPOTrainer(object):
         actor_path = os.path.join(global_step_folder, 'actor')
         critic_path = os.path.join(global_step_folder, 'critic')
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path)
+        self.actor_rollout_wg.load_checkpoint(actor_path,
+                                              del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
         # load critic
         if self.use_critic:
-            self.critic_wg.load_checkpoint(critic_path)
+            self.critic_wg.load_checkpoint(critic_path,
+                                           del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
         # load dataloader,
         # TODO: from remote not implemented yet
