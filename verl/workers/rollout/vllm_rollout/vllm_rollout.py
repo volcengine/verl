@@ -104,7 +104,7 @@ class vLLMRollout(BaseRollout):
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             swap_space=32,
-            # cpu_offload_gb=40,
+            cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,
             enable_prefix_caching=False,
             # preemption_mode="RECOMPUTE",

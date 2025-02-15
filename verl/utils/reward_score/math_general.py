@@ -59,7 +59,7 @@ async def compute_acc_reward(solution_str, ground_truth):
                     resp_json = await response.json()
                     retval = resp_json['LaTeXAgreementScore']
                     return retval
-            except aiohttp.ClientError as e:
+            except Exception as e:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, max_delay)
 
@@ -128,7 +128,7 @@ async def compute_score(solution_str, ground_truth):
     # Remove the prompt from the completion.
     if "<|im_start|>assistant<|im_end|>" in solution_str:
         solution_str = solution_str.split("<|im_start|>assistant<|im_end|>")[1]
-    solution_str = solution_str.replace("<|im_end|>", "").strip()
+    solution_str = solution_str.replace("<|im_end|>", "").replace("<|dummy_87|>", "").strip()
 
 
     # If the split is test, we can directly compare the completion with the ground truth.
