@@ -13,14 +13,17 @@ conda activate verl
 git clone https://github.com/volcengine/verl.git
 cd verl
 pip3 install -e .
+
 # Install vLLM>=0.7
-pip3 install "vllm>=0.7.0"
+# (Option1) pip3 install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
+# (Option2) pip3 install "vllm>=0.7.0" 
+
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
 
 ```
 
-For existing stable vllm versions (<=0.7.2), you also need to make some tiny patches manually on vllm (/path/to/site-packages/vllm after installation) after the above steps:
+Note that if you are installing stable versions of vLLM (Option2), you need to make some tiny patches manually on vllm (/path/to/site-packages/vllm after installation) after the above steps:
 
 - vllm/distributed/parallel_state.py: Remove the assertion below:
 
@@ -37,7 +40,7 @@ if (world_size
 - vllm/executor/uniproc_executor.py: change `local_rank = rank` to `local_rank = int(os.environ["LOCAL_RANK"])`
 - vllm/model_executor/model_loader/weight_utils.py: remove the `torch.cuda.empty_cache()` in `pt_weights_iterator`
 
-These modifications have already been merged into the main branch of vLLM. To avoid modifying these files manually, you can directly build vLLM from source.
+These modifications have already been merged into the main branch of vLLM. Thus nightly vLLM or building vLLM from source do not need these patches.
 
 ## Features
 
