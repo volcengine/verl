@@ -40,11 +40,10 @@ dependencies = [
     "ray>=2.38",
     "tensordict",
     "transformers<4.48",
-    "vllm<=0.7.3",
+    "vllm<=0.6.3",
     "peft",
     "liger-kernel",
     "pylatexenc",
-    "pyext"
 ]
 
 # Optional dependencies (extras_require in setup.py)
@@ -52,6 +51,7 @@ dependencies = [
 test = [
   "pytest", "yapf"
 ]
+prime = ["pyext"]
 
 # URLs
 [project.urls]
