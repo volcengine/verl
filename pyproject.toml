@@ -44,7 +44,6 @@ dependencies = [
     "peft",
     "liger-kernel",
     "pylatexenc",
-    "pyext"
 ]
 
 # Optional dependencies (extras_require in setup.py)
@@ -52,6 +51,7 @@ dependencies = [
 test = [
   "pytest", "yapf"
 ]
+prime = ["pyext"]
 
 # URLs
 [project.urls]
