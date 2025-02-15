@@ -37,7 +37,7 @@ if (world_size
 - vllm/executor/uniproc_executor.py: change `local_rank = rank` to `local_rank = int(os.environ["LOCAL_RANK"])`
 - vllm/model_executor/model_loader/weight_utils.py: remove the `torch.cuda.empty_cache()` in `pt_weights_iterator`
 
-These modifications have already been merged into the main branch of vLLM. To avoid modifying these files manually, you can directly build vLLM from source.
+These modifications have already been merged into the main branch of vLLM. To avoid modifying these files manually, you can build the nightly version of vLLM through `pip3 install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly`, or directly build vLLM from source.
 
 ## Features
 
