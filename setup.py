@@ -21,14 +21,33 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
+install_requires = [
+  'accelerate',
+  'codetiming',
+  'datasets',
+  'dill',
+  'hydra-core',
+  'numpy',
+  'pandas',
+  'peft',
+  'pyarrow>=15.0.0',
+  'pybind11',
+  'pylatexenc',
+  'ray>=2.10',
+  'tensordict<0.6',
+  'transformers',
+  'vllm<=0.6.3.post1',
+  'wandb',
+]
 
-with open('requirements.txt') as f:
-    required = f.read().splitlines()
-    install_requires = [item.strip() for item in required if item.strip()[0] != '#']
+TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
+PRIME_REQUIRES = ['pyext']
+GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 
 extras_require = {
-    'test': ['pytest', 'yapf'],
-    'prime': ['pyext'],
+  'test': TEST_REQUIRES,
+  'prime': PRIME_REQUIRES,
+  'gpu': GPU_REQUIRES,
 }
 
 from pathlib import Path
