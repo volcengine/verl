@@ -36,22 +36,25 @@ dependencies = [
     "dill",
     "hydra-core",
     "numpy",
-    "pybind11",
-    "ray>=2.38",
-    "tensordict",
-    "transformers<4.48",
-    "vllm<=0.6.3",
+    "pandas",
     "peft",
-    "liger-kernel",
+    "pyarrow>=15.0.0",
+    "pybind11",
     "pylatexenc",
+    "ray>=2.10",
+    "tensordict<0.6",
+    "transformers",
+    "vllm<=0.6.3.post1",
+    'wandb',
 ]
 
 # Optional dependencies (extras_require in setup.py)
 [project.optional-dependencies]
 test = [
-  "pytest", "yapf"
+  "pytest", "yapf", "py-spy",
 ]
 prime = ["pyext"]
+gpu = ["liger-kernel", "flash-attn"]
 
 # URLs
 [project.urls]
