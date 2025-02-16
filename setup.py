@@ -21,7 +21,7 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
-REQUIRES = [
+install_requires = [
   'accelerate',
   'codetiming',
   'datasets',
