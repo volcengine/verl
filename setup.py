@@ -42,12 +42,12 @@ install_requires = [
 
 TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
 PRIME_REQUIRES = ['pyext']
-FULL_REQUIRES = TEST_REQUIRES + PRIME_REQUIRES + ['liger-kernel', 'flash-attn']
+GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 
 extras_require = {
   'test': TEST_REQUIRES,
   'prime': PRIME_REQUIRES,
-  'full': FULL_REQUIRES,
+  'gpu': GPU_REQUIRES,
 }
 
 from pathlib import Path
