@@ -38,9 +38,8 @@ Image and tag: ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`
 
 .. code:: bash
 
-    # install the nightly version (recommended)
-    git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
-    # or install from pypi via `pip3 install verl`
+    # install the stable version
+    pip3 install verl
 
 
 3. Setup Megatron (optional)
@@ -83,9 +82,7 @@ own post-training jobs.
    # install verl together with some lightweight dependencies in setup.py
    pip3 install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu124
    pip3 install flash-attn --no-build-isolation
-   git clone https://github.com/volcengine/verl.git
-   cd verl
-   pip3 install -e .
+   pip3 install verl
 
 
 Megatron is optional. It's dependencies can be setup as below:
