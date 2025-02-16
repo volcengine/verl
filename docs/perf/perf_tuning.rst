@@ -42,6 +42,8 @@ Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend
 More tuning details such as dealing with Preemption and Chunked-prefill
 can be found in `vLLM official tuning guide <https://docs.vllm.ai/en/latest/performance/optimization.html>`_ 
 
+The performance of vllm can be further increased if upgrading from v0.6.3 to v0.7. See https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md for details on how to upgrade.
+
 Enable remove padding (sequence packing)
 -----------------------------------------
 
