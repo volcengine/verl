@@ -34,7 +34,6 @@ dependencies = [
     "codetiming",
     "datasets",
     "dill",
-    "flash-attn",
     "hydra-core",
     "numpy",
     "pandas",
@@ -55,7 +54,7 @@ test = [
   "pytest", "yapf", "py-spy",
 ]
 prime = ["pyext"]
-full = ["pytest", "yapf", "py-spy", "pyext", "liger-kernel"]
+full = ["pytest", "yapf", "py-spy", "pyext", "liger-kernel", "flash-attn"]
 
 # URLs
 [project.urls]

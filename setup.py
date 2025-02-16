@@ -26,7 +26,6 @@ install_requires = [
   'codetiming',
   'datasets',
   'dill',
-  'flash-attn',
   'hydra-core',
   'numpy',
   'pandas',
@@ -43,7 +42,7 @@ install_requires = [
 
 TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
 PRIME_REQUIRES = ['pyext']
-FULL_REQUIRES = TEST_REQUIRES + PRIME_REQUIRES + ['liger-kernel']
+FULL_REQUIRES = TEST_REQUIRES + PRIME_REQUIRES + ['liger-kernel', 'flash-attn']
 
 extras_require = {
   'test': TEST_REQUIRES,
