@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
+from copy import deepcopy
 
 import numpy as np
 from codetiming import Timer
@@ -152,6 +153,22 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         response_mask = attention_mask[:, -response_length:]
         advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
             token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
+    elif adv_estimator == 'remax':
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+
+        reward_baselines = data.batch['reward_baselines']
+
+        advantages, returns = core_algos.compute_remax_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                         reward_baselines=reward_baselines,
+                                                                         eos_mask=response_mask)
+
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
@@ -354,6 +371,8 @@ class RayPPOTrainer(object):
         elif self.config.algorithm.adv_estimator == 'grpo':
             self.use_critic = False
         elif self.config.algorithm.adv_estimator == 'reinforce_plus_plus':
+            self.use_critic = False
+        elif self.config.algorithm.adv_estimator == 'remax':
             self.use_critic = False
         else:
             raise NotImplementedError
@@ -695,13 +714,19 @@ class RayPPOTrainer(object):
 
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
             self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps)
+        self.actor_rollout_wg.save_checkpoint(actor_local_path,
+                                              actor_remote_path,
+                                              self.global_steps,
+                                              remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, 'critic')
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
-            self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps)
+            self.critic_wg.save_checkpoint(critic_local_path,
+                                           critic_remote_path,
+                                           self.global_steps,
+                                           remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
@@ -751,10 +776,12 @@ class RayPPOTrainer(object):
         actor_path = os.path.join(global_step_folder, 'actor')
         critic_path = os.path.join(global_step_folder, 'critic')
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path)
+        self.actor_rollout_wg.load_checkpoint(actor_path,
+                                              del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
         # load critic
         if self.use_critic:
-            self.critic_wg.load_checkpoint(critic_path)
+            self.critic_wg.load_checkpoint(critic_path,
+                                           del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
         # load dataloader,
         # TODO: from remote not implemented yet
@@ -825,6 +852,22 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+
+                    if self.config.algorithm.adv_estimator == 'remax':
+                        with _timer('gen_max', timing_raw):
+                            gen_baseline_batch = deepcopy(gen_batch)
+                            gen_baseline_batch.meta_info['do_sample'] = False
+                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
+                            batch = batch.union(gen_baseline_output)
+                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
+
+                            del gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
@@ -929,4 +972,8 @@ class RayPPOTrainer(object):
                         val_metrics = self._validate()
                         pprint(f'Final validation metrics: {val_metrics}')
                         logger.log(data=val_metrics, step=self.global_steps)
+                    if self.config.trainer.save_freq > 0 and \
+                            (self.global_steps - 1) % self.config.trainer.save_freq != 0:
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
                     return

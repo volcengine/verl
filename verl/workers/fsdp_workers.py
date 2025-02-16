@@ -309,13 +309,23 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
             log_gpu_memory_usage('Before building vllm rollout', logger=None)
-            rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
-                                  config=self.config.rollout,
-                                  tokenizer=self.tokenizer,
-                                  model_hf_config=self.actor_model_config)
+            local_path = copy_local_path_from_hdfs(self.config.model.path)
+            if vllm_mode == 'customized':
+                rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config)
+            elif vllm_mode == 'spmd':
+                rollout = vLLMRollout(model_path=local_path,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config,
+                                      device_mesh=rollout_device_mesh)
+            else:
+                raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage('After building vllm rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
@@ -554,7 +564,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
         # only support save and load ckpt for actor
         assert self._is_actor
         import torch
@@ -563,14 +573,17 @@ class ActorRolloutRefWorker(Worker):
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step)
+        self.checkpoint_manager.save_checkpoint(local_path=local_path,
+                                                hdfs_path=hdfs_path,
+                                                global_step=global_step,
+                                                remove_previous_ckpt=remove_previous_ckpt)
 
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, path, del_local_after_load=True):
+    def load_checkpoint(self, path, del_local_after_load=False):
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
                                      device_id=torch.cuda.current_device(),
@@ -830,14 +843,17 @@ class CriticWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
                                      device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step)
+        self.checkpoint_manager.save_checkpoint(local_path=local_path,
+                                                hdfs_path=hdfs_path,
+                                                global_step=global_step,
+                                                remove_previous_ckpt=remove_previous_ckpt)
 
         torch.distributed.barrier()
         if self._is_offload_param:

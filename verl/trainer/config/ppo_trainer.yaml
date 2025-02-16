@@ -144,6 +144,7 @@ reward_model:
   ulysses_sequence_parallel_size: 1 # sp size
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
+  reward_manager: naive
 
 algorithm:
   gamma: 1.0
@@ -170,4 +171,6 @@ trainer:
   test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null
+  remove_previous_ckpt_in_save: False
+  del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

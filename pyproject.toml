@@ -43,6 +43,7 @@ dependencies = [
     "vllm<=0.6.3",
     "peft",
     "liger-kernel",
+    "pylatexenc",
 ]
 
 # Optional dependencies (extras_require in setup.py)
@@ -50,6 +51,7 @@ dependencies = [
 test = [
   "pytest", "yapf"
 ]
+prime = ["pyext"]
 
 # URLs
 [project.urls]

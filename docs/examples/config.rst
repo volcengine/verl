@@ -292,6 +292,7 @@ Reward Model
          param_offload: False
      micro_batch_size_per_gpu: 16
      max_length: null
+     reward_manager: naive
 
 - ``reward_model.enable``: Whether to enable reward model. If False, we
   compute the reward only with the user-defined reward functions. In
@@ -307,6 +308,10 @@ Reward Model
   - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
+- ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
+  of computing rule-based reward and handling different reward sources. Default
+  if ``naive``. If all verification functions are multiprocessing-safe, the reward
+  manager can be set to ``prime`` for parallel verification.
 
 Algorithm
 ~~~~~~~~~

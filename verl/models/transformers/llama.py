@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import torch
-from typing import Optional, List, Union, Tuple, Unpack, Callable
+from typing import Optional, List, Union, Tuple, Callable
+import sys
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 from transformers.cache_utils import Cache

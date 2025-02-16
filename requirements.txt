@@ -12,8 +12,7 @@ pybind11
 ray>=2.38
 tensordict<0.6
 transformers<4.48
-vllm<=0.6.3
+vllm
 wandb
 liger-kernel
 pylatexenc
-pyext
