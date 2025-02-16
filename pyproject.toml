@@ -34,16 +34,18 @@ dependencies = [
     "codetiming",
     "datasets",
     "dill",
+    "flash-attn",
     "hydra-core",
     "numpy",
-    "pybind11",
-    "ray>=2.38",
-    "tensordict",
-    "transformers<4.48",
-    "vllm<=0.6.3",
+    "pandas",
     "peft",
-    "liger-kernel",
+    "pyarrow>=15.0.0",
+    "pybind11",
     "pylatexenc",
+    "ray>=2.38",
+    "tensordict<0.6",
+    "transformers<4.48",
+    "vllm",
 ]
 
 # Optional dependencies (extras_require in setup.py)
@@ -52,6 +54,7 @@ test = [
   "pytest", "yapf"
 ]
 prime = ["pyext"]
+full = test + prime + ["liger-kernel"]
 
 # URLs
 [project.urls]

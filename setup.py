@@ -26,9 +26,14 @@ with open('requirements.txt') as f:
     required = f.read().splitlines()
     install_requires = [item.strip() for item in required if item.strip()[0] != '#']
 
+TEST_REQUIRES = ['pytest', 'yapf']
+PRIME_REQUIRES = ['pyext']
+FULL_REQUIRES = TEST_REQUIRES + PRIME_REQUIRES + ['liger-kernel']
+
 extras_require = {
-    'test': ['pytest', 'yapf'],
-    'prime': ['pyext'],
+    'test': TEST_REQUIRES,
+    'prime': PRIME_REQUIRES,
+    'full': FULL_REQUIRES,
 }
 
 from pathlib import Path
