@@ -74,14 +74,14 @@ def compute_format_reward(solution_str):
 
 def strict_format_reward_func(completions, **kwargs) -> list[float]:
     """Reward function that checks if the completion has a specific format."""
-    pattern = r"^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>\s*$"
+    pattern = r"^<think>.*?</think>.*\\boxed\{.*\}.*<\|im_end\|>$"
     responses = [completion for completion in completions]
     matches = [re.match(pattern, r, re.DOTALL) for r in responses]
     return [1. if match else 0.0 for match in matches]
 
 def soft_format_reward_func(completions, **kwargs) -> list[float]:
     """Reward function that checks if the completion has a specific format."""
-    pattern = r"<think>.*?</think>\s*<answer>.*?</answer>"
+    pattern = r"<think>.*?</think>.*\\boxed\{.*\}.*<\|im_end\|>"
     responses = [completion for completion in completions]
     matches = [re.match(pattern, r, re.DOTALL) for r in responses]
     return [1. if match else 0.0 for match in matches]
@@ -111,7 +111,7 @@ def strict_xml(text) -> float:
         reward += 0.5
     
     # check if the answer tag only occurs once
-    pattern = r"<answer>.*?</answer>"
+    pattern = r"\\boxed{.*}.*<\|im_end\|>"
     matches = re.findall(pattern, text, re.DOTALL)
     if len(matches) == 1:
         reward += 0.5
@@ -126,19 +126,25 @@ async def compute_score(solution_str, ground_truth):
     split, ground_truth = ground_truth.split("######")
 
     # Remove the prompt from the completion.
-    if "<|im_start|>assistant<|im_end|>" in solution_str:
-        solution_str = solution_str.split("<|im_start|>assistant<|im_end|>")[1]
-    solution_str = solution_str.replace("<|im_end|>", "").replace("<|dummy_87|>", "").strip()
+    if "<|im_start|>assistant<|im_sep|>" in solution_str:
+        solution_str = solution_str.split("<|im_start|>assistant<|im_sep|>")[1]
 
+    strict_format_reward = strict_format_reward_func([solution_str])[0]
+    soft_format_reward = soft_format_reward_func([solution_str])[0]
+
+    # xml_reward = count_xml(solution_str)
+    xml_reward = strict_xml(solution_str)
+
+    # Remove the think tag from the completion.
+    solution_str = solution_str.split("</think>")[-1]
+    
+    # Remove the end tag from the completion.
+    solution_str = solution_str.replace("<|im_end|>", "").strip()
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
         return await compute_acc_reward(solution_str, ground_truth)
 
-    strict_format_reward = strict_format_reward_func([solution_str])[0]
-    soft_format_reward = soft_format_reward_func([solution_str])[0]
-    # xml_reward = count_xml(solution_str)
-    xml_reward = strict_xml(solution_str)
     acc_reward = await compute_acc_reward(solution_str, ground_truth)
 
 

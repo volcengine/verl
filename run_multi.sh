@@ -13,13 +13,13 @@ echo "AMLT_OUTPUT_DIR=$AMLT_OUTPUT_DIR"
 # Set run variables
 export RUN_NAME=grpo_math_v8_dist
 export RUN_N=32
-export MAX_RESPONSE_LENGTH=7680
-export PPO_MAX_TOKEN_LENGTH=3072
-export BATCH_SIZE=1024
+export MAX_RESPONSE_LENGTH=14336
+export PPO_MAX_TOKEN_LENGTH=40960
+export BATCH_SIZE=2048
 export LR=4e-6
 export TENSOR_PARALLEL_SIZE=2
-# export FP8_ADAM=true
-# export FP8_KVCACHE=true
+export FP8_ADAM=true
+export FP8_KVCACHE=true
 
 # if node rank is 0, start ray as head
 if [ $NODE_RANK -eq 0 ]; then

@@ -31,7 +31,6 @@ CMD="python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=$((RUN_N)) \
-    actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
@@ -59,3 +58,4 @@ CMD="$CMD $@"
 
 eval $CMD
     # actor_rollout_ref.model.path=/mnt/models/phi-4 \
+    # actor_rollout_ref.rollout.enable_chunked_prefill=False \
