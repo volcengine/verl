@@ -42,10 +42,11 @@ dependencies = [
     "pyarrow>=15.0.0",
     "pybind11",
     "pylatexenc",
-    "ray>=2.38",
+    "ray>=2.10",
     "tensordict<0.6",
     "transformers<4.48",
-    "vllm",
+    "vllm<=0.6.3",
+    'wandb',
 ]
 
 # Optional dependencies (extras_require in setup.py)
