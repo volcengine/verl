@@ -14,22 +14,16 @@
 """
 Using FSDPTrainer
 """
-import re
 import os
 import hydra
-import numpy as np
 import ray
 import torch
-from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer, AutoTokenizer
 
-import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.model import compute_position_id_with_mask
 from tests.e2e.envs.digit_completion import CharTokenizer
-import pandas as pd
 
 
 def make_reward_function(tokenizer, num_examine):

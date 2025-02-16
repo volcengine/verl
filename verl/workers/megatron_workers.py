@@ -223,7 +223,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
 
@@ -247,6 +247,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             params = normalize_pp_vpp_params(params=params,
                                              num_hidden_layers=self.actor_model_config.num_hidden_layers,
                                              layer_name='layers')
+            assert vllm_mode == 'customized', "Support for vllm>=0.7 for Megatron-LM backend has not been implemented yet."
             rollout = vLLMRollout(actor_module=params,
                                   config=self.config.rollout,
                                   tokenizer=self.tokenizer,
@@ -415,15 +416,15 @@ class ActorRolloutRefWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_pretrained_model(self, checkpoint_path):
+    def load_pretrained_model(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path):
+    def save_checkpoint(self, checkpoint_path, **kwargs):
         assert self._is_actor
         pass
 
@@ -590,11 +591,11 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path):
+    def save_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
 
