@@ -55,7 +55,7 @@ test = [
   "pytest", "yapf"
 ]
 prime = ["pyext"]
-full = test + prime + ["liger-kernel"]
+full = ["pytest", "yapf", "pyext", "liger-kernel"]
 
 # URLs
 [project.urls]
