@@ -22,7 +22,6 @@ with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
 install_requires = [
-  'torch',
   'accelerate',
   'codetiming',
   'datasets',
@@ -37,19 +36,19 @@ install_requires = [
   'pylatexenc',
   'ray>=2.10',
   'tensordict<0.6',
-  'transformers<4.48',
+  'transformers',
   'vllm<=0.6.3',
   'wandb',
 ]
 
-TEST_REQUIRES = ['pytest', 'yapf']
+TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
 PRIME_REQUIRES = ['pyext']
 FULL_REQUIRES = TEST_REQUIRES + PRIME_REQUIRES + ['liger-kernel']
 
 extras_require = {
-    'test': TEST_REQUIRES,
-    'prime': PRIME_REQUIRES,
-    'full': FULL_REQUIRES,
+  'test': TEST_REQUIRES,
+  'prime': PRIME_REQUIRES,
+  'full': FULL_REQUIRES,
 }
 
 from pathlib import Path

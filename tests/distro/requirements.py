@@ -15,11 +15,7 @@ def extract_install_requires(setup_py_path):
     # Locate the setup() function call
     setup_call = None
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "setup"
-        ):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setup"):
             setup_call = node
             break
 
@@ -50,16 +46,10 @@ def extract_install_requires(setup_py_path):
                                     requires.append(element.value)
                             return requires
                         else:
-                            raise ValueError(
-                                f"install_requires references non-list variable {var_name}"
-                            )
+                            raise ValueError(f"install_requires references non-list variable {var_name}")
         raise ValueError(f"Variable {var_name} not found in setup.py")
     elif isinstance(install_requires, ast.List):
-        return [
-            element.value
-            for element in install_requires.elts
-            if isinstance(element, ast.Constant)
-        ]
+        return [element.value for element in install_requires.elts if isinstance(element, ast.Constant)]
     else:
         raise ValueError("install_requires must be a list or variable referencing a list")
 
@@ -78,8 +68,6 @@ def test_dependencies_consistent():
     toml_deps = pyproject_data["project"]["dependencies"]
 
     # Assert equality to ensure consistency
-    assert setup_deps == toml_deps, (
-        "Please make sure dependencies in setup.py and pyproject.toml matches.\n"
-        f"setup.py: {setup_deps}\n"
-        f"pyproject.toml: {toml_deps}"
-    )
+    assert setup_deps == toml_deps, ("Please make sure dependencies in setup.py and pyproject.toml matches.\n"
+                                     f"setup.py: {setup_deps}\n"
+                                     f"pyproject.toml: {toml_deps}")
