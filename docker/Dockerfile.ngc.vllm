@@ -1,4 +1,4 @@
-# docker buildx build --platform linux/x86_64 -t "verlai/verl:ngc-th2.4.0-cu124-vllm0.6.3-te1.7-v0.0.4" -f docker/Dockerfile.ngc.vllm . --builder cloud-verlai-verl-builder --progress=plain --push
+# docker buildx build --platform linux/x86_64 -t "verlai/verl:ngc-th2.4.0-cu124-vllm0.6.3-ray2.4-te1.7-v0.0.6" -f docker/Dockerfile.ngc.vllm . --builder cloud-verlai-verl-builder --progress=plain --push
 FROM nvcr.io/nvidia/pytorch:24.05-py3
 
 # uninstall nv-pytorch fork
