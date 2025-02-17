@@ -14,22 +14,16 @@
 """
 Using FSDPTrainer
 """
-import re
 import os
 import hydra
-import numpy as np
 import ray
 import torch
-from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizer, AutoTokenizer
 
-import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.model import compute_position_id_with_mask
 from tests.e2e.envs.digit_completion import CharTokenizer
-import pandas as pd
 
 
 def make_reward_function(tokenizer, num_examine):
@@ -88,7 +82,7 @@ def make_reward_function(tokenizer, num_examine):
     return arithmetic_sequence_reward_function
 
 
-@hydra.main(config_path='config', config_name='ray_trainer', version_base=None)
+@hydra.main(config_path='../../../../verl/trainer/config', config_name='ppo_trainer', version_base=None)
 def main(config):
     ray.init(
         runtime_env={
@@ -105,21 +99,13 @@ def main(config):
     from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
 
-    dp_size = config.trainer.n_gpus_per_node * config.trainer.nnodes
-    # normalize batch_size
-    # TODO: move this inside each role
-    config.actor_rollout_ref.actor.ppo_mini_batch_size //= dp_size
-    config.actor_rollout_ref.actor.ppo_micro_batch_size //= dp_size
-    config.critic.ppo_micro_batch_size //= dp_size
-    config.actor_rollout_ref.rollout.micro_batch_size //= dp_size
-
     # print the config
     # print initial config
     print('Config after normalizing batch_size')
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
 
     # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.tokenizer_path)
+    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
     local_path = os.path.expanduser(local_path)
     # instantiate tokenizern
     tokenizer = AutoTokenizer.from_pretrained(local_path)

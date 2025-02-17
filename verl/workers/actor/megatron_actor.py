@@ -23,7 +23,6 @@ from functools import partial
 from typing import Iterable, Dict
 
 import torch
-import torch_npu
 from torch import nn
 import torch.distributed
 # from megatron import get_args
@@ -55,7 +54,7 @@ class MegatronPPOActor(BasePPOActor):
         Args:
             config (OmegaConf): the basic config that contains the hyper-parameters of PPO Actor. It must contain
 
-                ``ppo_micro_batch_size_per_gpu``: minibatch size when updating ppo.
+                ``ppo_micro_batch_size_per_gpu``: micro batch size when updating ppo.
 
                 ``ppo_mini_batch_size``: minibatch size when updating ppo using the batch data.
 
@@ -127,10 +126,11 @@ class MegatronPPOActor(BasePPOActor):
             'pipeline_model_parallel_split_rank': None,
             'reduce_grads_use_alltoall': False
         })
-        
+
     def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
-        
+
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -188,7 +188,7 @@ class MegatronPPOActor(BasePPOActor):
                                             async_op=False)
 
         # add empty cache after each compute
-        torch_npu.npu.empty_cache()
+        torch.cuda.empty_cache()
 
         return log_probs
 
@@ -365,6 +365,6 @@ class MegatronPPOActor(BasePPOActor):
                 raise NotImplementedError
 
         # add empty cache after each compute
-        torch_npu.npu.empty_cache()
+        torch.cuda.empty_cache()
 
         return metrics

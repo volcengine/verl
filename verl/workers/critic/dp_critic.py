@@ -31,7 +31,7 @@ from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 
-from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 __all__ = ['DataParallelPPOCritic']
 
@@ -49,7 +49,7 @@ class DataParallelPPOCritic(BasePPOCritic):
 
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
-        with torch.autocast(device_type='npu', dtype=torch.bfloat16):
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
@@ -66,13 +66,11 @@ class DataParallelPPOCritic(BasePPOCritic):
 
                 # pad and slice the inputs if sp > 1
                 if self.ulysses_sequence_parallel_size > 1:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad,
-                                                                                                 position_ids_rmpad,
-                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
+                                                                                                position_ids_rmpad, \
+                                                                                                sp_size=self.ulysses_sequence_parallel_size)
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
-                input_ids_rmpad = input_ids_rmpad.long()
-                position_ids_rmpad = position_ids_rmpad.long()
                 output = self.critic_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
                                             position_ids=position_ids_rmpad,
@@ -91,8 +89,6 @@ class DataParallelPPOCritic(BasePPOCritic):
                 values = pad_input(values_rmpad, indices=indices, batch=batch, seqlen=seqlen).squeeze(-1)
                 values = values[:, -response_length - 1:-1]
             else:
-                input_ids = input_ids.long()
-                position_ids = position_ids.long()
                 output = self.critic_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids,
@@ -168,7 +164,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             self.critic_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.to("npu")  # critic device is cpu when using offload
+                data = data.cuda()  # critic device is cpu when using offload
                 input_ids = data['input_ids']
                 responses = data['responses']
                 attention_mask = data['attention_mask']
@@ -189,9 +185,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                                                                      eos_mask=eos_mask,
                                                                      cliprange_value=self.config.cliprange_value)
                 if self.config.use_dynamic_bsz:
+                    # relative to the dynamic bsz
                     loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
                 else:
                     loss = vf_loss / self.gradient_accumulation
+
                 loss.backward()
 
                 data = {

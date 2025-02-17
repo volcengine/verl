@@ -22,13 +22,13 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     optim.lr=1e-4 \
     +data.prompt_dict_keys=['question'] \
     +data.response_dict_keys=['answer'] \
-    data.micro_batch_size=32 \
+    data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=Qwen/Qwen2.5-0.5B-Instruct \
     trainer.default_local_dir=$save_path \
     trainer.project_name=gsm8k-sft \
     trainer.experiment_name=gsm8k-sft-qwen-2.5-0.5b-instruct \
     trainer.logger=['console'] \
-    trainer.total_training_steps=1 \
+    trainer.total_epochs=1 \
     trainer.default_hdfs_dir=null $@ \
     model.lora_rank=32\
     model.lora_alpha=16 \

@@ -41,8 +41,12 @@ def test_union_tensor_dict():
         data = union_tensor_dict(data1, data_with_copied_obs)
 
     data = np.random.random(100)
-    a = {'a': data}
-    b = {'a': data}
+    data2 = [float('nan') for _ in range(99)]
+    data2.append('nan')
+    data2 = np.array(data2, dtype=object)
+    data3 = np.tile(data2, (2, 1))
+    a = {'a': data, 'b': data2, 'c': data3}
+    b = {'a': data, 'b': data2, 'c': data3}
     b_ = {'a': np.random.random(100)}
     union_numpy_dict(a, b)
     with pytest.raises(AssertionError):
@@ -193,6 +197,20 @@ def test_dataproto_pad_unpad():
     expected_obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
     expected_labels = ['a', 'b', 'c']
 
+    assert torch.all(torch.eq(padded_data.batch['obs'], expected_obs))
+    assert (padded_data.non_tensor_batch['labels'] == expected_labels).all()
+    assert padded_data.meta_info == {'info': 'test_info'}
+
+    unpadd_data = unpad_dataproto(padded_data, pad_size=pad_size)
+    assert torch.all(torch.eq(unpadd_data.batch['obs'], obs))
+    assert (unpadd_data.non_tensor_batch['labels'] == labels).all()
+    assert unpadd_data.meta_info == {'info': 'test_info'}
+
+    padded_data, pad_size = pad_dataproto_to_divisor(data, size_divisor=7)
+    assert pad_size == 4
+
+    expected_obs = torch.tensor([[1, 2], [3, 4], [5, 6], [1, 2], [3, 4], [5, 6], [1, 2]])
+    expected_labels = ['a', 'b', 'c', 'a', 'b', 'c', 'a']
     assert torch.all(torch.eq(padded_data.batch['obs'], expected_obs))
     assert (padded_data.non_tensor_batch['labels'] == expected_labels).all()
     assert padded_data.meta_info == {'info': 'test_info'}

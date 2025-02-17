@@ -35,7 +35,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, A
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, DistributedSampler
-from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
 from verl.utils.dataset import SFTDataset
@@ -214,6 +214,10 @@ class FSDPSFTTrainer(object):
                                                                                trust_remote_code=trust_remote_code)
 
             # Apply Liger kernel if use_liger is enabled
+            if self.config.model.get('use_liger', False):
+                from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
+                _apply_liger_kernel_to_instance(model=self.model)
+
             if self.config.model.get('lora_rank', 0) > 0:
                 self.model.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model

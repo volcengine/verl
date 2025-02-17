@@ -45,7 +45,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.model.path=sfairXC/FsfairX-LLaMA3-RM-v0.1\
     reward_model.model.use_remove_padding=True \
     reward_model.model.fsdp_config.param_offload=True \
-    reward_model.micro_batch_size=16 \
+    reward_model.micro_batch_size_per_gpu=32 \
     reward_model.use_dynamic_bsz=True \
     reward_model.forward_max_token_len_per_gpu=98304 \
     algorithm.kl_ctrl.kl_coef=0.001 \

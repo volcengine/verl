@@ -19,7 +19,6 @@ from functools import partial
 from typing import Iterable
 
 import torch
-import torch_npu
 import torch.distributed
 from omegaconf import OmegaConf
 from torch import nn
@@ -45,7 +44,6 @@ class MegatronPPOCritic(BasePPOCritic):
                  critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
         super().__init__(config=config)
         self._validate_config(config)
-
         self.model_config = model_config
         self.megatron_config = megatron_config
 
@@ -77,6 +75,7 @@ class MegatronPPOCritic(BasePPOCritic):
             raise NotImplementedError
 
     def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
 
     def compute_values(self, data: DataProto) -> DataProto:
@@ -104,7 +103,7 @@ class MegatronPPOCritic(BasePPOCritic):
                                         group=mpu.get_pipeline_model_parallel_group())
 
         # add empty cache after each compute
-        torch_npu.npu.empty_cache()
+        torch.cuda.empty_cache()
 
         return values
 
@@ -230,5 +229,5 @@ class MegatronPPOCritic(BasePPOCritic):
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
         # add empty cache after each compute
-        torch_npu.npu.empty_cache()
+        torch.cuda.empty_cache()
         return metrics

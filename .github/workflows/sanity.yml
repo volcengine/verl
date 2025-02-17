@@ -40,3 +40,7 @@ jobs:
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .
+      - name: Run dependency test
+        run: |
+          pip install tomli
+          pytest -s -x tests/distro/requirements.py

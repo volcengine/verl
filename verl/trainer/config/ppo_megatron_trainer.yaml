@@ -21,7 +21,7 @@ actor_rollout_ref:
   actor:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
-    ppo_micro_batch_size: null
+    ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
     use_dynamic_bsz: False
     clip_ratio: 0.2
@@ -51,10 +51,8 @@ actor_rollout_ref:
       seed: 1
     load_weight: True
     param_offload: False
-    log_prob_micro_batch_size: null
+    log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
-    disable_log_stats: True
-    enable_chunked_prefill: False
   rollout:
     name: vllm
     temperature: 1.0
@@ -72,7 +70,10 @@ actor_rollout_ref:
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
     max_num_seqs: 1024
-    log_prob_micro_batch_size: 2
+    log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+    log_prob_micro_batch_size_per_gpu: null
+    disable_log_stats: True
+    enable_chunked_prefill: False # could get higher throughput
     # for hf rollout
     do_sample: True
     layer_name_map:
@@ -104,7 +105,7 @@ critic:
     seed: 1
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
-  ppo_micro_batch_size: null
+  ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
@@ -129,7 +130,7 @@ reward_model:
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
   param_offload: False
-  micro_batch_size: null
+  micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
@@ -153,7 +154,8 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
-  resume_mode: disable
+  # auto: find the last ckpt to resume. If can't find, start from scratch
+  resume_mode: disable # or auto or resume_path if 
   resume_from_path: False
   test_freq: 2
   critic_warmup: 0

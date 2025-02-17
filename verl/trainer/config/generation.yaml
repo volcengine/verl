@@ -29,7 +29,7 @@ rollout:
   tensor_model_parallel_size: 1
   max_num_batched_tokens: 8192
   max_num_seqs: 1024
-  log_prob_micro_batch_size: null
+  log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
   log_prob_micro_batch_size_per_gpu: 8
   # for hf rollout
   do_sample: True

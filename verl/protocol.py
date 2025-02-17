@@ -18,6 +18,7 @@ We can subclass Protocol to define more detailed batch info with specific keys
 
 import pickle
 import numpy as np
+import pandas as pd
 import copy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Union
@@ -50,7 +51,13 @@ def pad_dataproto_to_divisor(data: 'DataProto', size_divisor: int):
     assert isinstance(data, DataProto), 'data must be a DataProto'
     if len(data) % size_divisor != 0:
         pad_size = size_divisor - len(data) % size_divisor
-        data_padded = DataProto.concat([data, data[:pad_size]])
+        padding_protos = []
+        remaining_pad = pad_size
+        while remaining_pad > 0:
+            take_size = min(remaining_pad, len(data))
+            padding_protos.append(data[:take_size])
+            remaining_pad -= take_size
+        data_padded = DataProto.concat([data] + padding_protos)
     else:
         pad_size = 0
         data_padded = data
@@ -82,7 +89,8 @@ def union_numpy_dict(tensor_dict1: dict[np.ndarray], tensor_dict2: dict[np.ndarr
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
-            assert np.all(tensor_dict2[key] == tensor_dict1[key]), \
+            # to properly deal with nan and object type
+            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), \
                 f'{key} in tensor_dict1 and tensor_dict2 are not the same object'
         tensor_dict1[key] = val
 
