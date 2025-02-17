@@ -20,6 +20,8 @@ import itertools
 import os
 from contextlib import contextmanager
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp._runtime_utils import _lazy_init
 from transformers.trainer_pt_utils import get_module_class_from_name
 import torch
 import torch.nn as nn
@@ -105,40 +107,44 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     return auto_wrap_policy
 
 
-def offload_fsdp_grad(module):
-    for _, param in module.named_parameters():
-        if param.grad is not None:
-            param.grad = param.grad.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
+@torch.no_grad()
+def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
+    assert isinstance(model, FSDP)
+    # lazy init FSDP model
+    _lazy_init(model, model)
+    assert model._is_root, f"Only support root model offloading to CPU"
+    for handle in model._all_handles:
+        if handle._offload_params:
+            continue
+        flat_param = handle.flat_param
+        assert flat_param.data.data_ptr() == flat_param._local_shard.data_ptr() and \
+            id(flat_param.data) != id(flat_param._local_shard) and \
+            flat_param.data.size() == flat_param._local_shard.size()
+        handle.flat_param_to(torch.device("cpu"), non_blocking=True)
+        # the following still keeps id(._local_shard) != id(.data)
+        flat_param._local_shard = flat_param.data
+        assert id(flat_param._local_shard) != id(flat_param.data)
+    if empty_cache:
+        torch.cuda.empty_cache()
 
 
-def load_fsdp_grad(module, device_id):
-    for _, param in module.named_parameters():
-        if param.grad is not None:
-            param.grad = param.grad.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
+@torch.no_grad()
+def load_fsdp_model_to_gpu(model: FSDP):
+    assert isinstance(model, FSDP)
+    # lazy init FSDP model
+    _lazy_init(model, model)
+    assert model._is_root, f"Only support root model loading to GPU"
+    device_id = torch.cuda.current_device()
+    for handle in model._all_handles:
+        if handle._offload_params:
+            continue
+        flat_param = handle.flat_param
+        handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        # the following still keeps id(._local_shard) != id(.data)
+        flat_param._local_shard = flat_param.data
 
 
-def offload_fsdp_param_and_grad(module, offload_grad=False):
-    for _, param in module.named_parameters():
-        if hasattr(param, "_local_shard"):
-            param._local_shard = param._local_shard.to("cpu", non_blocking=True)
-        param.data = param.data.to('cpu', non_blocking=True)
-        if offload_grad and param.grad is not None:
-            param.grad = param.grad.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
-
-
-def load_fsdp_param_and_grad(module, device_id, load_grad=False):
-    for _, param in module.named_parameters():
-        if hasattr(param, "_local_shard"):
-            param._local_shard = param._local_shard.to(device_id, non_blocking=True)
-        param.data = param.data.to(device_id, non_blocking=True)
-        if load_grad and param.grad is not None:
-            param.grad = param.grad.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
-
-
+@torch.no_grad()
 def offload_fsdp_optimizer(optimizer):
     for param_group in optimizer.param_groups:
         for param in param_group['params']:
@@ -146,9 +152,9 @@ def offload_fsdp_optimizer(optimizer):
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):
                     state[key] = value.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
 
 
+@torch.no_grad()
 def load_fsdp_optimizer(optimizer, device_id):
     for param_group in optimizer.param_groups:
         for param in param_group['params']:
@@ -156,7 +162,6 @@ def load_fsdp_optimizer(optimizer, device_id):
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):
                     state[key] = value.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
 
 
 @contextmanager
