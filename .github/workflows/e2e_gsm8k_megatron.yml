@@ -50,4 +50,5 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
+          export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
           bash tests/e2e/run_qwen_megatron.sh
