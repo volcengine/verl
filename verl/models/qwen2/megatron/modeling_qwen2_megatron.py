@@ -23,7 +23,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, parallel_state
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers.modeling_outputs import BaseModelOutputWithPast
@@ -513,7 +513,8 @@ class ParallelQwen2ModelRmPadPP(nn.Module):
 
 class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
-    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process,
+                 share_embeddings_and_output_weights):
         super().__init__()
         self.config = config
         self.megatron_config = megatron_config
@@ -521,12 +522,14 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
                                                megatron_config=megatron_config,
                                                pre_process=pre_process,
                                                post_process=post_process)
-        self.share_embeddings_and_output_weights = None  # workaround, megatron requires this attr
+        self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
         self.post_process = post_process
         if post_process:
             self._init_head()
+        if pre_process or post_process:
+            self.setup_embeddings_and_output_layer()
 
     def set_input_tensor(self, input_tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -549,12 +552,64 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
+                                                            skip_weight_param_allocation=self.pre_process and
+                                                            self.share_embeddings_and_output_weights,
                                                             **column_kwargs)
+
+    def setup_embeddings_and_output_layer(self) -> None:
+        """Sets up embedding layer in first stage and output layer in last stage.
+
+        This function initalizes word embeddings in the final stage when we are
+        using pipeline parallelism and sharing word embeddings, and sets up param
+        attributes on the embedding and output layers.
+        """
+        # Set `is_embedding_or_output_parameter` attribute.
+        if self.pre_process:
+            self.model.embed_tokens.weight.is_embedding_or_output_parameter = True
+        if self.post_process and self.lm_head.weight is not None:
+            self.lm_head.weight.is_embedding_or_output_parameter = True
+
+        if not self.share_embeddings_and_output_weights:
+            return
+
+        if parallel_state.get_pipeline_model_parallel_world_size() == 1:
+            # Zero out wgrad if sharing embeddings between two layers on same
+            # pipeline stage to make sure grad accumulation into main_grad is
+            # correct and does not include garbage values (e.g., from torch.empty).
+            self.shared_embedding_or_output_weight().zero_out_wgrad = True
+            return
+
+        if parallel_state.is_pipeline_first_stage() and self.pre_process and not self.post_process:
+            self.shared_embedding_or_output_weight().shared_embedding = True
+
+        if self.post_process and not self.pre_process:
+            assert not parallel_state.is_pipeline_first_stage()
+            # set word_embeddings weights to 0 here, then copy first
+            # stage's weights using all_reduce below.
+            self.lm_head.weight.data.fill_(0)
+            self.lm_head.weight.shared = True
+            self.lm_head.weight.shared_embedding = True
+
+        if torch.distributed.is_initialized():
+            if parallel_state.is_rank_in_embedding_group():
+                weight = self.shared_embedding_or_output_weight()
+                weight.data = weight.data.cuda()
+                torch.distributed.all_reduce(weight.data, group=parallel_state.get_embedding_group())
+
+    def shared_embedding_or_output_weight(self) -> torch.Tensor:
+        if self.pre_process:
+            return self.model.embed_tokens.weight
+        elif self.post_process:
+            return self.lm_head.weight
+        return None
 
     def _forward_head(self, hidden_states):
         # all_gather from sequence parallel region is performed inside lm_head
         # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = {self.config.vocab_size}') # [4, 32, 4096]
-        logits = self.lm_head(hidden_states)[0]
+        output_weight = None
+        if self.share_embeddings_and_output_weights:
+            output_weight = self.shared_embedding_or_output_weight()
+        logits = self.lm_head(hidden_states, weight=output_weight)[0]
         # print(f'logits shape after forward_head: {logits.shape}') # [8, 32, 8]
         logits = logits.float()  # (total_nnz_padded, 1, vocab_size // tp)
         return logits
@@ -600,7 +655,6 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
         if self.post_process:
             hidden_states = outputs
-            # print(f'hidden_states.shape = {hidden_states.shape}') # torch.Size([4, 32, 4096])
             logits = self._forward_head(hidden_states)
             logits = torch.squeeze(logits, dim=1)  # remove the artificial batch dimension # torch.Size([8, 32, 16])
 
