@@ -13,7 +13,11 @@
 # limitations under the License.
 
 license_head_bytedance = "Copyright 2024 Bytedance Ltd. and/or its affiliates"
-license_head2_prime = "Copyright 2024 PRIME team and/or its affiliates"
+license_head_bytedance_25 = "Copyright 2025 Bytedance Ltd. and/or its affiliates"
+# Add custom license headers below
+license_head_prime = "Copyright 2024 PRIME team and/or its affiliates"
+
+license_headers = [license_head_bytedance, license_head_bytedance_25, license_head_prime]
 
 from pathlib import Path
 from argparse import ArgumentParser
@@ -32,5 +36,9 @@ if __name__ == '__main__':
         with open(path_in_str, 'r', encoding='utf-8') as f:
             file_content = f.read()
 
-            assert license_head_bytedance in file_content or \
-                license_head2_prime in file_content, f'file {path_in_str} does not contain license'
+            has_license = False
+            for lh in license_headers:
+                if lh in file_content:
+                    has_license = True
+                    break
+            assert has_license, f'file {path_in_str} does not contain license'

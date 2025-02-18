@@ -46,7 +46,6 @@ actor_rollout_ref:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
       param_offload: False
-      grad_offload: False
       optimizer_offload: False
       fsdp_size: -1
   ref:
@@ -105,7 +104,6 @@ critic:
     use_remove_padding: False
     fsdp_config:
       param_offload: False
-      grad_offload: False
       optimizer_offload: False
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
@@ -170,4 +168,6 @@ trainer:
   test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null
+  remove_previous_ckpt_in_save: False
+  del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
