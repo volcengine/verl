@@ -106,9 +106,9 @@ class vLLMRollout(BaseRollout):
             swap_space=32,
             cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,
+            # calculate_kv_scales= (config.kv_cache_dtype == "fp8"),
             enable_prefix_caching=False,
-            # preemption_mode="RECOMPUTE",
-            # calculate_kv_scales=True
+            preemption_mode="swap",
         )
 
         # Offload vllm model to reduce peak memory usage

@@ -20,9 +20,10 @@ import torch
 
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
+import traceback
 
 
-async def single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.):
+async def single_compute_score(evaluation_func, completion, reference, task, executor, timeout=600.):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
@@ -40,6 +41,7 @@ async def single_compute_score(evaluation_func, completion, reference, task, exe
         return None  # Default value for timed-out rows
     except Exception as e:
         print(f"Error processing completion: {completion[:10]}, Error: {e}")
+        traceback.print_exc()
         return None  # Default value for failed rows
 
 

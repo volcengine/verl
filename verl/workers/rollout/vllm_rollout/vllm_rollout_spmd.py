@@ -31,6 +31,7 @@ import torch
 import torch.distributed
 from tensordict import TensorDict
 from torch import nn
+import time
 
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
@@ -103,6 +104,12 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            swap_space=32,
+            cpu_offload_gb=40,
+            kv_cache_dtype=config.kv_cache_dtype,
+            calculate_kv_scales= (config.kv_cache_dtype == "fp8"),
+            enable_prefix_caching=False,
+            preemption_mode="swap",
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -110,8 +117,9 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
+            repetition_penalty=1.1,
         )
 
         # # we may detokenize the result all together later
@@ -149,6 +157,10 @@ class vLLMRollout(BaseRollout):
         # rebuild vllm cache engine
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
+        else:
+            print("waking up engine")
+            self.inference_engine.wake_up()
+            print("engine is woken up")
 
         idx = prompts.batch['input_ids']  # (bs, prompt_length)
         # left-padded attention_mask
@@ -230,5 +242,10 @@ class vLLMRollout(BaseRollout):
         # free vllm cache engine
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
+        else:
+            time_now = time.time()
+            print("waiting for engine to sleep {}".format(time_now))
+            self.inference_engine.sleep(level=1)
+            print("engine is sleeping {}".format(time_now))
 
         return DataProto(batch=batch)

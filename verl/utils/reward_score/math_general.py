@@ -1,5 +1,6 @@
-import aiohttp
-import asyncio
+# import aiohttp
+# import asyncio
+import requests
 import time
 import re
 from .grader import grade_answer
@@ -10,7 +11,7 @@ headers = {
     "Authentication": "RCbUvAw8nEv_jAuQa82uvAoZBiUv0fMEc28FUddmh78"  # Replace with your API key if needed.
 }
 
-async def compute_acc_reward(solution_str, ground_truth):
+def compute_acc_reward(solution_str, ground_truth):
     """Returns 1. if the completion is correct, 0. if not."""
 
     # First, use re to extract <answer>...</answer> from the completion. Note that the regex should handle multi-line strings.
@@ -51,17 +52,27 @@ async def compute_acc_reward(solution_str, ground_truth):
     }
     delay = 0.1   # initial delay (in seconds)
     max_delay = 5 # maximum delay (in seconds)
+
+    while True:
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=600)
+            resp_json = response.json()
+            retval = resp_json['LaTeXAgreementScore']
+            return retval
+        except Exception as e:
+            time.sleep(delay)
+            delay = min(delay * 2, max_delay)
     
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=600) as response:
-                    resp_json = await response.json()
-                    retval = resp_json['LaTeXAgreementScore']
-                    return retval
-            except Exception as e:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, max_delay)
+    # async with aiohttp.ClientSession() as session:
+    #     while True:
+    #         try:
+    #             async with session.post(url, headers=headers, json=payload, timeout=600) as response:
+    #                 resp_json = await response.json()
+    #                 retval = resp_json['LaTeXAgreementScore']
+    #                 return retval
+    #         except Exception as e:
+    #             await asyncio.sleep(delay)
+    #             delay = min(delay * 2, max_delay)
 
 def compute_format_reward(solution_str):
     """Returns 0.5 if the completion is in the correct format, 0. if not."""
@@ -120,7 +131,7 @@ def strict_xml(text) -> float:
 
     return reward
 
-async def compute_score(solution_str, ground_truth):
+def compute_score(solution_str, ground_truth):
     """Reward function that checks if the completion is the same as the ground truth."""
 
     split, ground_truth = ground_truth.split("######")
@@ -143,9 +154,9 @@ async def compute_score(solution_str, ground_truth):
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
-        return await compute_acc_reward(solution_str, ground_truth)
+        return compute_acc_reward(solution_str, ground_truth)
 
-    acc_reward = await compute_acc_reward(solution_str, ground_truth)
+    acc_reward = compute_acc_reward(solution_str, ground_truth)
 
 
     weights = [2, 0.5, 0.5, 0.25]
