@@ -38,7 +38,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
@@ -53,7 +52,6 @@ python3 -m verl.trainer.main_ppo \
     critic.model.enable_gradient_checkpointing=True \
     critic.ppo_micro_batch_size_per_gpu=32 \
     critic.model.fsdp_config.param_offload=False \
-    critic.model.fsdp_config.grad_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
     reward_model.model.path="$HOME/models/FsfairX-LLaMA3-RM-v0.1" \

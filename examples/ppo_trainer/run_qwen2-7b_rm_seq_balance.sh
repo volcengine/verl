@@ -24,7 +24,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
@@ -39,7 +38,6 @@ python3 -m verl.trainer.main_ppo \
     critic.use_dynamic_bsz=True \
     critic.ppo_max_token_len_per_gpu=98304 \
     critic.model.fsdp_config.param_offload=False \
-    critic.model.fsdp_config.grad_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
     reward_model.model.path=sfairXC/FsfairX-LLaMA3-RM-v0.1\
