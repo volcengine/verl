@@ -16,7 +16,9 @@ on:
       - "**/*.py"
       - .github/workflows/ray_test.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   ray:
