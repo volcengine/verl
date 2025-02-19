@@ -26,7 +26,7 @@ import torch
 from torch import nn
 import torch.distributed
 # from megatron import get_args
-from megatron.core.optimizer import DistributedOptimizer
+from megatron.optimizer import DistributedOptimizer
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig

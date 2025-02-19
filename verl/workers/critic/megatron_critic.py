@@ -33,7 +33,7 @@ from verl.utils.torch_functional import masked_mean, broadcast_dict_tensor, spli
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 
-from megatron.core.optimizer import DistributedOptimizer
+from megatron.optimizer import DistributedOptimizer
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
 
