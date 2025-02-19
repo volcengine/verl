@@ -30,10 +30,23 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['codecontests', 'apps', 'codeforces', 'taco']:
         from . import prime_code
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
-    else:
-        raise NotImplementedError
+    elif data_source in ['hotpotQA']:
+        # 保存到 log 里
+        # import json
+        # with open("/workspace/lurui-yun/deep_research/verl/logs/hotpotQA.log", 'a') as f:
+        #     f.write(json.dumps({
+        #         "solution_str": solution_str,
+        #         "ground_truth": ground_truth,
+        #         "extra_info": extra_info
+        #     }) + '\n')
+        
+        import random
+        # 随机返回一个 0 到 1 之间的数
+        res = random.random()
+        return res
+        # raise NotImplementedError
 
-    if isinstance(res, (int, float, bool)):
+    if not isinstance(res, (int, float, bool)):
         return float(res)
     else:
         return float(res[0])

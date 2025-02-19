@@ -309,6 +309,49 @@ def gpt2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn
     pass
 
 
+def chatglm_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+    import torch
+    
+    # Merge two ColumnParallelLinear into one MergedColumnParallelLinear
+    merged_weights_dict = {
+        "transformer.vision.linear_proj.merged_proj.weight": {
+            "transformer.vision.linear_proj.gate_proj.weight": None,
+            "transformer.vision.linear_proj.dense_h_to_4h.weight": None,
+        }
+    }
+
+    params_dict = dict(vllm_model.named_parameters(remove_duplicate=False))
+    for name, loaded_weight in actor_weights.items():
+        is_weight_to_be_merge = False
+        for _, merged_weight_dict in merged_weights_dict.items():
+            if name in merged_weight_dict:
+                assert merged_weight_dict[name] is None
+                merged_weight_dict[name] = loaded_weight
+                is_weight_to_be_merge = True
+        if is_weight_to_be_merge:
+            continue
+        if "rotary_pos_emb.inv_freq" in name:
+            continue
+        if "word_embeddings" in name:
+            name = name.replace(".word_embeddings", "")
+        # Skip loading extra bias for GPTQ models.
+        if name.endswith(".bias") and name not in params_dict:
+            continue
+        param = params_dict[name]
+        local_loaded_weight = redistribute_dtensor(param_name=name, loaded_weights=loaded_weight)
+        weight_loader = getattr(param, "weight_loader", default_weight_loader)
+        weight_loader(param, local_loaded_weight.to(dtype=param.dtype))
+
+    for combined_name, merged_weight_dict in merged_weights_dict.items():
+        if combined_name in params_dict:
+            param = params_dict[combined_name]
+            combined_weight = torch.cat(list(merged_weight_dict.values()), dim=0)
+            local_loaded_weight = redistribute_dtensor(param_name=combined_name, loaded_weights=combined_weight)
+            weight_loader = getattr(param, "weight_loader", default_weight_loader)
+            weight_loader(param, local_loaded_weight.to(dtype=param.dtype))
+
+    return vllm_model
+
 def redistribute_dtensor(param_name: str, loaded_weights: DTensor, parallelize_plan: Dict = None):
     param_name = _process_parameter_names(name=param_name)
     if parallelize_plan is not None:
@@ -355,6 +398,7 @@ __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
     "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,
     "DeepseekV2ForCausalLM": deepseekv2_dtensor_weight_loader,
     "Qwen2VLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
+    "ChatGLMForCausalLM": chatglm_dtensor_weight_loader,
 }
 
 
