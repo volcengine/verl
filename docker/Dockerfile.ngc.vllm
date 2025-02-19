@@ -48,3 +48,4 @@ RUN MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0 pip3 install git+https://
 
 # Ulysess supports up to v4.46.3, which require opencv version below
 RUN pip3 install transformers==4.46.3 opencv-python-headless==4.10.0.84
+RUN pip3 uninstall opencv -y
