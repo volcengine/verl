@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/sandbox.yml
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   sandbox:
     runs-on: [self-hosted, l20-0]

@@ -17,7 +17,9 @@ on:
       - .github/workflows/e2e_lora.yml
       - "tests/e2e/*.sh"
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   e2e_lora:

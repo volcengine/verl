@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/yapf_format.yml
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   yapf:
     runs-on: ubuntu-latest
