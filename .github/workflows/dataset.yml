@@ -16,7 +16,9 @@ on:
       - "**/*.py"
       - .github/workflows/dataset.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   ray:
