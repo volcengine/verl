@@ -16,7 +16,9 @@ on:
       - "**/*.py"
       - .github/workflows/model.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   model_rmpad:

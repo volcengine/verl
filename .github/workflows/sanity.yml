@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/sanity.yml
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   sanity:
     runs-on: ubuntu-latest
