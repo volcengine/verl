@@ -310,7 +310,7 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif rollout_name in ('vllm', 'sglang'):
-            
+
             if rollout_name == 'vllm':
                 from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
                 from verl.workers.sharding_manager import FSDPVLLMShardingManager as FSDPShardingManager
@@ -323,10 +323,10 @@ class ActorRolloutRefWorker(Worker):
                                           model_hf_config=self.actor_model_config)
                 elif vllm_mode == 'spmd':
                     rollout = vLLMRollout(model_path=local_path,
-                                        config=self.config.rollout,
-                                        tokenizer=self.tokenizer,
-                                        model_hf_config=self.actor_model_config,
-                                        device_mesh=rollout_device_mesh)
+                                          config=self.config.rollout,
+                                          tokenizer=self.tokenizer,
+                                          model_hf_config=self.actor_model_config,
+                                          device_mesh=rollout_device_mesh)
                 else:
                     raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
                 log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
@@ -335,18 +335,18 @@ class ActorRolloutRefWorker(Worker):
                 from verl.workers.sharding_manager import FSDPSGLangShardingManager as FSDPShardingManager
                 log_gpu_memory_usage(f'Before building {rollout_name} rollout', logger=None)
                 rollout = SGLangRollout(actor_module=self.config.model.path,
-                                    config=self.config.rollout,
-                                    tokenizer=self.tokenizer,
-                                    model_hf_config=self.actor_model_config)
+                                        config=self.config.rollout,
+                                        tokenizer=self.tokenizer,
+                                        model_hf_config=self.actor_model_config)
                 log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
-        
+
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPShardingManager(module=self.actor_module_fsdp,
-                                                               inference_engine=rollout.inference_engine,
-                                                               model_config=self.actor_model_config,
-                                                               full_params='hf' in self.config.rollout.load_format,
-                                                               device_mesh=rollout_device_mesh)
+                                                           inference_engine=rollout.inference_engine,
+                                                           model_config=self.actor_model_config,
+                                                           full_params='hf' in self.config.rollout.load_format,
+                                                           device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager

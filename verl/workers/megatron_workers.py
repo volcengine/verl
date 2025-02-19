@@ -276,9 +276,9 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             # perform weight resharding between actor and rollout
             sharding_manager = MegatronShardingManager(module=self.hybrid_engine,
-                                                           inference_engine=rollout.inference_engine,
-                                                           model_config=self.actor_model_config,
-                                                           layer_name_mapping=layer_name_mapping)
+                                                       inference_engine=rollout.inference_engine,
+                                                       model_config=self.actor_model_config,
+                                                       layer_name_mapping=layer_name_mapping)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
             NotImplementedError('Only vllmRollout is supported with Megatron now')

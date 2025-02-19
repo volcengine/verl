@@ -28,7 +28,7 @@ if is_megatron_core_available() and is_vllm_available():
     from .megatron.megatron_vllm import MegatronVLLMShardingManager
 elif is_megatron_core_available() and is_sglang_available():
     from .megatron.megatron_ppmodel import AllGatherPPModel
-    from .megatron.megatron_sglang import MegatronSGLangShardingManager 
+    from .megatron.megatron_sglang import MegatronSGLangShardingManager
 elif AllGatherPPModel is not None:
     pass
 else:
