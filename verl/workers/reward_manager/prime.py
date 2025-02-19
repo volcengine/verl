@@ -103,7 +103,13 @@ class PrimeRewardManager:
 
         response_ids = data.batch['responses']
         valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
-        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+
+        # decode the response_ids
+        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=False)
+        # remove the padding tokens
+        sequences_str = [sequences_str.replace(self.tokenizer.pad_token, '') for sequences_str in sequences_str]
+
+
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
 

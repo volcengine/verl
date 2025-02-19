@@ -4,7 +4,7 @@ set -x
 
 # Set run variables
 export RUN_NAME=grpo_math_v8
-export RUN_N=8
+export RUN_N=4
 export GPUS=8
 export NODES=1
 export MAX_RESPONSE_LENGTH=14336

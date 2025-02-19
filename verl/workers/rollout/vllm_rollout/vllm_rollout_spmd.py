@@ -119,7 +119,7 @@ class vLLMRollout(BaseRollout):
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
-            repetition_penalty=1.1,
+            repetition_penalty=1.2,
         )
 
         # # we may detokenize the result all together later

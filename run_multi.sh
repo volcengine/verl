@@ -12,7 +12,7 @@ echo "AMLT_OUTPUT_DIR=$AMLT_OUTPUT_DIR"
 
 # Set run variables
 export RUN_NAME=grpo_math_v8_dist
-export RUN_N=32
+export RUN_N=16
 export MAX_RESPONSE_LENGTH=14336
 export PPO_MAX_TOKEN_LENGTH=28672
 export BATCH_SIZE=1024
