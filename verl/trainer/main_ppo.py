@@ -22,10 +22,8 @@ import hydra
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
-    # Get the compute_score_path from config if specified
+    # Get the compute_score_path and import custom reward function if provided
     compute_score_path = config.get('compute_score_path', None)
-    
-    # Import the custom compute_score if path is provided
     compute_score = None
     if compute_score_path:
         module_path, function_name = compute_score_path.rsplit('.', 1)
