@@ -37,6 +37,7 @@ from verl.utils.model import normalize_pp_vpp_params
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
 _MICRO_DATA_PARALLEL_GROUP = None
 
+
 class MegatronSGLangShardingManager(BaseShardingManager):
 
     def __init__(self, module: AllGatherPPModel, inference_engine, model_config, layer_name_mapping):
@@ -210,7 +211,8 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                                                 group=mpu.get_pipeline_model_parallel_group(),
                                                 dim=0)
         return data
-    
+
+
 """
 Micro Data parallel group
 """

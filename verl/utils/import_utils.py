@@ -35,10 +35,11 @@ def is_vllm_available():
         import vllm
         from importlib.metadata import version
         # workaround vllm version check
-        return True if version("vllm") in ('0.3.1','0.4.2','0.5.4','0.6.3') else False
+        return True if version("vllm") in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') else False
 
     except ImportError:
         return False
+
 
 @cache
 def is_sglang_available():
@@ -47,6 +48,7 @@ def is_sglang_available():
         return True
     except ImportError:
         return False
+
 
 def import_external_libs(external_libs=None):
     if external_libs is None:

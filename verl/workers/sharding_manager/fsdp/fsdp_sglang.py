@@ -30,7 +30,9 @@ from verl.third_party.sglang import parallel_state as sglang_ps
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
+
 class FSDPSGLangShardingManager(BaseShardingManager):
+
     def __init__(self,
                  module: FSDP,
                  inference_engine: EngineFragment,
