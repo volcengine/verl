@@ -97,7 +97,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
 
 ## vLLM v0.7 testing version
-We have released a testing version of veRL that supports vLLM>=0.7.0. Please refer to [this document](https://github.com/volcengine/verl/docs/README_vllm0.7.md) for installation guide and more information.
+We have released a testing version of veRL that supports vLLM>=0.7.0. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md) for installation guide and more information.
 
 ## Citation and acknowledgement
 
