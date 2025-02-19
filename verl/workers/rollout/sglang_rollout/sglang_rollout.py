@@ -128,30 +128,7 @@ class SGLangRollout(BaseRollout):
                 dim_pp="pp",
             ),
         )
-        # import datetime
-        # rank = os.environ["RANK"]
-        # def _log(text):
-        #     t = datetime.datetime.now().strftime("%H:%M:%S")
-        #     print(f"[{t}] [rank={rank}] {text}")
-        # _log(f"{tp_rank=} {tp_size=}")
-        # print(f"In {rank}:_TP", sglang_ps._TP)
-        # c = f"""
-        #     ================== HERE ========================
-        #     pid {os.getpid()}
-        #     ps._TP: {sglang_ps._TP} {sglang_ps.ps._TP}
-        # """
-        # with open(f"print_file/rollout-{os.environ['RANK']}.txt", "w") as file:
-        #     file.write(c)
-        # torch.distributed.barrier()
-
-        # sglang_ps.ensure_model_parallel_initialized(tp_size, 1)
-        # c = f"""
-        #     ================== HERE ========================
-        #     pid {os.getpid()}
-        #     ps._TP: {sglang_ps._TP} {sglang_ps.ps._TP}
-        # """
-        # with open(f"print_file/rollout-{os.environ['RANK']}.txt", "w") as file:
-        #     file.write(c)
+        sglang_ps.ensure_model_parallel_initialized(tp_size, 1)
 
         #offload
         self.inference_engine.release_gpu_occupation()
@@ -220,7 +197,6 @@ class SGLangRollout(BaseRollout):
                 return_logprob=True,
                 input_ids=idx_list)
         
-        print("Before post process generated output")
         out = _post_process_outputs(self.tokenizer, output)
         # print(out)
         response = out[0].to(idx.device)
