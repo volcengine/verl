@@ -101,26 +101,26 @@ class SGLangRollout(BaseRollout):
         tp_size = tensor_parallel_size
         local_rank = int(os.environ["LOCAL_RANK"])
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
+        
+        # init device mesh
         device_mesh_kwargs = dict(
-            mesh_shape=(tp_size, world_size//tp_size, 1), mesh_dim_names=["tp", "dp", "pp"]
+            mesh_shape=(world_size//tp_size, tp_size, 1), mesh_dim_names=["dp", "tp", "pp"]
         )
         device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+        
+        # get tp_rank of this process in this tp group
         tp_rank = device_mesh_device.get_local_rank("tp")
 
-        # sglang_ps.ensure_model_parallel_initialized(
-        #     tensor_model_parallel_size=tensor_parallel_size,
-        #     pipeline_model_parallel_size=1
-        # )
         self.inference_engine = EngineFragment(
             model_path=actor_module,
             tp_size=tensor_parallel_size,
-            dtype=config.dtype,
-            gpu_id=local_rank,
             tp_rank=tp_rank,
+            gpu_id=local_rank,
             nccl_port=23456,
             skip_tokenizer_init=False,
             mem_fraction_static=config.gpu_memory_utilization,
+            dtype=config.dtype,
             parallel_process_groups=ParallelProcessGroups.from_devices_meshes(
                 device_mesh_device=device_mesh_device,
                 device_mesh_cpu=device_mesh_cpu,
@@ -128,10 +128,31 @@ class SGLangRollout(BaseRollout):
                 dim_pp="pp",
             ),
         )
-        sglang_ps.ensure_model_parallel_initialized(tp_size, 1)
-        # print("======================================================================================")
-        # params_dict = dict(self.inference_engine._entrypoint._scheduler.tp_worker.worker.model_runner.model.named_parameters())
-        # print("lm_head.weight in llm named_parameters:", "lm_head.weight" in params_dict.keys())
+        # import datetime
+        # rank = os.environ["RANK"]
+        # def _log(text):
+        #     t = datetime.datetime.now().strftime("%H:%M:%S")
+        #     print(f"[{t}] [rank={rank}] {text}")
+        # _log(f"{tp_rank=} {tp_size=}")
+        # print(f"In {rank}:_TP", sglang_ps._TP)
+        # c = f"""
+        #     ================== HERE ========================
+        #     pid {os.getpid()}
+        #     ps._TP: {sglang_ps._TP} {sglang_ps.ps._TP}
+        # """
+        # with open(f"print_file/rollout-{os.environ['RANK']}.txt", "w") as file:
+        #     file.write(c)
+        # torch.distributed.barrier()
+
+        # sglang_ps.ensure_model_parallel_initialized(tp_size, 1)
+        # c = f"""
+        #     ================== HERE ========================
+        #     pid {os.getpid()}
+        #     ps._TP: {sglang_ps._TP} {sglang_ps.ps._TP}
+        # """
+        # with open(f"print_file/rollout-{os.environ['RANK']}.txt", "w") as file:
+        #     file.write(c)
+
         #offload
         self.inference_engine.release_gpu_occupation()
         
@@ -165,7 +186,6 @@ class SGLangRollout(BaseRollout):
             setattr(self.sampling_params, key, value)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # 
         # if self.config.free_cache_engine:
         
         idx = prompts.batch['input_ids']    # (bs, prompt_length)
