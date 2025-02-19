@@ -17,27 +17,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""PyTorch LLaMA model with Megatron-style acceleration."""
+""" PyTorch Qwen2 model."""
 
 from typing import Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, parallel_state
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.models.llama.configuration_llama import LlamaConfig
-from transformers.models.llama.modeling_llama import CausalLMOutputWithPast
+from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
+from transformers.models.qwen2.modeling_qwen2 import CausalLMOutputWithPast
 
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
-from .layers import ParallelLlamaDecoderLayer, ParallelLlamaRMSNorm, ParallelLlamaDecoderLayerRmPad
+from .layers import ParallelQwen2DecoderLayer, ParallelQwen2RMSNorm, ParallelQwen2DecoderLayerRmPad
 """
 TODO: 
 1. Add weight initialization. Here we need to be careful on TP weight init.
 2. Add sequence parallel
-3. Load checkpoint from meta LLama pretrained checkpoint
+3. Load checkpoint from Qwen2 pretrained checkpoint
 """
 
 
@@ -69,15 +69,15 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
     return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
 
-class ParallelLlamaModel(nn.Module):
+class ParallelQwen2Model(nn.Module):
     """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`LlamaDecoderLayer`]
+    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen2DecoderLayer`]
 
     Args:
-        config: LlamaConfig
+        config: Qwen2Config
     """
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -90,8 +90,8 @@ class ParallelLlamaModel(nn.Module):
                                                                    **embedding_kwargs)
 
         self.layers = nn.ModuleList(
-            [ParallelLlamaDecoderLayer(config, megatron_config) for _ in range(config.num_hidden_layers)])
-        self.norm = ParallelLlamaRMSNorm(config, megatron_config)
+            [ParallelQwen2DecoderLayer(config, megatron_config) for _ in range(config.num_hidden_layers)])
+        self.norm = ParallelQwen2RMSNorm(config, megatron_config)
 
     # Copied from transformers.models.bart.modeling_bart.BartDecoder._prepare_decoder_attention_mask
     def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds):
@@ -152,11 +152,11 @@ class ParallelLlamaModel(nn.Module):
         return hidden_states
 
 
-class ParallelLlamaForCausalLM(nn.Module):
+class ParallelQwen2ForCausalLM(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
-        self.model = ParallelLlamaModel(config, megatron_config=megatron_config)
+        self.model = ParallelQwen2Model(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
 
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
@@ -212,15 +212,15 @@ class ParallelLlamaForCausalLM(nn.Module):
 from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
 
 
-class ParallelLlamaModelRmPad(nn.Module):
+class ParallelQwen2ModelRmPad(nn.Module):
     """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`LlamaDecoderLayer`]
+    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen2DecoderLayer`]
 
     Args:
-        config: LlamaConfig
+        config: Qwen2Config
     """
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -234,8 +234,8 @@ class ParallelLlamaModelRmPad(nn.Module):
                                                                    **embedding_kwargs)
 
         self.layers = nn.ModuleList(
-            [ParallelLlamaDecoderLayerRmPad(config, megatron_config) for _ in range(config.num_hidden_layers)])
-        self.norm = ParallelLlamaRMSNorm(config, megatron_config)
+            [ParallelQwen2DecoderLayerRmPad(config, megatron_config) for _ in range(config.num_hidden_layers)])
+        self.norm = ParallelQwen2RMSNorm(config, megatron_config)
 
     def forward(self,
                 input_ids: torch.Tensor,
@@ -276,13 +276,13 @@ class ParallelLlamaModelRmPad(nn.Module):
         return hidden_states
 
 
-class ParallelLlamaForCausalLMRmPad(nn.Module):
+class ParallelQwen2ForCausalLMRmPad(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
         self.config = config
         self.megatron_config = megatron_config
-        self.model = ParallelLlamaModelRmPad(config, megatron_config=megatron_config)
+        self.model = ParallelQwen2ModelRmPad(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
         self._init_head()
 
@@ -363,7 +363,7 @@ class ParallelLlamaForCausalLMRmPad(nn.Module):
         )
 
 
-class ParallelLlamaForValueRmPad(ParallelLlamaForCausalLMRmPad):
+class ParallelQwen2ForValueRmPad(ParallelQwen2ForCausalLMRmPad):
 
     def _init_head(self):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
@@ -397,17 +397,17 @@ Support pipeline parallelism
 """
 
 
-class ParallelLlamaModelRmPadPP(nn.Module):
+class ParallelQwen2ModelRmPadPP(nn.Module):
     """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`LlamaDecoderLayer`]
+    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen2DecoderLayer`]
     This model definition supports pipeline parallelism. To support pp and vpp,
     - This model only contains layer in this pp stage and vpp chunk
     - When calling get_model in Megatron, this rank will instantiate all the vpp chunks in this pp.
     Args:
-        config: LlamaConfig
+        config: Qwen2Config
     """
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process):
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process):
         super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -443,14 +443,14 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
         layers = []
         for i in range(self.num_layer_this_model):
-            layer = ParallelLlamaDecoderLayerRmPad(config, megatron_config)
+            layer = ParallelQwen2DecoderLayerRmPad(config, megatron_config)
             # setattr(layer, 'hidden_layer_index', self.offset + i)
             layers.append(layer)
 
         self.layers = nn.ModuleList(layers)
 
         if post_process:
-            self.norm = ParallelLlamaRMSNorm(config, megatron_config)
+            self.norm = ParallelQwen2RMSNorm(config, megatron_config)
         else:
             self.norm = None
 
@@ -511,14 +511,14 @@ class ParallelLlamaModelRmPadPP(nn.Module):
         return hidden_states
 
 
-class ParallelLlamaForCausalLMRmPadPP(nn.Module):
+class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process,
+    def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process,
                  share_embeddings_and_output_weights):
         super().__init__()
         self.config = config
         self.megatron_config = megatron_config
-        self.model = ParallelLlamaModelRmPadPP(config,
+        self.model = ParallelQwen2ModelRmPadPP(config,
                                                megatron_config=megatron_config,
                                                pre_process=pre_process,
                                                post_process=post_process)
@@ -528,6 +528,8 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         self.post_process = post_process
         if post_process:
             self._init_head()
+        if pre_process or post_process:
+            self.setup_embeddings_and_output_layer()
 
     def set_input_tensor(self, input_tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -550,13 +552,65 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
+                                                            skip_weight_param_allocation=self.pre_process and
+                                                            self.share_embeddings_and_output_weights,
                                                             **column_kwargs)
+
+    def setup_embeddings_and_output_layer(self) -> None:
+        """Sets up embedding layer in first stage and output layer in last stage.
+
+        This function initalizes word embeddings in the final stage when we are
+        using pipeline parallelism and sharing word embeddings, and sets up param
+        attributes on the embedding and output layers.
+        """
+        # Set `is_embedding_or_output_parameter` attribute.
+        if self.pre_process:
+            self.model.embed_tokens.weight.is_embedding_or_output_parameter = True
+        if self.post_process and self.lm_head.weight is not None:
+            self.lm_head.weight.is_embedding_or_output_parameter = True
+
+        if not self.share_embeddings_and_output_weights:
+            return
+
+        if parallel_state.get_pipeline_model_parallel_world_size() == 1:
+            # Zero out wgrad if sharing embeddings between two layers on same
+            # pipeline stage to make sure grad accumulation into main_grad is
+            # correct and does not include garbage values (e.g., from torch.empty).
+            self.shared_embedding_or_output_weight().zero_out_wgrad = True
+            return
+
+        if parallel_state.is_pipeline_first_stage() and self.pre_process and not self.post_process:
+            self.shared_embedding_or_output_weight().shared_embedding = True
+
+        if self.post_process and not self.pre_process:
+            assert not parallel_state.is_pipeline_first_stage()
+            # set word_embeddings weights to 0 here, then copy first
+            # stage's weights using all_reduce below.
+            self.lm_head.weight.data.fill_(0)
+            self.lm_head.weight.shared = True
+            self.lm_head.weight.shared_embedding = True
+
+        if torch.distributed.is_initialized():
+            if parallel_state.is_rank_in_embedding_group():
+                weight = self.shared_embedding_or_output_weight()
+                weight.data = weight.data.cuda()
+                torch.distributed.all_reduce(weight.data, group=parallel_state.get_embedding_group())
+
+    def shared_embedding_or_output_weight(self) -> torch.Tensor:
+        if self.pre_process:
+            return self.model.embed_tokens.weight
+        elif self.post_process:
+            return self.lm_head.weight
+        return None
 
     def _forward_head(self, hidden_states):
         # all_gather from sequence parallel region is performed inside lm_head
-        # logits shape before forward_head hidden_states.shape: [4, 32, 4096]
-        logits = self.lm_head(hidden_states)[0]
-        # logits shape after forward_head logits.shape: [8, 32, 8]
+        # print(f'logits shape before forward_head: {hidden_states.shape}, vocab_size = {self.config.vocab_size}') # [4, 32, 4096]
+        output_weight = None
+        if self.share_embeddings_and_output_weights:
+            output_weight = self.shared_embedding_or_output_weight()
+        logits = self.lm_head(hidden_states, weight=output_weight)[0]
+        # print(f'logits shape after forward_head: {logits.shape}') # [8, 32, 8]
         logits = logits.float()  # (total_nnz_padded, 1, vocab_size // tp)
         return logits
 
@@ -601,7 +655,6 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
         if self.post_process:
             hidden_states = outputs
-            # print(f'hidden_states.shape = {hidden_states.shape}') # torch.Size([4, 32, 4096])
             logits = self._forward_head(hidden_states)
             logits = torch.squeeze(logits, dim=1)  # remove the artificial batch dimension # torch.Size([8, 32, 16])
 
@@ -624,7 +677,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
             return outputs
 
 
-class ParallelLlamaForValueRmPadPP(ParallelLlamaForCausalLMRmPadPP):
+class ParallelQwen2ForValueRmPadPP(ParallelQwen2ForCausalLMRmPadPP):
 
     def _init_head(self):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
