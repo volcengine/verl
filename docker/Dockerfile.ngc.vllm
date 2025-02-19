@@ -45,3 +45,5 @@ RUN pip3 install pytest yapf py-spy pyext liger-kernel
 RUN MAX_JOBS=4 NINJA_FLAGS="-j4" pip3 install flash-attn==2.5.8 --no-cache-dir --no-build-isolation
 RUN MAX_JOBS=1 NINJA_FLAGS="-j1" TE_BUILD_WITH_NINJA=0 pip3 install git+https://github.com/eric-haibin-lin/TransformerEngine.git@v1.7.0
 # =============== End of Megatron dependencies (optional) =================
+
+RUN pip3 install transformers==4.47.1
