@@ -29,16 +29,13 @@ This version is strongly tied with Megatron to implement HybridEngine and weight
 _DEVICE_MESH = None
 
 # Tensor model parallel group that the current rank belongs to.
-# ps._TP = None
-# _TP = ps._TP
 _TP = None
 # Pipeline model parallel group that the current rank belongs to.
-# ps._PP = None
-# _PP = ps._PP
 _PP = None
 
 
 # This method is for initializing the ParallelGroup when using HybridEngine
+# NOTE(linjunrong): this function is for megatron
 def initialize_parallel_state(
     distributed_init_method: str = "env://",
     backend: str = "nccl",
@@ -64,7 +61,7 @@ def initialize_parallel_state(
     init_distributed_environment(world_size, rank, distributed_init_method, local_rank, backend)
     if torch.distributed.get_world_size() > 1:
         # NOTE: build a sepearate inference group with infer tp & micro dp
-        initialize_model_parallel_for_vllm(
+        initialize_model_parallel_for_sglang(
             tensor_model_parallel_size=tensor_model_parallel_size,
             num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp,
         )
@@ -72,6 +69,12 @@ def initialize_parallel_state(
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
 
 
+# NOTE(linjunrong): After init SGLang rollout using class EngineFragment, user should always remember to call
+# this function to sync the _TP, _PP define at the beginning of this file. Otherwise, only the conterparts
+# inside sglang.srt.distributed are init as ProcessGroup, the symbols defined in this file remain as None.
+# It could be weird to maintain two _TP and _PP, I follow the same way to maintain an extra ones for 
+# veRL itself as how it was done in verl.third_party.vllm.parallel_state. Note that the process is a little
+# bit different
 def ensure_model_parallel_initialized(
     tensor_model_parallel_size: int,
     pipeline_model_parallel_size: int = 1,
@@ -84,12 +87,8 @@ def ensure_model_parallel_initialized(
     # get the backend of _DEVICE_WORLD_GROUP
     backend = backend or torch.distributed.get_backend(get_world_group().device_group)
     if not model_parallel_is_initialized():
-        print("initialize_model_parallel...")
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
         return
-    else:
-        print("Not initialize_model_parallel, But")
-        print(model_parallel_is_initialized())
 
     assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, (
         "tensor parallel group already initialized, but of unexpected size: "
@@ -103,13 +102,14 @@ def ensure_model_parallel_initialized(
 
 
 # TODO(sgm): deviate from the v0.5.4, not pp now
+# NOTE(linjunrong): the SGLang version using _TP instead of ps._TP
 def model_parallel_is_initialized():
     """Check if tensor and pipeline parallel groups are initialized."""
-    return ps._TP is not None
+    return _TP is not None
     # and _PIPELINE_MODEL_PARALLEL_GROUP is not None)
 
 
-def initialize_model_parallel_for_vllm(
+def initialize_model_parallel_for_sglang(
     tensor_model_parallel_size: int,
     num_tensor_model_parallel_groups_per_train_tp: int = 1,
     pipeline_model_parallel_size: int = 1,
@@ -249,7 +249,7 @@ def initialize_model_parallel(
     #         f"pipeline_model_parallel_size ({pipeline_model_parallel_size})")
 
     num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
-    rank = torch.distributed.get_rank()
+    
     global _TP
     assert _TP is None, "tensor model parallel group is already initialized"
     group_ranks = []
@@ -258,14 +258,17 @@ def initialize_model_parallel(
         group_ranks.append(ranks)
 
     # message queue broadcaster is only used in tensor model parallel group
-    _TP = init_model_parallel_group(
-        group_ranks,
-        get_world_group().local_rank,
-        backend,
-        use_custom_allreduce=False,  # TODO: check why True is not work in Ray trainer
-        use_message_queue_broadcaster=True,
-    )
-    ps._TP = _TP
+    if ps._TP is not None:
+        _TP = ps._TP
+    else:
+        _TP = init_model_parallel_group(
+            group_ranks,
+            get_world_group().local_rank,
+            backend,
+            use_custom_allreduce=False,  # TODO: check why True is not work in Ray trainer
+            use_message_queue_broadcaster=True,
+        )
+        ps._TP = _TP
 
     # TODO: init using device mesh (not support hybrid engine now)
     # Build the pipeline model-parallel groups.
@@ -277,8 +280,11 @@ def initialize_model_parallel(
         ranks = list(range(i, world_size, num_pipeline_model_parallel_groups))
         group_ranks.append(ranks)
     # pipeline parallel does not need custom allreduce
-    _PP = init_model_parallel_group(group_ranks, get_world_group().local_rank, backend, use_custom_allreduce=False)
-    ps._PP = _PP  # for verl
+    if ps._TP is not None:
+        _PP = ps._TP
+    else:
+        _PP = init_model_parallel_group(group_ranks, get_world_group().local_rank, backend, use_custom_allreduce=False)
+        ps._PP = _PP
 
 
 """
@@ -295,13 +301,15 @@ def get_device_mesh():
 Tensor model parallel utilities
 """
 
-
+# NOTE(linjunrong): In the vllm version parallel_state.py. veRL created its own _TP and _PP as veRL want to use 
+# the process group for some extra purpose. Under the hood, there is no difference between them and the original 
+# one in vllm.distributed.parallel_state. However, the implementation need to hack the init process of inference 
+# engine, as we do not maintain another SGLang here, I just use the original _TP and _PP directly.
 def get_tensor_model_parallel_group():
     """Get the tensor model parallel group the caller rank belongs to."""
-    
-    print("_TP:", ps._TP, "global_rank:", torch.distributed.get_rank())
-    assert ps._TP is not None, "tensor model parallel group is not initialized"
-    return ps._TP.device_group
+
+    assert _TP is not None, "tensor model parallel group is not initialized"
+    return _TP.device_group
 
 
 def get_tensor_model_parallel_world_size():
@@ -319,5 +327,4 @@ def get_tensor_model_parallel_src_rank():
     in the tensor model parallel group."""
     global_rank = torch.distributed.get_rank()
     local_world_size = get_tensor_model_parallel_world_size()
-    print(f"in get_tensor_model_parallel_src_rank: local_world_size:{local_world_size}, global_rank:{global_rank}")
     return (global_rank // local_world_size) * local_world_size

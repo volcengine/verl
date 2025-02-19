@@ -70,8 +70,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = None if self.full_params else 'dtensor'
-        # print(params.keys())
-        # print("is here", "lm_head.weight" in params.keys())
+
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
@@ -120,7 +119,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def postprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        print(sglang_ps.get_tensor_model_parallel_src_rank(), sglang_ps.get_tensor_model_parallel_group())
         broadcast_dict_tensor(data.batch,
                               src=sglang_ps.get_tensor_model_parallel_src_rank(),
                               group=sglang_ps.get_tensor_model_parallel_group())

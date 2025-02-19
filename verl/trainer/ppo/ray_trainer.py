@@ -583,10 +583,12 @@ class RayPPOTrainer(object):
         return metric_dict
 
     def init_workers(self):
+
         """Init resource pool and worker group"""
         self.resource_pool_manager.create_resource_pool()
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
+
 
         # create actor and rollout
         if self.hybrid_engine:
@@ -597,6 +599,7 @@ class RayPPOTrainer(object):
             self.resource_pool_to_cls[resource_pool]['actor_rollout'] = actor_rollout_cls
         else:
             raise NotImplementedError
+
 
         # create critic
         if self.use_critic:
