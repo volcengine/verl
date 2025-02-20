@@ -1,16 +1,16 @@
 set -x
 
 export NCCL_DEBUG=WARN
-export WANDB_API_KEY='448ad9b79b563f75fbc01c9a69db00e98ffadae2'
+export WANDB_API_KEY=''
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=true
  
-PROJECT_NAME='Qwen-1.5B-Test'
-EXPERIMENT_NAME='Qwen_1.5B'
-DATA_PATH=/mnt/petrelfs/fanyuchen
-SFT_MODEL_PATH=/mnt/petrelfs/fanyuchen/Scaling-PRIME/Qwen/Qwen2.5-1.5B
-CKPT_PATH=/mnt/petrelfs/fanyuchen/verl/ckpt
+PROJECT_NAME=
+EXPERIMENT_NAME=
+DATA_PATH=
+SFT_MODEL_PATH=
+CKPT_PATH=
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
  data.train_files=$HOME/data/gsm8k/train.parquet \
