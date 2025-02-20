@@ -110,7 +110,6 @@ def main_task(config, compute_score=None):
         reward_manager_cls = GenerativeRewardManager
     else:
         raise NotImplementedError
-    print(config)
     if reward_manager_name == 'generative':
         reward_fn = reward_manager_cls(tokenizer=tokenizer,
                                        num_examine=0,
