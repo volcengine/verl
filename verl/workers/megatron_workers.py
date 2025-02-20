@@ -226,7 +226,11 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            if self.config.rollout.use_fire_sampling:
+                from verl.workers.rollout.vllm_rollout import FIREvLLMRollout as vLLMRollout
+                from verl.workers.rollout.vllm_rollout import vllm_mode
+            else:
+                from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
 
