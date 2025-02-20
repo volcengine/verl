@@ -77,7 +77,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
-        wrapped_models (list of megatron.model.DistributedDataParallel):
+        wrapped_modelss (list of megatron.model.DistributedDataParallel):
             The local DDP wrapped megatron modules.
         dtype (str or None):
             The data type of state_dict. if None, the data type of the original parameters

@@ -216,7 +216,6 @@ class vLLMRollout(BaseRollout):
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
-        print("response_type",response)
         batch = TensorDict(
             {
                 'prompts': idx,

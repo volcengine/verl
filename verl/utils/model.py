@@ -77,7 +77,7 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
 
     Args:
         model_name:
-        override_config_kwargs:
+        actor_override_config_kwargs:
 
     Returns:
 

@@ -32,8 +32,6 @@ class NaiveRewardManager:
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
-        # [batch_size, seq_len]
-        print("token-level-reward-shape",data.batch['responses'].shape)
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
