@@ -32,4 +32,3 @@ if package_version <= '0.6.3':
 else:
     vllm_mode = 'spmd'
     from .vllm_rollout_spmd import vLLMRollout
-    from .fire_vllm_rollout_spmd import FIREvLLMRollout
