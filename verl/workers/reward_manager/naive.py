@@ -56,7 +56,6 @@ class NaiveRewardManager:
             sequences_str = self.tokenizer.decode(sequences)
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-            print(ground_truth)
 
             data_source = data_item.non_tensor_batch['data_source']
 
