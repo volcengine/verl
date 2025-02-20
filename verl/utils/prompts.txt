@@ -1,0 +1,1 @@
+Score the following solutions for the questions from 1 to 5, where 1 is the worst and 5 is the best. Return in the format of \\boxed{} without any additional formatting. 

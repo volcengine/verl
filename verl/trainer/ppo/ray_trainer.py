@@ -490,8 +490,9 @@ class RayPPOTrainer(object):
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
+        # fix the bug of evaluating with different batch size
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=len(self.val_dataset),
+                                         batch_size=self.config.data.val_batch_size,
                                          shuffle=True,
                                          drop_last=True,
                                          collate_fn=collate_fn)
@@ -577,7 +578,9 @@ class RayPPOTrainer(object):
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
-
+            # print example of the first batch
+            print('validation generation start')
+            print('input:', self.tokenizer.decode(test_batch.batch['input_ids'][1], skip_special_tokens=True))
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
                 return {}
@@ -844,7 +847,6 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-
                 # pop those keys for generation
                 gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
 
@@ -868,13 +870,12 @@ class RayPPOTrainer(object):
                             batch.batch['reward_baselines'] = reward_baseline_tensor
 
                             del gen_baseline_batch, gen_baseline_output
-
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
-
+                    # print shape of the first batch
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo

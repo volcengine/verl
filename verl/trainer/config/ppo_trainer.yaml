@@ -142,6 +142,23 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  reward_manager_config:
+    server_url: null
+    model_name: null
+    scoring_prompt: null
+    num_samples: 4
+    sc_mode: mean
+    api_key: null
+    timeout: 5
+    temperature: 1.0
+    initial_concurrency: 50
+    min_concurrency: 5
+    max_concurrency: 200
+    default_score: 0.0
+    max_retries: 4
+    max_tokens: 16
+    min_score: 0
+    max_score: 5
 
 algorithm:
   gamma: 1.0
