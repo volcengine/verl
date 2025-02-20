@@ -261,7 +261,7 @@ class FSDPSFTTrainer(object):
                                mixed_precision=mixed_precision,
                                device_mesh=self.device_mesh,
                                sync_module_states=True,
-                               device_id=torch.npu.current_device(),
+                               device_id=torch.cuda.current_device(),
                                cpu_offload=cpu_offload,
                                use_orig_params=False)
 

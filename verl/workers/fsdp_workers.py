@@ -254,7 +254,7 @@ class ActorRolloutRefWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.npu.current_device(),
+            device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
             sync_module_states=True,
@@ -405,7 +405,7 @@ class ActorRolloutRefWorker(Worker):
                                                             lr_scheduler=self.actor_lr_scheduler,
                                                             tokenizer=self.tokenizer)
 
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
@@ -414,12 +414,12 @@ class ActorRolloutRefWorker(Worker):
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.npu.current_device())
+            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
-        data.batch = data.batch.to(DEVICE)
+        data.batch = data.batch.cuda()
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
@@ -449,7 +449,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -459,7 +459,7 @@ class ActorRolloutRefWorker(Worker):
         assert self._is_rollout
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
         prompts.batch = prompts.batch.to(DEVICE)
@@ -488,7 +488,7 @@ class ActorRolloutRefWorker(Worker):
             # NOTE(sgm): the grad is already in CPU, only offload param here
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
         # clear kv cache
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -497,7 +497,7 @@ class ActorRolloutRefWorker(Worker):
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         data = data.to(DEVICE)
         # we should always recompute old_log_probs when it is HybridEngine
@@ -525,7 +525,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
 
         # clear kv cache
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -553,7 +553,7 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -563,7 +563,7 @@ class ActorRolloutRefWorker(Worker):
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
@@ -579,7 +579,7 @@ class ActorRolloutRefWorker(Worker):
     def load_checkpoint(self, path, del_local_after_load=False):
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.actor_module_fsdp,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
         self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
@@ -720,7 +720,7 @@ class CriticWorker(Worker):
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.npu.current_device(),
+                             device_id=torch.cuda.current_device(),
                              sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,
@@ -771,7 +771,7 @@ class CriticWorker(Worker):
                                                         lr_scheduler=self.critic_lr_scheduler,
                                                         tokenizer=self.tokenizer)
 
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -779,7 +779,7 @@ class CriticWorker(Worker):
 
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         micro_batch_size = self.config.forward_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
@@ -795,7 +795,7 @@ class CriticWorker(Worker):
         output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -803,10 +803,10 @@ class CriticWorker(Worker):
         data = data.to(DEVICE)
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.npu.current_device())
+            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -831,7 +831,7 @@ class CriticWorker(Worker):
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         output = output.to('cpu')
         return output
 
@@ -840,7 +840,7 @@ class CriticWorker(Worker):
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
@@ -857,7 +857,7 @@ class CriticWorker(Worker):
         import torch
         if self._is_offload_param:
             load_fsdp_param_and_grad(module=self.critic_module,
-                                     device_id=torch.npu.current_device(),
+                                     device_id=torch.cuda.current_device(),
                                      load_grad=self._is_offload_grad)
 
         self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
@@ -956,7 +956,7 @@ class RewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.npu.current_device(),
+            device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             sync_module_states=True,
             cpu_offload=CPUOffload(offload_params=True),
@@ -970,7 +970,7 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1141,5 +1141,5 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.npu.empty_cache()
+        torch.cuda.empty_cache()
         return output
