@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/vllm.yml
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   vllm:
     runs-on: [self-hosted, l20-0]
