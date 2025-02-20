@@ -77,7 +77,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:
-            self.inference_engine.wake_up()
+            # self.inference_engine.wake_up()
             # TODO(ZSL): deal with 'hf' format
             if load_format == 'dtensor':
                 from verl.third_party.vllm import load_dtensor_weights
@@ -107,8 +107,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # TODO(ZSL): check this
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.offload_model_weights()
-        else:
-            self.inference_engine.sleep(level=1)
+        # else:
+        #     self.inference_engine.sleep(level=1)
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
