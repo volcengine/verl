@@ -143,6 +143,7 @@ reward_model:
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
   reward_manager_config:
+    tokenizer: null
     server_url: null
     model_name: null
     scoring_prompt: null
@@ -159,6 +160,7 @@ reward_model:
     max_tokens: 16
     min_score: 0
     max_score: 5
+    apply_chat_template: False
 
 algorithm:
   gamma: 1.0

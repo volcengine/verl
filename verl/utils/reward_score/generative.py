@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from typing import List, Dict, Any
 from openai import AsyncOpenAI
+from transformers import AutoTokenizer
 
 def extract_output(solution_text: str):
     # Match everything inside the last \boxed{} in the solution text
@@ -36,12 +37,16 @@ async def _query_openai_async(
 
     while retry_count < max_retries:
         try:
-            response = await client.chat.completions.create(
-                model=config.model_name,
-                messages=[
+            messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": scoring_prompt + '\n' + sequence_str},
-                ],
+            ],
+            if config.tokenizer and config.apply_chat_template:
+                tokenizer = AutoTokenizer.from_pretrained(config.tokenizer)
+                messages = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            response = await client.chat.completions.create(
+                model=config.model_name,
+                messages=messages,
                 max_tokens=config.max_tokens,
                 temperature=config.temperature,
                 n=config.num_samples,

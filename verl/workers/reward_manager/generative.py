@@ -4,7 +4,8 @@ import numpy as np
 import re
 import torch
 from typing import List, Dict, Any
-from verl.utils.reward_score.generative import extract_output, _query_openai_async, process_data_async
+from verl.utils.reward_score.generative import process_data_async
+from transformers import AutoTokenizer
 
 
 def _compute_score(data_source: List[str], solution_str: List[str], ground_truth: List[str],
