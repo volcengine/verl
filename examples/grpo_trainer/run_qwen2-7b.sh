@@ -1,6 +1,6 @@
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -29,6 +29,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=160 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
