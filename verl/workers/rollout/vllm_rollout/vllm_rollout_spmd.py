@@ -38,7 +38,6 @@ from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
 from verl.third_party.vllm import vllm_version
-from verl.utils.device import is_npu_available
 
 # TODO
 # 1. support pp in vllm
@@ -92,7 +91,7 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True if not is_npu_available else False,
+            enable_sleep_mode=False,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
@@ -107,8 +106,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        if not is_npu_available:
-            self.inference_engine.sleep(level=1)
+        # self.inference_engine.sleep(level=1)
 
         kwargs = dict(
             n=1,

@@ -44,7 +44,6 @@ from verl.utils.dataset import SFTDataset
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.tracking import Tracking
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
-from verl.utils.device import get_device
 from torch.distributed.device_mesh import DeviceMesh
 
 import verl.utils.hdfs_io as hdfs_io
@@ -109,7 +108,6 @@ class FSDPSFTTrainer(object):
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
             print(self.config)
-        self.device = get_device()
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
@@ -214,7 +212,7 @@ class FSDPSFTTrainer(object):
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
                                                                                config=config,
                                                                                torch_dtype=torch.float32,
-                                                                               attn_implementation='flash_attention_2',
+                                                                               # attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
 
             # Apply Liger kernel if use_liger is enabled
@@ -293,16 +291,16 @@ class FSDPSFTTrainer(object):
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
         # Move inputs to GPU and prepare loss mask
-        input_ids = batch['input_ids'].to(self.device)
-        attention_mask = batch['attention_mask'].to(self.device)
-        position_ids = batch['position_ids'].to(self.device)
-        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).to(self.device)
+        input_ids = batch['input_ids'].to('npu')
+        attention_mask = batch['attention_mask'].to('npu')
+        position_ids = batch['position_ids'].to('npu')
+        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).to('npu')
         loss_fct = nn.CrossEntropyLoss(reduction='none')
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
         with context:
-            with torch.autocast(device_type=self.device, dtype=torch.bfloat16):
+            with torch.autocast(device_type='npu', dtype=torch.bfloat16):
                 if not use_sp:
                     # Standard forward pass without sequence parallel
                     labels = input_ids[:, 1:].contiguous()
@@ -416,7 +414,7 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After offload weights', logger=logger)
 
-        step_loss = torch.tensor(step_loss).to(self.device)
+        step_loss = torch.tensor(step_loss).to('npu')
         torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
 
@@ -472,7 +470,7 @@ class FSDPSFTTrainer(object):
             for data in tqdm(self.train_dataloader,
                              total=self.steps_per_epoch,
                              desc=f"Epoch {epoch+1}/{self.config.trainer.total_epochs}"):
-                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device)
+                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to('npu')
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
@@ -483,7 +481,7 @@ class FSDPSFTTrainer(object):
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to('npu')
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
@@ -499,7 +497,7 @@ class FSDPSFTTrainer(object):
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
+                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).to('npu')
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:
@@ -524,9 +522,9 @@ from verl.utils.distributed import initialize_global_process_group
 def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
-    device_mesh = init_device_mesh(device_type=get_device(), mesh_shape=(world_size,), mesh_dim_names=('fsdp',))
+    device_mesh = init_device_mesh(device_type='npu', mesh_shape=(world_size,), mesh_dim_names=('fsdp',))
     dp_size = world_size // config.ulysses_sequence_parallel_size
-    ulysses_device_mesh = init_device_mesh(device_type=get_device(),
+    ulysses_device_mesh = init_device_mesh(device_type='npu',
                                            mesh_shape=(dp_size, config.ulysses_sequence_parallel_size),
                                            mesh_dim_names=('dp', 'sp'))
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh)
