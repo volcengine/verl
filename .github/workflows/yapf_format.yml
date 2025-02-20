@@ -16,6 +16,10 @@ on:
       - "**/*.py"
       - .github/workflows/yapf_format.yml
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   yapf:
     runs-on: ubuntu-latest
@@ -38,7 +42,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yapf
+          pip install --upgrade yapf
           pip install toml==0.10.2
       - name: Running yapf
         run: |

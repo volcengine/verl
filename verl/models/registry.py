@@ -17,10 +17,28 @@ from typing import List, Optional, Type
 
 import torch.nn as nn
 
+# Supported models using HF Rmpad
+# TODO(sgm): HF may supported more than listed here, we should add more after testing
+from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
+
+_REOVEPAD_MODELS = {'llama': LlamaConfig, 'mistral': MistralConfig, 'gemma': GemmaConfig, 'qwen2': Qwen2Config}
+
+
+def check_model_support_rmpad(model_type: str):
+    assert isinstance(model_type, str)
+    if not model_type in _REOVEPAD_MODELS.keys():
+        raise ValueError(f"Model architecture {model_type} is not supported for now. "
+                         f"RMPad supported architectures: {_REOVEPAD_MODELS.keys()}."
+                         f"Please set `use_remove_padding=False` in the model config.")
+
+
+# Supported models in Megatron-LM
 # Architecture -> (module, class).
 _MODELS = {
     "LlamaForCausalLM":
         ("llama", ("ParallelLlamaForCausalLMRmPadPP", "ParallelLlamaForValueRmPadPP", "ParallelLlamaForCausalLMRmPad")),
+    "Qwen2ForCausalLM":
+        ("qwen2", ("ParallelQwen2ForCausalLMRmPadPP", "ParallelQwen2ForValueRmPadPP", "ParallelQwen2ForCausalLMRmPad")),
     "MistralForCausalLM": ("mistral", ("ParallelMistralForCausalLMRmPadPP", "ParallelMistralForValueRmPadPP",
                                        "ParallelMistralForCausalLMRmPad"))
 }

@@ -1,11 +1,10 @@
 .. _quickstart:
 
 =========================================================
-Quickstart: Post-train a LLM using PPO with GSM8K dataset
+Quickstart: PPO training on GSM8K dataset
 =========================================================
 
-Post-train a LLM using GSM8K dataset
-===================================================================
+Post-train a LLM using GSM8K dataset.
 
 Introduction
 ------------
@@ -18,7 +17,7 @@ Prerequisite:
 
 - the latest version of ``verl`` and its dependencies installed following the installation guide. Using the docker image is recommended.
 
-- an GPU with at least 32 GB memory
+- an GPU with at least 24 GB HBM
 
 
 Dataset Introduction
@@ -52,9 +51,9 @@ We preprocess the dataset in parquet format so that (1) it contains necessary fi
 Step 2: Download a model for post-training
 -------------------------------------------
 
-Usually we recommend starting with an "instruct" model variant so that the model follows instructions. In this example, we start with the ``Qwen2.5-0.5B-Instruct`` model.
+In this example, we start with the ``Qwen2.5-0.5B-Instruct`` model.
 
-If you start from a "base" model variant, doing SFT before RL is recommended. Refer to the `sft directory <https://github.com/volcengine/verl/blob/main/examples/gsm8k/sft/>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
+If you want to perform SFT before RL, refer to the :doc:`Complete GSM8K Example<../examples/gsm8k_example>`, the `sft directory <https://github.com/volcengine/verl/blob/main/examples/sft/gsm8k>`_ and `SFT Trainer <https://github.com/volcengine/verl/blob/main/verl/trainer/fsdp_sft_trainer.py>`_ for further details.
 
 .. code-block:: bash
 
@@ -92,14 +91,14 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
-    actor_rollout_ref.actor.ppo_micro_batch_size=4 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size=4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     critic.optim.lr=1e-5 \
     critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
-    critic.ppo_micro_batch_size=4 \
+    critic.ppo_micro_batch_size_per_gpu=4 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.logger=['console'] \
     +trainer.val_before_train=False \
@@ -108,7 +107,7 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=15 $@ 2>&1 | tee verl_demo.log
+    trainer.total_epochs=15 2>&1 | tee verl_demo.log
 
 You are expected to see the following logs, indicating training in progress. The key metric ``val/test_score/openai/gsm8k`` is computed every ``trainer.test_freq`` steps:
 
@@ -129,17 +128,14 @@ To enable ``wandb`` for experiment tracking, set the following configs:
     trainer.project_name=$YOUR_PROJECT_NAME \
     trainer.experiment_name=$YOUR_RUN_NAME \
 
-If you encounter out of memory issues, enable the following configs would help:
+If you encounter out of memory issues with HBM less than 32GB, enable the following configs would help:
 
-- actor_rollout_ref.actor.ppo_micro_batch_size=1 \
+.. code-block:: bash
 
-- critic.ppo_micro_batch_size=1 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+    critic.ppo_micro_batch_size_per_gpu=1 \
 
-- actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-
-- critic.model.fsdp_config.optimizer_offload=False \
-
-For the full set of configs, please refer to :ref:`config-explain-page` for detailed explaination and performance tuning.
+For the full set of configs, please refer to :ref:`config-explain-page` for detailed explanation and performance tuning.
 
 
 .. [1] The original paper (https://arxiv.org/pdf/2110.14168) mainly focuses on training a verifier (a reward model) to solve math problems via Best-of-N sampling. In this example, we train an RL agent using a rule-based reward model.

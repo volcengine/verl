@@ -17,7 +17,7 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch, Execute
 
 
 @dataclass
@@ -42,10 +42,8 @@ class WorkerHelper:
             if os.getenv("WG_BACKEND", None) == "ray":
                 import ray
                 return ray._private.services.get_node_ip_address()
-            elif os.getenv("WG_BACKEND", None) == "torch_rpc":
-                from verl.single_controller.torchrpc.k8s_client import get_ip_addr
-                return get_ip_addr()
-            return None
+            else:
+                raise NotImplementedError("WG_BACKEND now just support ray mode.")
 
         host_ipv4 = os.getenv("MY_HOST_IP", None)
         host_ipv6 = os.getenv("MY_HOST_IPV6", None)
@@ -179,3 +177,8 @@ class Worker(WorkerHelper):
     def execute_with_func_generator(self, func, *args, **kwargs):
         ret_proto = func(self, *args, **kwargs)
         return ret_proto
+
+    @register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.RANK_ZERO)
+    def execute_func_rank_zero(self, func, *args, **kwargs):
+        result = func(*args, **kwargs)
+        return result

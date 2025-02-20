@@ -108,3 +108,9 @@ ENV/
 
 # output logs
 tests/e2e/toy_examples/deepspeed/synchronous/output.txt
+
+# vim
+*.swp
+
+# ckpt
+*.lock

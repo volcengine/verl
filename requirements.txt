@@ -1,12 +1,19 @@
-# vllm==0.6.3 # vllm is installed in image building to avoid ray conflicts
-# TODO: add version info to requirements
+# requirements.txt records the full set of dependencies for development
 accelerate
 codetiming
 datasets
 dill
+flash-attn
 hydra-core
+liger-kernel
 numpy
+pandas
+peft
+pyarrow>=15.0.0
 pybind11
-ray==2.10
-tensordict
+pylatexenc
+ray
+tensordict<0.6
 transformers
+vllm==0.6.3.post1
+wandb

@@ -25,7 +25,7 @@ from omegaconf import DictConfig
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
-from verl.workers.hybrid_engine import AllGatherPPModel
+from verl.workers.sharding_manager import AllGatherPPModel
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
 from verl.single_controller.base.decorator import register, Dispatch
@@ -60,7 +60,6 @@ def set_random_seed(seed):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
-@ray.remote
 class ActorRolloutRefWorker(MegatronWorker):
     """
     This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
@@ -113,13 +112,19 @@ class ActorRolloutRefWorker(MegatronWorker):
         # normalize config
         if self._is_actor and self._is_rollout:
             self.config.actor.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-            self.config.actor.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
-            self.config.rollout.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
+            if self.config.actor.get('ppo_micro_batch_size', None):
+                self.config.actor.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
+                self.config.rollout.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
+                self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
+                self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
+
             self._is_offload_param = self.config.actor.get('param_offload', False)
             self._is_offload_grad = self.config.actor.get('grad_offload', False)
             self._is_offload_optimizer = self.config.actor.get('optimizer_offload', False)
         elif self._is_ref:
-            self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
+            if self.config.ref.get('ppo_micro_batch_size', None):
+                self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
+                self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
     def _build_model_optimizer(self,
@@ -130,9 +135,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                                enable_gradient_checkpointing=False):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
-        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GenerationConfig
 
         # Step 1: initialize the tokenizer
         local_path = copy_local_path_from_hdfs(model_path)
@@ -140,6 +145,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 2: get the actor_model_config
         actor_model_config = AutoConfig.from_pretrained(local_path)
+
+        self.generation_config = get_generation_config(local_path)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
@@ -158,11 +165,14 @@ class ActorRolloutRefWorker(MegatronWorker):
             vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
             # this_megatron_config = copy.deepcopy(megatron_config)
             # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(config=actor_model_config,
-                                                            megatron_config=megatron_config,
-                                                            pre_process=pre_process,
-                                                            post_process=post_process,
-                                                            value=False)
+            share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
+            parallel_model = get_parallel_model_from_config(
+                config=actor_model_config,
+                megatron_config=megatron_config,
+                pre_process=pre_process,
+                post_process=post_process,
+                share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+                value=False)
             parallel_model.cuda()
             return parallel_model
 
@@ -216,8 +226,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_rollout(self):
         if self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout
-            from verl.workers.hybrid_engine import MegatronVLLMShardingManager
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            from verl.workers.sharding_manager import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
@@ -240,6 +250,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             params = normalize_pp_vpp_params(params=params,
                                              num_hidden_layers=self.actor_model_config.num_hidden_layers,
                                              layer_name='layers')
+            assert vllm_mode == 'customized', "Support for vllm>=0.7 for Megatron-LM backend has not been implemented yet."
             rollout = vLLMRollout(actor_module=params,
                                   config=self.config.rollout,
                                   tokenizer=self.tokenizer,
@@ -347,7 +358,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         assert self._is_rollout
 
         prompts.batch = prompts.batch.cuda()
-        meta_info = {'eos_token_id': self.tokenizer.eos_token_id, 'pad_token_id': self.tokenizer.pad_token_id}
+        meta_info = {
+            'eos_token_id':
+                self.generation_config.eos_token_id
+                if self.generation_config is not None else self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.generation_config.pad_token_id
+                if self.generation_config is not None else self.tokenizer.pad_token_id,
+        }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
             log_gpu_memory_usage('After entering sharding manager', logger=logger)
@@ -358,14 +376,6 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After rollout generation', logger=logger)
 
             output = self.sharding_manager.postprocess_data(output)
-
-        validate = prompts.meta_info.get('validate', False)
-        if self._is_actor and not validate:
-            # we should always recompute old_log_probs when it is HybridEngine
-            output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size
-            output.meta_info['temperature'] = self.config.rollout.temperature
-            old_log_probs = self.actor.compute_log_prob(data=output)
-            output.batch['old_log_probs'] = old_log_probs
 
         output = output.to('cpu')
         # clear kv cache
@@ -381,7 +391,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_param_and_grad(self.ref_module, torch.cuda.current_device(), self._is_offload_grad)
 
-        micro_batch_size = self.config.rollout.log_prob_micro_batch_size
+        micro_batch_size = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         output = self.ref_policy.compute_log_prob(data=data)
@@ -392,21 +402,36 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         return output
 
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_log_prob(self, data: DataProto):
+        assert self._is_actor
+        data = data.to('cuda')
+        output = data
+        # we should always recompute old_log_probs when it is HybridEngine
+        output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        output.meta_info['temperature'] = self.config.rollout.temperature
+        old_log_probs = self.actor.compute_log_prob(data=output)
+        output.batch['old_log_probs'] = old_log_probs
+        output = output.to('cpu')
+        # clear kv cache
+        torch.cuda.empty_cache()
+        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        return output
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_pretrained_model(self, checkpoint_path):
+    def load_pretrained_model(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path):
+    def save_checkpoint(self, checkpoint_path, **kwargs):
         assert self._is_actor
         pass
 
 
-@ray.remote
 class CriticWorker(MegatronWorker):
 
     def __init__(self, config):
@@ -441,7 +466,9 @@ class CriticWorker(MegatronWorker):
 
         # normalize config
         self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
-        self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
+        if self.config.get('ppo_micro_batch_size', None):
+            self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
+            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
 
         # TODO(sgm): support critic model offload
 
@@ -485,6 +512,7 @@ class CriticWorker(MegatronWorker):
                                                             megatron_config=megatron_config,
                                                             pre_process=pre_process,
                                                             post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
                                                             value=True)
             parallel_model.cuda()
             return parallel_model
@@ -567,15 +595,14 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path):
+    def save_checkpoint(self, checkpoint_path, **kwargs):
         pass
 
 
-@ray.remote
 class RewardModelWorker(MegatronWorker):
     """
     Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
@@ -612,7 +639,9 @@ class RewardModelWorker(MegatronWorker):
         set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
-        self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
+        if self.config.micro_batch_size is not None:
+            self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -648,6 +677,7 @@ class RewardModelWorker(MegatronWorker):
                                                             megatron_config=megatron_config,
                                                             pre_process=pre_process,
                                                             post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
                                                             value=True)
             parallel_model.cuda()
             return parallel_model

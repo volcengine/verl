@@ -30,7 +30,9 @@ from megatron.optimizer import DistributedOptimizer
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
+from megatron.core.utils import get_model_config
 from megatron.core.pipeline_parallel import get_forward_backward_func
+from megatron.core.distributed import finalize_model_grads
 # from megatron.core.optimizer import DistributedOptimizer
 
 from omegaconf import OmegaConf
@@ -54,7 +56,7 @@ class MegatronPPOActor(BasePPOActor):
         Args:
             config (OmegaConf): the basic config that contains the hyper-parameters of PPO Actor. It must contain
 
-                ``ppo_micro_batch_size``: minibatch size when updating ppo.
+                ``ppo_micro_batch_size_per_gpu``: micro batch size when updating ppo.
 
                 ``ppo_mini_batch_size``: minibatch size when updating ppo using the batch data.
 
@@ -107,6 +109,7 @@ class MegatronPPOActor(BasePPOActor):
         >>>                          actor_optimizer=actor_optimizer)
         """
         super().__init__(config)
+        self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
         # self.megatron_args = get_args()
@@ -125,6 +128,13 @@ class MegatronPPOActor(BasePPOActor):
             'pipeline_model_parallel_split_rank': None,
             'reduce_grads_use_alltoall': False
         })
+
+        config = get_model_config(self.actor_module[0])
+        config.finalize_model_grads_func = finalize_model_grads
+
+    def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
@@ -232,7 +242,7 @@ class MegatronPPOActor(BasePPOActor):
         if data.meta_info.get('micro_batch_size', None) is not None:
             batch_size = data.meta_info['micro_batch_size']
         else:
-            batch_size = self.config.ppo_micro_batch_size
+            batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
         input_shapes = compute_transformers_input_shapes(
@@ -358,9 +368,6 @@ class MegatronPPOActor(BasePPOActor):
                 pass
             else:
                 raise NotImplementedError
-
-            for metric in metric_micro_batch:
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
         # add empty cache after each compute
         torch.cuda.empty_cache()

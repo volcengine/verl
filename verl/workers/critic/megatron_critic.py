@@ -43,7 +43,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
                  critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
         super().__init__(config=config)
-
+        self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
 
@@ -74,6 +74,10 @@ class MegatronPPOCritic(BasePPOCritic):
         else:
             raise NotImplementedError
 
+    def _validate_config(self, config) -> None:
+        """Validate config options not implemented for Megatron backend"""
+        assert config.get('ulysses_sequence_parallel_size', 1) == 1
+
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
         responses = data.batch['responses']
@@ -103,74 +107,6 @@ class MegatronPPOCritic(BasePPOCritic):
 
         return values
 
-    def compute_advantages(self, data: DataProto) -> DataProto:
-        # data.batch = data.batch.to(self.critic_module.device)
-        # TODO: in general, we should compute reward of ref_log_prob here
-        responses = data.batch['responses']
-        response_length = responses.size(1)
-        token_level_rewards = data.batch['token_level_rewards']
-        batch_size = data.batch.batch_size[0]
-        dp_size = mpu.get_data_parallel_world_size()
-        attention_mask = data.batch['attention_mask']
-        eos_mask = attention_mask[:, -response_length:]
-
-        # compute kl between ref_policy and current policy
-        if 'ref_log_prob' in data.batch.keys():
-            kld = core_algos.kl_penalty(data.batch['old_log_probs'],
-                                        data.batch['ref_log_prob'],
-                                        kl_penalty=self.config.kl_ctrl.kl_penalty_type)  # (batch_size, response_length)
-            kld = kld * eos_mask
-            beta = self.kl_ctrl.value
-            rewards = token_level_rewards - beta * kld
-
-            # per token kld
-            current_kl = masked_mean(kld, mask=eos_mask).item()
-            # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
-            self.kl_ctrl.update(current_kl=current_kl, n_steps=batch_size * dp_size)
-        else:
-            beta = 0
-            current_kl = 0
-            rewards = token_level_rewards
-
-        values = data.batch['values']
-
-        gamma = self.config.gamma
-        lam = self.config.lam
-
-        advantages, returns = core_algos.compute_gae_advantage_return(token_level_rewards=rewards,
-                                                                      values=values,
-                                                                      eos_mask=eos_mask,
-                                                                      gamma=gamma,
-                                                                      lam=lam)
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-
-        sequence_reward = torch.sum(token_level_rewards, dim=-1)
-
-        metrics = {
-            'critic/rewards/mean': torch.mean(sequence_reward).detach().item(),
-            'critic/rewards/max': torch.max(sequence_reward[eos_mask]).detach().item(),
-            'critic/rewards/min': torch.min(sequence_reward[eos_mask]).detach().item(),
-            'critic/advantages/mean': masked_mean(advantages, eos_mask).detach().item(),
-            'critic/advantages/max': torch.max(advantages[eos_mask]).detach().item(),
-            'critic/advantages/min': torch.min(advantages[eos_mask]).detach().item(),
-            'critic/returns/mean': masked_mean(returns, eos_mask).detach().item(),
-            'critic/returns/max': torch.max(returns[eos_mask]).detach().item(),
-            'critic/returns/min': torch.min(returns[eos_mask]).detach().item(),
-            'critic/values/mean': masked_mean(values, eos_mask).detach().item(),
-            'critic/values/max': torch.max(values[eos_mask]).detach().item(),
-            'critic/values/min': torch.min(values[eos_mask]).detach().item(),
-            'critic/kld': current_kl,
-            'critic/kl_coef': beta,
-        }
-
-        data.meta_info['metrics'] = metrics
-
-        # add empty cache after each compute
-        torch.cuda.empty_cache()
-
-        return data
-
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
         data = data.select(batch_keys=select_keys)
@@ -186,7 +122,7 @@ class MegatronPPOCritic(BasePPOCritic):
                               group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         data.batch['attention_mask'] = data.batch['attention_mask'].to(bool)
-        batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size)
+        batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size_per_gpu)
         n_micro_batch = len(batches)
         seq_len = batches[0]['input_ids'].shape[1]
 
@@ -250,7 +186,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
                 input_shapes=input_shapes,  # must set for flash-attn sequence packing
-                seq_length=self.config.ppo_micro_batch_size * seq_len,  # no use when input_shapes was set
+                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # no use when input_shapes was set
                 hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
@@ -261,7 +197,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 data_iterator=batch_generator,
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
-                seq_length=self.config.ppo_micro_batch_size * seq_len,  # in use for pp = 1
+                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # in use for pp = 1
                 hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,

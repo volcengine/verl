@@ -1,17 +1,17 @@
 
-Add models to FSDP backend
-===========================
+Add models with the FSDP backend
+==================================
 
 Model
 --------------------------
 
 In principle, our FSDP backend can support any HF model and we can
-sychronoize the actor model weight with vLLM using `hf_weight_loader.py <https://github.com/volcengine/verl/blob/main/verl/third_party/vllm/vllm_v_0_5_4/hf_weight_loader.py>`_.
+sychronoize the actor model weight with vLLM using `hf_weight_loader.py <https://github.com/volcengine/verl/blob/main/verl/third_party/vllm/vllm_v_0_6_3/hf_weight_loader.py>`_.
 However, ``hf_weight_loader`` is will gather the full state_dict of a
 model during synchronization, which may cause OOM. We suggest using
 ``dtensor_weight_loader`` which gather the full model parameter layer by
 layer to reduce the peak memory usage. We already support dtensor weight
-loader for the models below in `dtensor_weight_loader.py <https://github.com/volcengine/verl/blob/main/verl/third_party/vllm/vllm_v_0_5_4/dtensor_weight_loader.py>`_.:
+loader for the models below in `dtensor_weight_loader.py <https://github.com/volcengine/verl/blob/main/verl/third_party/vllm/vllm_v_0_5_4/dtensor_weight_loaders.py>`_.:
 
 - ``GPT2LMHeadModel``
 - ``LlamaForCausalLM``

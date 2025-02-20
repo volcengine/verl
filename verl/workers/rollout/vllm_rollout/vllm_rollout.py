@@ -74,6 +74,7 @@ class vLLMRollout(BaseRollout):
         tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), \
             "tensor parallel size should be less than or equal to the world size"
+        max_num_batched_tokens = self.config.get('max_num_batched_tokens', 8192)
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
@@ -88,16 +89,21 @@ class vLLMRollout(BaseRollout):
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
-        self.inference_engine = LLM(actor_module,
-                                    tokenizer=tokenizer,
-                                    model_hf_config=model_hf_config,
-                                    tensor_parallel_size=tensor_parallel_size,
-                                    dtype=config.dtype,
-                                    enforce_eager=config.enforce_eager,
-                                    gpu_memory_utilization=config.gpu_memory_utilization,
-                                    skip_tokenizer_init=False,
-                                    max_model_len=config.prompt_length + config.response_length,
-                                    load_format=config.load_format)
+        self.inference_engine = LLM(
+            actor_module,
+            tokenizer=tokenizer,
+            model_hf_config=model_hf_config,
+            tensor_parallel_size=tensor_parallel_size,
+            dtype=config.dtype,
+            enforce_eager=config.enforce_eager,
+            gpu_memory_utilization=config.gpu_memory_utilization,
+            skip_tokenizer_init=False,
+            max_model_len=config.prompt_length + config.response_length,
+            load_format=config.load_format,
+            disable_log_stats=config.disable_log_stats,
+            max_num_batched_tokens=max_num_batched_tokens,
+            enable_chunked_prefill=config.enable_chunked_prefill,
+        )
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.offload_model_weights()
@@ -191,6 +197,7 @@ class vLLMRollout(BaseRollout):
                 'top_k': -1,
                 'min_p': 0.0,
                 'temperature': 0,
+                'n': 1  # if greedy, only 1 response
             }
 
         if not self.use_fire_sampling:
@@ -202,23 +209,10 @@ class vLLMRollout(BaseRollout):
                     prompt_token_ids=idx_list,
                     use_tqdm=False)
 
-            response = output[0].to(idx.device)  # (bs, response_length)
-            log_probs = output[1].to(idx.device)  # (bs, response_length)
-        else:
-            with self.update_sampling_params(**kwargs):
-                output_0 = self.inference_engine.generate(
-                    prompts=None,  # because we have already convert it to prompt token id
-                    sampling_params=self.sampling_params_0,
-                    prompt_token_ids=idx_list,
-                    use_tqdm=False)
-                new_idx_list = []
-                for i in range(batch_size):
-                    new_idx_list.append(idx_list[i] + output_0[0][i].tolist())
-                output = self.inference_engine.generate(
-                    prompts=None,  # because we have already convert it to prompt token id
-                    sampling_params=self.sampling_params,
-                    prompt_token_ids=new_idx_list,
-                    use_tqdm=False)
+        # TODO(sgm): disable logprob when recompute_log_prob is enable
+        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+        response = output[0].to(idx.device)
+        log_probs = output[1].to(idx.device)
 
             response = torch.cat([output_0[0], output[0]], dim=1).to(idx.device)  # (bs, response_length)
             log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
@@ -227,6 +221,11 @@ class vLLMRollout(BaseRollout):
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
+        if self.config.n > 1 and do_sample:
+            idx = idx.repeat_interleave(self.config.n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
+            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
+            batch_size = batch_size * self.config.n
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)

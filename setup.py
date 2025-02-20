@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# setup.py is the fallback installation script when pyproject.toml does not work
 from setuptools import setup, find_packages
 import os
 
@@ -20,19 +21,33 @@ version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 with open(os.path.join(version_folder, 'verl/version/version')) as f:
     __version__ = f.read().strip()
 
-
-with open('requirements.txt') as f:
-    required = f.read().splitlines()
-    install_requires = [item.strip() for item in required if item.strip()[0] != '#']
-
-install_optional = [
-    'vllm==0.6.3',
-    'torch==2.4.0', # required by vllm
+install_requires = [
+  'accelerate',
+  'codetiming',
+  'datasets',
+  'dill',
+  'hydra-core',
+  'numpy',
+  'pandas',
+  'peft',
+  'pyarrow>=15.0.0',
+  'pybind11',
+  'pylatexenc',
+  'ray>=2.10',
+  'tensordict<0.6',
+  'transformers',
+  'vllm<=0.6.3.post1',
+  'wandb',
 ]
 
+TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
+PRIME_REQUIRES = ['pyext']
+GPU_REQUIRES = ['liger-kernel', 'flash-attn']
+
 extras_require = {
-    'single-controller': ['ray', 'kubernetes'],
-    'test': ['pytest']
+  'test': TEST_REQUIRES,
+  'prime': PRIME_REQUIRES,
+  'gpu': GPU_REQUIRES,
 }
 
 from pathlib import Path
@@ -48,7 +63,7 @@ setup(
     license='Apache 2.0',
     author='Bytedance - Seed - MLSys',
     author_email='zhangchi.usc1992@bytedance.com, gmsheng@connect.hku.hk',
-    description='veRL: Volcano Engine Reinforcement Learning for LLM',
+    description='verl: Volcano Engine Reinforcement Learning for LLM',
     install_requires=install_requires,
     extras_require=extras_require,
     package_data={'': ['version/*'],

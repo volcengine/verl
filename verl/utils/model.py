@@ -16,12 +16,12 @@ Utilities to create common models from huggingface
 """
 import os
 import warnings
-from typing import Dict, Type
+from typing import Dict, Type, Optional
 
 import numpy as np
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification
+from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification, GenerationConfig
 from verl.models.registry import ModelRegistry
 
 
@@ -55,12 +55,29 @@ def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, t
     return module_config
 
 
+def get_generation_config(
+    model: str,
+    trust_remote_code: bool = False,
+) -> Optional[GenerationConfig]:
+    try:
+        return GenerationConfig.from_pretrained(model)
+    except OSError:  # Not found
+        try:
+            config = get_huggingface_actor_config(
+                model,
+                trust_remote_code=trust_remote_code,
+            )
+            return GenerationConfig.from_model_config(config)
+        except OSError:  # Not found
+            return None
+
+
 def create_huggingface_actor(model_name: str, override_config_kwargs=None, automodel_kwargs=None) -> nn.Module:
     """
 
     Args:
         model_name:
-        actor_override_config_kwargs:
+        override_config_kwargs:
 
     Returns:
 
@@ -150,8 +167,8 @@ def create_random_mask(input_ids: torch.Tensor,
     Returns:
 
     """
-    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token < 1.
-    assert max_ratio_of_left_padding > 0 and max_ratio_of_left_padding < 1.
+    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token <= 1.
+    assert max_ratio_of_left_padding >= 0 and max_ratio_of_left_padding < 1.
     assert min_ratio_of_valid_token <= max_ratio_of_valid_token
 
     batch_size, sequence_length = input_ids.shape
@@ -231,12 +248,21 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     return normalized_name_to_param
 
 
-def get_parallel_model_from_config(config, megatron_config, pre_process=None, post_process=None, value=False):
+def get_parallel_model_from_config(config,
+                                   megatron_config,
+                                   pre_process=None,
+                                   post_process=None,
+                                   share_embeddings_and_output_weights=False,
+                                   value=False):
     from megatron.core import ModelParallelConfig
     assert isinstance(megatron_config, ModelParallelConfig)
     model_class = _get_parallel_model_architecture_from_config(config, value)
 
-    model = model_class(config, megatron_config, pre_process=pre_process, post_process=post_process)
+    model = model_class(config,
+                        megatron_config,
+                        pre_process=pre_process,
+                        post_process=post_process,
+                        share_embeddings_and_output_weights=share_embeddings_and_output_weights)
     return model
 
 
