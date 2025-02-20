@@ -154,7 +154,7 @@ reward_model:
     initial_concurrency: 50
     min_concurrency: 5
     max_concurrency: 200
-    default_score: 0.0
+    default_score: 0.001
     max_retries: 4
     max_tokens: 16
     min_score: 0

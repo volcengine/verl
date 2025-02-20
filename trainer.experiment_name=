@@ -1,0 +1,203 @@
+/root/miniconda3/envs/prime/lib/python3.10/site-packages/_distutils_hack/__init__.py:53: UserWarning: Reliance on distutils from stdlib is deprecated. Users must rely on setuptools to provide the distutils module. Avoid importing distutils or import setuptools first, and avoid setting SETUPTOOLS_USE_DISTUTILS=stdlib. Register concerns at https://github.com/pypa/setuptools/issues/new?template=distutils-deprecation.yml
+  warnings.warn(
+2025-02-20 18:47:17,468	INFO worker.py:1841 -- Started a local Ray instance.
+[36m(pid=3140)[0m /root/miniconda3/envs/prime/lib/python3.10/site-packages/_distutils_hack/__init__.py:53: UserWarning: Reliance on distutils from stdlib is deprecated. Users must rely on setuptools to provide the distutils module. Avoid importing distutils or import setuptools first, and avoid setting SETUPTOOLS_USE_DISTUTILS=stdlib. Register concerns at https://github.com/pypa/setuptools/issues/new?template=distutils-deprecation.yml
+[36m(pid=3140)[0m   warnings.warn(
+[36m(main_task pid=3140)[0m {'actor_rollout_ref': {'actor': {'clip_ratio': 0.2,
+[36m(main_task pid=3140)[0m                                  'entropy_coeff': 0.001,
+[36m(main_task pid=3140)[0m                                  'fsdp_config': {'fsdp_size': -1,
+[36m(main_task pid=3140)[0m                                                  'optimizer_offload': False,
+[36m(main_task pid=3140)[0m                                                  'param_offload': False,
+[36m(main_task pid=3140)[0m                                                  'wrap_policy': {'min_num_params': 0}},
+[36m(main_task pid=3140)[0m                                  'grad_clip': 1.0,
+[36m(main_task pid=3140)[0m                                  'kl_loss_coef': 0.001,
+[36m(main_task pid=3140)[0m                                  'kl_loss_type': 'low_var_kl',
+[36m(main_task pid=3140)[0m                                  'optim': {'lr': 1e-06,
+[36m(main_task pid=3140)[0m                                            'lr_warmup_steps_ratio': 0.0,
+[36m(main_task pid=3140)[0m                                            'min_lr_ratio': None,
+[36m(main_task pid=3140)[0m                                            'total_training_steps': -1,
+[36m(main_task pid=3140)[0m                                            'warmup_style': 'constant'},
+[36m(main_task pid=3140)[0m                                  'ppo_epochs': 1,
+[36m(main_task pid=3140)[0m                                  'ppo_max_token_len_per_gpu': 16384,
+[36m(main_task pid=3140)[0m                                  'ppo_micro_batch_size': None,
+[36m(main_task pid=3140)[0m                                  'ppo_micro_batch_size_per_gpu': 4,
+[36m(main_task pid=3140)[0m                                  'ppo_mini_batch_size': 64,
+[36m(main_task pid=3140)[0m                                  'shuffle': False,
+[36m(main_task pid=3140)[0m                                  'strategy': 'fsdp',
+[36m(main_task pid=3140)[0m                                  'ulysses_sequence_parallel_size': 1,
+[36m(main_task pid=3140)[0m                                  'use_dynamic_bsz': False,
+[36m(main_task pid=3140)[0m                                  'use_kl_loss': False},
+[36m(main_task pid=3140)[0m                        'hybrid_engine': True,
+[36m(main_task pid=3140)[0m                        'model': {'enable_gradient_checkpointing': True,
+[36m(main_task pid=3140)[0m                                  'external_lib': None,
+[36m(main_task pid=3140)[0m                                  'override_config': {},
+[36m(main_task pid=3140)[0m                                  'path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct',
+[36m(main_task pid=3140)[0m                                  'use_remove_padding': False},
+[36m(main_task pid=3140)[0m                        'ref': {'fsdp_config': {'param_offload': False,
+[36m(main_task pid=3140)[0m                                                'wrap_policy': {'min_num_params': 0}},
+[36m(main_task pid=3140)[0m                                'log_prob_max_token_len_per_gpu': 16384,
+[36m(main_task pid=3140)[0m                                'log_prob_micro_batch_size': None,
+[36m(main_task pid=3140)[0m                                'log_prob_micro_batch_size_per_gpu': 4,
+[36m(main_task pid=3140)[0m                                'log_prob_use_dynamic_bsz': False,
+[36m(main_task pid=3140)[0m                                'ulysses_sequence_parallel_size': 1},
+[36m(main_task pid=3140)[0m                        'rollout': {'disable_log_stats': True,
+[36m(main_task pid=3140)[0m                                    'do_sample': True,
+[36m(main_task pid=3140)[0m                                    'dtype': 'bfloat16',
+[36m(main_task pid=3140)[0m                                    'enable_chunked_prefill': True,
+[36m(main_task pid=3140)[0m                                    'enforce_eager': True,
+[36m(main_task pid=3140)[0m                                    'free_cache_engine': True,
+[36m(main_task pid=3140)[0m                                    'gpu_memory_utilization': 0.4,
+[36m(main_task pid=3140)[0m                                    'ignore_eos': False,
+[36m(main_task pid=3140)[0m                                    'load_format': 'dummy_dtensor',
+[36m(main_task pid=3140)[0m                                    'log_prob_max_token_len_per_gpu': 16384,
+[36m(main_task pid=3140)[0m                                    'log_prob_micro_batch_size': None,
+[36m(main_task pid=3140)[0m                                    'log_prob_micro_batch_size_per_gpu': 8,
+[36m(main_task pid=3140)[0m                                    'log_prob_use_dynamic_bsz': False,
+[36m(main_task pid=3140)[0m                                    'max_num_batched_tokens': 8192,
+[36m(main_task pid=3140)[0m                                    'max_num_seqs': 1024,
+[36m(main_task pid=3140)[0m                                    'n': 1,
+[36m(main_task pid=3140)[0m                                    'name': 'vllm',
+[36m(main_task pid=3140)[0m                                    'prompt_length': 512,
+[36m(main_task pid=3140)[0m                                    'response_length': 256,
+[36m(main_task pid=3140)[0m                                    'temperature': 1.0,
+[36m(main_task pid=3140)[0m                                    'tensor_model_parallel_size': 1,
+[36m(main_task pid=3140)[0m                                    'top_k': -1,
+[36m(main_task pid=3140)[0m                                    'top_p': 1}},
+[36m(main_task pid=3140)[0m  'algorithm': {'adv_estimator': 'gae',
+[36m(main_task pid=3140)[0m                'gamma': 1.0,
+[36m(main_task pid=3140)[0m                'kl_ctrl': {'kl_coef': 0.001, 'type': 'fixed'},
+[36m(main_task pid=3140)[0m                'kl_penalty': 'kl',
+[36m(main_task pid=3140)[0m                'lam': 1.0},
+[36m(main_task pid=3140)[0m  'critic': {'cliprange_value': 0.5,
+[36m(main_task pid=3140)[0m             'forward_max_token_len_per_gpu': 32768,
+[36m(main_task pid=3140)[0m             'forward_micro_batch_size': None,
+[36m(main_task pid=3140)[0m             'forward_micro_batch_size_per_gpu': 4,
+[36m(main_task pid=3140)[0m             'grad_clip': 1.0,
+[36m(main_task pid=3140)[0m             'model': {'enable_gradient_checkpointing': True,
+[36m(main_task pid=3140)[0m                       'external_lib': None,
+[36m(main_task pid=3140)[0m                       'fsdp_config': {'fsdp_size': -1,
+[36m(main_task pid=3140)[0m                                       'optimizer_offload': False,
+[36m(main_task pid=3140)[0m                                       'param_offload': False,
+[36m(main_task pid=3140)[0m                                       'wrap_policy': {'min_num_params': 0}},
+[36m(main_task pid=3140)[0m                       'override_config': {},
+[36m(main_task pid=3140)[0m                       'path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct',
+[36m(main_task pid=3140)[0m                       'tokenizer_path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct',
+[36m(main_task pid=3140)[0m                       'use_remove_padding': False},
+[36m(main_task pid=3140)[0m             'optim': {'lr': 1e-05,
+[36m(main_task pid=3140)[0m                       'lr_warmup_steps_ratio': 0.0,
+[36m(main_task pid=3140)[0m                       'min_lr_ratio': None,
+[36m(main_task pid=3140)[0m                       'total_training_steps': -1,
+[36m(main_task pid=3140)[0m                       'warmup_style': 'constant'},
+[36m(main_task pid=3140)[0m             'ppo_epochs': 1,
+[36m(main_task pid=3140)[0m             'ppo_max_token_len_per_gpu': 32768,
+[36m(main_task pid=3140)[0m             'ppo_micro_batch_size': None,
+[36m(main_task pid=3140)[0m             'ppo_micro_batch_size_per_gpu': 4,
+[36m(main_task pid=3140)[0m             'ppo_mini_batch_size': 64,
+[36m(main_task pid=3140)[0m             'shuffle': False,
+[36m(main_task pid=3140)[0m             'strategy': 'fsdp',
+[36m(main_task pid=3140)[0m             'ulysses_sequence_parallel_size': 1,
+[36m(main_task pid=3140)[0m             'use_dynamic_bsz': False},
+[36m(main_task pid=3140)[0m  'data': {'max_prompt_length': 512,
+[36m(main_task pid=3140)[0m           'max_response_length': 256,
+[36m(main_task pid=3140)[0m           'prompt_key': 'prompt',
+[36m(main_task pid=3140)[0m           'return_raw_chat': False,
+[36m(main_task pid=3140)[0m           'return_raw_input_ids': False,
+[36m(main_task pid=3140)[0m           'shuffle': True,
+[36m(main_task pid=3140)[0m           'tokenizer': None,
+[36m(main_task pid=3140)[0m           'train_batch_size': 256,
+[36m(main_task pid=3140)[0m           'train_files': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/train.parquet',
+[36m(main_task pid=3140)[0m           'val_batch_size': 1024,
+[36m(main_task pid=3140)[0m           'val_files': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/test.parquet'},
+[36m(main_task pid=3140)[0m  'reward_model': {'enable': False,
+[36m(main_task pid=3140)[0m                   'forward_max_token_len_per_gpu': 32768,
+[36m(main_task pid=3140)[0m                   'max_length': None,
+[36m(main_task pid=3140)[0m                   'micro_batch_size': None,
+[36m(main_task pid=3140)[0m                   'micro_batch_size_per_gpu': None,
+[36m(main_task pid=3140)[0m                   'model': {'external_lib': None,
+[36m(main_task pid=3140)[0m                             'fsdp_config': {'fsdp_size': -1,
+[36m(main_task pid=3140)[0m                                             'min_num_params': 0,
+[36m(main_task pid=3140)[0m                                             'param_offload': False},
+[36m(main_task pid=3140)[0m                             'input_tokenizer': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct',
+[36m(main_task pid=3140)[0m                             'path': '~/models/FsfairX-LLaMA3-RM-v0.1',
+[36m(main_task pid=3140)[0m                             'use_remove_padding': False},
+[36m(main_task pid=3140)[0m                   'reward_manager': 'generative',
+[36m(main_task pid=3140)[0m                   'reward_manager_config': {'api_key': 'sk-CCjXe1pG7RMsNaAsjhoFKy9jiEJAoIG6bJOtROsJ618WvGBz',
+[36m(main_task pid=3140)[0m                                             'default_score': 0.0,
+[36m(main_task pid=3140)[0m                                             'initial_concurrency': 20,
+[36m(main_task pid=3140)[0m                                             'max_concurrency': 100,
+[36m(main_task pid=3140)[0m                                             'max_retries': 3,
+[36m(main_task pid=3140)[0m                                             'max_score': 5,
+[36m(main_task pid=3140)[0m                                             'max_tokens': 16,
+[36m(main_task pid=3140)[0m                                             'min_concurrency': 10,
+[36m(main_task pid=3140)[0m                                             'min_score': 0,
+[36m(main_task pid=3140)[0m                                             'model_name': 'deepseek-v3',
+[36m(main_task pid=3140)[0m                                             'num_samples': 4,
+[36m(main_task pid=3140)[0m                                             'sc_mode': 'mean',
+[36m(main_task pid=3140)[0m                                             'scoring_prompt': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/utils/prompts.txt',
+[36m(main_task pid=3140)[0m                                             'server_url': 'https://boyuerichdata.chatgptten.com/v1',
+[36m(main_task pid=3140)[0m                                             'temperature': 1.0,
+[36m(main_task pid=3140)[0m                                             'timeout': 10},
+[36m(main_task pid=3140)[0m                   'strategy': 'fsdp',
+[36m(main_task pid=3140)[0m                   'ulysses_sequence_parallel_size': 1,
+[36m(main_task pid=3140)[0m                   'use_dynamic_bsz': False},
+[36m(main_task pid=3140)[0m  'trainer': {'critic_warmup': 0,
+[36m(main_task pid=3140)[0m              'default_hdfs_dir': None,
+[36m(main_task pid=3140)[0m              'default_local_dir': 'checkpoints/verl_examples/gsm8k',
+[36m(main_task pid=3140)[0m              'del_local_ckpt_after_load': False,
+[36m(main_task pid=3140)[0m              'experiment_name': 'gsm8k',
+[36m(main_task pid=3140)[0m              'logger': ['console', 'wandb'],
+[36m(main_task pid=3140)[0m              'n_gpus_per_node': 1,
+[36m(main_task pid=3140)[0m              'nnodes': 1,
+[36m(main_task pid=3140)[0m              'project_name': 'verl_examples',
+[36m(main_task pid=3140)[0m              'remove_previous_ckpt_in_save': False,
+[36m(main_task pid=3140)[0m              'resume_from_path': False,
+[36m(main_task pid=3140)[0m              'resume_mode': 'auto',
+[36m(main_task pid=3140)[0m              'save_freq': 10,
+[36m(main_task pid=3140)[0m              'test_freq': 10,
+[36m(main_task pid=3140)[0m              'total_epochs': 15,
+[36m(main_task pid=3140)[0m              'total_training_steps': None,
+[36m(main_task pid=3140)[0m              'val_before_train': False,
+[36m(main_task pid=3140)[0m              'val_generations_to_log_to_wandb': 0}}
+[36m(main_task pid=3140)[0m /root/miniconda3/envs/prime/lib/python3.10/site-packages/vllm/connections.py:8: RuntimeWarning: Failed to read commit hash:
+[36m(main_task pid=3140)[0m No module named 'vllm._version'
+[36m(main_task pid=3140)[0m   from vllm.version import __version__ as VLLM_VERSION
+[36m(main_task pid=3140)[0m {'data': {'tokenizer': None, 'train_files': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/train.parquet', 'val_files': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/test.parquet', 'prompt_key': 'prompt', 'max_prompt_length': 512, 'max_response_length': 256, 'train_batch_size': 256, 'val_batch_size': 1024, 'return_raw_input_ids': False, 'return_raw_chat': False, 'shuffle': True}, 'actor_rollout_ref': {'hybrid_engine': True, 'model': {'path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'external_lib': None, 'override_config': {}, 'enable_gradient_checkpointing': True, 'use_remove_padding': False}, 'actor': {'strategy': 'fsdp', 'ppo_mini_batch_size': 64, 'ppo_micro_batch_size': None, 'ppo_micro_batch_size_per_gpu': 4, 'use_dynamic_bsz': False, 'ppo_max_token_len_per_gpu': 16384, 'grad_clip': 1.0, 'clip_ratio': 0.2, 'entropy_coeff': 0.001, 'use_kl_loss': False, 'kl_loss_coef': 0.001, 'kl_loss_type': 'low_var_kl', 'ppo_epochs': 1, 'shuffle': False, 'ulysses_sequence_parallel_size': 1, 'optim': {'lr': 1e-06, 'lr_warmup_steps_ratio': 0.0, 'min_lr_ratio': None, 'warmup_style': 'constant', 'total_training_steps': -1}, 'fsdp_config': {'wrap_policy': {'min_num_params': 0}, 'param_offload': False, 'optimizer_offload': False, 'fsdp_size': -1}}, 'ref': {'fsdp_config': {'param_offload': False, 'wrap_policy': {'min_num_params': 0}}, 'log_prob_micro_batch_size': None, 'log_prob_micro_batch_size_per_gpu': 4, 'log_prob_use_dynamic_bsz': False, 'log_prob_max_token_len_per_gpu': 16384, 'ulysses_sequence_parallel_size': 1}, 'rollout': {'name': 'vllm', 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'prompt_length': 512, 'response_length': 256, 'dtype': 'bfloat16', 'gpu_memory_utilization': 0.4, 'ignore_eos': False, 'enforce_eager': True, 'free_cache_engine': True, 'load_format': 'dummy_dtensor', 'tensor_model_parallel_size': 1, 'max_num_batched_tokens': 8192, 'max_num_seqs': 1024, 'log_prob_micro_batch_size': None, 'log_prob_micro_batch_size_per_gpu': 8, 'log_prob_use_dynamic_bsz': False, 'log_prob_max_token_len_per_gpu': 16384, 'disable_log_stats': True, 'enable_chunked_prefill': True, 'do_sample': True, 'n': 1}}, 'critic': {'strategy': 'fsdp', 'optim': {'lr': 1e-05, 'lr_warmup_steps_ratio': 0.0, 'min_lr_ratio': None, 'warmup_style': 'constant', 'total_training_steps': -1}, 'model': {'path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'tokenizer_path': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'override_config': {}, 'external_lib': None, 'enable_gradient_checkpointing': True, 'use_remove_padding': False, 'fsdp_config': {'param_offload': False, 'optimizer_offload': False, 'wrap_policy': {'min_num_params': 0}, 'fsdp_size': -1}}, 'ppo_mini_batch_size': 64, 'ppo_micro_batch_size': None, 'ppo_micro_batch_size_per_gpu': 4, 'forward_micro_batch_size': None, 'forward_micro_batch_size_per_gpu': 4, 'use_dynamic_bsz': False, 'ppo_max_token_len_per_gpu': 32768, 'forward_max_token_len_per_gpu': 32768, 'ulysses_sequence_parallel_size': 1, 'ppo_epochs': 1, 'shuffle': False, 'grad_clip': 1.0, 'cliprange_value': 0.5}, 'reward_model': {'enable': False, 'strategy': 'fsdp', 'model': {'input_tokenizer': '/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'path': '~/models/FsfairX-LLaMA3-RM-v0.1', 'external_lib': None, 'use_remove_padding': False, 'fsdp_config': {'min_num_params': 0, 'param_offload': False, 'fsdp_size': -1}}, 'micro_batch_size': None, 'micro_batch_size_per_gpu': None, 'max_length': None, 'ulysses_sequence_parallel_size': 1, 'use_dynamic_bsz': False, 'forward_max_token_len_per_gpu': 32768, 'reward_manager': 'generative', 'reward_manager_config': {'server_url': 'https://boyuerichdata.chatgptten.com/v1', 'model_name': 'deepseek-v3', 'scoring_prompt': '/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/utils/prompts.txt', 'num_samples': 4, 'sc_mode': 'mean', 'api_key': 'sk-CCjXe1pG7RMsNaAsjhoFKy9jiEJAoIG6bJOtROsJ618WvGBz', 'timeout': 10, 'temperature': 1.0, 'initial_concurrency': 20, 'min_concurrency': 10, 'max_concurrency': 100, 'default_score': 0.0, 'max_retries': 3, 'max_tokens': 16, 'min_score': 0, 'max_score': 5}}, 'algorithm': {'gamma': 1.0, 'lam': 1.0, 'adv_estimator': 'gae', 'kl_penalty': 'kl', 'kl_ctrl': {'type': 'fixed', 'kl_coef': 0.001}}, 'trainer': {'total_epochs': 15, 'total_training_steps': None, 'project_name': 'verl_examples', 'experiment_name': 'gsm8k', 'logger': ['console', 'wandb'], 'val_generations_to_log_to_wandb': 0, 'nnodes': 1, 'n_gpus_per_node': 1, 'save_freq': 10, 'resume_mode': 'auto', 'resume_from_path': False, 'test_freq': 10, 'critic_warmup': 0, 'default_hdfs_dir': None, 'remove_previous_ckpt_in_save': False, 'del_local_ckpt_after_load': False, 'default_local_dir': 'checkpoints/verl_examples/gsm8k', 'val_before_train': False}}
+[36m(main_task pid=3140)[0m [validate_config] All configuration checks passed successfully!
+[36m(main_task pid=3140)[0m original dataset len: 7473
+Error executing job with overrides: ['data.train_files=/cpfs01/shared/mascience/fanyuchen/editprm/verl/train.parquet', 'data.val_files=/cpfs01/shared/mascience/fanyuchen/editprm/verl/test.parquet', 'data.train_batch_size=256', 'data.val_batch_size=1024', 'data.max_prompt_length=512', 'data.max_response_length=256', 'actor_rollout_ref.model.path=/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'actor_rollout_ref.actor.optim.lr=1e-6', 'actor_rollout_ref.actor.ppo_mini_batch_size=64', 'actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4', 'actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8', 'actor_rollout_ref.rollout.tensor_model_parallel_size=1', 'actor_rollout_ref.rollout.gpu_memory_utilization=0.4', 'actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4', 'critic.optim.lr=1e-5', 'critic.model.path=/cpfs01/shared/mascience/fanyuchen/editprm/MODELS/Qwen2.5-0.5B-Instruct', 'critic.ppo_micro_batch_size_per_gpu=4', 'algorithm.kl_ctrl.kl_coef=0.001', '+trainer.val_before_train=False', 'reward_model.reward_manager=generative', 'reward_model.reward_manager_config.server_url=https://boyuerichdata.chatgptten.com/v1', 'reward_model.reward_manager_config.model_name=deepseek-v3', 'reward_model.reward_manager_config.scoring_prompt=/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/utils/prompts.txt', 'reward_model.reward_manager_config.num_samples=4', 'reward_model.reward_manager_config.max_tokens=16', 'reward_model.reward_manager_config.sc_mode=mean', 'reward_model.reward_manager_config.api_key=sk-CCjXe1pG7RMsNaAsjhoFKy9jiEJAoIG6bJOtROsJ618WvGBz', 'reward_model.reward_manager_config.timeout=10', 'reward_model.reward_manager_config.temperature=1.0', 'reward_model.reward_manager_config.initial_concurrency=20', 'reward_model.reward_manager_config.min_concurrency=10', 'reward_model.reward_manager_config.max_concurrency=100', 'reward_model.reward_manager_config.default_score=0.0', 'reward_model.reward_manager_config.max_retries=3', 'trainer.default_hdfs_dir=null', 'trainer.n_gpus_per_node=1', 'trainer.nnodes=1', 'trainer.save_freq=10', 'trainer.test_freq=10', 'trainer.total_epochs=15']
+[36m(main_task pid=3140)[0m filter dataset len: 7473
+Traceback (most recent call last):
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/trainer/main_ppo.py", line 25, in main
+    run_ppo(config)
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/trainer/main_ppo.py", line 33, in run_ppo
+    ray.get(main_task.remote(config, compute_score))
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/ray/_private/auto_init_hook.py", line 21, in auto_init_wrapper
+    return fn(*args, **kwargs)
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/ray/_private/client_mode_hook.py", line 103, in wrapper
+    return func(*args, **kwargs)
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/ray/_private/worker.py", line 2772, in get
+    values, debugger_breakpoint = worker.get_objects(object_refs, timeout=timeout)
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/ray/_private/worker.py", line 919, in get_objects
+    raise value.as_instanceof_cause()
+ray.exceptions.RayTaskError(FileNotFoundError): [36mray::main_task()[39m (pid=3140, ip=10.1.1.80)
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/trainer/main_ppo.py", line 129, in main_task
+    trainer = RayPPOTrainer(config=config,
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/trainer/ppo/ray_trainer.py", line 381, in __init__
+    self._create_dataloader()
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/trainer/ppo/ray_trainer.py", line 486, in _create_dataloader
+    self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/utils/dataset/rl_dataset.py", line 93, in __init__
+    self._read_files_and_tokenize()
+  File "/cpfs01/shared/mascience/fanyuchen/editprm/verl/verl/utils/dataset/rl_dataset.py", line 105, in _read_files_and_tokenize
+    dataframe = pd.read_parquet(parquet_file)
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/pandas/io/parquet.py", line 667, in read_parquet
+    return impl.read(
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/pandas/io/parquet.py", line 267, in read
+    path_or_handle, handles, filesystem = _get_path_or_handle(
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/pandas/io/parquet.py", line 140, in _get_path_or_handle
+    handles = get_handle(
+  File "/root/miniconda3/envs/prime/lib/python3.10/site-packages/pandas/io/common.py", line 882, in get_handle
+    handle = open(handle, ioargs.mode)
+FileNotFoundError: [Errno 2] No such file or directory: '/cpfs01/shared/mascience/fanyuchen/editprm/verl/test.parquet'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
