@@ -49,12 +49,14 @@ class NaiveRewardManager:
 
             response_ids = data_item.batch['responses']
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
+            # valid_response_ids = response_ids[:valid_response_length]
+            valid_response_ids = response_ids
 
             # decode
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
-
+            
+            prompt_str = self.tokenizer.decode(valid_prompt_ids)
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
             data_source = data_item.non_tensor_batch['data_source']
@@ -66,6 +68,7 @@ class NaiveRewardManager:
                 solution_str=sequences_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                question=prompt_str
             )
             reward_tensor[i, valid_response_length - 1] = score
 

@@ -706,38 +706,67 @@ class RayPPOTrainer(object):
         self.actor_rollout_wg = all_wg['actor_rollout']
         self.actor_rollout_wg.init_model()
 
-    def _save_checkpoint(self):
+    def _save_checkpoint(self, save_hf=False):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
-                                                f'global_step_{self.global_steps}')
-        actor_local_path = os.path.join(local_global_step_folder, 'actor')
+        if save_hf:
+            # TODO：is not ready yet
+            from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+            import verl.utils.hdfs_io as hdfs_io
+            
+            cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with FSDP.state_dict_type(self.actor_rollout_wg.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
+                state_dict = self.actor_rollout_wg.fsdp_model.state_dict()
 
-        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-            self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
-        self.actor_rollout_wg.save_checkpoint(actor_local_path,
-                                              actor_remote_path,
-                                              self.global_steps,
-                                              remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
+            local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, 
+                                                  f'global_step_{self.global_steps}')
+            actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
-        if self.use_critic:
-            critic_local_path = os.path.join(local_global_step_folder, 'critic')
-            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
-            self.critic_wg.save_checkpoint(critic_local_path,
-                                           critic_remote_path,
-                                           self.global_steps,
-                                           remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
+            # Save HuggingFace model on rank 0
+            if self.actor_rollout_wg.device_mesh.get_rank() == 0:
+                os.makedirs(actor_local_path, exist_ok=True)
+                self.actor_rollout_wg.model.save_pretrained(actor_local_path, state_dict=state_dict)
+                self.actor_rollout_wg.tokenizer.save_pretrained(actor_local_path)
+                
+                # Copy to HDFS if configured
+                if self.config.trainer.default_hdfs_dir:
+                    hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                    hdfs_io.copy(src=actor_local_path, 
+                               dst=os.path.join(self.config.trainer.default_hdfs_dir, 
+                                              f'global_step_{self.global_steps}', 'actor'),
+                               dirs_exist_ok=True)
+            torch.distributed.barrier()
+        else:
+            local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
+                                                    f'global_step_{self.global_steps}')
+            actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
-        # save dataloader
-        dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
-        import dill
-        torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
+            actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
+            self.actor_rollout_wg.save_checkpoint(actor_local_path,
+                                                actor_remote_path,
+                                                self.global_steps,
+                                                remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
 
-        # latest checkpointed iteration tracker (for atomic usage)
-        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
-                                                           'latest_checkpointed_iteration.txt')
-        with open(local_latest_checkpointed_iteration, 'w') as f:
-            f.write(str(self.global_steps))
+            if self.use_critic:
+                critic_local_path = os.path.join(local_global_step_folder, 'critic')
+                critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                    self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
+                self.critic_wg.save_checkpoint(critic_local_path,
+                                            critic_remote_path,
+                                            self.global_steps,
+                                            remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
+
+            # save dataloader
+            dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
+            import dill
+            torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
+
+            # latest checkpointed iteration tracker (for atomic usage)
+            local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
+                                                            'latest_checkpointed_iteration.txt')
+            with open(local_latest_checkpointed_iteration, 'w') as f:
+                f.write(str(self.global_steps))
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == 'disable':
@@ -785,8 +814,8 @@ class RayPPOTrainer(object):
 
         # load dataloader,
         # TODO: from remote not implemented yet
-        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
-        self.train_dataloader = torch.load(dataloader_local_path)
+        # dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
+        # self.train_dataloader = torch.load(dataloader_local_path)
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
@@ -850,8 +879,10 @@ class RayPPOTrainer(object):
 
                 with _timer('step', timing_raw):
                     # generate a batch
+                    import inspect
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        
 
                     if self.config.algorithm.adv_estimator == 'remax':
                         with _timer('gen_max', timing_raw):

@@ -95,10 +95,13 @@ def extract_solution(question, response, extractor_urls):
     # response = response.strip().split('\n')
     # resp_text = [x for x in response if x.strip()]
     # resp_text = "\n".join(resp_text[-3:])
+    response = response.replace(" <|endoftext|>", "")
     resp_text = response.strip().split("<|assistant|>")[-1]
 
     answer_template = EXTRACTION_TEMPLATE.format(
-        question=question, answer=resp_text)
+        question=question, 
+        answer=resp_text
+    )
     answer = None
     for _ in range(6):
         extracted_answer = query_sglang_chat(
@@ -137,8 +140,10 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
         format_score: the score for the format
         score: the score for the correct answer
     """
+    response = solution_str.replace(" <|endoftext|>", "")
+    resp_print = response.strip().split("<|assistant|>")[-1]
     answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
-    print("extracted_answer: ", answer)
+    print("solution_str: ", resp_print, "extracted_answer: ", answer)
     if answer is None:
         return 0
     else:
