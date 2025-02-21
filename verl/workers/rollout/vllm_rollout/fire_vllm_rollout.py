@@ -89,7 +89,6 @@ class FIREvLLMRollout(vLLMRollout):
                     old_value = getattr(self.sampling_params, key)
                     old_sampling_params_args[key] = old_value
                     setattr(self.sampling_params, key, value)
-        
         if self.use_fire_sampling:
             old_sampling_params_args_0 = {}
             if kwargs:
@@ -103,7 +102,6 @@ class FIREvLLMRollout(vLLMRollout):
         # if len(old_sampling_params_args):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
-        
         if self.use_fire_sampling:
             for key, value in old_sampling_params_args_0.items():
                 setattr(self.sampling_params_0, key, value)
@@ -169,7 +167,6 @@ class FIREvLLMRollout(vLLMRollout):
 
             response = torch.cat([output_0[0], output[0]], dim=1).to(idx.device)  # (bs, response_length)
             log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
-
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
