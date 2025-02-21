@@ -6,15 +6,21 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/vllm.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/vllm.yml
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   vllm:
@@ -40,3 +46,8 @@ jobs:
         run: |
           cd tests/rollout
           torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
+      - name: Test the latest vLLM
+        run: |
+          pip3 install --upgrade vllm
+          cd tests/rollout
+          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py

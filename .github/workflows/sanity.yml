@@ -6,15 +6,21 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   sanity:
@@ -40,3 +46,7 @@ jobs:
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .
+      - name: Run dependency test
+        run: |
+          pip install tomli
+          pytest -s -x tests/distro/requirements.py

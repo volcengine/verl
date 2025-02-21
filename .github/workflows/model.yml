@@ -6,17 +6,21 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/model.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/model.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   model_rmpad:

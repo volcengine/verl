@@ -37,6 +37,8 @@ def check_model_support_rmpad(model_type: str):
 _MODELS = {
     "LlamaForCausalLM":
         ("llama", ("ParallelLlamaForCausalLMRmPadPP", "ParallelLlamaForValueRmPadPP", "ParallelLlamaForCausalLMRmPad")),
+    "Qwen2ForCausalLM":
+        ("qwen2", ("ParallelQwen2ForCausalLMRmPadPP", "ParallelQwen2ForValueRmPadPP", "ParallelQwen2ForCausalLMRmPad")),
     "MistralForCausalLM": ("mistral", ("ParallelMistralForCausalLMRmPadPP", "ParallelMistralForValueRmPadPP",
                                        "ParallelMistralForCausalLMRmPad"))
 }

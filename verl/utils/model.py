@@ -77,7 +77,7 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
 
     Args:
         model_name:
-        actor_override_config_kwargs:
+        override_config_kwargs:
 
     Returns:
 
@@ -248,12 +248,21 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     return normalized_name_to_param
 
 
-def get_parallel_model_from_config(config, megatron_config, pre_process=None, post_process=None, value=False):
+def get_parallel_model_from_config(config,
+                                   megatron_config,
+                                   pre_process=None,
+                                   post_process=None,
+                                   share_embeddings_and_output_weights=False,
+                                   value=False):
     from megatron.core import ModelParallelConfig
     assert isinstance(megatron_config, ModelParallelConfig)
     model_class = _get_parallel_model_architecture_from_config(config, value)
 
-    model = model_class(config, megatron_config, pre_process=pre_process, post_process=post_process)
+    model = model_class(config,
+                        megatron_config,
+                        pre_process=pre_process,
+                        post_process=post_process,
+                        share_embeddings_and_output_weights=share_embeddings_and_output_weights)
     return model
 
 

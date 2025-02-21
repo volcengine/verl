@@ -93,7 +93,6 @@ Actor/Rollout/Reference Policy
           # transformer_layer_cls_to_wrap: None
           min_num_params: 0
         param_offload: False
-        grad_offload: False
         optimizer_offload: False
         fsdp_size: -1
     ref:
