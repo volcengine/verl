@@ -18,6 +18,8 @@ How to run multi-node post-training with Ray?
 
 You can start a ray cluster and submit a ray job, following the official guide from Ray: https://docs.ray.io/en/latest/ray-core/starting-ray.html
 
+Then in the configuration, set the ``trainer.nnode`` config to the number of machines for your job.
+
 How to use verl on a Slurm-managed cluster?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -41,3 +43,15 @@ manager available on your cluster or use other container runtimes (e.g. through 
 
 Please note that Slurm cluster setup may vary. If you encounter any issues, please refer to Ray's
 `Slurm user guide <https://docs.ray.io/en/latest/cluster/vms/user-guides/community/slurm.html>`_ for common caveats.
+
+Illegal memory access
+---------------------------------
+
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm.
+Please set the following environment variable. The env var must be set before the ``ray start`` command if any.
+
+.. code:: bash
+
+    export VLLM_ATTENTION_BACKEND=XFORMERS
+
+If in doubt, print this env var in each rank to make sure it is properly set.
