@@ -27,12 +27,14 @@ from transformers.trainer_pt_utils import get_module_class_from_name
 import torch
 import torch.nn as nn
 import torch.distributed as dist
+from verl.utils.device import is_cuda_available
 
 
 def init_fn(x: torch.nn.Module):
     if not torch.distributed.get_rank() == 0:
-        x = x.to_empty(device=torch.cuda.current_device(), recurse=False)
-        torch.cuda.empty_cache()
+        x = x.to_empty(device=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device() if is_cuda_available else torch.npu.current_device(),
+                       recurse=False)
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache()
     return x
 
 
@@ -53,7 +55,7 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
 def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     """Get FSDP wrap policy for the module.
-    
+
     Args:
         module: The module to get wrap policy for
         config: Configuration for wrap policy
@@ -122,14 +124,14 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
             continue
         flat_param = handle.flat_param
         assert flat_param.data.data_ptr() == flat_param._local_shard.data_ptr() and \
-            id(flat_param.data) != id(flat_param._local_shard) and \
-            flat_param.data.size() == flat_param._local_shard.size()
+               id(flat_param.data) != id(flat_param._local_shard) and \
+               flat_param.data.size() == flat_param._local_shard.size()
         handle.flat_param_to(torch.device("cpu"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
         assert id(flat_param._local_shard) != id(flat_param.data)
     if empty_cache:
-        torch.cuda.empty_cache()
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache()
 
 
 @torch.no_grad()
@@ -138,7 +140,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
     # lazy init FSDP model
     _lazy_init(model, model)
     assert model._is_root, f"Only support root model loading to GPU"
-    device_id = torch.cuda.current_device()
+    device_id = torch.cuda.current_device() if is_cuda_available else torch.npu.current_device()
     for handle in model._all_handles:
         if handle._offload_params:
             continue
@@ -245,7 +247,7 @@ def parallel_load_safetensors(filepath):
     ckpt_chunks = [ckpt_chunks[rank * size:rank * size + size] for rank in range(world_size)]
 
     shard_states = {}
-    device = torch.cuda.current_device()
+    device = torch.cuda.current_device() if is_cuda_available else torch.npu.current_device()
     for rank, files in enumerate(ckpt_chunks):
         if rank == dist.get_rank():
             for file in files:
@@ -284,7 +286,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
     @torch.no_grad()
     def create_and_sync_state(param_name, state, is_param):
         assert param_name in shard_states, f"{param_name} not loaded"
-        device = torch.cuda.current_device()
+        device = torch.cuda.current_device() if is_cuda_available else torch.npu.current_device()
         if is_param:
             param = torch.nn.Parameter(torch.empty_like(state.data, device=device), requires_grad=state.requires_grad)
         else:  # buffer
