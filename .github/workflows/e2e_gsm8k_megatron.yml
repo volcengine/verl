@@ -6,18 +6,22 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/e2e_gsm8k_megatron.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/e2e_gsm8k_megatron.yml
       - "tests/e2e/*.sh"
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   e2e_gsm8k_megatron:
@@ -41,9 +45,14 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
           [ ! -d "$HOME/Megatron-LM" ] && git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
           export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
           bash tests/e2e/run_deepseek_megatron.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Qwen)
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
+          bash tests/e2e/run_qwen_megatron.sh

@@ -6,17 +6,21 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/ray_test.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/ray_test.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   ray:
