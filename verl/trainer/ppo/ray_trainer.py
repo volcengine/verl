@@ -790,6 +790,22 @@ class RayPPOTrainer(object):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
+        # Push to hub if enabled
+        if self.config.trainer.push_to_hub:
+            from verl.utils.huggingface import push_to_hub
+            from omegaconf import OmegaConf
+            push_to_hub(
+                repo_id=self.config.trainer.hub_model_id,
+                local_path=actor_local_path,
+                private=self.config.trainer.hub_private,
+                token=self.config.trainer.hub_token,
+                base_model=self.config.actor_rollout_ref.model.path,
+                model_name=self.config.trainer.experiment_name,
+                training_config=OmegaConf.to_container(self.config, resolve=True),
+                tags=["verl", "ppo"],
+                trainer_name="PPO"
+            )
+
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch['attention_mask']

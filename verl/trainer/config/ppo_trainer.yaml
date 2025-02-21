@@ -171,3 +171,7 @@ trainer:
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  push_to_hub: False
+  hub_model_id: null
+  hub_private: False
+  hub_token: null
