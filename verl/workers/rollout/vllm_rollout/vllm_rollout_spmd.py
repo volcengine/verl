@@ -104,10 +104,10 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            swap_space=32,
-            cpu_offload_gb=40,
+            swap_space=64,
+            # cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,
-            calculate_kv_scales= (config.kv_cache_dtype == "fp8"),
+            calculate_kv_scales=(config.kv_cache_dtype == "fp8"),
             enable_prefix_caching=False,
             preemption_mode="swap",
         )
@@ -118,8 +118,9 @@ class vLLMRollout(BaseRollout):
         kwargs = dict(
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
+            temperature=1.3,
             max_tokens=config.response_length,
-            repetition_penalty=1.2,
+            repetition_penalty=1.1,
         )
 
         # # we may detokenize the result all together later
@@ -181,10 +182,10 @@ class vLLMRollout(BaseRollout):
         if not do_sample:
             kwargs = {
                 'best_of': 1,
-                'top_p': 1.0,
-                'top_k': -1,
-                'min_p': 0.0,
-                'temperature': 0,
+                'top_p': 0.95,
+                # 'top_k': -1,
+                # 'min_p': 0.0,
+                'temperature': 0.6,
                 'n': 1  # if greedy, only 1 response
             }
 

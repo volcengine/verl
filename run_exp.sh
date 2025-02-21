@@ -37,12 +37,13 @@ CMD="python -m verl.trainer.main_ppo \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
+    trainer.val_generations_to_log_to_wandb=True \
     trainer.project_name='grpo_math_v8' \
     trainer.experiment_name='grpo_math_v8' \
     trainer.n_gpus_per_node=$((GPUS)) \
     trainer.nnodes=$((NODES)) \
-    trainer.save_freq=100 \
-    trainer.test_freq=10 \
+    trainer.save_freq=30 \
+    trainer.test_freq=5 \
     trainer.default_local_dir=$AMLT_OUTPUT_DIR/checkpoints \
     trainer.total_epochs=30"
 

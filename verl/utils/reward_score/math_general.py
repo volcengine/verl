@@ -4,6 +4,7 @@ import requests
 import time
 import re
 from .grader import grade_answer
+from collections import Counter
 
 url = "https://verifier.yuewu.ml/api"
 headers = {
@@ -131,6 +132,32 @@ def strict_xml(text) -> float:
 
     return reward
 
+def compute_repetition_penalty(text, n_gram_size=3):
+
+
+    words = re.findall(r'\w+', text.lower())
+    if len(words) < n_gram_size:
+        return 0.
+    
+    # Generate n-grams
+    n_grams = [" ".join(words[i:i + n_gram_size]) for i in range(len(words) - n_gram_size + 1)]
+    
+    # Count occurrences of each n-gram
+    n_gram_counts = Counter(n_grams)
+
+    # Calculate repetition score (fraction of repeated n-grams)
+    total_n_grams = len(n_grams)
+
+    repeated_n_grams = sum(1 for count in n_gram_counts.values() if count > 5)
+    repeated_n_gram_ratio = repeated_n_grams / total_n_grams if total_n_grams > 0 else 0.0
+
+    max_repeation = max(n_gram_counts.values())
+    max_repeation_ratio = max_repeation  / (len(words)/n_gram_size)
+
+    repetition_score = max(repeated_n_gram_ratio, max_repeation_ratio)
+
+    return - repetition_score
+
 def compute_score(solution_str, ground_truth):
     """Reward function that checks if the completion is the same as the ground truth."""
 
@@ -145,23 +172,28 @@ def compute_score(solution_str, ground_truth):
 
     # xml_reward = count_xml(solution_str)
     xml_reward = strict_xml(solution_str)
-
-    # Remove the think tag from the completion.
-    solution_str = solution_str.split("</think>")[-1]
     
     # Remove the end tag from the completion.
     solution_str = solution_str.replace("<|im_end|>", "").strip()
+
+    # Apply repetition penalty
+    repetition_penalty_score = compute_repetition_penalty(solution_str)
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
         return compute_acc_reward(solution_str, ground_truth)
 
+    if "</think>" not in solution_str: # If the completion does not contain the think tag, return 0 to encourage the model to use the think tag and prevent reward hacking.
+        return 0.25 * repetition_penalty_score
+
+    # Remove the think tag from the completion only for training
+    solution_str = solution_str.split("</think>")[-1]
+
     acc_reward = compute_acc_reward(solution_str, ground_truth)
 
+    weights = [2, 0.5, 0.5, 0.25, 0.25]
 
-    weights = [2, 0.5, 0.5, 0.25]
-
-    return sum([r*w for r, w in zip([acc_reward, strict_format_reward, soft_format_reward, xml_reward], weights)]) / sum(weights)
+    return sum([r*w for r, w in zip([acc_reward, strict_format_reward, soft_format_reward, xml_reward, repetition_penalty_score], weights)]) / sum(weights)
 
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
