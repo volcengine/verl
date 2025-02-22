@@ -171,6 +171,18 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
+    elif adv_estimator == 'rloo':
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        advantages, returns = core_algos.compute_rloo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                        eos_mask=response_mask,
+                                                                        index=index)
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
     else:
         raise NotImplementedError
     return data
@@ -368,11 +380,7 @@ class RayPPOTrainer(object):
 
         if self.config.algorithm.adv_estimator == 'gae':
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator == 'grpo':
-            self.use_critic = False
-        elif self.config.algorithm.adv_estimator == 'reinforce_plus_plus':
-            self.use_critic = False
-        elif self.config.algorithm.adv_estimator == 'remax':
+        elif self.config.algorithm.adv_estimator in ['grpo', 'reinforce_plue_plus', 'remax', 'rloo']:
             self.use_critic = False
         else:
             raise NotImplementedError
