@@ -17,7 +17,7 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from verl.single_controller.base.decorator import register, Dispatch, Execute
+from .decorator import register, Dispatch, Execute
 
 
 @dataclass
