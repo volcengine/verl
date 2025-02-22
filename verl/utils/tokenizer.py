@@ -33,7 +33,7 @@ def set_pad_token_id(tokenizer):
 
 
 def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kwargs):
-    """Create a huggingface pretrained tokenizer.
+    """Create a huggingface pretrained tokenizer which correctness handles eos and pad tokens.
 
     Args:
         name (str): The name of the tokenizer.
