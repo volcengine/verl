@@ -298,7 +298,11 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            if self.config.rollout.use_fire_sampling:
+                from verl.workers.rollout.vllm_rollout import FIREvLLMRollout as vLLMRollout
+                from verl.workers.rollout.vllm_rollout import vllm_mode
+            else:
+                from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
             log_gpu_memory_usage('Before building vllm rollout', logger=None)
             local_path = copy_local_path_from_hdfs(self.config.model.path)
