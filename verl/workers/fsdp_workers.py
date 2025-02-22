@@ -197,12 +197,12 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                torch_dtype=torch_dtype,
-                                                                config=actor_model_config,
-                                                                attn_implementation='flash_attention_2'
-                                                                if is_cuda_available else 'sdpa',
-                                                                trust_remote_code=trust_remote_code)
+            actor_module = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                torch_dtype=torch_dtype,
+                config=actor_model_config,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
@@ -411,8 +411,9 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device()
-                                if is_cuda_available else torch.npu.current_device())
+            load_fsdp_optimizer(
+                optimizer=self.actor_optimizer,
+                device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device())
 
         data.batch = data.batch.to(DEVICE)
 
@@ -668,12 +669,12 @@ class CriticWorker(Worker):
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
             setattr(critic_model_config, 'hidden_dropout', '0')
-            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            torch_dtype=torch_dtype,
-                                                                            config=critic_model_config,
-                                                                            attn_implementation='flash_attention_2'
-                                                                            if is_cuda_available else 'sdpa',
-                                                                            trust_remote_code=trust_remote_code)
+            critic_module = AutoModelForTokenClassification.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                torch_dtype=torch_dtype,
+                config=critic_model_config,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -710,8 +711,7 @@ class CriticWorker(Worker):
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device()
-                             if is_cuda_available else torch.npu.current_device(),
+                             device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
                              sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,
@@ -792,8 +792,9 @@ class CriticWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.cuda.current_device()
-                                if is_cuda_available else torch.npu.current_device())
+            load_fsdp_optimizer(
+                optimizer=self.critic_optimizer,
+                device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -923,12 +924,12 @@ class RewardModelWorker(Worker):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(model_config, 'classifier_dropout', 0.)
-            reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            config=model_config,
-                                                                            torch_dtype=torch.bfloat16,
-                                                                            attn_implementation='flash_attention_2'
-                                                                            if is_cuda_available else 'sdpa',
-                                                                            trust_remote_code=trust_remote_code)
+            reward_module = AutoModelForTokenClassification.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                config=model_config,
+                torch_dtype=torch.bfloat16,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 

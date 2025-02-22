@@ -209,12 +209,12 @@ class FSDPSFTTrainer(object):
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
-                                                                               config=config,
-                                                                               torch_dtype=torch.float32,
-                                                                               attn_implementation='flash_attention_2'
-                                                                               if is_cuda_available else 'sdpa',
-                                                                               trust_remote_code=trust_remote_code)
+            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                local_model_path,
+                config=config,
+                torch_dtype=torch.float32,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
 
             # Apply Liger kernel if use_liger is enabled
             if self.config.model.get('use_liger', False):
@@ -253,17 +253,17 @@ class FSDPSFTTrainer(object):
         else:
             cpu_offload = CPUOffload(offload_params=self.config.model.fsdp_config.offload_params)
 
-        self.fsdp_model = FSDP(module=self.model,
-                               auto_wrap_policy=auto_wrap_policy,
-                               param_init_fn=init_fn,
-                               sharding_strategy=ShardingStrategy.FULL_SHARD,
-                               mixed_precision=mixed_precision,
-                               device_mesh=self.device_mesh,
-                               sync_module_states=True,
-                               device_id=torch.cuda.current_device() if is_cuda_available else
-                               torch.npu.current_device(),
-                               cpu_offload=cpu_offload,
-                               use_orig_params=False)
+        self.fsdp_model = FSDP(
+            module=self.model,
+            auto_wrap_policy=auto_wrap_policy,
+            param_init_fn=init_fn,
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            mixed_precision=mixed_precision,
+            device_mesh=self.device_mesh,
+            sync_module_states=True,
+            device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
+            cpu_offload=cpu_offload,
+            use_orig_params=False)
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
@@ -489,7 +489,8 @@ class FSDPSFTTrainer(object):
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
+                        val_data = TensorDict(val_data,
+                                              batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
