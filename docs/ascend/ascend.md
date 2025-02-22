@@ -1,6 +1,6 @@
 # veRL x Ascend
 
-我们在 verRL 上增加对华为昇腾设备的支持，在华为昇腾设备上使用 veRL 与在英伟达 GPU 上使用几乎相同。
+我们在 veRL 上增加对华为昇腾设备的支持，在华为昇腾设备上使用 veRL 与在英伟达 GPU 上使用几乎相同。
 
 ## 硬件支持
 
@@ -22,7 +22,7 @@
 ### 源码安装
 
 ```shell
-git clone -b vllm-0.7-npu https://github.com/as12138/verl.git
+git clone https://github.com/volcengine/verl.git
 cd verl
 pip install -r requirements-npu.txt
 pip install -e .
@@ -50,17 +50,17 @@ pip install -e .
 
 根据经验，我们期望在相同配置下，在华为昇腾设备上的 Loss 与英伟达 GPU 的 Loss 平均误差小于 2%，具体计算方式如下：
 
-![loss_comparison](./images/loss_comparison.png)
+![loss_comparison](https://github.com/eric-haibin-lin/verl-community/tree/main/docs/loss_comparison.png)
 
 其中，N 表示训练的步数。更多信息请参考[精度计算说明](https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/LMaccuracy_0001.html)。
 
 ### 进展
 
-| 算法   | 进展                                                        |
-|------|---------------------------------------------------------------|
-| SFT  | 已支持                                                           |
-| PPO  | 已支持                                                        |
-| GRPO | 已支持                                                        |
+| 算法   | 进展  |
+|:------|:----|
+| SFT  | 已支持 |
+| PPO  | 已支持 |
+| GRPO | 已支持 |
 
 
 > 补充说明：

@@ -1,4 +1,31 @@
 # Adapted from https://github.com/mlcommons/training_results_v1.1/blob/main/NVIDIA/benchmarks/bert/implementations/pytorch/padding.py
+# Copyright (c) 2023, Tri Dao.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import torch
 import torch.nn.functional as F
@@ -6,6 +33,7 @@ from einops import rearrange, repeat
 
 
 class IndexFirstAxis(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx, input, indices):
         ctx.save_for_backward(indices)
@@ -14,9 +42,8 @@ class IndexFirstAxis(torch.autograd.Function):
         second_dim = other_shape.numel()
         # TD [2022-03-04] For some reason torch.gather is a bit faster than indexing.
         # return input[indices]
-        return torch.gather(
-            rearrange(input, "b ... -> b (...)"), 0, repeat(indices, "z -> z d", d=second_dim)
-        ).reshape(-1, *other_shape)
+        return torch.gather(rearrange(input, "b ... -> b (...)"), 0, repeat(indices, "z -> z d",
+                                                                            d=second_dim)).reshape(-1, *other_shape)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -39,14 +66,13 @@ index_first_axis = IndexFirstAxis.apply
 
 
 class IndexPutFirstAxis(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx, values, indices, first_axis_dim):
         ctx.save_for_backward(indices)
         assert indices.ndim == 1
         assert values.ndim >= 2
-        output = torch.zeros(
-            first_axis_dim, *values.shape[1:], device=values.device, dtype=values.dtype
-        )
+        output = torch.zeros(first_axis_dim, *values.shape[1:], device=values.device, dtype=values.dtype)
         # TD [2022-03-04] For some reason torch.scatter is a bit faster than indexing.
         output[indices] = values
         # output.scatter_(0, repeat(indices, 'z -> z d', d=values.shape[1]), values)
@@ -65,6 +91,7 @@ index_put_first_axis = IndexPutFirstAxis.apply
 
 
 class IndexFirstAxisResidual(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx, input, indices):
         ctx.save_for_backward(indices)
@@ -182,9 +209,8 @@ def unpad_input_for_concatenated_sequences(hidden_states, attention_mask_in_leng
     """
     length = attention_mask_in_length.sum(dim=-1)
     seqlen = attention_mask_in_length.size(-1)
-    attention_mask_2d = torch.arange(seqlen, device=length.device, dtype=length.dtype).expand(len(length),
-                                                                                              seqlen) < length.unsqueeze(
-        1)
+    attention_mask_2d = torch.arange(seqlen, device=length.device,
+                                     dtype=length.dtype).expand(len(length), seqlen) < length.unsqueeze(1)
     real_indices_idx = torch.nonzero(attention_mask_in_length.flatten(), as_tuple=False).flatten()
     seqlens_in_batch = attention_mask_in_length.flatten()[real_indices_idx]
     indices = torch.nonzero(attention_mask_2d.flatten(), as_tuple=False).flatten()

@@ -99,7 +99,9 @@ class ResourcePoolManager:
     def _check_resource_available(self):
         """Check if the resource pool can be satisfied in this ray cluster."""
         node_available_resources = ray.state.available_resources_per_node()
-        node_available_gpus = {node: node_info.get('GPU', 0) for node, node_info in node_available_resources.items()}
+        node_available_gpus = {
+            node: node_info.get('NPU', 0) if 'NPU' in node_info else node_info.get('GPU', 0) for
+            node, node_info in node_available_resources.items()}
 
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())
@@ -312,13 +314,13 @@ def compute_data_metrics(batch, use_critic=True):
         'critic/returns/min':
             torch.min(valid_returns).detach().item(),
         **({
-            # values
-            'critic/values/mean': torch.mean(valid_values).detach().item(),
-            'critic/values/max': torch.max(valid_values).detach().item(),
-            'critic/values/min': torch.min(valid_values).detach().item(),
-            # vf explained var
-            'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
-        } if use_critic else {}),
+               # values
+               'critic/values/mean': torch.mean(valid_values).detach().item(),
+               'critic/values/max': torch.max(valid_values).detach().item(),
+               'critic/values/min': torch.min(valid_values).detach().item(),
+               # vf explained var
+               'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
+           } if use_critic else {}),
 
         # response length
         'response_length/mean':
@@ -360,7 +362,8 @@ def compute_timing_metrics(batch, timing_raw):
             f'timing_s/{name}': value for name, value in timing_raw.items()
         },
         **{
-            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys(
+            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in
+            set(num_tokens_of_section.keys(
             )) & set(timing_raw.keys())
         },
     }
@@ -401,7 +404,8 @@ class RayPPOTrainer(object):
                  ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
                  processor=None,
                  reward_fn=None,
-                 val_reward_fn=None):
+                 val_reward_fn=None,
+                 device_name=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -422,6 +426,7 @@ class RayPPOTrainer(object):
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
+        self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # define KL control
@@ -441,8 +446,8 @@ class RayPPOTrainer(object):
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
         elif self.config.algorithm.adv_estimator in [
-                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
-                AdvantageEstimator.RLOO
+            AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+            AdvantageEstimator.RLOO
         ]:
             self.use_critic = False
         else:
@@ -742,7 +747,8 @@ class RayPPOTrainer(object):
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
+            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model,
+                                          device_name=self.device_name)
             self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
 
         # initialize WorkerGroup
@@ -753,7 +759,8 @@ class RayPPOTrainer(object):
         self.wg_dicts = []
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
+            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls,
+                                                device_name=self.device_name)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
@@ -1030,15 +1037,15 @@ class RayPPOTrainer(object):
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                        (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
+                            (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and ( is_last_step or \
-                            self.global_steps % self.config.trainer.save_freq == 0):
+                    if self.config.trainer.save_freq > 0 and (is_last_step or \
+                                                              self.global_steps % self.config.trainer.save_freq == 0):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 

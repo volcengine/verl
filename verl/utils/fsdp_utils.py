@@ -32,9 +32,9 @@ from verl.utils.device import is_cuda_available
 
 def init_fn(x: torch.nn.Module):
     if not torch.distributed.get_rank() == 0:
-        x = x.to_empty(device=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device() if is_cuda_available else torch.npu.current_device(),
+        x = x.to_empty(device=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
                        recurse=False)
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
     return x
 
 
@@ -131,7 +131,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
         flat_param._local_shard = flat_param.data
         assert id(flat_param._local_shard) != id(flat_param.data)
     if empty_cache:
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
 
 
 @torch.no_grad()
