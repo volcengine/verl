@@ -14,5 +14,5 @@ ray
 tensordict<0.6
 transformers
 wandb
-vllm
-vllm-ascend
+vllm==0.7.1
+vllm-ascend==0.7.1rc1
