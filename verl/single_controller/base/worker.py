@@ -79,7 +79,7 @@ class WorkerMeta:
 
 # we assume that in each WorkerGroup, there is a Master Worker
 class Worker(WorkerHelper):
-
+    """A (distributed) worker."""
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
 
