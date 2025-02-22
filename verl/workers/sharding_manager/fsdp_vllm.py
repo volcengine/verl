@@ -25,6 +25,7 @@ from verl import DataProto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
+from verl.utils.device import is_cuda_available
 
 from .base import BaseShardingManager
 
@@ -57,13 +58,15 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                                      state_dict_config=ShardedStateDictConfig())
 
         # Note that torch_random_states may be different on each dp rank
-        self.torch_random_states = torch.cuda.get_rng_state()
+        self.torch_random_states = torch.cuda.get_rng_state() if is_cuda_available else torch.npu.get_rng_state()
         # get a random rng states
         if self.device_mesh is not None:
             gen_dp_rank = self.device_mesh['dp'].get_local_rank()
-            torch.cuda.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            torch.cuda.manual_seed(gen_dp_rank + 1000) if is_cuda_available else \
+                torch.npu.manual_seed(gen_dp_rank + 1000)# make sure all tp ranks have the same random states
+            self.gen_random_states = torch.cuda.get_rng_state() if is_cuda_available else torch.npu.get_rng_state()
+            torch.cuda.set_rng_state(self.torch_random_states) if is_cuda_available else \
+                torch.npu.set_rng_state(self.torch_random_states)
         else:
             self.gen_random_states = None
 
@@ -76,7 +79,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:
-            self.inference_engine.wake_up()
+            if is_cuda_available:
+                self.inference_engine.wake_up()
             # TODO(ZSL): deal with 'hf' format
             if load_format == 'dtensor':
                 from verl.third_party.vllm import load_dtensor_weights
@@ -87,26 +91,27 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
-        torch.cuda.empty_cache()
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
         # self.module.cpu()
-        # torch.cuda.empty_cache()
+        # torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
         # if torch.distributed.get_rank() == 0:
         # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
-            self.torch_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.gen_random_states)
+            self.torch_random_states = torch.cuda.get_rng_state() if is_cuda_available else torch.npu.get_rng_state()
+            torch.cuda.set_rng_state(self.gen_random_states) if is_cuda_available else \
+                torch.npu.set_rng_state(self.gen_random_states)
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # TODO(ZSL): check this
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.offload_model_weights()
-        else:
+        elif is_cuda_available:
             self.inference_engine.sleep(level=1)
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
@@ -117,12 +122,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.module.train()
 
         # add empty cache after each compute
-        torch.cuda.empty_cache()
+        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
 
         # restore random states
         if self.device_mesh is not None:
-            self.gen_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.torch_random_states)
+            self.gen_random_states = torch.cuda.get_rng_state() if is_cuda_available else torch.npu.get_rng_state()
+            torch.cuda.set_rng_state(self.torch_random_states) if is_cuda_available else \
+                torch.npu.set_rng_state(self.torch_random_states)
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
