@@ -142,8 +142,9 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
     """
     response = solution_str.replace(" <|endoftext|>", "")
     resp_print = response.strip().split("<|assistant|>")[-1]
-    answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
-    print("solution_str: ", resp_print, "extracted_answer: ", answer)
+    # answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
+    # print("solution_str: ", resp_print, "extracted_answer: ", answer)
+    return random.random()
     if answer is None:
         return 0
     else:

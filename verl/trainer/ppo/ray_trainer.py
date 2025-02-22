@@ -814,8 +814,8 @@ class RayPPOTrainer(object):
 
         # load dataloader,
         # TODO: from remote not implemented yet
-        # dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
-        # self.train_dataloader = torch.load(dataloader_local_path)
+        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
+        self.train_dataloader = torch.load(dataloader_local_path)
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
