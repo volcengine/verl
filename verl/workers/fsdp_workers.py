@@ -710,8 +710,7 @@ class CriticWorker(Worker):
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device()
-                             if is_cuda_available else torch.npu.current_device(),
+                             device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
                              sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,

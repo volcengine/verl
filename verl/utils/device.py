@@ -1,9 +1,7 @@
 # This code is inspired by the torchtune.
 # https://github.com/pytorch/torchtune/blob/main/torchtune/utils/_device.py
 
-import os
 import logging
-from enum import Enum
 from typing import Optional
 
 import torch
