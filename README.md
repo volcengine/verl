@@ -43,7 +43,7 @@ verl is fast with:
 - **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
 - huggingface models support
 - Supervised fine-tuning
-- Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer), [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer), [ReMax](https://github.com/volcengine/verl/tree/main/examples/remax_trainer), Reinforce++, etc
+- Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer), [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer), [ReMax](https://github.com/volcengine/verl/tree/main/examples/remax_trainer), Reinforce++, [RLOO](https://github.com/volcengine/verl/tree/main/examples/rloo_trainer/run_qwen2-7b.sh), etc
   - Support model-based reward and function-based reward (verifiable reward)
 - flash-attention, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [long context](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh)
 - scales up to 70B models and hundreds of GPUs
@@ -52,7 +52,7 @@ verl is fast with:
 ## Upcoming Features
 - Reward model training
 - DPO training
-- DeepSeek integration with Megatron backend
+- DeepSeek integration with Megatron v0.11
 - SGLang integration
 - vision language model RL
 
@@ -88,6 +88,7 @@ verl is fast with:
   - [Deployment using Separate GPU Resources](https://github.com/volcengine/verl/tree/main/examples/split_placement)
 
 **Blogs from the community**
+- [使用verl进行GRPO分布式强化学习训练最佳实践](https://www.volcengine.com/docs/6459/1463942)
 - [HybridFlow veRL 原文浅析](https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/blob/main/rlhf/verl/readme.md)
 - [最高提升20倍吞吐量！豆包大模型团队发布全新 RLHF 框架，现已开源！](https://team.doubao.com/en/blog/%E6%9C%80%E9%AB%98%E6%8F%90%E5%8D%8720%E5%80%8D%E5%90%9E%E5%90%90%E9%87%8F-%E8%B1%86%E5%8C%85%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%9B%A2%E9%98%9F%E5%8F%91%E5%B8%83%E5%85%A8%E6%96%B0-rlhf-%E6%A1%86%E6%9E%B6-%E7%8E%B0%E5%B7%B2%E5%BC%80%E6%BA%90)
 
