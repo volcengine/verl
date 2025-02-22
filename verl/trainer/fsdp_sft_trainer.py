@@ -417,14 +417,20 @@ class FSDPSFTTrainer(object):
         log_gpu_memory_usage('After offload weights', logger=logger)
 
         step_loss = torch.tensor(step_loss).to(self.device)
-        torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
+        if is_cuda_available:
+            torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
+        else:
+            torch.distributed.all_reduce(step_loss)
         return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
 
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
         with torch.no_grad():
             loss = self._compute_loss_and_backward(batch, do_backward=False)
-            torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
+            if is_cuda_available:
+                torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
+            else:
+                torch.distributed.all_reduce(loss)
         return loss
 
     def save_checkpoint(self, step):
