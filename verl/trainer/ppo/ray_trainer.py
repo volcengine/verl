@@ -465,6 +465,11 @@ class RayPPOTrainer(object):
                 assert config.critic.model.use_remove_padding, \
                     "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
+        if config.get('val_batch_size', None) is not None:
+            print(
+                f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+            )
+
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
@@ -499,9 +504,11 @@ class RayPPOTrainer(object):
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
+                                         # Validation datasets are sent to inference engines as a whole batch, 
+                                         # which will schedule the memory themselves.
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
-                                         drop_last=True,
+                                         drop_last=False,
                                          collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
