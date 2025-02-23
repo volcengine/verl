@@ -72,7 +72,7 @@ class Tracking(object):
                 sk=os.environ["VOLC_SECRET_ACCESS_KEY"],
                 region=os.environ["MLP_TRACKING_REGION"],
             )
-            
+
             vemlp_wandb.init(
                 project=project_name,
                 name=experiment_name,
