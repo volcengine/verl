@@ -35,7 +35,8 @@ from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights
 from verl.utils.flops_counter import FlopsCounter
-from verl.utils.megatron_utils import init_model_parallel_config
+from verl.utils.megatron_utils import init_model_parallel_config, get_checkpoint_dir, \
+    get_distributed_optimizer_checkpoint_name
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
 
@@ -165,7 +166,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             print(f'Model config after override: {actor_model_config}')
 
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
-        self.architecture = getattr(actor_model_config, "architecture", None)
+        self.architectures = getattr(actor_model_config, "architectures", None)
 
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config
@@ -440,12 +441,10 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, **kwargs):
         if self.config.actor.load_optim:
-            # TODO: trans it to utils
-            from megatron.training.checkpointing import get_distributed_optimizer_checkpoint_name
-            optimizer_path = set_checkpoint_dir(checkpoint_path)
+            optimizer_path = get_checkpoint_dir(checkpoint_path)
             optim_checkpoint_name = \
                 get_distributed_optimizer_checkpoint_name(optimizer_path)
-            print(f"Loading actor_optimizer from {optim_checkpoint_name}")
+            print(f"Loading actor optimizer from {optim_checkpoint_name}")
             self.actor_optimizer.load_parameter_state(optim_checkpoint_name)
 
         self.hf_config = load_megatron_model_weights(self.config,
@@ -455,16 +454,15 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                      is_value_model=False,
                                                      resume_path=checkpoint_path)
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_pretrained_model(self, checkpoint_path, **kwargs):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, **kwargs):
         assert self._is_actor
         from verl.models.weight_loader_registry import get_weight_saver
-        arch = self.architecture[0]  # assume only one element in config architecture
+        arch = self.architectures[0]  # assume only one element in config architecture
         weight_saver = get_weight_saver(arch)
         state_dict = weight_saver(self.actor_module,
                                   self.hf_config,
@@ -495,9 +493,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
 
-
-        from megatron.training.checkpointing import get_distributed_optimizer_checkpoint_name
-        optimizer_path = set_checkpoint_dir(checkpoint_path)
+        optimizer_path = get_checkpoint_dir(checkpoint_path)
         os.makedirs(optimizer_path, exist_ok=True)
         optim_checkpoint_name = \
             get_distributed_optimizer_checkpoint_name(optimizer_path)
@@ -563,7 +559,7 @@ class CriticWorker(MegatronWorker):
         local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
 
-        # Step 2: get the actor_model_config
+        # Step 2: get the critic_model_config
         critic_model_config = AutoConfig.from_pretrained(local_path)
 
         override_config_kwargs = {
@@ -572,8 +568,9 @@ class CriticWorker(MegatronWorker):
             'pad_token_id': self.tokenizer.pad_token_id,
         }
         override_config_kwargs.update(override_model_config)
+        self.share_embeddings_and_output_weights = getattr(critic_model_config, "tie_word_embeddings", False)
         update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
-
+        self.architectures = getattr(critic_model_config, "architectures", None)
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
 
@@ -583,12 +580,13 @@ class CriticWorker(MegatronWorker):
             # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
             # this_megatron_config = copy.deepcopy(megatron_config)
             # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(config=critic_model_config,
-                                                            megatron_config=megatron_config,
-                                                            pre_process=pre_process,
-                                                            post_process=post_process,
-                                                            share_embeddings_and_output_weights=False,
-                                                            value=True)
+            parallel_model = get_parallel_model_from_config(
+                config=critic_model_config,
+                megatron_config=megatron_config,
+                pre_process=pre_process,
+                post_process=post_process,
+                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -601,11 +599,11 @@ class CriticWorker(MegatronWorker):
         # critic_module = nn.ModuleList(critic_module)
 
         if self.config.load_weight:
-            load_megatron_model_weights(self.config,
-                                        critic_model_config,
-                                        critic_module,
-                                        params_dtype=megatron_config.params_dtype,
-                                        is_value_model=True)
+            self.hf_config = load_megatron_model_weights(self.config,
+                                                         critic_model_config,
+                                                         critic_module,
+                                                         params_dtype=megatron_config.params_dtype,
+                                                         is_value_model=True)
         if self.rank == 0:
             print_model_size(critic_module[0])
 
@@ -639,18 +637,18 @@ class CriticWorker(MegatronWorker):
         })
 
         megatron_config = init_model_parallel_config(megatron_config)
-        critic_module, critic_optimizer, critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
+        self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
             megatron_config=megatron_config,
             optim_config=self.config.optim,
             override_model_config=override_model_config)
         self.critic = MegatronPPOCritic(config=self.config,
-                                        model_config=critic_model_config,
+                                        model_config=self.critic_model_config,
                                         megatron_config=megatron_config,
-                                        critic_module=critic_module,
-                                        critic_optimizer=critic_optimizer,
+                                        critic_module=self.critic_module,
+                                        critic_optimizer=self.critic_optimizer,
                                         critic_optimizer_config=critic_optimizer_config)
-        self.flops_counter = FlopsCounter(critic_model_config)
+        self.flops_counter = FlopsCounter(self.critic_model_config)
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -676,13 +674,12 @@ class CriticWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, **kwargs):
-        if self.config.load_optim: # TODO: move to utils
-            from megatron.training.checkpointing import get_distributed_optimizer_checkpoint_name
-            optimizer_path = set_checkpoint_dir(checkpoint_path)
+        if self.config.load_optim:
+            optimizer_path = get_checkpoint_dir(checkpoint_path)
             optim_checkpoint_name = \
                 get_distributed_optimizer_checkpoint_name(optimizer_path)
-            print(f"Loading actor_optimizer from {optim_checkpoint_name}")
-            self.actor_optimizer.load_parameter_state(optim_checkpoint_name)
+            print(f"Loading critic optimizer from {optim_checkpoint_name}")
+            self.critic_optimizer.load_parameter_state(optim_checkpoint_name)
 
         self.hf_config = load_megatron_model_weights(self.config,
                                                      self.critic_model_config,
@@ -692,9 +689,9 @@ class CriticWorker(MegatronWorker):
                                                      resume_path=checkpoint_path)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, **kwargs):
         from verl.models.weight_loader_registry import get_weight_saver
-        arch = self.architecture[0] # assume only one element in config architecture
+        arch = self.architectures[0]  # assume only one element in config architecture
         weight_saver = get_weight_saver(arch)
         state_dict = weight_saver(self.critic_module,
                                   self.hf_config,
@@ -702,7 +699,7 @@ class CriticWorker(MegatronWorker):
                                   tie_word_embeddings=self.share_embeddings_and_output_weights)
 
         if self.rank == 0:
-            print(f'Saving actor checkpoint to {checkpoint_path}')
+            print(f'Saving critic checkpoint to {checkpoint_path}')
             os.makedirs(checkpoint_path, exist_ok=True)
             from accelerate import init_empty_weights
             import warnings
@@ -720,14 +717,12 @@ class CriticWorker(MegatronWorker):
                 model.save_pretrained(checkpoint_path, state_dict=state_dict)
                 self.tokenizer.save_pretrained(checkpoint_path)
                 if hdfs_path is not None:
-                    print(f'Uploading actor checkpoint to {hdfs_path}')
+                    print(f'Uploading critic checkpoint to {hdfs_path}')
                     from verl.utils import hdfs_io
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
 
-        # TODO: move to utils
-        from megatron.training.checkpointing import get_distributed_optimizer_checkpoint_name
-        optimizer_path = set_checkpoint_dir(checkpoint_path)
+        optimizer_path = get_checkpoint_dir(checkpoint_path)
         os.makedirs(optimizer_path, exist_ok=True)
         optim_checkpoint_name = \
             get_distributed_optimizer_checkpoint_name(optimizer_path)

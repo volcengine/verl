@@ -13,28 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Pretrain utilities."""
-import importlib
 import os
+from typing import Dict
 
-from packaging.version import Version
-from typing import Any, Dict
-import time
-from omegaconf import DictConfig
-from verl.utils.torch_dtypes import PrecisionType
-from verl.utils.memory_buffer import build_memory_reference_from_module
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from megatron.core import ModelParallelConfig
 from megatron.core import mpu, tensor_parallel
-from megatron.core.utils import get_attr_wrapped_model
+from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.enums import ModelType
+from megatron.core.optimizer import OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
-from megatron.core.distributed import DistributedDataParallelConfig
-from megatron.core.distributed import DistributedDataParallel as DDP
-from megatron.core.enums import ModelType
-from megatron.core import ModelParallelConfig
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.utils import get_attr_wrapped_model
+from omegaconf import DictConfig
+
+from verl.utils.memory_buffer import build_memory_reference_from_module
+from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):
@@ -264,8 +261,13 @@ def print_rank_0(message):
     else:
         print(message, flush=True)
 
-def set_checkpoint_dir(checkpoint_path):
-    # TODO support vpp
+
+def get_checkpoint_dir(checkpoint_path):
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     tp_rank = mpu.get_tensor_model_parallel_rank()
-    return os.path.join(checkpoint_path, f"pp{pp_rank}_tp{tp_rank}/")
+    #TODO: support ep
+    return os.path.join(checkpoint_path, f"optim/pp{pp_rank}_tp{tp_rank}/")
+
+
+def get_distributed_optimizer_checkpoint_name(model_checkpoint_name):
+    return os.path.join(os.path.dirname(model_checkpoint_name), "distrib_optim.pt")
