@@ -78,11 +78,6 @@ class MegatronPPOCritic(BasePPOCritic):
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
 
-        if config.data.get('val_batch_size', None) is not None:
-            print(
-                f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
-            )
-
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
         responses = data.batch['responses']
