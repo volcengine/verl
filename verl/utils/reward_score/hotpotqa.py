@@ -140,11 +140,14 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
         format_score: the score for the format
         score: the score for the correct answer
     """
-    response = solution_str.replace(" <|endoftext|>", "")
+    # for test
+    # return random.random()
+    
+    # for llm-as-judge
+    response = solution_str.replace("<|endoftext|>", "").strip()
     resp_print = response.strip().split("<|assistant|>")[-1]
-    # answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
-    # print("solution_str: ", resp_print, "extracted_answer: ", answer)
-    return random.random()
+    answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
+    print("solution_str: ", resp_print, "extracted_answer: ", answer)
     if answer is None:
         return 0
     else:

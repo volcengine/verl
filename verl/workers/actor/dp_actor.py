@@ -272,6 +272,10 @@ class DataParallelPPOActor(BasePPOActor):
                     loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                 else:
                     loss = policy_loss / self.gradient_accumulation
+                
+                # lurui: check whether the loss is valid, if -inf, somewhere must be wrong
+                print("loss: ", loss)
+                
                 loss.backward()
 
                 data = {

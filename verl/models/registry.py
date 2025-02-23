@@ -23,6 +23,8 @@ from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
 
 _REOVEPAD_MODELS = {'llama': LlamaConfig, 'mistral': MistralConfig, 'gemma': GemmaConfig, 'qwen2': Qwen2Config}
 
+# by lurui: try a dummy Chatglm configuration, but it failed, so use_remove_padding=False is needed for glm
+# _REOVEPAD_MODELS['chatglm'] = LlamaConfig
 
 def check_model_support_rmpad(model_type: str):
     assert isinstance(model_type, str)
