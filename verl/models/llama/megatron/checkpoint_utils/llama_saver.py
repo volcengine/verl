@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
-from packaging.version import Version
-from torch.nn.parallel import DistributedDataParallel as torchDDP
-import torch
 import time
-from typing import Optional
-import torch.distributed as dist
 
+import torch
+import torch.distributed as dist
 from megatron.core import mpu
-from megatron.core.transformer.module import Float16Module
 from megatron.core.distributed import DistributedDataParallel as LocalDDP
+from megatron.core.transformer.module import Float16Module
+from torch.nn.parallel import DistributedDataParallel as torchDDP
 
 from verl.utils.megatron_utils import print_rank_0, unwrap_model
 
