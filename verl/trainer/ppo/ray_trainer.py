@@ -295,16 +295,6 @@ def compute_data_metrics(batch, use_critic=True):
             torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
 
-    if 'rewards_extra_info' in batch.non_tensor_batch:
-        extra_rewards_info = batch.non_tensor_batch['rewards_extra_info']
-        for key, sequence_extra in extra_rewards_info.items():
-            # Sum over the response length to get sequence-level rewards
-            metrics.update({
-                f'critic/extra_rewards/{key}/mean': np.mean(sequence_extra),
-                f'critic/extra_rewards/{key}/max': np.max(sequence_extra),
-                f'critic/extra_rewards/{key}/min': np.min(sequence_extra),
-            })
-
     return metrics
 
 
@@ -967,11 +957,11 @@ class RayPPOTrainer(object):
 
                         # we combine with rule-based rm
                         reward_result = self.reward_fn(batch)
+                        extra_rewards_info = None
                         if isinstance(reward_result, dict):
                             batch.batch['token_level_scores'] = reward_result['reward_tensor']
                             if 'extra_info' in reward_result:
-                                batch.non_tensor_batch['rewards_extra_info'] = reward_result[
-                                    'extra_info']  # dict[str, list[float]]
+                                extra_rewards_info = reward_result['extra_info']
                         else:
                             batch.batch['token_level_scores'] = reward_result
                         # compute rewards. apply_kl_penalty if available
@@ -1019,6 +1009,15 @@ class RayPPOTrainer(object):
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                # Add extra rewards metrics if they exist
+                if extra_rewards_info is not None:
+                    for key, sequence_extra in extra_rewards_info.items():
+                        metrics.update({
+                            f'critic/extra_rewards/{key}/mean': np.mean(sequence_extra),
+                            f'critic/extra_rewards/{key}/max': np.max(sequence_extra),
+                            f'critic/extra_rewards/{key}/min': np.min(sequence_extra),
+                        })
+
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend
