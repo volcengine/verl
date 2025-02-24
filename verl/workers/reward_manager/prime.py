@@ -84,23 +84,14 @@ class PrimeRewardManager:
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
 
-    def __call__(self, data: DataProto):
-        """We will expand this function gradually based on the available datasets"""
-
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
-        if 'rm_scores' in data.batch.keys():
-            return data.batch['rm_scores']
-
-        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
-
-        already_print_data_sources = {}
-
+    def verify(self, data):
+        """
+        verify the batch and save as ``acc`` tensor
+        """
         # batched scoring
         prompt_ids = data.batch['prompts']
-        prompt_length = prompt_ids.shape[-1]
 
         response_ids = data.batch['responses']
-        valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
         sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
@@ -119,6 +110,30 @@ class PrimeRewardManager:
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
             scores = [0. for _ in range(len(sequences_str))]
+        data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
+        return scores
+
+    def __call__(self, data: DataProto):
+        """We will expand this function gradually based on the available datasets"""
+
+        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        if 'rm_scores' in data.batch.keys():
+            return data.batch['rm_scores']
+
+        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+
+        already_print_data_sources = {}
+
+        # batched scoring
+        prompt_ids = data.batch['prompts']
+        prompt_length = prompt_ids.shape[-1]
+
+        response_ids = data.batch['responses']
+        valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
+        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+        data_sources = data.non_tensor_batch['data_source']
+
+        scores = self.verify(data)
 
         for i in range(len(data)):
             data_source = data_sources[i]
