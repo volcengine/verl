@@ -1,0 +1,19 @@
+data:
+  val_files: "/data/countdown/test.parquet"
+  max_prompt_length: 512
+  batch_size: 8
+  shuffle: True
+  drop_last: True
+
+actor_rollout_ref:
+  model:
+    hf_model_path: "Qwen/Qwen2.5-3B"
+    fsdp_model_path: None
+  rollout:
+    micro_batch_size: 1
+    do_sample: False
+    response_length: 1024
+    top_p: 1
+    top_k: 0
+    temperature: 0
+
