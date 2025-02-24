@@ -1,3 +1,13 @@
+data
+vllm
+
+docker_env_install_vllm.sh
+docker_run_vllm.sh
+run_grpo.sh
+run_ppo.sh
+run_test.sh
+
+
 **/*.pt
 **/checkpoints
 **/wget-log

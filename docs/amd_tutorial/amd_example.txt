@@ -1,0 +1,37 @@
+# Setup Docker:
+Find the docker here: https://hub.docker.com/r/rocm/vllm/tags (rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4)
+```bash
+docker run --rm -it \
+  --device /dev/dri \
+  --device /dev/kfd \
+  --network host \
+  --ipc host \
+  --group-add video \
+  --cap-add SYS_PTRACE \
+  --security-opt seccomp=unconfined \
+  --privileged \
+  -v /home/yushensu:/home/yushensu \
+  -v $HOME/.ssh:/root/.ssh \
+  --shm-size 128G \
+  --name verl_vllm_upstream \
+  -w $PWD \
+  rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4 \
+  /bin/bash
+```
+
+# Build ROCM vLLM:
+```bash
+pip uninstall vllm
+git clone https://github.com/vllm-project/vllm.git
+cd vllm
+git checkout v0.6.3
+export PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+python3 setup.py develop
+cd..
+```
+
+# Setup the Environment
+```
+pip install -r requirements_amd_no_deps.txt --no-deps
+pip install -r requirements_amd.txt
+```

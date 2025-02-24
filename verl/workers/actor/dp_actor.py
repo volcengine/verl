@@ -230,7 +230,14 @@ class DataParallelPPOActor(BasePPOActor):
             self.actor_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.cuda()  # actor device is cpu when using offload
+                ###
+                # data = data.cuda() # actor device is cpu when using offload
+                #[AMD SUPPORT:]
+                if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+                    data = data.to(torch.cuda.current_device()) 
+                else:
+                    data = data.cuda()
+                ###
                 responses = data['responses']
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
