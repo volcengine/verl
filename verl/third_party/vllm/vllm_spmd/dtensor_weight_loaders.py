@@ -19,6 +19,7 @@ import torch.nn as nn
 from torch.distributed._tensor import DTensor
 from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 from vllm.model_executor.models.utils import is_pp_missing_parameter
+from verl.utils.device import get_device_name
 
 
 def gemma_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
@@ -365,7 +366,7 @@ def load_dtensor_weights(actor_weights: Dict, vllm_model: nn.Module):
     weight_loader(actor_weights, vllm_model)
     # NOTE(sgm) to reduce peak memory usage, we offload vllm model to cpu
     # after init, and we need this after sync model weights for in first iter.
-    vllm_model = vllm_model.cuda()
+    vllm_model = vllm_model.to(get_device_name())
 
 
 def _get_model_weight_loader(arch: str):

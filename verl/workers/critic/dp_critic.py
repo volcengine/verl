@@ -30,8 +30,9 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+from verl.utils.device import get_device_name
 
-from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 __all__ = ['DataParallelPPOCritic']
 
@@ -46,10 +47,11 @@ class DataParallelPPOCritic(BasePPOCritic):
         print(f'Critic use_remove_padding={self.use_remove_padding}')
 
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+        self.device = get_device_name()
 
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch['responses'].size(-1)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type=self.device, dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
@@ -164,7 +166,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             self.critic_optimizer.zero_grad()
 
             for data in micro_batches:
-                data = data.cuda()  # critic device is cpu when using offload
+                data = data.to(self.device)  # critic device is cpu when using offload
                 input_ids = data['input_ids']
                 responses = data['responses']
                 attention_mask = data['attention_mask']
