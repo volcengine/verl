@@ -1013,9 +1013,9 @@ class RayPPOTrainer(object):
                 if extra_rewards_info is not None:
                     for key, sequence_extra in extra_rewards_info.items():
                         metrics.update({
-                            f'critic/extra_rewards/{key}/mean': np.mean(sequence_extra),
-                            f'critic/extra_rewards/{key}/max': np.max(sequence_extra),
-                            f'critic/extra_rewards/{key}/min': np.min(sequence_extra),
+                            f'critic/rewards_extra/{key}/mean': np.mean(sequence_extra),
+                            f'critic/rewards_extra/{key}/max': np.max(sequence_extra),
+                            f'critic/rewards_extra/{key}/min': np.min(sequence_extra),
                         })
 
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
