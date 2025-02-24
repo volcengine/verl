@@ -151,57 +151,58 @@ class DataParallelPPOCritic(BasePPOCritic):
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         dataloader = batch.split(self.config.ppo_mini_batch_size)
 
-        for batch_idx, data in enumerate(dataloader):
-            # split batch into micro_batches
-            mini_batch = data
-            if self.config.use_dynamic_bsz:
-                max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
-            else:
-                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
-
-            self.critic_optimizer.zero_grad()
-
-            for data in micro_batches:
-                data = data.cuda()  # critic device is cpu when using offload
-                input_ids = data['input_ids']
-                responses = data['responses']
-                attention_mask = data['attention_mask']
-                position_ids = data['position_ids']
-                values = data['values']
-                returns = data['returns']
-                response_length = responses.size(1)
-
-                eos_mask = attention_mask[:, -response_length - 1:-1]
-
-                vpreds = self._forward_micro_batch(data)
-
-                # assert not torch.any(torch.isnan(vpreds)).item()
-
-                vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
-                                                                     values=values,
-                                                                     returns=returns,
-                                                                     eos_mask=eos_mask,
-                                                                     cliprange_value=self.config.cliprange_value)
+        for epoch in range(self.config.ppo_epochs):
+            for batch_idx, data in enumerate(dataloader):
+                # split batch into micro_batches
+                mini_batch = data
                 if self.config.use_dynamic_bsz:
-                    # relative to the dynamic bsz
-                    loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
+                    max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+                    micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
                 else:
-                    loss = vf_loss / self.gradient_accumulation
+                    micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
+                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
 
-                loss.backward()
+                self.critic_optimizer.zero_grad()
 
-                data = {
-                    'critic/vf_loss': vf_loss.detach().item(),
-                    'critic/vf_clipfrac': vf_clipfrac.detach().item(),
-                    'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
-                }
+                for data in micro_batches:
+                    data = data.cuda()  # critic device is cpu when using offload
+                    input_ids = data['input_ids']
+                    responses = data['responses']
+                    attention_mask = data['attention_mask']
+                    position_ids = data['position_ids']
+                    values = data['values']
+                    returns = data['returns']
+                    response_length = responses.size(1)
 
+                    eos_mask = attention_mask[:, -response_length - 1:-1]
+
+                    vpreds = self._forward_micro_batch(data)
+
+                    # assert not torch.any(torch.isnan(vpreds)).item()
+
+                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
+                                                                         values=values,
+                                                                         returns=returns,
+                                                                         eos_mask=eos_mask,
+                                                                         cliprange_value=self.config.cliprange_value)
+                    if self.config.use_dynamic_bsz:
+                        # relative to the dynamic bsz
+                        loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
+                    else:
+                        loss = vf_loss / self.gradient_accumulation
+
+                    loss.backward()
+
+                    data = {
+                        'critic/vf_loss': vf_loss.detach().item(),
+                        'critic/vf_clipfrac': vf_clipfrac.detach().item(),
+                        'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
+                    }
+
+                    append_to_dict(metrics, data)
+
+                grad_norm = self._optimizer_step()
+                data = {'critic/grad_norm': grad_norm.detach().item()}
                 append_to_dict(metrics, data)
-
-            grad_norm = self._optimizer_step()
-            data = {'critic/grad_norm': grad_norm.detach().item()}
-            append_to_dict(metrics, data)
         self.critic_optimizer.zero_grad()
         return metrics
