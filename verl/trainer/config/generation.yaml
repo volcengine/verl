@@ -33,3 +33,34 @@ rollout:
   log_prob_micro_batch_size_per_gpu: 8
   # for hf rollout
   do_sample: True
+  disable_log_stats: True
+  enable_chunked_prefill: True
+  n: 1
+actor:
+  strategy: fsdp  # This is for backward-compatibility
+  ppo_mini_batch_size: 256
+  ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
+  ppo_micro_batch_size_per_gpu: null
+  use_dynamic_bsz: False
+  ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
+  grad_clip: 1.0
+  clip_ratio: 0.2
+  entropy_coeff: 0.001
+  use_kl_loss: False # True for GRPO
+  kl_loss_coef: 0.001 # for grpo
+  kl_loss_type: low_var_kl # for grpo
+  ppo_epochs: 1
+  shuffle: False
+  ulysses_sequence_parallel_size: 1 # sp size
+  optim:
+    lr: 1e-6
+    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+    min_lr_ratio: null   # only useful for warmup with cosine
+    warmup_style: constant  # select from constant/cosine
+    total_training_steps: -1  # must be override by program
+  fsdp_config:
+    wrap_policy:
+      min_num_params: 0
+    param_offload: False
+    optimizer_offload: False
+    fsdp_size: -1
