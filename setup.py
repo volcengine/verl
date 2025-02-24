@@ -33,7 +33,7 @@ install_requires = [
   'pyarrow>=15.0.0',
   'pybind11',
   'pylatexenc',
-  'ray>=2.10',
+  'ray[data,train,tune,serve]>=2.10',
   'tensordict<0.6',
   'transformers',
   'vllm<=0.6.3',

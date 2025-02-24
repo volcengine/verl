@@ -112,7 +112,6 @@ class MegatronPPOActor(BasePPOActor):
         self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
-        # self.megatron_args = get_args()
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.actor_optimizer_config = actor_optimizer_config

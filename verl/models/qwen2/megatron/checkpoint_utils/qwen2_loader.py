@@ -48,7 +48,7 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params_dtype, is_value_model=False):
+def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params_dtype, is_value_model=False, tie_word_embeddings=False):
     """Load merged state_dict to sharded Megatron module in training.
     """
     import megatron
@@ -432,27 +432,31 @@ def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params
             "model.norm.weight",
         )
 
-        print_rank_0("loading lm_head...")
-        lm_head_weight = None
-        if pp_rank + 1 == pp_size:
-            lm_head_weight = gpt_model_module.lm_head.weight
-
-        if is_value_model:
-            # if torch.distributed.get_rank() == 0:
-            if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
-                _broadcast_tensor(lm_head_weight, "lm_head.weight")
-            elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
-                _broadcast_tensor(lm_head_weight, "reward_head.weight")
-                print_rank_0('load lm_head from value_head weight')
-            else:
-                _broadcast_tensor(None, "lm_head.weight")
-                print_rank_0('fail to match lm_head in value_model')
-            # else:
-
-            #     _broadcast_tensor(lm_head_weight, "lm_head.weight")
-
+        if tie_word_embeddings:
+            print_rank_0("tie_word_embeddings skip load lm_head")
         else:
-            _broadcast_tp_shard_tensor(lm_head_weight, "lm_head.weight")
+            print_rank_0("loading lm_head...")
+            lm_head_weight = None
+            if pp_rank + 1 == pp_size:
+                lm_head_weight = gpt_model_module.lm_head.weight
+
+            if is_value_model:
+                # if torch.distributed.get_rank() == 0:
+                if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
+                    _broadcast_tensor(lm_head_weight, "lm_head.weight")
+                elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
+                    _broadcast_tensor(lm_head_weight, "reward_head.weight")
+                    print_rank_0('load lm_head from value_head weight')
+                else:
+                    _broadcast_tensor(None, "lm_head.weight")
+                    print_rank_0('fail to match lm_head in value_model')
+                # else:
+
+                #     _broadcast_tensor(lm_head_weight, "lm_head.weight")
+
+            else:
+                _broadcast_tp_shard_tensor(lm_head_weight, "lm_head.weight")
+
     dist.barrier()
     # Broadcast weights inside data parallel groups
     for wrapped_model in wrapped_models:
