@@ -19,7 +19,6 @@ Data
      max_prompt_length: 512
      max_response_length: 512
      train_batch_size: 1024
-     val_batch_size: 1312
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
 
@@ -39,8 +38,6 @@ Data
   algorithms (e.g. PPO) generates up to this length
 - ``data.train_batch_size``: Batch size sampled for one training
   iteration of different RL algorithms.
-- ``data.val_batch_size``: Batch size sampled for one validation
-  iteration.
 - ``data.return_raw_input_ids``: Whether to return the original
   input_ids without adding chat template. This is mainly used to
   accommodate situations where the reward model's chat template differs
