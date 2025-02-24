@@ -26,7 +26,6 @@ python3 -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=1024 \
-    data.val_batch_size=6312 \
     data.max_prompt_length=1024 \
     data.max_response_length=512 \
     data.return_raw_chat=True \
