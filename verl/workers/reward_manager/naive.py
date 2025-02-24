@@ -89,6 +89,5 @@ class NaiveRewardManager:
                 print(sequences_str)
 
         if extra_info_dict:
-            return {'reward_tensor': reward_tensor, 
-                    'extra_info': extra_info_dict}
+            return {'reward_tensor': reward_tensor, 'extra_info': extra_info_dict}
         return reward_tensor

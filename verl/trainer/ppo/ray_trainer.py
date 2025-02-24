@@ -594,7 +594,8 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         reward_tensor_lst = []
-        reward_extra_info_dict: Dict[str, list[list[float]]] = None # the values are of shape (num_of_batch, batch_size)
+        reward_extra_info_dict: Dict[str,
+                                     list[list[float]]] = None  # the values are of shape (num_of_batch, batch_size)
         data_source_lst = []
 
         # Lists to collect samples for the table
@@ -969,7 +970,8 @@ class RayPPOTrainer(object):
                         if isinstance(reward_result, dict):
                             batch.batch['token_level_scores'] = reward_result['reward_tensor']
                             if 'extra_info' in reward_result:
-                                batch.non_tensor_batch['rewards_extra_info'] = reward_result['extra_info'] # dict[str, list[float]]
+                                batch.non_tensor_batch['rewards_extra_info'] = reward_result[
+                                    'extra_info']  # dict[str, list[float]]
                         else:
                             batch.batch['token_level_scores'] = reward_result
                         # compute rewards. apply_kl_penalty if available
