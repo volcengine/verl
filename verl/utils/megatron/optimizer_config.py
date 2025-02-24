@@ -58,7 +58,7 @@ class OptimizerConfig:
     """If true, train with bf16 mixed precision training. Defaults to False."""
 
     params_dtype: torch.dtype = torch.float32
-    """dtype used when intializing the weights. Defaults to torch.float32."""
+    """dtype used when initializing the weights. Defaults to torch.float32."""
 
     ###############
     # Loss scaling

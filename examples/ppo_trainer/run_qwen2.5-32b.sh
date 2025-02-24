@@ -12,7 +12,6 @@ python3 -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=1024 \
-    data.val_batch_size=6304 \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-32B-Instruct \

@@ -75,7 +75,6 @@ PYTHONUNBUFFERED=1 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
     data.train_files=$train_files \
     data.val_files=$val_files \
     data.train_batch_size=256 \
-    data.val_batch_size=1312 \
     data.max_prompt_length=512 \
     data.max_response_length=256 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
