@@ -287,9 +287,9 @@ def load_megatron_model_weights(config,
     local_cache_path = os.path.expanduser(local_cache_path)
 
     if config.model.path.startswith("hdfs:"):
-        from verl.utils.fs import copy_local_path_from_hdfs
+        from verl.utils.fs import copy_to_local
         print(f'start download from {config.model.path}')
-        local_model_path = copy_local_path_from_hdfs(src=config.model.path, cache_dir=local_cache_path)
+        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
         print('finish download')
     else:
         print(f"load from local dir {config.model.path}")
