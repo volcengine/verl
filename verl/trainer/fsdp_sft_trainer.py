@@ -439,7 +439,24 @@ class FSDPSFTTrainer(object):
             if self.config.trainer.default_hdfs_dir:
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
-        torch.distributed.barrier()
+
+            # Push to hub if enabled
+            if self.config.trainer.push_to_hub:
+                from verl.utils.huggingface import push_to_hub
+                from omegaconf import OmegaConf
+                push_to_hub(
+                    repo_id=self.config.trainer.hub_model_id,
+                    local_path=path,
+                    private=self.config.trainer.hub_private,
+                    token=self.config.trainer.hub_token,
+                    base_model=self.config.model.partial_pretrain,
+                    model_name=self.config.trainer.experiment_name,
+                    training_config=OmegaConf.to_container(self.config, resolve=True),
+                    tags=["verl", "sft"],
+                    trainer_name="SFT"
+                )
+
+            torch.distributed.barrier()
 
     def fit(self):
         rank = self.device_mesh.get_rank()
