@@ -181,10 +181,10 @@ class DataParallelPPOCritic(BasePPOCritic):
                     # assert not torch.any(torch.isnan(vpreds)).item()
 
                     vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
-                                                                        values=values,
-                                                                        returns=returns,
-                                                                        eos_mask=eos_mask,
-                                                                        cliprange_value=self.config.cliprange_value)
+                                                                         values=values,
+                                                                         returns=returns,
+                                                                         eos_mask=eos_mask,
+                                                                         cliprange_value=self.config.cliprange_value)
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
                         loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
