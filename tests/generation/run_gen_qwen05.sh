@@ -26,5 +26,5 @@ python3 -m verl.trainer.main_generation \
     rollout.top_p=0.7 \
     rollout.prompt_length=2048 \
     rollout.response_length=1024 \
-    rollout.tensor_model_parallel_size=1 \
+    rollout.tensor_model_parallel_size=2 \
     rollout.gpu_memory_utilization=0.8
