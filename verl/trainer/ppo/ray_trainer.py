@@ -211,7 +211,6 @@ def _compute_response_info(batch):
 
 
 def compute_data_metrics(batch, use_critic=True):
-    # TODO: add response length
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
 
@@ -295,6 +294,17 @@ def compute_data_metrics(batch, use_critic=True):
         'prompt_length/clip_ratio':
             torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
+
+    if 'rewards_extra_info' in batch.non_tensor_batch:
+        extra_rewards_info = batch.non_tensor_batch['rewards_extra_info']
+        for key, sequence_extra in extra_rewards_info.items():
+            # Sum over the response length to get sequence-level rewards
+            metrics.update({
+                f'critic/extra_rewards/{key}/mean': np.mean(sequence_extra),
+                f'critic/extra_rewards/{key}/max': np.max(sequence_extra),
+                f'critic/extra_rewards/{key}/min': np.min(sequence_extra),
+            })
+
     return metrics
 
 
@@ -584,6 +594,7 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         reward_tensor_lst = []
+        reward_extra_info_dict: Dict[str, list[list[float]]] = None # the values are of shape (num_of_batch, batch_size)
         data_source_lst = []
 
         # Lists to collect samples for the table
@@ -627,7 +638,21 @@ class RayPPOTrainer(object):
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
+            reward_result = self.val_reward_fn(test_batch)
+
+            # Handle both scalar and dictionary returns
+            if isinstance(reward_result, dict):
+                reward_tensor = reward_result['reward_tensor']
+                if 'extra_info' in reward_result:
+                    if reward_extra_info_dict is None:
+                        reward_extra_info_dict = {}
+                    for key, extra_reward in reward_result['extra_info'].items():
+                        if key not in reward_extra_info_dict:
+                            reward_extra_info_dict[key] = [extra_reward]
+                        else:
+                            reward_extra_info_dict[key].append(extra_reward)
+            else:
+                reward_tensor = reward_result
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -649,9 +674,23 @@ class RayPPOTrainer(object):
                 data_source_reward[data_source] = []
             data_source_reward[data_source].append(reward_tensor[i].item())
 
+        if reward_extra_info_dict is not None:
+            data_source_reward_extra_info = {}
+            for key, extra_info_lst in reward_extra_info_dict.items():
+                data_source_reward_extra_info[key] = {}
+                for i in range(len(extra_info_lst)):
+                    data_source = data_sources[i]
+                    if data_source not in data_source_reward_extra_info[key]:
+                        data_source_reward_extra_info[key][data_source] = []
+                    data_source_reward_extra_info[key][data_source].append(extra_info_lst[i])
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
             metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+
+        if reward_extra_info_dict is not None:
+            for key, extra_info_dict in data_source_reward_extra_info.items():
+                for data_source, extra_info_lst in extra_info_dict.items():
+                    metric_dict[f'val/test_score_extra/{data_source}/{key}'] = np.mean(extra_info_lst)
 
         return metric_dict
 
@@ -926,9 +965,13 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
-
+                        reward_result = self.reward_fn(batch)
+                        if isinstance(reward_result, dict):
+                            batch.batch['token_level_scores'] = reward_result['reward_tensor']
+                            if 'extra_info' in reward_result:
+                                batch.non_tensor_batch['rewards_extra_info'] = reward_result['extra_info'] # dict[str, list[float]]
+                        else:
+                            batch.batch['token_level_scores'] = reward_result
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
                             batch, kl_metrics = apply_kl_penalty(batch,

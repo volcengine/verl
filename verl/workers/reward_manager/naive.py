@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, Union
+
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 import torch
@@ -26,7 +28,7 @@ class NaiveRewardManager:
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto) -> Union[torch.Tensor, dict]:
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -34,6 +36,7 @@ class NaiveRewardManager:
             return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        extra_info_dict: dict[str, list[float]] = {}
 
         already_print_data_sources = {}
 
@@ -51,22 +54,31 @@ class NaiveRewardManager:
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
 
-            # decode
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
             data_source = data_item.non_tensor_batch['data_source']
-
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score(
+            score_result = self.compute_score(
                 data_source=data_source,
                 solution_str=sequences_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
+
+            # Handle both scalar and dictionary returns
+            if isinstance(score_result, dict):
+                score = score_result['score']
+                if 'extra_info' in score_result:
+                    for key, value in score_result['extra_info'].items():
+                        if key not in extra_info_dict:
+                            extra_info_dict[key] = [0.0] * len(data)
+                        extra_info_dict[key][i] = value
+            else:
+                score = float(score_result)
+
             reward_tensor[i, valid_response_length - 1] = score
 
             if data_source not in already_print_data_sources:
@@ -76,4 +88,7 @@ class NaiveRewardManager:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
 
+        if extra_info_dict:
+            return {'reward_tensor': reward_tensor, 
+                    'extra_info': extra_info_dict}
         return reward_tensor
