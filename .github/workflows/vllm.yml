@@ -51,3 +51,8 @@ jobs:
           pip3 install --upgrade vllm
           cd tests/rollout
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
+      - name: Run QWen 0.5B generation test
+        run: |
+          cd tests/generation
+          bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet
+          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
