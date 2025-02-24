@@ -333,7 +333,7 @@ class RayWorkerGroup(WorkerGroup):
         return ray.get(self.execute_all_async(method_name, *args, **kwargs))
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
-        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers), 
+        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers),
         # we'll distribute each element in these lists to the corresponding worker
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
