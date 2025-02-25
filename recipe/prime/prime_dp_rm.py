@@ -191,7 +191,8 @@ class DataParallelPRIMERewardModel:
         if isinstance(self.reward_module, FSDP):
             grad_norm = self.reward_module.clip_grad_norm_(self.config.model.optim.grad_clip)
         else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.reward_module.parameters(), max_norm=self.config.model.optim.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.reward_module.parameters(),
+                                                       max_norm=self.config.model.optim.grad_clip)
         self.reward_optimizer.step()
         return grad_norm
 
