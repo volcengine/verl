@@ -53,6 +53,7 @@ class Role(Enum):
     RewardModel = 5
     ActorRolloutRef = 6
 
+
 class AdvantageEstimator(str, Enum):
     """
     Using an enumeration class to avoid spelling errors in adv_estimator
@@ -62,6 +63,7 @@ class AdvantageEstimator(str, Enum):
     REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
     REMAX = 'remax'
     RLOO = 'rloo'
+
 
 @dataclass
 class ResourcePoolManager:
@@ -389,7 +391,10 @@ class RayPPOTrainer(object):
 
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator in [AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX, AdvantageEstimator.RLOO]:
+        elif self.config.algorithm.adv_estimator in [
+                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+                AdvantageEstimator.RLOO
+        ]:
             self.use_critic = False
         else:
             raise NotImplementedError
