@@ -486,6 +486,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def chat(self, prompts: DataProto):
+        # copy from generate_sequences func
         prompts = prompts.to('cuda')
 
         assert self._is_rollout
@@ -513,6 +514,7 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
+            # change this func but get same return
             output = self.rollout.chat(prompts=prompts)
 
             log_gpu_memory_usage('After rollout generation', logger=logger)

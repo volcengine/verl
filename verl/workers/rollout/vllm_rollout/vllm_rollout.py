@@ -266,5 +266,6 @@ class vLLMRollout(BaseRollout):
         }
         prompt_data.meta_info.update(meta_info)
         prompt_data.to('cuda')
+        
         # use generate_sequences to get return
         return self.generate_sequences(prompt_data, **kwargs)
