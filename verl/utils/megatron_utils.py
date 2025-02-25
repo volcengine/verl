@@ -25,12 +25,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from megatron.core import mpu, tensor_parallel
-from megatron.core.utils import get_model_config
+from megatron.core.utils import get_attr_wrapped_model
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 # from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.enums import ModelType
+
+
+def get_model_config(model):
+    return get_attr_wrapped_model(model, 'megatron_config', allow_none=False)
 
 
 def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
@@ -218,11 +222,7 @@ class FakeTimers:
     """Disable All Megatron Timing with FakeTimers"""
 
     def __init__(self):
-        megatron_version = Version(importlib.metadata.version('megatron-core'))
-        if megatron_version < Version('0.6.0'):
-            from megatron.timers import DummyTimer
-        else:
-            from megatron.core.timers import DummyTimer
+        from megatron.core.timers import DummyTimer
         self.dummy_timer = DummyTimer()
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:

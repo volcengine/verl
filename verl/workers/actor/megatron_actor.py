@@ -31,17 +31,13 @@ import torch.distributed
 from verl.utils.megatron.optimizer_config import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
-from megatron.core.utils import get_model_config
+from verl.utils.megatron_utils import get_model_config
 from megatron.core.pipeline_parallel import get_forward_backward_func
 
 from megatron.core.distributed import finalize_model_grads
 # from megatron.core.optimizer import DistributedOptimizer
 
-megatron_version = Version(importlib.metadata.version('megatron-core'))
-if megatron_version < Version('0.6.0'):
-    from megatron.optimizer import DistributedOptimizer
-else:
-    from megatron.core.optimizer import DistributedOptimizer
+from megatron.core.optimizer import DistributedOptimizer
 
 from omegaconf import OmegaConf
 from verl.utils.megatron.tensor_parallel import vocab_parallel_compute_entropy_loss, vocab_parallel_log_probs_from_logits
@@ -363,20 +359,13 @@ class MegatronPPOActor(BasePPOActor):
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
-                if megatron_version < Version('0.6.0'):
-                    chunk.zero_grad_buffer(zero_buffer=(not self.actor_optimizer_config.use_distributed_optimizer))
-                else:
-                    chunk.zero_grad_buffer()
+                chunk.zero_grad_buffer()
 
             metric_micro_batch = self.forward_backward_batch(data)
             for metric in metric_micro_batch:
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
-            if megatron_version < Version('0.6.0'):
-                update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step(
-                    self.megatron_config, self.megatron_config.timers)
-            else:
-                update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
+            update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
 
             if update_successful:
                 # allgather already execute in optimizer.step in new megatron

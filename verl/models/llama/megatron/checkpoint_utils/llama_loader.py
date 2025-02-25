@@ -19,7 +19,6 @@ import time
 from typing import Dict, Any, Callable, Optional
 import torch.distributed as dist
 
-megatron_version = Version(importlib.metadata.version('megatron-core'))
 
 def _megatron_calc_layer_map(config):
     """Calculate the mapping of global layer_idx to local layer_idx
@@ -56,11 +55,7 @@ def load_state_dict_to_megatron_llama(state_dict, wrapped_models, config, params
     """
     import megatron
     from megatron.core import mpu
-    megatron_version = Version(importlib.metadata.version('megatron-core'))
-    if megatron_version < Version('0.6.0'):
-        from megatron.utils import print_rank_0, unwrap_model
-    else:
-        from megatron.training.utils import print_rank_0, unwrap_model
+    from megatron.training.utils import print_rank_0, unwrap_model
     from megatron.core.transformer.module import Float16Module
     from megatron.core import DistributedDataParallel as LocalDDP
     from torch.nn.parallel import DistributedDataParallel as torchDDP

@@ -37,11 +37,7 @@ from verl.utils.megatron.optimizer_config import OptimizerConfig
 
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func
-megatron_version = Version(importlib.metadata.version('megatron-core'))
-if megatron_version < Version('0.6.0'):
-    from megatron.optimizer import DistributedOptimizer
-else:
-    from megatron.core.optimizer import DistributedOptimizer
+from megatron.core.optimizer import DistributedOptimizer
 
 
 class MegatronPPOCritic(BasePPOCritic):
@@ -219,18 +215,11 @@ class MegatronPPOCritic(BasePPOCritic):
             self.critic_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.critic_module:
-                if megatron_version < Version('0.6.0'):
-                    chunk.zero_grad_buffer(zero_buffer=(not self.critic_optimizer_config.use_distributed_optimizer))
-                else:
-                    chunk.zero_grad_buffer()
+                chunk.zero_grad_buffer()
 
             metric_micro_batch = self.forward_backward_batch(data)
 
-            if megatron_version < Version('0.6.0'):
-                update_successful, grad_norm, num_zeros_in_grad = self.critic_optimizer.step(
-                    self.megatron_config, self.megatron_config.timers)
-            else:
-                update_successful, grad_norm, num_zeros_in_grad = self.critic_optimizer.step()
+            update_successful, grad_norm, num_zeros_in_grad = self.critic_optimizer.step()
 
             if update_successful:
                 # allgather already execute in optimizer.step in new megatron
