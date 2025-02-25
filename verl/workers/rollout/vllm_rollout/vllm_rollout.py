@@ -34,6 +34,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.utils.model import compute_position_id_with_mask
 from verl.workers.rollout.base import BaseRollout
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
@@ -89,6 +90,7 @@ class vLLMRollout(BaseRollout):
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
+        self.tokenizer = tokenizer
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -230,3 +232,39 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)
+
+    @torch.no_grad()
+    def chat(self, prompts: DataProto, **kwargs) -> DataProto:
+        # just add tools call to rebuild
+        idx = prompts.batch['input_ids']
+        # used to construct attention_mask
+        batch_chat_lst = self.tokenizer.batch_decode(idx, skip_special_tokens=True)
+
+        # get tool calls
+        tools = kwargs.pop('tools', None)
+
+        prompts_with_tools = self.tokenizer.apply_chat_template(batch_chat_lst,
+                                                                add_generation_prompt=True,
+                                                                padding=True,
+                                                                truncation=True,
+                                                                return_tensors='pt',
+                                                                return_dict=True,
+                                                                tools=tools,
+                                                                tokenize=True)
+
+        input_ids = prompts_with_tools['input_ids']
+        attention_mask = prompts_with_tools['attention_mask']
+        position_ids = compute_position_id_with_mask(attention_mask)
+
+        # rebuild DataProto
+        batch_dict = {'input_ids': input_ids, 'attention_mask': attention_mask, 'position_ids': position_ids}
+        prompt_data = DataProto.from_dict(batch_dict)
+
+        meta_info = {
+            'eos_token_id': prompts.meta_info['eos_token_id'],
+            'pad_token_id': prompts.meta_info['pad_token_id']
+        }
+        prompt_data.meta_info.update(meta_info)
+        prompt_data.to('cuda')
+        # use generate_sequences to get return
+        return self.generate_sequences(prompt_data, **kwargs)

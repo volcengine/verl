@@ -104,7 +104,8 @@ def main(config):
         print(f'[{batch_idx+1}/{num_batch}] Start to generate.')
         # START TO GENERATE FOR n_samples TIMES
         for i in range(config.data.n_samples):
-            output = wg.generate_sequences(data)
+            #output = wg.generate_sequences(data)
+            output = wg.chat(data)
             # remove dummy data
             output = output[:real_batch_size]
             output_text = tokenizer.batch_decode(output.batch['input_ids'][:, -config.rollout.response_length:],
