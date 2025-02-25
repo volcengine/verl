@@ -74,3 +74,34 @@ def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, 
         advantages = verl_F.masked_whiten(advantages, eos_mask)
 
         return advantages, returns
+
+
+def compute_ce_dpo_loss_rm(token_level_scores, acc, eos_mask, beta):
+    cur_scores = ((token_level_scores * eos_mask).sum(dim=1) * beta).sigmoid()
+    cur_dpo_loss = torch.nn.functional.binary_cross_entropy(cur_scores, acc)
+    return cur_dpo_loss
+
+
+def compute_dpo_accuracy(token_level_scores, acc, eos_mask, n_samples):
+    dpo_acc = []
+    for start_id in range(0, token_level_scores.shape[0], n_samples):
+        cur_scores = (token_level_scores[start_id:start_id + n_samples] *
+                      eos_mask[start_id:start_id + n_samples]).sum(dim=1)
+
+        def get_upper_triangle(tensor_x):
+            diff_matrix = tensor_x.unsqueeze(1) - tensor_x.unsqueeze(0)
+            upper_tri_indices = torch.triu(torch.ones_like(diff_matrix).bool(), diagonal=1)
+            return diff_matrix[upper_tri_indices]
+
+        cur_acc_diff = get_upper_triangle(acc[start_id:start_id + n_samples])  # in range [-1,1]
+        cur_score_diff = get_upper_triangle(cur_scores)  # in R
+        cur_score_prediction = (cur_score_diff > 0).float()  # in [0,1]
+        if cur_acc_diff.abs().sum() == 0:
+            cur_acc = torch.zeros_like(cur_score_prediction[0]) + 0.5
+        else:
+            cur_acc = (((cur_score_diff > 0) == (cur_acc_diff > 0)).float() *
+                       cur_acc_diff.abs()).sum() / cur_acc_diff.abs().sum()
+
+        dpo_acc.append(cur_acc.unsqueeze(0))
+
+    return torch.cat(dpo_acc, dim=0).mean()

@@ -132,7 +132,8 @@ reward_model:
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
     fsdp_config:
-      min_num_params: 0
+      wrap_policy:
+        min_num_params: 0
       param_offload: False
       fsdp_size: -1
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu

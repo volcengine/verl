@@ -38,6 +38,7 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from codetiming import Timer
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
+from .prime_core_algos import compute_dpo_accuracy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -76,8 +77,7 @@ class PRIMERewardModelWorker(Worker):
         # normalize config
         self.config.mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
         if self.config.micro_batch_size is not None:
-            self.config.micro_batch_size //= (torch.distributed.get_world_size() //
-                                                  self.ulysses_sequence_parallel_size)
+            self.config.micro_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
             assert self.config.mini_batch_size % self.config.micro_batch_size_per_gpu == 0
 
@@ -129,10 +129,10 @@ class PRIMERewardModelWorker(Worker):
             setattr(reward_model_config, 'classifier_dropout', 0.)
             setattr(reward_model_config, 'hidden_dropout', '0')
             reward_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            torch_dtype=torch_dtype,
-                                                                            config=reward_model_config,
-                                                                            attn_implementation='flash_attention_2',
-                                                                            trust_remote_code=trust_remote_code)
+                                                                 torch_dtype=torch_dtype,
+                                                                 config=reward_model_config,
+                                                                 attn_implementation='flash_attention_2',
+                                                                 trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
@@ -204,7 +204,8 @@ class PRIMERewardModelWorker(Worker):
         import_external_libs(self.config.model.get('external_lib', None))
 
         from .prime_dp_rm import DataParallelPRIMERewardModel
-        self.reward_module, self.ref_module, self.reward_optimizer, self.reward_lr_scheduler= self._build_reward_ref_model_optimizer(config=self.config)
+        self.reward_module, self.ref_module, self.reward_optimizer, self.reward_lr_scheduler = self._build_reward_ref_model_optimizer(
+            config=self.config)
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.reward_module)
@@ -213,9 +214,9 @@ class PRIMERewardModelWorker(Worker):
             offload_fsdp_optimizer(optimizer=self.reward_optimizer)
 
         self.rm = DataParallelPRIMERewardModel(config=self.config,
-                                            reward_module=self.reward_module,
-                                            ref_module = self.ref_module,
-                                            reward_optimizer=self.reward_optimizer)
+                                               reward_module=self.reward_module,
+                                               ref_module=self.ref_module,
+                                               reward_optimizer=self.reward_optimizer)
 
         self.flops_counter = FlopsCounter(self.reward_model_config)
         self.checkpoint_manager = FSDPCheckpointManager(model=self.reward_module,
@@ -224,6 +225,7 @@ class PRIMERewardModelWorker(Worker):
                                                         tokenizer=self.tokenizer)
 
         torch.cuda.empty_cache()
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
         data = data.to('cuda')
@@ -238,8 +240,17 @@ class PRIMERewardModelWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            rm_scores = self.rm.compute_rm_score(data=data)
-            output = DataProto.from_dict(tensors={'rm_scores': rm_scores})
+            rm_scores, metrics = self.rm.compute_rm_score(data=data)
+
+            prompt_length = data.batch['prompts'].shape[-1]
+            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            acc = data.batch['acc']
+
+            dpo_acc = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
+
+            metrics['reward_model/dpo_acc'] = dpo_acc.detach().item()
+
+            output = DataProto.from_dict(tensors={'rm_scores': rm_scores}, meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         output = output.to('cpu')
@@ -273,7 +284,15 @@ class PRIMERewardModelWorker(Worker):
             lr = self.reward_lr_scheduler.get_last_lr()[0]
             metrics['rm/lr'] = lr
 
-            output = DataProto.from_dict(tensors={'rm_scores':rm_scores}, meta_info={'metrics': metrics})
+            prompt_length = data.batch['prompts'].shape[-1]
+            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            acc = data.batch['acc']
+
+            dpo_acc_before = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
+
+            metrics['reward_model/dpo_acc_before'] = dpo_acc_before.detach().item()
+
+            output = DataProto.from_dict(tensors={'rm_scores': rm_scores}, meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         if self._is_offload_param:

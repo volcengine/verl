@@ -169,11 +169,8 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         self.use_critic = False
 
-        self._validate_config()
-        self._create_dataloader()
-
     def _validate_config(self):
-        super()._validate()
+        super()._validate_config()
         # TODO: Additional config checks can be added here
         config = self.config
 
@@ -403,6 +400,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     # filter the batch. 1/oversample_factor samples will be kept. If there is a filter, prompts passing it will be prioritized.
 
                     batch = self.filter_and_downsample(scores, batch)
+                    batch.meta_info['n'] = self.config.actor_rollout_ref.rollout.n
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
@@ -425,6 +423,10 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 reward_output = self.rm_wg.update_rm(batch)
                             elif update_style == 'before':  # update reward model, and then run forward
                                 reward_output = self.rm_wg.update_rm(batch)
+                                if 'metrics' in reward_output.meta_info['metrics']:
+                                    reward_output_metrics = reduce_metrics(reward_output.meta_info['metrics'])
+                                    metrics.update(reward_output_metrics)
+
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                             else:
                                 raise NotImplementedError
