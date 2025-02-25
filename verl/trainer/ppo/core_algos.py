@@ -249,6 +249,10 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
+    
+    with open("/workspace/lurui-yun/deep_research/verl/logs/core_algos_eos_mask.json", "w") as f:
+        import json
+        json.dump(eos_mask[0].tolist(), f)
 
     pg_losses = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
@@ -322,6 +326,9 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
 
     if kl_penalty == "mse":
         return 0.5 * (logprob - ref_logprob).square()
+
+    print("logprob.shape: ", logprob.shape)
+    print("ref_logprob.shape: ", ref_logprob.shape)
 
     # J. Schulman. Approximating kl divergence, 2020.
     # # URL http://joschu.net/blog/kl-approx.html.

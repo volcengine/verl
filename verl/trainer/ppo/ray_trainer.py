@@ -84,13 +84,19 @@ import torch
 from verl.utils.torch_functional import masked_mean
 
 
-def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
+def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl', multi_turn=False):
     responses = data.batch['responses']
     response_length = responses.size(1)
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
-    attention_mask = data.batch['attention_mask']
-    response_mask = attention_mask[:, -response_length:]
+    
+    assert multi_turn == True
+    if multi_turn:
+        loss_mask = data.batch['loss_mask']
+        response_mask = loss_mask[:, -response_length:]
+    else:
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
 
     # compute kl between ref_policy and current policy
     if 'ref_log_prob' in data.batch.keys():
@@ -198,7 +204,7 @@ def _compute_response_info(batch):
     )
 
 
-def compute_data_metrics(batch, use_critic=True):
+def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     # TODO: add response length
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
@@ -225,22 +231,46 @@ def compute_data_metrics(batch, use_critic=True):
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
+    
+    # lurui: feature for passrate calculation
+    print("token_level_scores.shape")
+    print(batch.batch['token_level_scores'].shape)
+    print("token_level_scores")
+    print(batch.batch['token_level_scores'])
+    print("sequence_score")
+    print(sequence_score)
+    
+    print("observations_times")
+    print(batch.batch['observations_times'])
+    
+    with open("/workspace/lurui-yun/deep_research/verl/logs/uid.txt", "a") as f:    
+        f.write(str(batch.non_tensor_batch['uid']) + "\n")
 
     metrics = {
         # score
-        'critic/score/mean':
+        'critic/pass@1':
             torch.mean(sequence_score).detach().item(),
-        'critic/score/max':
-            torch.max(sequence_score).detach().item(),
-        'critic/score/min':
-            torch.min(sequence_score).detach().item(),
+        'critic/passrate':
+            torch.mean(sequence_score).detach().item(),
+        
+        'search/observation_times':
+            torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/overlong_ratio':
+            torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
+        
+        # 'critic/score/mean':
+        #     torch.mean(sequence_score).detach().item(),
+        # 'critic/score/max':
+        #     torch.max(sequence_score).detach().item(),
+        # 'critic/score/min':
+        #     torch.min(sequence_score).detach().item(),
         # reward
-        'critic/rewards/mean':
-            torch.mean(sequence_reward).detach().item(),
-        'critic/rewards/max':
-            torch.max(sequence_reward).detach().item(),
-        'critic/rewards/min':
-            torch.min(sequence_reward).detach().item(),
+        # 'critic/rewards/mean':
+        #     torch.mean(sequence_reward).detach().item(),
+        # 'critic/rewards/max':
+        #     torch.max(sequence_reward).detach().item(),
+        # 'critic/rewards/min':
+        #     torch.min(sequence_reward).detach().item(),
         # adv
         'critic/advantages/mean':
             torch.mean(valid_adv).detach().item(),
@@ -948,7 +978,8 @@ class RayPPOTrainer(object):
                         if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
                             batch, kl_metrics = apply_kl_penalty(batch,
                                                                  kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
+                                                                 kl_penalty=self.config.algorithm.kl_penalty,
+                                                                 multi_turn=self.config.actor_rollout_ref.actor.get('multi_turn', False))
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
@@ -988,7 +1019,7 @@ class RayPPOTrainer(object):
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic, tokenizer=self.tokenizer))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend

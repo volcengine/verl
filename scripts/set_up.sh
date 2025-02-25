@@ -5,6 +5,8 @@ hostip=$(env | grep MLP_HOST=)
 hostip=${hostip#*=}
 echo $hostip
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 if [ $hostip  = $MLP_WORKER_0_HOST ]; then
     # 主节点
     ray start --head --node-ip-address=$MLP_WORKER_0_HOST --port=6379 --block &

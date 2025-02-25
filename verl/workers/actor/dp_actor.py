@@ -206,7 +206,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        # select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'loss_mask', 'position_ids', 'old_log_probs', 'advantages']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
@@ -234,7 +235,15 @@ class DataParallelPPOActor(BasePPOActor):
                 responses = data['responses']
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
-                response_mask = attention_mask[:, -response_length:]
+                
+                assert self.config.get('multi_turn') == True
+                if self.config.get('multi_turn', False):
+                    # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
+                    loss_mask = data['loss_mask']
+                    response_mask = loss_mask[:, -response_length:]
+                else:
+                    # only align single-turn
+                    response_mask = attention_mask[:, -response_length:]
                 old_log_prob = data['old_log_probs']
                 advantages = data['advantages']
 
@@ -261,6 +270,8 @@ class DataParallelPPOActor(BasePPOActor):
                     kld = core_algos.kl_penalty(logprob=log_prob,
                                                 ref_logprob=ref_log_prob,
                                                 kl_penalty=self.config.kl_loss_type)
+                    print("kld.shape", kld.shape)
+                    print("response_mask.shape", response_mask.shape)
                     kl_loss = masked_mean(kld, response_mask)
 
                     policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef

@@ -19,6 +19,7 @@ actor_rollout_ref:
     override_config: { }
     enable_gradient_checkpointing: True
     use_remove_padding: False
+    trust_remote_code: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -35,6 +36,7 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
+    multi_turn: False
     optim:
       lr: 1e-6
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -86,7 +88,7 @@ actor_rollout_ref:
     do_sample: True
     # number of responses (i.e. num sample times)
     n: 1 # > 1 for grpo
-    multi_turn: False # if true, use for agent with multi-turn
+    multi_turn: ${actor_rollout_ref.actor.multi_turn}
 
 critic:
   strategy: fsdp

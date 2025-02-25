@@ -37,30 +37,67 @@ class NaiveRewardManager:
 
         already_print_data_sources = {}
 
-        for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
+        # for i in range(len(data)):
+        #     data_item = data[i]  # DataProtoItem
 
+        #     prompt_ids = data_item.batch['prompts']
+
+        #     prompt_length = prompt_ids.shape[-1]
+
+        #     valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+        #     valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+        #     response_ids = data_item.batch['responses']
+        #     valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+        #     # valid_response_ids = response_ids[:valid_response_length]
+        #     valid_response_ids = response_ids
+
+        #     # decode
+        #     sequences = torch.cat((valid_prompt_ids, valid_response_ids))
+        #     sequences_str = self.tokenizer.decode(sequences)
+            
+        #     prompt_str = self.tokenizer.decode(valid_prompt_ids)
+        #     ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+
+        #     data_source = data_item.non_tensor_batch['data_source']
+
+        #     extra_info = data_item.non_tensor_batch.get('extra_info', None)
+
+        #     score = self.compute_score(
+        #         data_source=data_source,
+        #         solution_str=sequences_str,
+        #         ground_truth=ground_truth,
+        #         extra_info=extra_info,
+        #         question=prompt_str
+        #     )
+        #     reward_tensor[i, valid_response_length - 1] = score
+
+        #     if data_source not in already_print_data_sources:
+        #         already_print_data_sources[data_source] = 0
+
+        #     if already_print_data_sources[data_source] < self.num_examine:
+        #         already_print_data_sources[data_source] += 1
+        #         # print(sequences_str)
+        
+        # parallel eval
+        
+        import concurrent.futures
+
+        def compute_score_for_item(i, data_item):
             prompt_ids = data_item.batch['prompts']
-
             prompt_length = prompt_ids.shape[-1]
-
             valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
             response_ids = data_item.batch['responses']
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            # valid_response_ids = response_ids[:valid_response_length]
             valid_response_ids = response_ids
 
-            # decode
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
-            
             prompt_str = self.tokenizer.decode(valid_prompt_ids)
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
             data_source = data_item.non_tensor_batch['data_source']
-
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
             score = self.compute_score(
@@ -70,13 +107,19 @@ class NaiveRewardManager:
                 extra_info=extra_info,
                 question=prompt_str
             )
-            reward_tensor[i, valid_response_length - 1] = score
+            return i, valid_response_length, score, data_source, sequences_str
 
-            if data_source not in already_print_data_sources:
-                already_print_data_sources[data_source] = 0
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(compute_score_for_item, i, data[i]) for i in range(len(data))]
+            for future in concurrent.futures.as_completed(futures):
+                i, valid_response_length, score, data_source, sequences_str = future.result()
+                reward_tensor[i, valid_response_length - 1] = score
 
-            if already_print_data_sources[data_source] < self.num_examine:
-                already_print_data_sources[data_source] += 1
-                # print(sequences_str)
+                if data_source not in already_print_data_sources:
+                    already_print_data_sources[data_source] = 0
+
+                if already_print_data_sources[data_source] < self.num_examine:
+                    already_print_data_sources[data_source] += 1
+                    # print(sequences_str)
 
         return reward_tensor

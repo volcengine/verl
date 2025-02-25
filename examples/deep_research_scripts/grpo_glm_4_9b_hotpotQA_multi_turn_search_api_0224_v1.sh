@@ -14,6 +14,10 @@ export WANDB_BASE_URL=https://wandb.ai
 export WANDB_API_KEY=06deee090a842fccccbdc8569567287f3725339b
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
+# for ray debugger
+export RAY_DEBUG_ENABLE=1
+export RAY_DEBUGGER_EXTERNAL=1  # 允许外部连接调试器
+
 export WANDB_PROJECT=deep_research_rl
 export EXP_NAME=$(basename "$0" .sh)
 
@@ -50,7 +54,7 @@ python3 -m verl.trainer.main_ppo \
     +actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
@@ -67,5 +71,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_epochs=4 \
     trainer.project_name=$WANDB_PROJECT \
     trainer.default_local_dir=$SAVE_PATH \
-    trainer.experiment_name=$EXP_NAME $@ \
     trainer.val_before_train=False \
+    +trainer.ray_debug=True \
+    +trainer.ray_debug_port=6379 \
+    trainer.experiment_name=$EXP_NAME $@ \
+    
