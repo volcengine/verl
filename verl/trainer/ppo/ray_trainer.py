@@ -380,7 +380,7 @@ class RayPPOTrainer(object):
 
         if self.config.algorithm.adv_estimator == 'gae':
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator in ['grpo', 'reinforce_plue_plus', 'remax', 'rloo']:
+        elif self.config.algorithm.adv_estimator in ['grpo', 'reinforce_plus_plus', 'remax', 'rloo']:
             self.use_critic = False
         else:
             raise NotImplementedError
