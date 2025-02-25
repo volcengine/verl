@@ -28,7 +28,7 @@ import torch
 from torch import nn
 import torch.distributed
 # from megatron import get_args
-from verl.utils.megatron.optimizer_config import OptimizerConfig
+from megatron.core.optimizer import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
 from verl.utils.megatron_utils import get_model_config
@@ -164,7 +164,7 @@ class MegatronPPOActor(BasePPOActor):
             response = data['responses']
             response_length = response.size(1)
             logits = output['logits']
-            logits = logits[:, -response_length - 1:-1]
+            logits = logits[:, -response_length - 1:-1].contiguous()
             log_probs = vocab_parallel_log_probs_from_logits(logits, response)
             return {'log_probs': log_probs}
 
@@ -279,8 +279,10 @@ class MegatronPPOActor(BasePPOActor):
 
             # compute policy loss
             logits = output.logits
-            logits = logits[:, -response_length - 1:-1]
+            logits = logits[:, -response_length - 1:-1].contiguous()
+            logits_back = logits.clone()
             log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+            logits = logits_back
             pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                           log_prob=log_prob,
                                                                           advantages=advantages,

@@ -33,7 +33,7 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
 from verl.utils.megatron import sequence_parallel as sp_utils
-from verl.utils.megatron.optimizer_config import OptimizerConfig
+from megatron.core.optimizer import OptimizerConfig
 
 from megatron.core import parallel_state as mpu
 from megatron.core.pipeline_parallel import get_forward_backward_func

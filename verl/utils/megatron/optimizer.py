@@ -19,7 +19,7 @@ from packaging.version import Version
 from apex.optimizers import FusedAdam as Adam
 from apex.optimizers import FusedSGD as SGD
 
-from verl.utils.megatron.optimizer_config import OptimizerConfig
+from megatron.core.optimizer import OptimizerConfig
 
 from megatron.core.optimizer import get_megatron_optimizer as get_megatron_optimizer_native
 

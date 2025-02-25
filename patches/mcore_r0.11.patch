@@ -1,30 +1,8 @@
-diff --git a/megatron/core/distributed/distributed_data_parallel.py b/megatron/core/distributed/distributed_data_parallel.py
-index 13e321f5..a527d615 100644
---- a/megatron/core/distributed/distributed_data_parallel.py
-+++ b/megatron/core/distributed/distributed_data_parallel.py
-@@ -52,7 +52,7 @@ class DistributedDataParallel(MegatronModule):
-     ):
-         super().__init__(config=config)
-         self.module = module
--
-+        self.data_parallel_group = data_parallel_group
-         # Set bucket_size to infinity if overlap_grad_reduce is False.
-         self.overlap_grad_reduce = overlap_grad_reduce
-         self.use_distributed_optimizer = use_distributed_optimizer
-@@ -268,7 +268,7 @@ class DistributedDataParallel(MegatronModule):
-             else:
-                 torch.distributed.broadcast(
-                     param.data,
--                    src=torch.distributed.get_process_group_ranks(self.data_parallel_group),
-+                    src=torch.distributed.get_process_group_ranks(self.data_parallel_group)[0],
-                     group=self.data_parallel_group,
-                 )
- 
 diff --git a/megatron/core/pipeline_parallel/schedules.py b/megatron/core/pipeline_parallel/schedules.py
-index eb251761..08c22f5a 100644
+index 7d739022..47fa0e70 100644
 --- a/megatron/core/pipeline_parallel/schedules.py
 +++ b/megatron/core/pipeline_parallel/schedules.py
-@@ -315,6 +315,7 @@ def forward_backward_no_pipelining(
+@@ -411,6 +411,7 @@ def forward_backward_no_pipelining(
      model: Union[torch.nn.Module, List[torch.nn.Module]],
      num_microbatches: int,
      seq_length: int,  # unused
@@ -32,7 +10,7 @@ index eb251761..08c22f5a 100644
      micro_batch_size: int,  # unused
      decoder_seq_length: int = None,  # unused
      forward_only: bool = False,
-@@ -403,8 +404,10 @@ def forward_backward_pipelining_with_interleaving(
+@@ -550,8 +551,10 @@ def forward_backward_pipelining_with_interleaving(
      data_iterator: Union[Iterator, List[Iterator]],
      model: Union[torch.nn.Module, List[torch.nn.Module]],
      num_microbatches: int,
@@ -45,7 +23,7 @@ index eb251761..08c22f5a 100644
      decoder_seq_length: int = None,
      forward_only: bool = False,
      collect_non_loss_data: bool = False,
-@@ -491,7 +494,7 @@ def forward_backward_pipelining_with_interleaving(
+@@ -677,7 +680,7 @@ def forward_backward_pipelining_with_interleaving(
              "Interleaving is not supported with a different decoder sequence length."
          )
  
@@ -54,7 +32,7 @@ index eb251761..08c22f5a 100644
      tensor_shape[0] = tensor_shape[0] // parallel_state.get_context_parallel_world_size()
      if config.sequence_parallel:
          tensor_shape[0] = tensor_shape[0] // parallel_state.get_tensor_model_parallel_world_size()
-@@ -983,6 +986,7 @@ def get_tensor_shapes(
+@@ -1494,6 +1497,7 @@ def get_tensor_shapes(
      rank: int,
      model_type: ModelType,
      seq_length: int,
@@ -62,24 +40,27 @@ index eb251761..08c22f5a 100644
      micro_batch_size: int,
      decoder_seq_length: int,
      config,
-@@ -1010,12 +1014,12 @@ def get_tensor_shapes(
+@@ -1523,14 +1527,14 @@ def get_tensor_shapes(
  
      if model_type == ModelType.encoder_and_decoder:
-         if parallel_state.is_pipeline_stage_before_split(rank):
+         if parallel_state.is_inside_encoder(rank) and not parallel_state.is_inside_decoder(rank):
 -            tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
 +            tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
-         else:
+         elif encoder_decoder_xattn:
 -            tensor_shapes.append((decoder_seq_length, micro_batch_size, config.hidden_size))
 -            tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
 +            tensor_shapes.append((decoder_seq_length, micro_batch_size, hidden_size))
 +            tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
-     else:
+         else:
+-            tensor_shapes.append((decoder_seq_length, micro_batch_size, config.hidden_size))
++            tensor_shapes.append((decoder_seq_length, micro_batch_size, hidden_size))
+     else:  # model_type == ModelType.encoder_or_decoder
 -        tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
 +        tensor_shapes.append((seq_length, micro_batch_size, hidden_size))
      return tensor_shapes
  
  
-@@ -1093,8 +1097,10 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1616,8 +1620,10 @@ def forward_backward_pipelining_without_interleaving(
      data_iterator: Union[Iterator, List[Iterator]],
      model: Union[torch.nn.Module, List[torch.nn.Module]],
      num_microbatches: int,
@@ -92,8 +73,8 @@ index eb251761..08c22f5a 100644
      decoder_seq_length: int = None,
      forward_only: bool = False,
      collect_non_loss_data: bool = False,
-@@ -1171,22 +1177,34 @@ def forward_backward_pipelining_without_interleaving(
-     model_type = get_model_type(model)
+@@ -1697,24 +1703,35 @@ def forward_backward_pipelining_without_interleaving(
+     encoder_decoder_xattn = get_model_xattn(model)
  
      rank = parallel_state.get_pipeline_model_parallel_rank()
 -    recv_tensor_shapes = get_tensor_shapes(
@@ -103,6 +84,7 @@ index eb251761..08c22f5a 100644
 -        micro_batch_size=micro_batch_size,
 -        decoder_seq_length=decoder_seq_length,
 -        config=config,
+-        encoder_decoder_xattn=encoder_decoder_xattn,
 -    )
 -    send_tensor_shapes = get_tensor_shapes(
 -        rank=rank,
@@ -111,6 +93,7 @@ index eb251761..08c22f5a 100644
 -        micro_batch_size=micro_batch_size,
 -        decoder_seq_length=decoder_seq_length,
 -        config=config,
+-        encoder_decoder_xattn=encoder_decoder_xattn,
 -    )
 +
 +    def get_recv_tensor_shapes(microbatch_id):
@@ -140,26 +123,27 @@ index eb251761..08c22f5a 100644
 +            config=config,
 +        )
 +        return send_tensor_shapes
++
  
      # Input, output tensors only need to be saved when doing backward passes
      input_tensors = None
-@@ -1207,6 +1225,7 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1737,6 +1754,7 @@ def forward_backward_pipelining_without_interleaving(
          else:
              checkpoint_activations_microbatch = None
  
 +        recv_tensor_shapes = get_recv_tensor_shapes(i)  # fwd recv shape
          input_tensor = recv_forward(recv_tensor_shapes, config)
-         output_tensor = forward_step(
+         output_tensor, num_tokens = forward_step(
              forward_step_func,
-@@ -1220,6 +1239,7 @@ def forward_backward_pipelining_without_interleaving(
-             checkpoint_activations_microbatch,
-             check_first_val_step(first_val_step, forward_only, i == 0),
+@@ -1752,6 +1770,7 @@ def forward_backward_pipelining_without_interleaving(
+             current_microbatch=i,
+             encoder_decoder_xattn=encoder_decoder_xattn,
          )
 +        send_tensor_shapes = get_send_tensor_shapes(i)  # fwd send shape
          send_forward(output_tensor, send_tensor_shapes, config)
+         total_num_tokens += num_tokens.item()
  
-         if not forward_only:
-@@ -1231,11 +1251,14 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1764,11 +1783,14 @@ def forward_backward_pipelining_without_interleaving(
      # If all microbatches are run in warmup / cooldown phase, then no need to
      # receive this tensor here.
      if num_microbatches_remaining > 0:
@@ -174,9 +158,9 @@ index eb251761..08c22f5a 100644
  
          # Decide to checkpoint all layers' activations of the current micro-batch
          if max_outstanding_backprops is not None:
-@@ -1260,13 +1283,18 @@ def forward_backward_pipelining_without_interleaving(
-             ),
+@@ -1796,13 +1818,18 @@ def forward_backward_pipelining_without_interleaving(
          )
+         total_num_tokens += num_tokens.item()
  
 +        send_tensor_shapes = get_send_tensor_shapes(i)  # fwd send shape
 +
@@ -193,7 +177,7 @@ index eb251761..08c22f5a 100644
              output_tensor_grad = send_forward_recv_backward(
                  output_tensor, send_tensor_shapes, config
              )
-@@ -1293,8 +1321,10 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1829,8 +1856,10 @@ def forward_backward_pipelining_without_interleaving(
  
              if last_iteration:
                  input_tensor = None
@@ -204,7 +188,7 @@ index eb251761..08c22f5a 100644
                  input_tensor = send_backward_recv_forward(
                      input_tensor_grad, recv_tensor_shapes, config
                  )
-@@ -1302,6 +1332,7 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1838,6 +1867,7 @@ def forward_backward_pipelining_without_interleaving(
      # Run cooldown backward passes.
      if not forward_only:
          for i in range(num_warmup_microbatches):
@@ -212,7 +196,7 @@ index eb251761..08c22f5a 100644
  
              # Enable async grad reduction in the last backward pass
              # Note: If grad sync function is provided, only enable
-@@ -1315,12 +1346,14 @@ def forward_backward_pipelining_without_interleaving(
+@@ -1851,12 +1881,14 @@ def forward_backward_pipelining_without_interleaving(
              input_tensor = input_tensors.pop(0)
              output_tensor = output_tensors.pop(0)
  
@@ -227,10 +211,16 @@ index eb251761..08c22f5a 100644
              send_backward(input_tensor_grad, recv_tensor_shapes, config)
  
          # Launch any remaining grad reductions.
-@@ -1338,4 +1371,4 @@ def forward_backward_pipelining_without_interleaving(
-         # embedding all-reduce for pipeline parallelism).
-         config.finalize_model_grads_func([model])
- 
--    return forward_data_store
-+    return forward_data_store
-\ No newline at end of file
+diff --git a/megatron/core/transformer/module.py b/megatron/core/transformer/module.py
+index c89acec4..347b4982 100644
+--- a/megatron/core/transformer/module.py
++++ b/megatron/core/transformer/module.py
+@@ -91,7 +91,7 @@ class MegatronModule(torch.nn.Module):
+         """Sets the is_first_microbatch flag if it exists and config.fp8==True.
+         When this flag is set, TE modules will update their fp8 parameter cache.
+         """
+-        if self.config.fp8 is not None:
++        if "fp8" in self.config.__dir__() and self.config.fp8 is not None:
+             if not hasattr(self, "modules_with_is_first_microbatch"):
+                 self.modules_with_is_first_microbatch = []
+                 for m in self.modules():
