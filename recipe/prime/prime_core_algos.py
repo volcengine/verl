@@ -43,13 +43,13 @@ def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, 
 
     with torch.no_grad():
 
-        if 'rm_scores' in data.batch and config.algorithm.dpo_coef != 0.:
+        if 'rm_scores' in data.batch and config.algorithm.reward_dpo_coef != 0.:
             reward_tensor = data.batch['rm_scores']
             reward_mask = eos_mask.bool()
 
-            reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.dpo_coef)
+            reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_dpo_coef)
 
-        if 'acc' in data.batch and config.algorithm.gt_coef != 0.:
+        if 'acc' in data.batch and config.algorithm.reward_gt_coef != 0.:
             reward_tensor = torch.zeros_like(eos_mask, dtype=torch.float32)
             reward_mask = torch.zeros_like(eos_mask, dtype=torch.bool)
 
@@ -64,7 +64,7 @@ def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, 
                 torch.arange(0, valid_response_length.shape[0], dtype=torch.long, device=valid_response_length.device),
                 valid_response_length - 1] = data.batch['acc']
 
-            reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.gt_coef)
+            reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_gt_coef)
 
         final_reward_tensor = sum(reward_tensors)
 

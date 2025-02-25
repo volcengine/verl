@@ -45,7 +45,7 @@ reward_model:
       warmup_style: constant
       total_training_steps: -1  # must be overridden by program
       weight_decay: 0.
-      grad_clip: 1.0
+      grad_clip: 10.0
     beta_train: 0.05
     loss_type: ce # currently only supports ce loss
   prime_granularity: token

@@ -393,7 +393,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                     # verify
-                    with _timer(name='verify', text="{name}: {seconds:.1f} seconds"):
+                    with _timer('verify', timing_raw):
                         scores = self.reward_fn.verify(batch)
                         metrics['acc'] = statistics.mean(scores)
 
@@ -416,7 +416,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     with _timer('adv', timing_raw):
 
                         if self.use_rm:
-                            update_style = self.config.reward_model.model.update
+                            update_style = self.config.reward_model.model.get('update', 'none')
                             if update_style == 'none':  # only run forward
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                             elif update_style == 'after':  # update and directly return the reward
@@ -497,6 +497,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         reorder_index = torch.argsort(filter_mask, descending=True)
         reorder_index = (reorder_index.unsqueeze(-1) * n_samples + torch.arange(0, n_samples + 1).unsqueeze(0)).view(-1)
-        batch = batch.reorder(reorder_index[:int(len(batch) // self.config.data.oversample_factor)])
+        batch.reorder(reorder_index[:int(len(batch) //
+                                         self.config.data.oversample_factor)])  # this operation is inplace
 
         return batch

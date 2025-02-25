@@ -159,12 +159,13 @@ class PRIMERewardModelWorker(Worker):
 
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config.wrap_policy)
 
-        log_gpu_memory_usage('Before critic FSDP', logger=None)
+        log_gpu_memory_usage('Before reward model FSDP', logger=None)
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
+        ref_module = copy.deepcopy(reward_module)
+
         reward_module = FSDP(reward_module,
                              param_init_fn=init_fn,
                              use_orig_params=False,
@@ -179,15 +180,25 @@ class PRIMERewardModelWorker(Worker):
 
         log_gpu_memory_usage('After reward FSDP', logger=None)
 
-        ref_module = copy.deepcopy(reward_module)
+        ref_module = FSDP(ref_module,
+                          param_init_fn=init_fn,
+                          use_orig_params=False,
+                          auto_wrap_policy=auto_wrap_policy,
+                          device_id=torch.cuda.current_device(),
+                          sharding_strategy=sharding_strategy,
+                          mixed_precision=mixed_precision,
+                          sync_module_states=True,
+                          forward_prefetch=False,
+                          device_mesh=self.device_mesh,
+                          cpu_offload=None)
 
         reward_optimizer = optim.AdamW(reward_module.parameters(),
-                                       lr=config.optim.lr,
-                                       betas=config.optim.get('betas', (0.9, 0.999)),
-                                       weight_decay=config.optim.get('weight_decay', 1e-2))
+                                       lr=config.model.optim.lr,
+                                       betas=config.model.optim.get('betas', (0.9, 0.999)),
+                                       weight_decay=config.model.optim.get('weight_decay', 1e-2))
 
-        total_steps = config.optim.get('total_training_steps', 0)
-        num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
+        total_steps = config.model.optim.get('total_training_steps', 0)
+        num_warmup_steps_ratio = config.model.optim.get('lr_warmup_steps_ratio', 0.)
         num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
@@ -272,13 +283,7 @@ class PRIMERewardModelWorker(Worker):
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
 
-            with Timer(name='update_rm', logger=None) as timer:
-                rm_scores, metrics = self.rm.update_rm(data=data)
-            delta_time = timer.last
-
-            global_num_tokens = data.meta_info['global_token_num']
-            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/reward'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            rm_scores, metrics = self.rm.update_rm(data=data)
 
             self.reward_lr_scheduler.step()
             lr = self.reward_lr_scheduler.get_last_lr()[0]

@@ -186,12 +186,12 @@ class DataParallelPRIMERewardModel:
         return token_level_score, q
 
     def _optimizer_step(self):
-        assert self.config.grad_clip is not None
+        assert self.config.model.optim.grad_clip is not None
 
         if isinstance(self.reward_module, FSDP):
-            grad_norm = self.reward_module.clip_grad_norm_(self.config.grad_clip)
+            grad_norm = self.reward_module.clip_grad_norm_(self.config.model.optim.grad_clip)
         else:
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.reward_module.parameters(), max_norm=self.config.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.reward_module.parameters(), max_norm=self.config.model.optim.grad_clip)
         self.reward_optimizer.step()
         return grad_norm
 
@@ -205,10 +205,10 @@ class DataParallelPRIMERewardModel:
         self.reward_module.eval()
         self.ref_module.eval()
         micro_batch_size = data.meta_info['micro_batch_size']
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'acc']
         batch = data.select(batch_keys=select_keys).batch
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
-        prompt_length = data.batch['prompt_ids'].shape[-1]
+        prompt_length = data.batch['input_ids'].shape[-1] - data.batch['responses'].shape[-1]
 
         if use_dynamic_bsz:
             # split using dynamic bsz
@@ -241,11 +241,11 @@ class DataParallelPRIMERewardModel:
 
         beta = self.config.model.get('beta_train', 0.05)
 
-        select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
+        select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'acc', 'prompts']
         batch = data.select(batch_keys=select_keys).batch
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.ppo_mini_batch_size)
+        dataloader = batch.split(self.config.mini_batch_size)
 
         rm_scores_lst = []
 
@@ -256,32 +256,26 @@ class DataParallelPRIMERewardModel:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
             else:
-                micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-                self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                micro_batches = mini_batch.split(self.config.micro_batch_size_per_gpu)
+                self.gradient_accumulation = self.config.mini_batch_size // self.config.micro_batch_size_per_gpu
 
             self.reward_optimizer.zero_grad()
 
             for data in micro_batches:
                 data = data.cuda()
-                input_ids = data['input_ids']
-                responses = data['responses']
                 attention_mask = data['attention_mask']
-                position_ids = data['position_ids']
-                values = data['values']
-                returns = data['returns']
-                response_length = responses.size(1)
                 acc = data['acc']
 
-                prompt_ids = data.batch['prompts']
+                prompt_ids = data['prompts']
                 prompt_length = prompt_ids.shape[-1]
 
                 eos_mask = attention_mask[:, prompt_length:]
 
-                rm_score, q = self._forward_micro_batch(data, response_length)
+                rm_score, q = self._forward_micro_batch(data, prompt_length)
 
                 rm_scores_lst.append(rm_score)
 
-                if self.config.loss_type == 'ce':
+                if self.config.model.loss_type == 'ce':
                     dpo_loss = compute_ce_dpo_loss_rm(q, acc, eos_mask=eos_mask, beta=beta)
                 else:
                     raise NotImplementedError
@@ -297,8 +291,6 @@ class DataParallelPRIMERewardModel:
                 loss.backward()
 
                 append_to_dict(metrics, data)
-
-                loss.backward()
 
             grad_norm = self._optimizer_step()
             data = {'reward_model/grad_norm': grad_norm.detach().item()}
