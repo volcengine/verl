@@ -16,7 +16,7 @@ An naive implementation of split placment example
 """
 from pprint import pprint
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics
+from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics, AdvantageEstimator
 from copy import deepcopy
 import numpy as np
 import torch
@@ -69,7 +69,7 @@ def fit(self):
                 with _timer('gen', timing_raw):
                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
-                if self.config.algorithm.adv_estimator == 'remax':
+                if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     with _timer('gen_max', timing_raw):
                         gen_baseline_batch = deepcopy(gen_batch)
                         gen_baseline_batch.meta_info['do_sample'] = False
