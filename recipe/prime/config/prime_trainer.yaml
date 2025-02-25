@@ -65,3 +65,4 @@ trainer:
   project_name: prime
   experiment_name: examples
   val_before_train: False
+  balance_batch: False

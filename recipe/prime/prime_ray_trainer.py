@@ -19,31 +19,21 @@ This trainer supports model-agonistic model initialization with huggingface
 import os
 import statistics
 import uuid
-from contextlib import contextmanager
-from dataclasses import dataclass, field
-from enum import Enum
-from pprint import pprint
-from typing import Type, Dict
 from copy import deepcopy
+from pprint import pprint
 
 import numpy as np
-from codetiming import Timer
+import torch
 from omegaconf import OmegaConf, open_dict
+
 from verl import DataProto
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.base import Worker
-from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
-from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo import core_algos
-from . import prime_core_algos
-from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.single_controller.ray import RayWorkerGroup
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _compute_response_info, \
+    _timer
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, apply_kl_penalty, reduce_metrics, _compute_response_info, _timer
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-
-import torch
-from verl.utils.torch_functional import masked_mean
+from . import prime_core_algos
 
 
 def compute_advantage(data: DataProto, adv_estimator, config):
@@ -430,15 +420,18 @@ class RayPRIMETrainer(RayPPOTrainer):
                         if self.use_rm:
                             update_style = self.config.reward_model.model.update
                             if update_style == 'none':  # only run forward
-                                reward_tensor = self.rm_wg.compute_rm_score(batch)
+                                reward_output = self.rm_wg.compute_rm_score(batch)
                             elif update_style == 'after':  # update and directly return the reward
-                                reward_tensor = self.rm_wg.update_rm(batch)
+                                reward_output = self.rm_wg.update_rm(batch)
                             elif update_style == 'before':  # update reward model, and then run forward
-                                reward_tensor = self.rm_wg.update_rm(batch)
-                                reward_tensor = self.rm_wg.compute_rm_score(batch)
+                                reward_output = self.rm_wg.update_rm(batch)
+                                reward_output = self.rm_wg.compute_rm_score(batch)
                             else:
                                 raise NotImplementedError
-                            batch = batch.union(reward_tensor)
+                            batch = batch.union(reward_output)
+                            if 'metrics' in reward_output.meta_info['metrics']:
+                                reward_output_metrics = reduce_metrics(reward_output.meta_info['metrics'])
+                                metrics.update(reward_output_metrics)
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,

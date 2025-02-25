@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import copy
 import logging
 import os
 import warnings
@@ -37,7 +37,7 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from codetiming import Timer
-from verl.workers.fsdp_workers import create_device_mesh
+from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -74,17 +74,14 @@ class PRIMERewardModelWorker(Worker):
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
-        self.config.ppo_mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
-        if self.config.ppo_micro_batch_size is not None:
-            self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() //
+        self.config.mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
+        if self.config.micro_batch_size is not None:
+            self.config.micro_batch_size //= (torch.distributed.get_world_size() //
                                                   self.ulysses_sequence_parallel_size)
-            self.config.forward_micro_batch_size //= (torch.distributed.get_world_size() //
-                                                      self.ulysses_sequence_parallel_size)
-            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
-            self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
-            assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
+            assert self.config.mini_batch_size % self.config.micro_batch_size_per_gpu == 0
 
-    def _build_critic_model_optimizer(self, config):
+    def _build_reward_ref_model_optimizer(self, config):
         # the following line is necessary
         from verl.utils.model import LambdaLayer, print_model_size, squeeze
         from verl.utils.torch_dtypes import PrecisionType
@@ -92,8 +89,6 @@ class PRIMERewardModelWorker(Worker):
         from torch import optim
 
         local_path = copy_local_path_from_hdfs(config.model.path)
-        # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
-        # using random initialized model from any architecture. May not be the same as Actor.
 
         tokenizer_path = copy_local_path_from_hdfs(config.model.tokenizer_path)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
@@ -107,47 +102,47 @@ class PRIMERewardModelWorker(Worker):
         }
         override_config_kwargs.update(override_config)
         if self.rank == 0:
-            print(f'Critic overriding config {override_config_kwargs}')
+            print(f'Reward model overriding config {override_config_kwargs}')
 
         torch_dtype = self.config.model.fsdp_config.get('model_dtype', 'fp32')
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        from transformers import AutoConfig, AutoModelForTokenClassification
+        from transformers import AutoConfig, AutoModelForCausalLM
         from torch import nn
 
         trust_remote_code = False
-        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
-        critic_model_config.num_labels = 1
+        reward_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        reward_model_config.num_labels = 1
 
         use_remove_padding = config.model.get('use_remove_padding', False)
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(critic_model_config.model_type)
+            check_model_support_rmpad(reward_model_config.model_type)
 
         if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
             from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(critic_model_config, verbose=True)
+            apply_monkey_patch(reward_model_config, verbose=True)
 
         init_context = get_init_weight_context_manager()
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            setattr(critic_model_config, 'classifier_dropout', 0.)
-            setattr(critic_model_config, 'hidden_dropout', '0')
-            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+            setattr(reward_model_config, 'classifier_dropout', 0.)
+            setattr(reward_model_config, 'hidden_dropout', '0')
+            reward_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             torch_dtype=torch_dtype,
-                                                                            config=critic_model_config,
+                                                                            config=reward_model_config,
                                                                             attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
-            critic_module.to(torch_dtype)
+            reward_module.to(torch_dtype)
 
             if config.model.get('enable_gradient_checkpointing', False):
-                critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+                reward_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         if self.rank == 0:
-            print_model_size(critic_module)
+            print_model_size(reward_module)
 
-        self.critic_model_config = critic_model_config
+        self.reward_model_config = reward_model_config
 
         fsdp_config = self.config.model.fsdp_config
         mixed_precision_config = fsdp_config.get('mixed_precision', None)
@@ -162,7 +157,7 @@ class PRIMERewardModelWorker(Worker):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=critic_module, config=self.config.model.fsdp_config.wrap_policy)
+        auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config.wrap_policy)
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
 
@@ -170,7 +165,7 @@ class PRIMERewardModelWorker(Worker):
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
-        critic_module = FSDP(critic_module,
+        reward_module = FSDP(reward_module,
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
@@ -182,9 +177,11 @@ class PRIMERewardModelWorker(Worker):
                              device_mesh=self.device_mesh,
                              cpu_offload=None)
 
-        log_gpu_memory_usage('After critic FSDP', logger=None)
+        log_gpu_memory_usage('After reward FSDP', logger=None)
 
-        critic_optimizer = optim.AdamW(critic_module.parameters(),
+        ref_module = copy.deepcopy(reward_module)
+
+        reward_optimizer = optim.AdamW(reward_module.parameters(),
                                        lr=config.optim.lr,
                                        betas=config.optim.get('betas', (0.9, 0.999)),
                                        weight_decay=config.optim.get('weight_decay', 1e-2))
@@ -196,90 +193,94 @@ class PRIMERewardModelWorker(Worker):
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup
-        critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer,
+        reward_lr_scheduler = get_constant_schedule_with_warmup(optimizer=reward_optimizer,
                                                                 num_warmup_steps=num_warmup_steps)
 
-        return critic_module, critic_optimizer, critic_lr_scheduler
+        return reward_module, ref_module, reward_optimizer, reward_lr_scheduler
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
 
-        from verl.workers.critic import DataParallelPPOCritic
-        self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
-            self.config)
+        from .prime_dp_rm import DataParallelPRIMERewardModel
+        self.reward_module, self.ref_module, self.reward_optimizer, self.reward_lr_scheduler= self._build_reward_ref_model_optimizer(config=self.config)
 
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.reward_module)
+            offload_fsdp_model_to_cpu(self.ref_module)
         if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
+            offload_fsdp_optimizer(optimizer=self.reward_optimizer)
 
-        self.critic = DataParallelPPOCritic(config=self.config,
-                                            critic_module=self.critic_module,
-                                            critic_optimizer=self.critic_optimizer)
+        self.rm = DataParallelPRIMERewardModel(config=self.config,
+                                            reward_module=self.reward_module,
+                                            ref_module = self.ref_module,
+                                            reward_optimizer=self.reward_optimizer)
 
-        self.flops_counter = FlopsCounter(self.critic_model_config)
-        self.checkpoint_manager = FSDPCheckpointManager(model=self.critic_module,
-                                                        optimizer=self.critic_optimizer,
-                                                        lr_scheduler=self.critic_lr_scheduler,
+        self.flops_counter = FlopsCounter(self.reward_model_config)
+        self.checkpoint_manager = FSDPCheckpointManager(model=self.reward_module,
+                                                        optimizer=self.reward_optimizer,
+                                                        lr_scheduler=self.reward_lr_scheduler,
                                                         tokenizer=self.tokenizer)
 
         torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_values(self, data: DataProto):
+    def compute_rm_score(self, data: DataProto):
         data = data.to('cuda')
 
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
-        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
+            load_fsdp_model_to_gpu(self.reward_module)
+            load_fsdp_model_to_gpu(self.ref_module)
+        micro_batch_size = self.config.micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['max_token_len'] = self.config.forward_max_token_len_per_gpu
         data.meta_info['use_dynamic_bsz'] = self.config.use_dynamic_bsz
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            values = self.critic.compute_values(data=data)
-            output = DataProto.from_dict(tensors={'values': values})
+            rm_scores = self.rm.compute_rm_score(data=data)
+            output = DataProto.from_dict(tensors={'rm_scores': rm_scores})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         output = output.to('cpu')
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.reward_module)
+            offload_fsdp_model_to_cpu(self.ref_module)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def update_critic(self, data: DataProto):
+    def update_rm(self, data: DataProto):
         data = data.to('cuda')
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
+            load_fsdp_model_to_gpu(self.ref_module)
+            load_fsdp_model_to_gpu(self.reward_module)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.cuda.current_device())
+            load_fsdp_optimizer(optimizer=self.reward_optimizer, device_id=torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
 
-            with Timer(name='update_critic', logger=None) as timer:
-                metrics = self.critic.update_critic(data=data)
+            with Timer(name='update_rm', logger=None) as timer:
+                rm_scores, metrics = self.rm.update_rm(data=data)
             delta_time = timer.last
 
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            metrics['mfu/reward'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
-            self.critic_lr_scheduler.step()
-            lr = self.critic_lr_scheduler.get_last_lr()[0]
-            metrics['critic/lr'] = lr
+            self.reward_lr_scheduler.step()
+            lr = self.reward_lr_scheduler.get_last_lr()[0]
+            metrics['rm/lr'] = lr
 
-            output = DataProto(batch=None, meta_info={'metrics': metrics})
+            output = DataProto.from_dict(tensors={'rm_scores':rm_scores}, meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.reward_module)
+            offload_fsdp_model_to_cpu(self.ref_module)
         if self._is_offload_optimizer:
-            offload_fsdp_optimizer(optimizer=self.critic_optimizer)
+            offload_fsdp_optimizer(optimizer=self.reward_optimizer)
         torch.cuda.empty_cache()
         output = output.to('cpu')
         return output
@@ -288,7 +289,7 @@ class PRIMERewardModelWorker(Worker):
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
         import torch
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
+            load_fsdp_model_to_gpu(self.reward_module)
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
@@ -297,16 +298,16 @@ class PRIMERewardModelWorker(Worker):
 
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.reward_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, path, del_local_after_load=True):
         import torch
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.critic_module)
+            load_fsdp_model_to_gpu(self.reward_module)
 
         self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
 
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.critic_module)
+            offload_fsdp_model_to_cpu(self.reward_module)
