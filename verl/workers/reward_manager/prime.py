@@ -23,7 +23,7 @@ from verl.utils.reward_score import _default_compute_score
 import traceback
 
 
-async def single_compute_score(evaluation_func, completion, reference, task, executor, timeout=600.):
+async def single_compute_score(evaluation_func, completion, reference, response_length, task, executor, timeout=600.):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
@@ -31,7 +31,7 @@ async def single_compute_score(evaluation_func, completion, reference, task, exe
             asyncio.wait_for(
                 loop.run_in_executor(
                     executor,
-                    partial(evaluation_func, task, completion, reference)  # Ensure synchronous
+                    partial(evaluation_func, task, completion, reference, response_length)  # Ensure synchronous
                 ),
                 timeout=timeout)
         ]
@@ -45,13 +45,13 @@ async def single_compute_score(evaluation_func, completion, reference, task, exe
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(evaluation_func, completions, references, tasks, num_processes=64):
+async def parallel_compute_score_async(evaluation_func, completions, references, response_lengths, tasks, num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all rows
         tasks_async = [
-            single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.)
-            for completion, reference, task in zip(completions, references, tasks)
+            single_compute_score(evaluation_func, completion, reference, response_length, task, executor, timeout=300.)
+            for completion, reference, response_length, task in zip(completions, references, response_lengths, tasks)
         ]
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
@@ -103,6 +103,7 @@ class PrimeRewardManager:
 
         response_ids = data.batch['responses']
         valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
+        valid_response_length_list = valid_response_length.cpu().tolist()
 
         # decode the response_ids
         sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=False)
@@ -119,14 +120,15 @@ class PrimeRewardManager:
                 parallel_compute_score_async(self.compute_score,
                                              sequences_str,
                                              ground_truth,
+                                             valid_response_length_list,
                                              data_sources,
-                                             num_processes=64))
+                                             num_processes=256))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
-            scores = [0. for _ in range(len(sequences_str))]
+            scores = [-1. for _ in range(len(sequences_str))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
-            scores = [0. for _ in range(len(sequences_str))]
+            scores = [-1. for _ in range(len(sequences_str))]
 
         for i in range(len(data)):
             data_source = data_sources[i]

@@ -14,7 +14,7 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def _default_compute_score(data_source, solution_str, ground_truth, response_length, extra_info=None):
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
@@ -32,7 +32,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     else:
         from . import math_general
-        res = math_general.compute_score(solution_str, ground_truth)
+        res = math_general.compute_score(solution_str, ground_truth, response_length)
 
     if isinstance(res, (int, float, bool)):
         return float(res)

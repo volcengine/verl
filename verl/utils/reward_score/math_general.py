@@ -5,6 +5,11 @@ import time
 import re
 from .grader import grade_answer
 from collections import Counter
+import math
+
+import os
+MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", 14000))
+print(f"MAX_RESPONSE_LENGTH for reward: {MAX_RESPONSE_LENGTH}")
 
 url = "https://verifier.yuewu.ml/api"
 headers = {
@@ -56,11 +61,11 @@ def compute_acc_reward(solution_str, ground_truth):
 
     while True:
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=600)
+            response = requests.post(url, headers=headers, json=payload, timeout=300)
             resp_json = response.json()
             retval = resp_json['LaTeXAgreementScore']
             return retval
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             time.sleep(delay)
             delay = min(delay * 2, max_delay)
     
@@ -132,7 +137,7 @@ def strict_xml(text) -> float:
 
     return reward
 
-def compute_repetition_penalty(text, n_gram_size=3):
+def compute_repetition_penalty(text, n_gram_size=5):
 
 
     words = re.findall(r'\w+', text.lower())
@@ -140,7 +145,8 @@ def compute_repetition_penalty(text, n_gram_size=3):
         return 0.
     
     # Generate n-grams
-    n_grams = [" ".join(words[i:i + n_gram_size]) for i in range(len(words) - n_gram_size + 1)]
+    # n_grams = [" ".join(words[i:i + n_gram_size]) for i in range(len(words) - n_gram_size + 1)]
+    n_grams = list(zip(*[words[i:] for i in range(n_gram_size)]))
     
     # Count occurrences of each n-gram
     n_gram_counts = Counter(n_grams)
@@ -151,14 +157,17 @@ def compute_repetition_penalty(text, n_gram_size=3):
     repeated_n_grams = sum(1 for count in n_gram_counts.values() if count > 5)
     repeated_n_gram_ratio = repeated_n_grams / total_n_grams if total_n_grams > 0 else 0.0
 
-    max_repeation = max(n_gram_counts.values())
-    max_repeation_ratio = max_repeation  / (len(words)/n_gram_size)
+    max_repetition = max(n_gram_counts.values())
+    if max_repetition < 5:
+        max_repetition_ratio = 0.
+    else:
+        max_repetition_ratio = max_repetition / (len(words)/n_gram_size)
 
-    repetition_score = max(repeated_n_gram_ratio, max_repeation_ratio)
+    repetition_score = max(repeated_n_gram_ratio, max_repetition_ratio)
 
     return - repetition_score
 
-def compute_score(solution_str, ground_truth):
+def compute_score(solution_str, ground_truth, response_length, max_response_length=MAX_RESPONSE_LENGTH):
     """Reward function that checks if the completion is the same as the ground truth."""
 
     split, ground_truth = ground_truth.split("######")
@@ -166,8 +175,12 @@ def compute_score(solution_str, ground_truth):
     # Remove the prompt from the completion.
     if "<|im_start|>assistant<|im_sep|>" in solution_str:
         solution_str = solution_str.split("<|im_start|>assistant<|im_sep|>")[1]
+    
+    # if there are more than one think tags, return -1 to prevent reward hacking of regex
+    if solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1:
+        return -1.
 
-    strict_format_reward = strict_format_reward_func([solution_str])[0]
+    # strict_format_reward = strict_format_reward_func([solution_str])[0]
     soft_format_reward = soft_format_reward_func([solution_str])[0]
 
     # xml_reward = count_xml(solution_str)
@@ -184,16 +197,44 @@ def compute_score(solution_str, ground_truth):
         return compute_acc_reward(solution_str, ground_truth)
 
     if "</think>" not in solution_str: # If the completion does not contain the think tag, return 0 to encourage the model to use the think tag and prevent reward hacking.
-        return 0.25 * repetition_penalty_score
+        acc_reward = 0.
+    else:
+        min_value_wrong = -1.0
+        max_value_wrong = -0.7
+        # min_value_wrong = max_value_wrong = - 0.5
+        min_value_correct = 0.7
+        max_value_correct = 1.0
 
-    # Remove the think tag from the completion only for training
-    solution_str = solution_str.split("</think>")[-1]
+        # Remove the think tag from the completion only for training
+        solution_str = solution_str.split("</think>")[-1]
 
-    acc_reward = compute_acc_reward(solution_str, ground_truth)
+        acc_reward = compute_acc_reward(solution_str, ground_truth)
 
-    weights = [2, 0.5, 0.5, 0.25, 0.25]
+        if acc_reward>0.5:
+            # If the completion is CORRECT, use the correct min/max values.
+            min_value = min_value_correct
+            max_value = max_value_correct
+            min_response_length = 8192
+            progress = min(1, max(max_response_length - response_length, 0) / (max_response_length - min_response_length))
+        else:
+            # Swap min/max for incorrect answers
+            min_value = max_value_wrong
+            max_value = min_value_wrong
+            min_response_length = 1024
+            progress = min(1, max(max_response_length - response_length - min_response_length, 0) / (max_response_length - min_response_length))
+        # Apply cosine scaling based on length
 
-    return sum([r*w for r, w in zip([acc_reward, strict_format_reward, soft_format_reward, xml_reward, repetition_penalty_score], weights)]) / sum(weights)
+        # cosine reward
+        # cosine = math.cos(progress * math.pi)
+        # acc_reward = min_value + 0.5 * (max_value - min_value) * (1.0 + cosine)
+        
+        # linear reward
+        acc_reward = min_value + progress * (max_value - min_value)
+
+
+    weights = [2., 0.25, 0.5, 0.25]
+
+    return sum([r*w for r, w in zip([acc_reward, repetition_penalty_score, soft_format_reward, xml_reward], weights)]) / sum(weights)
 
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
@@ -219,7 +260,7 @@ def is_equiv(str1, str2, verbose=False):
     if str1 is None or str2 is None:
         return False
 
-    is_eq = str1 == str2 or grade_answer(str1, str2)
+    is_eq = str1.lower() == str2.lower() or grade_answer(str1, str2)
     if is_eq:
         return True
 

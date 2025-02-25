@@ -105,6 +105,7 @@ class vLLMRollout(BaseRollout):
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             swap_space=64,
+            # quantization="fp8",
             # cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,
             calculate_kv_scales=(config.kv_cache_dtype == "fp8"),
@@ -118,9 +119,9 @@ class vLLMRollout(BaseRollout):
         kwargs = dict(
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
-            temperature=1.3,
+            temperature=1.,
             max_tokens=config.response_length,
-            repetition_penalty=1.1,
+            # repetition_penalty=1.,
         )
 
         # # we may detokenize the result all together later
