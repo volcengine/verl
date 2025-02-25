@@ -53,7 +53,7 @@ class Role(Enum):
     RewardModel = 5
     ActorRolloutRef = 6
 
-class AdvantageEstimator(str,Enum):
+class AdvantageEstimator(str, Enum):
     """
     Using an enumeration class to avoid spelling errors in adv_estimator
     """
