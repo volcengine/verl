@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Union
 
 import torch
+import torch.distributed
 import tensordict
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, Dataset
@@ -596,6 +597,33 @@ class DataProto:
             non_tensor_batch=repeated_non_tensor_batch,
             meta_info=self.meta_info,
         )
+
+    def broadcast(self, src, group=None):
+        for key in self.batch.sorted_keys:
+            torch.distributed.broadcast(self.batch[key], src=src, group=group, async_op=False)
+
+        object_list = [self.non_tensor_batch]
+        torch.distributed.broadcast_object_list(object_list, src=src, group=group)
+        self.non_tensor_batch = object_list[0]
+
+    def all_gather(self, group=None):
+        world_size = torch.distributed.get_world_size(group)
+        output = {}
+        for key in self.batch.sorted_keys:
+            value = self.batch[key].contiguous()
+            output[key] = [torch.empty_like(value) for _ in range(world_size)]
+            torch.distributed.all_gather(output[key], value, group=group, async_op=False)
+            output[key] = torch.cat(output[key], dim=0)
+
+        self.batch = TensorDict(output, batch_size=self.batch.batch_size[0] * world_size)
+
+        # all gather non_tensor_batch
+        all_non_tensor_batch = [None for _ in range(world_size)]
+        torch.distributed.all_gather_object(all_non_tensor_batch, self.non_tensor_batch, group=group)
+        self.non_tensor_batch = {
+            key: np.concatenate([batch[key] for batch in all_non_tensor_batch]) for key in self.non_tensor_batch
+        }
+        self.check_consistency()
 
 
 import ray

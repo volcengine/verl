@@ -60,19 +60,9 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
         In Ulysses, we need to make sure the same data is used across a SP group
         """
         if self.device_mesh is not None:
-            sp_size = self.device_mesh['sp'].size()
             group = self.device_mesh['sp'].get_group()
-
-            prev_device = data.batch.device
-            data.batch = data.batch.cuda(device=torch.cuda.current_device())
-            data.batch = allgather_dict_tensors(data.batch.contiguous(), size=sp_size, group=group, dim=0)
-            data.batch = data.batch.to(prev_device)
-            # all gather non_tensor_batch
-            all_non_tensor_batch = [None for _ in range(sp_size)]
-            torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
-            data.non_tensor_batch = {
-                k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch
-            }
+            data = data.to("cuda")
+            data.all_gather(group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
