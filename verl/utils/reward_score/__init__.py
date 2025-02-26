@@ -15,6 +15,11 @@
 
 
 def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+    """Default reward computation function.
+    
+    Returns:
+        Union[float, Dict[str, Any]]: Either a float score or a dictionary with 'score' and optional 'extra_info'
+    """
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
@@ -35,5 +40,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
 
     if isinstance(res, (int, float, bool)):
         return float(res)
+    elif isinstance(res, dict):
+        return res
     else:
         return float(res[0])
