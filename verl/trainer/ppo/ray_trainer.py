@@ -54,6 +54,17 @@ class Role(Enum):
     ActorRolloutRef = 6
 
 
+class AdvantageEstimator(str, Enum):
+    """
+    Using an enumeration class to avoid spelling errors in adv_estimator
+    """
+    GAE = 'gae'
+    GRPO = 'grpo'
+    REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
+    REMAX = 'remax'
+    RLOO = 'rloo'
+
+
 @dataclass
 class ResourcePoolManager:
     """
@@ -119,7 +130,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     # prepare response group
     # TODO: add other ways to estimate advantages
-    if adv_estimator == 'gae':
+    if adv_estimator == AdvantageEstimator.GAE:
         values = data.batch['values']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -133,7 +144,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                       lam=lam)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'grpo':
+    elif adv_estimator == AdvantageEstimator.GRPO:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -145,7 +156,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                         index=index)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'reinforce_plus_plus':
+    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         token_level_rewards = data.batch['token_level_rewards']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -155,7 +166,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'remax':
+    elif adv_estimator == AdvantageEstimator.REMAX:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -169,6 +180,18 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                          reward_baselines=reward_baselines,
                                                                          eos_mask=response_mask)
 
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = returns
+    elif adv_estimator == AdvantageEstimator.RLOO:
+        token_level_rewards = data.batch['token_level_rewards']
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        advantages, returns = core_algos.compute_rloo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                        eos_mask=response_mask,
+                                                                        index=index)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     else:
@@ -366,13 +389,12 @@ class RayPPOTrainer(object):
         else:
             self.kl_ctrl = core_algos.FixedKLController(kl_coef=0.)
 
-        if self.config.algorithm.adv_estimator == 'gae':
+        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator == 'grpo':
-            self.use_critic = False
-        elif self.config.algorithm.adv_estimator == 'reinforce_plus_plus':
-            self.use_critic = False
-        elif self.config.algorithm.adv_estimator == 'remax':
+        elif self.config.algorithm.adv_estimator in [
+                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+                AdvantageEstimator.RLOO
+        ]:
             self.use_critic = False
         else:
             raise NotImplementedError
@@ -457,6 +479,11 @@ class RayPPOTrainer(object):
                 assert config.critic.model.use_remove_padding, \
                     "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
+        if config.data.get('val_batch_size', None) is not None:
+            print(
+                f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+            )
+
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
@@ -490,11 +517,14 @@ class RayPPOTrainer(object):
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
-        self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=len(self.val_dataset),
-                                         shuffle=True,
-                                         drop_last=True,
-                                         collate_fn=collate_fn)
+        self.val_dataloader = DataLoader(
+            dataset=self.val_dataset,
+            # Validation datasets are sent to inference engines as a whole batch,
+            # which will schedule the memory themselves.
+            batch_size=len(self.val_dataset),
+            shuffle=True,
+            drop_last=False,
+            collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
         assert len(self.val_dataloader) >= 1
@@ -853,7 +883,7 @@ class RayPPOTrainer(object):
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
-                    if self.config.algorithm.adv_estimator == 'remax':
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info['do_sample'] = False
