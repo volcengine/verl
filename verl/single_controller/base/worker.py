@@ -55,7 +55,7 @@ class WorkerHelper:
 
     def _get_free_port(self):
         with socket.socket() as sock:
-            sock.bind(('', 0))
+            sock.bind((self._get_node_ip(), 0))
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
