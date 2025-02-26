@@ -112,7 +112,6 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     if wrap_with_ddp:
         ddp_models = []
         for model_chunk_idx, model_chunk in enumerate(model):
-            # __import__("ipdb").set_trace()
             ddp_model = DDP(config=tfconfig,
                             module=model_chunk,
                             disable_bucketing=(model_chunk_idx > 0),
@@ -155,7 +154,7 @@ from transformers import PretrainedConfig
 
 def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
     print(f'megatron config {megatron_config}')
-    dt = torch.bfloat16
+    dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -209,7 +208,7 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
 
 def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
     # TODO(sgm): check how to disable megatron timers
-    timers = FakeTimers()
+    timers = None
     return ModelParallelConfig(tensor_model_parallel_size=config.get('tensor_model_parallel_size'),
                                pipeline_model_parallel_size=config.get('pipeline_model_parallel_size'),
                                virtual_pipeline_model_parallel_size=config.get('virtual_pipeline_model_parallel_size'),
@@ -219,17 +218,6 @@ def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
                                bf16=True,
                                fp16=False,
                                timers=timers)
-
-
-class FakeTimers:
-    """Disable All Megatron Timing with FakeTimers"""
-
-    def __init__(self):
-        from megatron.core.timers import DummyTimer
-        self.dummy_timer = DummyTimer()
-
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return self.dummy_timer
 
 
 def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
