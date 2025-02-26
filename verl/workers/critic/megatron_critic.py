@@ -187,9 +187,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 data_iterator=batch_generator,
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
-                input_shapes=input_shapes,  # must set for flash-attn sequence packing
                 seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # no use when input_shapes was set
-                hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
@@ -200,7 +198,6 @@ class MegatronPPOCritic(BasePPOCritic):
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
                 seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # in use for pp = 1
-                hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
             )
