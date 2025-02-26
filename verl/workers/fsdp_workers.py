@@ -38,7 +38,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.device import get_device_name, is_cuda_available
+from verl.utils.device import get_device_name, is_npu_available
 
 from codetiming import Timer
 
@@ -83,7 +83,7 @@ class ActorRolloutRefWorker(Worker):
         self.config = config
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
+            torch.distributed.init_process_group(backend="hccl" if is_npu_available else "nccl")
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -201,7 +201,7 @@ class ActorRolloutRefWorker(Worker):
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=actor_model_config,
-                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                attn_implementation='sdpa' if is_npu_available else 'flash_attention_2',
                 trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
@@ -254,7 +254,7 @@ class ActorRolloutRefWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
+            device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
             sync_module_states=True,
@@ -401,7 +401,7 @@ class ActorRolloutRefWorker(Worker):
                                                             lr_scheduler=self.actor_lr_scheduler,
                                                             tokenizer=self.tokenizer)
 
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
@@ -413,7 +413,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(
                 optimizer=self.actor_optimizer,
-                device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device())
+                device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
 
         data.batch = data.batch.to(DEVICE)
 
@@ -445,7 +445,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -486,7 +486,7 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -520,7 +520,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
         # clear kv cache
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -548,7 +548,7 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -585,7 +585,7 @@ class CriticWorker(Worker):
         super().__init__()
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
+            torch.distributed.init_process_group(backend="hccl" if is_npu_available else "nccl")
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -673,7 +673,7 @@ class CriticWorker(Worker):
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=critic_model_config,
-                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                attn_implementation='sdpa' if is_npu_available else 'flash_attention_2',
                 trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
@@ -711,7 +711,7 @@ class CriticWorker(Worker):
                              param_init_fn=init_fn,
                              use_orig_params=False,
                              auto_wrap_policy=auto_wrap_policy,
-                             device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
+                             device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device(),
                              sharding_strategy=sharding_strategy,
                              mixed_precision=mixed_precision,
                              sync_module_states=True,
@@ -762,7 +762,7 @@ class CriticWorker(Worker):
                                                         lr_scheduler=self.critic_lr_scheduler,
                                                         tokenizer=self.tokenizer)
 
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -794,7 +794,7 @@ class CriticWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(
                 optimizer=self.critic_optimizer,
-                device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device())
+                device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -819,7 +819,7 @@ class CriticWorker(Worker):
             offload_fsdp_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         output = output.to('cpu')
         return output
 
@@ -861,7 +861,7 @@ class RewardModelWorker(Worker):
         super().__init__()
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl" if is_cuda_available else "hccl")
+            torch.distributed.init_process_group(backend="hccl" if is_npu_available else "nccl")
         self.config = config
 
         # build device mesh for Ulysses Sequence Parallel
@@ -928,7 +928,7 @@ class RewardModelWorker(Worker):
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                attn_implementation='sdpa' if is_npu_available else 'flash_attention_2',
                 trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
@@ -941,7 +941,7 @@ class RewardModelWorker(Worker):
             param_init_fn=init_fn,
             use_orig_params=False,
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device() if is_cuda_available else torch.npu.current_device(),
+            device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             sync_module_states=True,
             cpu_offload=CPUOffload(offload_params=True),
@@ -955,7 +955,7 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from verl.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1126,5 +1126,5 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.cuda.empty_cache() if is_cuda_available else torch.npu.empty_cache()
+        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         return output

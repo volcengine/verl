@@ -22,7 +22,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy, Nod
 from ray.experimental.state.api import get_actor
 
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
-from verl.utils.device import is_cuda_available
+from verl.utils.device import is_npu_available
 
 __all__ = ['Worker']
 
@@ -62,14 +62,19 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None):
+    def get_placement_groups(self, strategy="STRICT_PACK", device_name=None, name=None):
         if self.pgs is not None:
             return self.pgs
 
         pg_name_prefix = name if name else \
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
-        device_name = "GPU" if is_cuda_available else "NPU"
+        if device_name == "npu":
+            device_name = "NPU"
+        elif device_name == "cuda":
+            device_name = "GPU"
+        else:
+            raise RuntimeError("device is not support")
         pg_scheme = [[{
             "CPU": self.max_collocate_count,
             device_name: 1
@@ -146,7 +151,8 @@ class RayClassWithInitArgs(ClassWithInitArgs):
                  placement_group_bundle_idx,
                  use_gpu: bool = True,
                  num_gpus=1,
-                 sharing_with=None) -> Any:
+                 sharing_with=None,
+                 device_name=None) -> Any:
         if sharing_with is not None:
             target_node_id = ray.get(sharing_with.get_node_id.remote())
             cuda_visible_devices = ray.get(sharing_with.get_cuda_visible_devices.remote())
@@ -162,9 +168,9 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         }
         options.update(self._options)
 
-        if use_gpu and is_cuda_available:
+        if use_gpu and device_name == "cuda":
             options["num_gpus"] = num_gpus
-        if use_gpu and not is_cuda_available:
+        if use_gpu and device_name == "npu":
             options["resources"] = {"NPU": num_gpus}
 
         if len(self._additional_resource) > 1:
@@ -186,10 +192,12 @@ class RayWorkerGroup(WorkerGroup):
                  name_prefix: str = None,
                  detached=False,
                  worker_names=None,
+                 device_name=None,
                  **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
+        self.device_name = device_name
 
         if worker_names is not None:
             assert self._is_init_with_detached_workers
@@ -221,7 +229,7 @@ class RayWorkerGroup(WorkerGroup):
         strategy = "PACK"
         if bin_pack:
             strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy)
+        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
         world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
@@ -263,7 +271,8 @@ class RayWorkerGroup(WorkerGroup):
                 worker = ray_cls_with_init(placement_group=pg,
                                            placement_group_bundle_idx=local_rank,
                                            use_gpu=use_gpu,
-                                           num_gpus=num_gpus)
+                                           num_gpus=num_gpus,
+                                           device_name=self.device_name)
                 self._workers.append(worker)
                 self._worker_names.append(name)
 
@@ -337,8 +346,8 @@ class RayWorkerGroup(WorkerGroup):
         return ray.get(self.execute_all_async(method_name, *args, **kwargs))
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
-        # 这里我们假设，如果 args 和 kwargs 里面所有的参数都是 list，且所有的 list 长度都与 len(self._workers) 一致的话，我们会把
-        # list 中的每一个分别发到对应的 worker 上去
+        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers),
+        # we'll distribute each element in these lists to the corresponding worker
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
