@@ -11,7 +11,9 @@ data:
 
 model:
   path: ~/models/Qwen2-7B-Instruct
+  fsdp_model_path: null
   external_lib: null
+
 rollout:
   name: vllm
   temperature: 1.0
@@ -19,6 +21,7 @@ rollout:
   top_p: 0.7
   prompt_length: 1536
   response_length: 512
+  
   # for vllm rollout
   dtype: bfloat16 # should align with FSDP
   gpu_memory_utilization: 0.5
@@ -31,11 +34,13 @@ rollout:
   max_num_seqs: 1024
   log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
   log_prob_micro_batch_size_per_gpu: 8
+  
   # for hf rollout
   do_sample: True
   disable_log_stats: True
   enable_chunked_prefill: True
   n: 1
+
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ppo_mini_batch_size: 256
