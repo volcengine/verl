@@ -32,7 +32,7 @@ jobs:
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
       image: chendong136/verlnpu:ubuntu20.04-py310-cann8.0.0.beta1-ray2.42-torch-npu2.5.1rc1
-      options: -v /usr/local/Ascend/driver:/usr/local/Ascend/driver --previleged --shm-size=10g
+      options: -v /usr/local/Ascend/driver:/usr/local/Ascend/driver --privileged --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
