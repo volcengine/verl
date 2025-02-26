@@ -14,25 +14,16 @@
 """
 Generate responses given a dataset of prompts
 """
-import ray
-import numpy as np
-import hydra
 import os
-
-os.environ['NCCL_DEBUG'] = 'WARN'
-os.environ['TOKENIZERS_PARALLELISM'] = 'true'
-# os.environ['TORCH_COMPILE_DISABLE'] = '1'
-
-from verl.utils.model import compute_position_id_with_mask
-
+import ray
+import hydra
+import numpy as np
 import pandas as pd
-
-from transformers import AutoTokenizer
-
 from verl import DataProto
-from verl.utils.fs import copy_local_path_from_hdfs
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.hdfs_io import makedirs
+from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.model import compute_position_id_with_mask
+from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
