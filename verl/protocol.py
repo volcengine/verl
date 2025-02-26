@@ -431,6 +431,7 @@ class DataProto:
     def union(self, other: 'DataProto') -> 'DataProto':
         """Union with another DataProto. Union batch and meta_info separately.
         Throw an error if
+
         - there are conflict keys in batch and they are not equal
         - the batch size of two data batch is not the same
         - there are conflict keys in meta_info and they are not the same.
