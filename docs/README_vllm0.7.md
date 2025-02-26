@@ -1,8 +1,8 @@
-# Readme for verl(vllm>=0.7) version
+# Upgrading to vllm >= 0.7
 
 ## Installation
 
-Note: This version of veRL supports **FSDP** for training and **vLLM** for rollout. (Megatron-LM is not supported yet.)
+Note: This version of veRL+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
 
 ```
 # Create the conda environment
