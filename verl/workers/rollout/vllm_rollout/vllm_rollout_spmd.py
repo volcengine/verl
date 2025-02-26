@@ -232,3 +232,7 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)
+
+    @torch.no_grad()
+    def chat(self, prompts: DataProto, **kwargs) -> DataProto:
+        pass

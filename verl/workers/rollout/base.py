@@ -35,3 +35,8 @@ class BaseRollout(ABC):
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
         pass
+
+    @abstractmethod
+    def chat(self, prompts: DataProto, tools=None) -> DataProto:
+        """Generate sequences"""
+        pass
