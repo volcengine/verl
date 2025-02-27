@@ -128,31 +128,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group(),
-                                                dim=0)
-            # all gather non_tensor_batch
             size = vllm_ps.get_tensor_model_parallel_world_size()
             group = vllm_ps.get_tensor_model_parallel_group()
-            all_non_tensor_batch = [None for _ in range(size)]
-            torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
-            data.non_tensor_batch = {
-                k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch
-            }
+            data.group_communicate(size, group)
         else:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group().device_group,
-                                                dim=0)
-            # all gather non_tensor_batch
             size = vllm_ps.get_tensor_model_parallel_world_size()
             group = vllm_ps.get_tensor_model_parallel_group().device_group
-            all_non_tensor_batch = [None for _ in range(size)]
-            torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
-            data.non_tensor_batch = {
-                k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch
-            }
+            data.group_communicate(size, group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

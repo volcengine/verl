@@ -27,6 +27,7 @@ import torch
 import tensordict
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, Dataset
+from verl.utils.torch_functional import allgather_dict_tensors
 
 from verl.utils.py_functional import union_two_dict
 
@@ -597,6 +598,20 @@ class DataProto:
             meta_info=self.meta_info,
         )
 
+    def group_communicate(self, sp_size, group):
+        """
+        Group communicate the data. This is useful when we want to communicate the data among a group of workers.
+        """
+        prev_device = self.batch.device
+        self.batch = self.batch.cuda(device=torch.cuda.current_device())
+        self.batch = allgather_dict_tensors(self.batch.contiguous(), size=sp_size, group=group, dim=0)
+        self.batch = self.batch.to(prev_device)
+        # all gather non_tensor_batch
+        all_non_tensor_batch = [None for _ in range(sp_size)]
+        torch.distributed.all_gather_object(all_non_tensor_batch, self.non_tensor_batch, group=group)
+        self.non_tensor_batch = {
+            k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in self.non_tensor_batch
+        }
 
 import ray
 
