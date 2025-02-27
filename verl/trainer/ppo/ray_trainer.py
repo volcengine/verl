@@ -244,14 +244,24 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     print(batch.batch['observations_times'])
     
     with open("/workspace/lurui-yun/deep_research/verl/logs/uid.txt", "a") as f:    
+        f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
         f.write(str(batch.non_tensor_batch['uid']) + "\n")
+    
+    from collections import defaultdict
+
+    # Initialize a dictionary to store scores for each unique id
+    uid_scores = defaultdict(list)
+
+    # Iterate over the batch to collect scores for each unique id
+    for uid, score in zip(batch.non_tensor_batch['uid'], sequence_score):
+        uid_scores[uid].append(score.item())
 
     metrics = {
         # score
         'critic/pass@1':
             torch.mean(sequence_score).detach().item(),
         'critic/passrate':
-            torch.mean(sequence_score).detach().item(),
+            sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
         
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),

@@ -194,13 +194,19 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                torch_dtype=torch_dtype,
-                                                                config=actor_model_config,
-                                                                # attn_implementation='flash_attention_2',
-                                                                attn_implementation='eager',
-                                                                # attn_implementation='sdpa',
-                                                                trust_remote_code=trust_remote_code)
+            if "qwen" in local_path.lower():
+                actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                    torch_dtype=torch_dtype,
+                                                                    config=actor_model_config,
+                                                                    attn_implementation='flash_attention_2',
+                                                                    trust_remote_code=trust_remote_code)
+            else:
+                # glm only support eager
+                actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                    torch_dtype=torch_dtype,
+                                                                    config=actor_model_config,
+                                                                    attn_implementation='eager',
+                                                                    trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance

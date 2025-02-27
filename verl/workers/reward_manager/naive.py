@@ -109,10 +109,10 @@ class NaiveRewardManager:
             )
             return i, valid_response_length, score, data_source, sequences_str
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(data)) as executor:
             futures = [executor.submit(compute_score_for_item, i, data[i]) for i in range(len(data))]
-            for future in concurrent.futures.as_completed(futures):
-                i, valid_response_length, score, data_source, sequences_str = future.result()
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+            for i, valid_response_length, score, data_source, sequences_str in results:
                 reward_tensor[i, valid_response_length - 1] = score
 
                 if data_source not in already_print_data_sources:

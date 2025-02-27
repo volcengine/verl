@@ -194,7 +194,7 @@ class vLLMRollout(BaseRollout):
         
         # lurui: feature for multi-turn ai-search
         if self.config.get('multi_turn', False):
-            # 提前把 input_ids 给重复好
+            # repeat input_ids rollout n times 
             if self.config.n > 1 and do_sample:
                 input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
                 # attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
@@ -211,13 +211,14 @@ class vLLMRollout(BaseRollout):
             
             import requests
             from concurrent.futures import ThreadPoolExecutor, as_completed
-
+            
+            # Input: model's function call
+            # Output: observation from env
             def call_observation_api(text: str) -> List[str]:
                 url = "http://172.18.80.255:8888/observation_kilt/"
                 payload = {"content": text}
                 try:
                     api_response = requests.post(url, json=payload)
-                    # return api_response.json()[0]['content']
                     return api_response.json()
                 except Exception as e:
                     print(f"API call failed: {e}")
@@ -249,15 +250,15 @@ class vLLMRollout(BaseRollout):
             for i, resp in enumerate(response):
                 current_length = input_ids[i].size(0)
                 final_sequence[i, :current_length] = input_ids[i]
+                
+                # fix: maybe exceed response_length (special token)
+                if resp.size(0) > self.config.response_length:
+                    resp = resp[:self.config.response_length]
+                
                 final_sequence[i, current_length:current_length+resp.size(0)] = resp
                 final_attention_mask[i, :current_length] = (input_ids[i] != self.pad_token_id).long()
                 final_attention_mask[i, current_length:current_length+resp.size(0)] = 1
                 final_loss_mask[i, current_length:current_length+resp.size(0)] = 1
-
-            # only for glm
-            # observation_id = self.tokenizer.encode("<|observation|>")[-1]
-            # user_id = self.tokenizer.encode("<|user|>")[-1]
-            # assert observation_id == 151338 and user_id == 151336, f"observation_id: {observation_id}, user_id: {user_id}, expected: 151338, 151336"
             
             with open("/workspace/lurui-yun/deep_research/verl/logs/final_sequence_init.json", "w") as f:
                 import json
@@ -266,7 +267,7 @@ class vLLMRollout(BaseRollout):
             for i in range(batch_size):
                 batch_chat[i].append({
                     "role": "user",
-                    "content": self.tokenizer.decode(final_sequence[i], skip_special_tokens=False).replace("<|endoftext|>", "").strip().split("<|assistant|>")[0]
+                    "content": self.tokenizer.decode(final_sequence[i], skip_special_tokens=False).replace("<|endoftext|>", "").strip()
                 })
                 batch_chat[i].append({
                     "role": "assistant",
@@ -285,28 +286,16 @@ class vLLMRollout(BaseRollout):
 
                     stop_token_id = resp_trim[-1]
                     stop_token = self.tokenizer.decode([stop_token_id])
-                    print(f"Response #{check_idx}, stop token: {stop_token_id} - {stop_token}")
                     
-                    # only finish with <|observation|> can be multi-turn
-                    # for glm judge
-                    # if stop_token_id == observation_id:
-                    if stop_token == '<|observation|>':
+                    # print with [] to avoid blank space
+                    print(f"Response #{check_idx}, stop token: [{stop_token_id}] - [{stop_token}]")
+                    
+                    # only finish with <|observation|> token can be multi-turn
+                    if stop_token.strip() == '<|observation|>':
                         text = self.tokenizer.decode(resp_trim, skip_special_tokens=False)
                         text = text.split("<|assistant|>")[-1].split("<|observation|>")[0].strip()
                         decoded_responses.append(text)
                         observation_indices.append(check_idx)
-                    
-                    # for qwen judge
-                    # response_str = self.tokenizer.decode(resp_trim)
-                    # if stop_token == '<|observation|>':
-                    #     # if turn == 0:
-                    #     #     print("Observation response found!")
-                    #     #     print("Response: ", response_str)
-                    #     text = self.tokenizer.decode(resp_trim, skip_special_tokens=False)
-                    #     # for qwen
-                    #     text = text.split("<|assistant|>")[-1].split("<|observation|>")[0].strip()
-                    #     decoded_responses.append(text)
-                    #     observation_indices.append(check_idx)
                 
                 with open("/workspace/lurui-yun/deep_research/verl/logs/decoded_responses.json", "w") as f:
                     import json
@@ -318,8 +307,7 @@ class vLLMRollout(BaseRollout):
 
                 observations = [None] * batch_size
                 
-                # may be heavy parallel, depends on API
-                # with ThreadPoolExecutor(max_workers=10) as executor:
+                # may be heavily parallel, depends on API
                 with ThreadPoolExecutor(max_workers=len(observation_indices)) as executor:
                     future_to_idx = {executor.submit(call_observation_api, text): idx 
                                     for idx, text in zip(observation_indices, decoded_responses)}
@@ -335,7 +323,7 @@ class vLLMRollout(BaseRollout):
                 print(f"len(observation_indices): {len(observation_indices)}")
                 print(f"observation_indices: {observation_indices}")
                 
-                # observation can be None 
+                # observation can not be None 
                 observation_indices = [i for i, obv in enumerate(observations) if obv]
 
                 # sequences with added observations to inference
@@ -360,18 +348,30 @@ class vLLMRollout(BaseRollout):
 
                     assert observations[i] != None, f"observations[{i}] is None"
                     
+                    # for glm
                     obv_combined = [obv['metadata'] + '\n'+ obv['content'] for obv in observations[i]]
                     
-                    # for glm observation context
-                    obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-                    obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, 2:].to(input_ids.device)
+                    model_type_is_qwen = "qwen" in self.config.path
+                    # assert model_type_is_qwen, f"model type must be qwen, path: {self.config.path}"
                     
-                    # for (current) qwen observation context
-                    # connect_obv = '\n<|im_start|>\n' + '<|im_end|>\n<|im_start|>observation\n'.join(obv_combined)
-                    # obs_text = connect_obv + "<|im_end|>\n<|im_start|>assistant\n"
-                    # obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-                    # obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, :].to(input_ids.device)
-                    
+                    if not model_type_is_qwen:
+                        # for glm observation context
+                        # fix: glm do not use \n as the tail, if use \n, it will be forced to stop searching
+                        # obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+                        obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>"
+                        
+                        # remove [gmask]<sop> 2 prefix tokens
+                        obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, 2:].to(input_ids.device)
+                    else:
+                        # for (old) qwen observation
+                        # connect_obv = '\n<|im_start|>\n' + '<|im_end|>\n<|im_start|>observation\n'.join(obv_combined)
+                        # obs_text = connect_obv + "<|im_end|>\n<|im_start|>assistant\n"
+                        
+                        # for (new) qwen observation
+                        obv_combined = ['\n' + obv['metadata'] + '\n'+ obv['content'].strip() for obv in observations[i]]
+                        obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+                        obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, :].to(input_ids.device)
+                        
                     batch_chat[i].append({
                         "role": "observation",
                         "content": obs_text
@@ -384,7 +384,6 @@ class vLLMRollout(BaseRollout):
                     max_length = final_sequence.size(1)
                     if pad_pos + obs_ids.size(1) > max_length:
                         obs_ids = obs_ids[:, :max_length - pad_pos]
-                        # observation_indices.remove(i)
                         exceed_indices.append(i)
                         exceed_length = True
                     
@@ -415,7 +414,6 @@ class vLLMRollout(BaseRollout):
                     break
                 
                 print(f"New rollout at turn {turn} input size: ", [len(curr_seq) for curr_seq in current_sequences])
-                print("New self.sampling_params: ", self.sampling_params)
                 
                 # fix by lurui: for new batch (max batch_size * n), each is different, set n = 1
                 kwargs_for_multi_turn = {
@@ -576,42 +574,29 @@ class vLLMRollout(BaseRollout):
             batch_size=batch_size)
 
         import json
-        
-        # for single turn
-        # with open('/workspace/lurui-yun/deep_research/verl/logs/generate_sequences_call.json', 'w') as f:
-        #     f.write(json.dumps({
-        #         'prompts': input_ids.tolist(),
-        #         'responses': response.tolist(),
-        #         'input_ids': seq.tolist(),
-        #         'attention_mask': attention_mask.tolist(),
-        #         'position_ids': position_ids.tolist(),
-        #     }))
-        #     f.write("\n")
-        
-        # for multi-turn
-        with open('/workspace/lurui-yun/deep_research/verl/logs/generate_sequences_call.json', 'w') as f:
-            f.write(json.dumps({
-                'prompts': input_ids.tolist(),
-                'responses': response.tolist(),
-                'input_ids': seq.tolist(),
-                'attention_mask': attention_mask.tolist(),
-                'loss_mask': loss_mask.tolist(),
-                'position_ids': position_ids.tolist(),
-                'decoded_responses': decoded_responses,
-                'observations': observations,
-                'batch_chat': batch_chat
-            }))
-            f.write("\n")
-
-        # 用比较好看的方式打印 batch_chat
-        # for i in range(len(batch_chat)):
-        #     print(f"Conversation {i}:")
-        #     for turn in batch_chat[i]:
-        #         print(f"***{turn['role']}***")
-        #         print(f"{turn['content']}")
-        #         print("*" * 20)
-        #     print("\n")
-
+        if self.config.get('multi_turn', False):
+            with open('/workspace/lurui-yun/deep_research/verl/logs/generate_sequences_call.json', 'w') as f:
+                f.write(json.dumps({
+                    'prompts': input_ids.tolist(),
+                    'responses': response.tolist(),
+                    'input_ids': seq.tolist(),
+                    'attention_mask': attention_mask.tolist(),
+                    'loss_mask': loss_mask.tolist(),
+                    'position_ids': position_ids.tolist(),
+                    'decoded_responses': decoded_responses,
+                    'batch_chat': batch_chat
+                }))
+                f.write("\n")
+        else:
+            with open('/workspace/lurui-yun/deep_research/verl/logs/generate_sequences_call_single.json', 'w') as f:
+                f.write(json.dumps({
+                    'prompts': input_ids.tolist(),
+                    'responses': response.tolist(),
+                    'input_ids': seq.tolist(),
+                    'attention_mask': attention_mask.tolist(),
+                    'position_ids': position_ids.tolist(),
+                }))
+                f.write("\n")
 
         # free vllm cache engine
         if self.config.free_cache_engine:

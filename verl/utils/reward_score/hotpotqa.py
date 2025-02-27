@@ -97,6 +97,9 @@ def extract_solution(question, response, extractor_urls):
     # resp_text = "\n".join(resp_text[-3:])
     response = response.replace(" <|endoftext|>", "")
     resp_text = response.strip().split("<|assistant|>")[-1]
+    
+    if "msearch" in resp_text:
+        return None
 
     answer_template = EXTRACTION_TEMPLATE.format(
         question=question, 
@@ -145,16 +148,16 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
     
     # for llm-as-judge
     response = solution_str.replace("<|endoftext|>", "").strip()
-    resp_print = response.strip().split("<|assistant|>")[-1]
-    answer = extract_solution(question,response=solution_str,extractor_urls=extractor_urls)
+    # resp_print = response.strip().split("<|assistant|>")[-1]
+    answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls)
     # print("solution_str: ", resp_print, "extracted_answer: ", answer)
     if answer is None:
-        return 0
+        return float(0)
     else:
         if answer == ground_truth:
-            return score
+            return float(score)
         else:
             if checker_check_equality(question, answer, ground_truth,checker_urls):
-                return score
+                return float(score)
             else:
                 return format_score

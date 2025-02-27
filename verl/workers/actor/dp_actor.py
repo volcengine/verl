@@ -236,7 +236,7 @@ class DataParallelPPOActor(BasePPOActor):
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
                 
-                assert self.config.get('multi_turn') == True
+                # assert self.config.get('multi_turn') == True
                 if self.config.get('multi_turn', False):
                     # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
                     loss_mask = data['loss_mask']

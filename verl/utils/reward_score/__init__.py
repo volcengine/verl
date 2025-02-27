@@ -38,7 +38,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
             ground_truth=ground_truth, 
             question=question,
             extractor_urls=["http://172.18.75.153:8000/v1"],
-            checker_urls=["http://172.18.75.153:8000/v1"]
+            checker_urls=["http://172.18.75.109:8000/v1"]
         )
         # lurui: must return a float
         print("judgement by hotpotqa: ", res)
@@ -47,6 +47,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         else:
             raise NotImplementedError
     else:
+        print(f"Unknown data source: {data_source}")
         raise NotImplementedError
 
     if isinstance(res, (int, float, bool)):
