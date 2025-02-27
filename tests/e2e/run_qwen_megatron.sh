@@ -4,6 +4,8 @@ set -x
 
 huggingface-cli download Qwen/Qwen2.5-0.5B
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
     data.train_files=$HOME/data/gsm8k/train.parquet \
