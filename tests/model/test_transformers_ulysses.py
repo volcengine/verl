@@ -18,27 +18,21 @@ import torch.distributed
 from torch.distributed import init_device_mesh
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.model import create_random_mask, compute_position_id_with_mask
-from verl.utils.torch_functional import masked_mean, log_probs_from_logits_all_rmpad, logprobs_from_logits
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
 from verl.workers.sharding_manager import FSDPUlyssesShardingManager
-from verl.models.transformers.llama import llama_flash_attn_forward
-from verl.models.transformers.qwen2 import qwen2_flash_attn_forward
 from verl.protocol import DataProto
-from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis, rearrange
+from flash_attn.bert_padding import unpad_input, index_first_axis, rearrange
+from transformers import LlamaConfig, Qwen2Config
+from transformers import AutoModelForCausalLM
+from verl.models.transformers.monkey_patch import apply_monkey_patch_to_llama, apply_monkey_patch_to_qwen2
 
-from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
-from transformers.models.llama.modeling_llama import LlamaFlashAttention2
-from transformers.models.qwen2.modeling_qwen2 import Qwen2FlashAttention2
-from transformers import AutoModelForCausalLM, AutoModelForTokenClassification
 # TODO(sgm): add more models for test
 # we only need one scale for each model
 test_configs = {
-    'llama': (LlamaConfig(num_hidden_layers=2), LlamaFlashAttention2),
-    'qwen2': (Qwen2Config(num_hidden_layers=2), Qwen2FlashAttention2)
+    'llama': (LlamaConfig(num_hidden_layers=2), apply_monkey_patch_to_llama),
+    'qwen2': (Qwen2Config(num_hidden_layers=2), apply_monkey_patch_to_qwen2)
 }
-
-patches = {'llama': llama_flash_attn_forward, 'qwen2': qwen2_flash_attn_forward}
 
 
 def sync_model_parameters_global(layer):
@@ -61,9 +55,9 @@ def test_hf_casual_fwd():
     seqlen = 128
     response_length = 127
 
-    for model_name, (config, attn) in test_configs.items():
+    for model_name, (config, apply_monkey_patch) in test_configs.items():
         # patch before load
-        attn.forward = patches[model_name]
+        apply_monkey_patch()
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
@@ -139,9 +133,9 @@ def test_hf_casual_fwd_bwd():
     seqlen = 128
     response_length = 127
 
-    for model_name, (config, attn) in test_configs.items():
+    for model_name, (config, apply_monkey_patch) in test_configs.items():
         # patch before load
-        attn.forward = patches[model_name]
+        apply_monkey_patch()
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,

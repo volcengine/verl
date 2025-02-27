@@ -52,3 +52,22 @@ jobs:
         run: |
           pip3 install hf_transfer
           torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
+        run: |
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
+        run: |
+          pip3 install transformers==4.48.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.47.0
+        run: |
+          pip3 install transformers==4.47.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.46.0
+        run: |
+          pip3 install transformers==4.46.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.45.0
+        run: |
+          pip3 install transformers==4.45.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py

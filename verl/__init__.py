@@ -25,3 +25,7 @@ from .utils.logging_utils import set_basic_config
 import logging
 
 set_basic_config(level=logging.WARNING)
+
+from . import single_controller
+
+__all__ = ['DataProto', "__version__"]
