@@ -576,6 +576,9 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(self.actor_optimizer)
+
 
 class CriticWorker(Worker):
 
@@ -847,6 +850,9 @@ class CriticWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
+
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(self.critic_optimizer)
 
 
 # TODO(sgm): we may need to extract it to dp_reward_model.py
