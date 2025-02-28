@@ -215,7 +215,8 @@ class vLLMRollout(BaseRollout):
             # Input: model's function call
             # Output: observation from env
             def call_observation_api(text: str) -> List[str]:
-                url = "http://172.18.80.255:8888/observation_kilt/"
+                # url = "http://172.18.80.255:8888/observation_kilt/"
+                url = "http://172.16.65.43:8888/observation_kilt/"
                 payload = {"content": text}
                 try:
                     api_response = requests.post(url, json=payload)
@@ -226,7 +227,7 @@ class vLLMRollout(BaseRollout):
 
             # Initialize tensors for final sequences
             # TODO: can set config parameter: max_turns
-            max_turns = 5
+            max_turns = 10
             batch_size = len(response)
             max_seq_length = self.config.response_length + input_ids.size(1)
             
@@ -348,9 +349,6 @@ class vLLMRollout(BaseRollout):
 
                     assert observations[i] != None, f"observations[{i}] is None"
                     
-                    # for glm
-                    obv_combined = [obv['metadata'] + '\n'+ obv['content'] for obv in observations[i]]
-                    
                     model_type_is_qwen = "qwen" in self.config.path
                     # assert model_type_is_qwen, f"model type must be qwen, path: {self.config.path}"
                     
@@ -358,6 +356,10 @@ class vLLMRollout(BaseRollout):
                         # for glm observation context
                         # fix: glm do not use \n as the tail, if use \n, it will be forced to stop searching
                         # obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+
+                        # obv_combined = [obv['metadata'] + '\n'+ obv['content'] for obv in observations[i]]
+                        # fix
+                        obv_combined = [obv['content'] for obv in observations[i]]
                         obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>"
                         
                         # remove [gmask]<sop> 2 prefix tokens
@@ -368,8 +370,11 @@ class vLLMRollout(BaseRollout):
                         # obs_text = connect_obv + "<|im_end|>\n<|im_start|>assistant\n"
                         
                         # for (new) qwen observation
-                        obv_combined = ['\n' + obv['metadata'] + '\n'+ obv['content'].strip() for obv in observations[i]]
+                        # obv_combined = ['\n' + obv['metadata'] + '\n'+ obv['content'].strip() for obv in observations[i]]
+                        # api-fix, merge metadata into content
+                        obv_combined = ['\n' + obv['content'].strip() for obv in observations[i]]
                         obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+
                         obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, :].to(input_ids.device)
                         
                     batch_chat[i].append({

@@ -21,12 +21,11 @@ export HYDRA_FULL_ERROR=1
 export WANDB_PROJECT=deep_research_rl
 export EXP_NAME=$(basename "$0" .sh)
 
-# DATASET_PREFIX=/data/o1-cloud/lurui/hotpot_qa_0219
-DATASET_PREFIX=/workspace/lurui-yun/deep_research/prompts/res/hotpotQA_system
+DATASET_PREFIX=/workspace/lurui-yun/deep_research/prompts/res/hotpotQA_qwen_system
 TRAIN_FILE=$DATASET_PREFIX/train.parquet
 TEST_FILE=$DATASET_PREFIX/test.parquet
 
-MODEL_PATH=/data/o1-cloud/lurui/checkpoint/9b_simple_hf_epoch_1_0218
+MODEL_PATH=/data/o1-cloud/yujiang/openrlhf-qwencp/ckpt/qwen-glm-template/14B/epoch_3
 SAVE_PATH=/workspace/ckpt/lurui_verl/ckpt/$WANDB_PROJECT/$EXP_NAME
 
 CONFIG_ARGS="
@@ -48,14 +47,26 @@ DATA_ARGS="
     data.train_batch_size=$BATCH_SIZE \
     data.val_batch_size=$BATCH_SIZE \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
+    data.max_response_length=16384 \
     data.shuffle=False \
 "
 
 # world_size | actor_mini_batch_size
 NUM_TRACES=4
 TP=4
-ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE)))
+
+# open SP
+RM_PADDING=True
+SP=8
+# SP=2
+
+# close SP
+# RM_PADDING=False
+# SP=1
+
+# ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / WORLD_SIZE))
+# 32 * 4 / (32 / 4 / 2) = 32
+ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE / SP)))
 
 ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -65,9 +76,9 @@ ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.0001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=$SP \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.model.use_remove_padding=False \
+    actor_rollout_ref.model.use_remove_padding=$RM_PADDING \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.multi_turn=True \
@@ -76,7 +87,7 @@ ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$BATCH_SIZE \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$TP \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.n=$NUM_TRACES \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ACTOR_MICRO_BATCH_SIZE \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
@@ -89,7 +100,7 @@ TRAINER_ARGS="
     trainer.nnodes=$MLP_WORKER_NUM \
     trainer.save_freq=10 \
     trainer.test_freq=-1 \
-    trainer.total_epochs=4 \
+    trainer.total_epochs=2 \
     trainer.project_name=$WANDB_PROJECT \
     trainer.default_local_dir=$SAVE_PATH \
     trainer.experiment_name=$EXP_NAME $@ \

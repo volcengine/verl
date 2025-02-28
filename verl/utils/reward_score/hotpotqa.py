@@ -95,10 +95,22 @@ def extract_solution(question, response, extractor_urls):
     # response = response.strip().split('\n')
     # resp_text = [x for x in response if x.strip()]
     # resp_text = "\n".join(resp_text[-3:])
-    response = response.replace(" <|endoftext|>", "")
+    response = response.replace("<|endoftext|>", "").strip()
     resp_text = response.strip().split("<|assistant|>")[-1]
     
     if "msearch" in resp_text:
+        return None
+    
+    # print("*"*20)
+    # print(resp_text)
+    
+    # for glm
+    # if not resp_text.strip().endswith("<|user|>"):
+    #     return None
+    
+    # for qwen
+    print("resp_text: ", resp_text)
+    if not resp_text.strip().endswith("<|im_end|>"):
         return None
 
     answer_template = EXTRACTION_TEMPLATE.format(

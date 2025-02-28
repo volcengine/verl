@@ -47,7 +47,7 @@ DATA_ARGS="
     data.train_batch_size=$BATCH_SIZE \
     data.val_batch_size=$BATCH_SIZE \
     data.max_prompt_length=512 \
-    data.max_response_length=8192 \
+    data.max_response_length=4096 \
     data.shuffle=False \
 "
 
@@ -57,7 +57,7 @@ TP=4
 
 # open SP
 RM_PADDING=True
-SP=8
+SP=4
 # SP=2
 
 # close SP
@@ -66,7 +66,7 @@ SP=8
 
 # ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / WORLD_SIZE))
 # 32 * 4 / (32 / 4 / 2) = 32
-ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE / SP)))
+ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE / TP)))
 
 ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.model.path=$MODEL_PATH \

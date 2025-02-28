@@ -255,6 +255,23 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     # Iterate over the batch to collect scores for each unique id
     for uid, score in zip(batch.non_tensor_batch['uid'], sequence_score):
         uid_scores[uid].append(score.item())
+    
+    # Calculate the overlong ratio
+    overlong_ratios = []
+    pad_token_id = tokenizer.pad_token_id
+    save_resp_trim = []
+    for resp in batch.batch['responses']:
+        resp_trim = resp[resp != pad_token_id]
+        save_resp_trim.append(resp_trim.tolist())
+        if len(resp_trim) >= max_response_length:
+            overlong_ratios.append(1)
+        else:
+            overlong_ratios.append(0)
+    
+    with open("/workspace/lurui-yun/deep_research/verl/logs/resp_trim.json", "a") as f:    
+        import json
+        f.write(json.dumps(save_resp_trim) + "\n")
+        
 
     metrics = {
         # score
@@ -266,7 +283,7 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
         'search/overlong_ratio':
-            torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
+            torch.mean(torch.tensor(overlong_ratios, dtype=torch.float)).detach().item(),
         
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
