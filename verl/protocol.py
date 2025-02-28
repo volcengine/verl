@@ -84,7 +84,7 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
-def union_numpy_dict(tensor_dict1: Dict[np.ndarray], tensor_dict2: Dict[np.ndarray]) -> Dict[np.ndarray]:
+def union_numpy_dict(tensor_dict1: Dict[str, np.ndarray], tensor_dict2: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     for key, val in tensor_dict2.items():
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
