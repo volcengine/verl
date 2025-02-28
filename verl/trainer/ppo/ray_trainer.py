@@ -820,6 +820,8 @@ class RayPPOTrainer(object):
         if os.path.exists(dataloader_local_path):
             dataloader_state_dict = torch.load(dataloader_local_path)
             self.train_dataloader.load_state_dict(dataloader_state_dict)
+            if isinstance(self.train_dataloader.dataset, RLHFDataset):
+                self.train_dataloader.dataset.resume_dataset_state()
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
