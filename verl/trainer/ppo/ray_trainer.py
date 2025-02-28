@@ -89,7 +89,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     response_length = responses.size(1)
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
-    
+
     assert multi_turn == True
     if multi_turn:
         loss_mask = data.batch['loss_mask']
@@ -231,7 +231,7 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
         valid_values = torch.masked_select(values, response_mask)
         return_diff_var = torch.var(valid_returns - valid_values)
         return_var = torch.var(valid_returns)
-    
+
     # lurui: feature for passrate calculation
     print("token_level_scores.shape")
     print(batch.batch['token_level_scores'].shape)
@@ -239,14 +239,14 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     print(batch.batch['token_level_scores'])
     print("sequence_score")
     print(sequence_score)
-    
+
     print("observations_times")
     print(batch.batch['observations_times'])
-    
-    with open("/workspace/lurui-yun/deep_research/verl/logs/uid.txt", "a") as f:    
+
+    with open("logs/uid.txt", "a") as f:
         f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
         f.write(str(batch.non_tensor_batch['uid']) + "\n")
-    
+
     from collections import defaultdict
 
     # Initialize a dictionary to store scores for each unique id
@@ -255,7 +255,7 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     # Iterate over the batch to collect scores for each unique id
     for uid, score in zip(batch.non_tensor_batch['uid'], sequence_score):
         uid_scores[uid].append(score.item())
-    
+
     # Calculate the overlong ratio
     overlong_ratios = []
     pad_token_id = tokenizer.pad_token_id
@@ -267,11 +267,11 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             overlong_ratios.append(1)
         else:
             overlong_ratios.append(0)
-    
-    with open("/workspace/lurui-yun/deep_research/verl/logs/resp_trim.json", "a") as f:    
+
+    with open("logs/resp_trim.json", "a") as f:
         import json
         f.write(json.dumps(save_resp_trim) + "\n")
-        
+
 
     metrics = {
         # score
@@ -279,12 +279,12 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             torch.mean(sequence_score).detach().item(),
         'critic/passrate':
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
-        
+
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
         'search/overlong_ratio':
             torch.mean(torch.tensor(overlong_ratios, dtype=torch.float)).detach().item(),
-        
+
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
         # 'critic/score/max':
@@ -770,12 +770,12 @@ class RayPPOTrainer(object):
             from torch.distributed.fsdp import FullStateDictConfig, StateDictType
             from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
             import verl.utils.hdfs_io as hdfs_io
-            
+
             cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
             with FSDP.state_dict_type(self.actor_rollout_wg.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
                 state_dict = self.actor_rollout_wg.fsdp_model.state_dict()
 
-            local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, 
+            local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
                                                   f'global_step_{self.global_steps}')
             actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
@@ -784,12 +784,12 @@ class RayPPOTrainer(object):
                 os.makedirs(actor_local_path, exist_ok=True)
                 self.actor_rollout_wg.model.save_pretrained(actor_local_path, state_dict=state_dict)
                 self.actor_rollout_wg.tokenizer.save_pretrained(actor_local_path)
-                
+
                 # Copy to HDFS if configured
                 if self.config.trainer.default_hdfs_dir:
                     hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
-                    hdfs_io.copy(src=actor_local_path, 
-                               dst=os.path.join(self.config.trainer.default_hdfs_dir, 
+                    hdfs_io.copy(src=actor_local_path,
+                               dst=os.path.join(self.config.trainer.default_hdfs_dir,
                                               f'global_step_{self.global_steps}', 'actor'),
                                dirs_exist_ok=True)
             torch.distributed.barrier()
@@ -939,7 +939,7 @@ class RayPPOTrainer(object):
                     import inspect
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        
+
 
                     if self.config.algorithm.adv_estimator == 'remax':
                         with _timer('gen_max', timing_raw):

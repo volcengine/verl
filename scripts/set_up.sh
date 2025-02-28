@@ -1,6 +1,3 @@
-cd /workspace/lurui-yun/deep_research/verl/
-pip3 install -e .
-
 hostip=$(env | grep MLP_HOST=)
 hostip=${hostip#*=}
 echo $hostip
