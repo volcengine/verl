@@ -97,7 +97,7 @@ def union_numpy_dict(tensor_dict1: Dict[str, np.ndarray], tensor_dict2: Dict[str
     return tensor_dict1
 
 
-def list_of_dict_to_dict_of_list(list_of_dict: list[dict]):
+def list_of_dict_to_dict_of_list(list_of_dict: List[Dict]):
     if len(list_of_dict) == 0:
         return {}
     keys = list_of_dict[0].keys()
@@ -148,7 +148,7 @@ def unfold_batch_dim(data: 'DataProto', batch_dims=2):
     return DataProto(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
 
 
-def collate_fn(x: list['DataProtoItem']):
+def collate_fn(x: List['DataProtoItem']):
     batch = []
     non_tensor_batch = []
     for data in x:
