@@ -126,7 +126,8 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
 - [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
-- [Easy-R1](https://github.com/hiyouga/EasyR1): Multi-Modality RL
+- [Easy-R1](https://github.com/hiyouga/EasyR1): Multi-Modality RL training framework
+- [Self-rewarding correction for mathematical reasoning](https://arxiv.org/pdf/2502.19613): self-rewarding and correction with generative reward models
 
 ## Contribution Guide
 Contributions from the community are welcome!
