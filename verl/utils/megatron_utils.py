@@ -112,16 +112,15 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     if wrap_with_ddp:
         ddp_models = []
         for model_chunk_idx, model_chunk in enumerate(model):
-            ddp_model = DDP(config=tfconfig,
-                            module=model_chunk,
-                            disable_bucketing=(model_chunk_idx > 0),
-                            ddp_config=DistributedDataParallelConfig(
-                                overlap_grad_reduce=False,
-                                use_distributed_optimizer=True,
-                                grad_reduce_in_fp32=True,
-                            ))
-            # data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
-            # accumulate_allreduce_grads_in_fp32=True,
+            ddp_model = DDP(
+                config=tfconfig,
+                module=model_chunk,
+                disable_bucketing=(model_chunk_idx > 0),
+                ddp_config=DistributedDataParallelConfig(
+                    overlap_grad_reduce=False,
+                    use_distributed_optimizer=True,
+                    grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
+                ))
             ddp_models.append(ddp_model)
         model = ddp_models
         # # Broadcast params from data parallel src rank to other data parallel ranks.
