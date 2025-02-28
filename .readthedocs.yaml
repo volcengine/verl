@@ -7,6 +7,7 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.8"
+    rust: "1.70"
 
 sphinx:
   configuration: docs/conf.py
