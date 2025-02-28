@@ -167,7 +167,7 @@ class FSDPSFTTrainer(object):
                                            drop_last=True)
 
         self.val_sampler = DistributedSampler(self.val_dataset,
-                                              shuffle=True,
+                                              shuffle=False,
                                               num_replicas=world_size,
                                               rank=rank,
                                               drop_last=True)
