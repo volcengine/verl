@@ -1,7 +1,5 @@
 set -x
 
-allrun cp /data/o1-cloud/lurui/verl/registry.py /root/miniconda3/lib/python3.10/site-packages/vllm/inputs/registry.py
-
 # for team
 # export WANDB_ENTITY=glm-zero
 # export WANDB_BASE_URL=https://wandb.glm.ai
@@ -25,7 +23,7 @@ DATASET_PREFIX=/workspace/lurui-yun/deep_research/prompts/res/hotpotQA_qwen_syst
 TRAIN_FILE=$DATASET_PREFIX/train.parquet
 TEST_FILE=$DATASET_PREFIX/test.parquet
 
-MODEL_PATH=/data/o1-cloud/yujiang/openrlhf-qwencp/ckpt/qwen-glm-template/14B/epoch_3
+MODEL_PATH=/data/o1-cloud/yujiang/openrlhf-qwencp/ckpt/qwen-glm-template/7B_from_base/epoch_3
 SAVE_PATH=/workspace/ckpt/lurui_verl/ckpt/$WANDB_PROJECT/$EXP_NAME
 
 CONFIG_ARGS="
@@ -53,19 +51,19 @@ DATA_ARGS="
 
 # world_size | actor_mini_batch_size
 NUM_TRACES=4
-TP=2
+TP=1
 
 # open SP
 RM_PADDING=True
-SP=8
-# SP=2
+SP=4
 
 # close SP
 # RM_PADDING=False
 # SP=1
 
-# ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / WORLD_SIZE))
-ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE / SP)))
+ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / WORLD_SIZE))
+# ACTOR_MICRO_BATCH_SIZE=1
+# ACTOR_MICRO_BATCH_SIZE=$((BATCH_SIZE * NUM_TRACES / (WORLD_SIZE / SP)))
 
 ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -86,7 +84,7 @@ ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$BATCH_SIZE \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$TP \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.n=$NUM_TRACES \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ACTOR_MICRO_BATCH_SIZE \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \

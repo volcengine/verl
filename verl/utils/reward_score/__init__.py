@@ -37,8 +37,10 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
             solution_str=solution_str, 
             ground_truth=ground_truth, 
             question=question,
-            extractor_urls=["http://172.18.75.153:8000/v1"],
-            checker_urls=["http://172.18.75.109:8000/v1"]
+            # extractor_urls=["http://172.18.75.153:8000/v1"],
+            # checker_urls=["http://172.18.75.109:8000/v1"],
+            extractor_urls=["http://172.20.68.119:8000/v1"],
+            checker_urls=["http://172.20.69.226:8000/v1"],
         )
         # lurui: must return a float
         print("judgement by hotpotqa: ", res)

@@ -1,6 +1,9 @@
 cd /workspace/lurui-yun/deep_research/verl/
 pip3 install -e .
 
+# update for dashboard
+pip install -U "ray[default]"
+
 hostip=$(env | grep MLP_HOST=)
 hostip=${hostip#*=}
 echo $hostip

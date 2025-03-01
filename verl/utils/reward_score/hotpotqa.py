@@ -98,9 +98,6 @@ def extract_solution(question, response, extractor_urls):
     response = response.replace("<|endoftext|>", "").strip()
     resp_text = response.strip().split("<|assistant|>")[-1]
     
-    if "msearch" in resp_text:
-        return None
-    
     # print("*"*20)
     # print(resp_text)
     
@@ -109,9 +106,11 @@ def extract_solution(question, response, extractor_urls):
     #     return None
     
     # for qwen
-    print("resp_text: ", resp_text)
+    # print("resp_text: ", resp_text)
     if not resp_text.strip().endswith("<|im_end|>"):
-        return None
+        print("not end with <|im_end|>")
+        print(resp_text)
+        return -1
 
     answer_template = EXTRACTION_TEMPLATE.format(
         question=question, 
@@ -160,16 +159,19 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
     
     # for llm-as-judge
     response = solution_str.replace("<|endoftext|>", "").strip()
-    # resp_print = response.strip().split("<|assistant|>")[-1]
+    resp_print = response.strip().split("<|assistant|>")[-1]
     answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls)
-    # print("solution_str: ", resp_print, "extracted_answer: ", answer)
     if answer is None:
-        return float(0)
+        ans = float(0)
     else:
         if answer == ground_truth:
-            return float(score)
+            ans = float(score)
         else:
-            if checker_check_equality(question, answer, ground_truth,checker_urls):
-                return float(score)
+            if checker_check_equality(question, answer, ground_truth, checker_urls):
+                ans = float(score)
             else:
-                return format_score
+                ans = format_score
+    
+    import json
+    print(json.dumps({"resp": resp_print, "answer": answer, "ground_truth": ground_truth, "judge": ans}, ensure_ascii=False))
+    return ans

@@ -163,6 +163,10 @@ class vLLMRollout(BaseRollout):
         eos_token_id = prompts.meta_info['eos_token_id']
 
         batch_size = input_ids.size(0)
+        
+        # with open("/workspace/lurui-yun/deep_research/verl/logs/init_input_ids.json", "w") as f:
+        #     import json
+        #     json.dump(input_ids.tolist(), f)
 
         idx_list = []
         # parse idx from torch.Tensor to List[List[str]]
@@ -182,7 +186,9 @@ class vLLMRollout(BaseRollout):
 
         print("Initial vllm input size: ", [len(init_ids) for init_ids in idx_list])
         # users can customize different sampling_params at different run
+        
         with self.update_sampling_params(**kwargs):
+            print("Initial sampling_params: ", self.sampling_params)
             output = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -217,17 +223,25 @@ class vLLMRollout(BaseRollout):
             def call_observation_api(text: str) -> List[str]:
                 # url = "http://172.18.80.255:8888/observation_kilt/"
                 url = "http://172.16.65.43:8888/observation_kilt/"
-                payload = {"content": text}
+                # payload = {"content": text}
+                
+                # new feature, for kilt_broswer, we currently use translator
+                payload = {"content": text, "translate": True}
                 try:
                     api_response = requests.post(url, json=payload)
-                    return api_response.json()
+                    api_response_json = api_response.json()
+                    # import json
+                    # if "error" in json.dumps(api_response_json):
+                    #     print({"error": "error in return", "text": text, "response": api_response_json})
+                    return api_response_json
                 except Exception as e:
                     print(f"API call failed: {e}")
                     return None
 
             # Initialize tensors for final sequences
             # TODO: can set config parameter: max_turns
-            max_turns = 10
+            # max_turns = 10
+            max_turns = 5
             batch_size = len(response)
             max_seq_length = self.config.response_length + input_ids.size(1)
             
@@ -261,9 +275,9 @@ class vLLMRollout(BaseRollout):
                 final_attention_mask[i, current_length:current_length+resp.size(0)] = 1
                 final_loss_mask[i, current_length:current_length+resp.size(0)] = 1
             
-            with open("/workspace/lurui-yun/deep_research/verl/logs/final_sequence_init.json", "w") as f:
-                import json
-                json.dump(final_sequence.tolist(), f)
+            # with open("/workspace/lurui-yun/deep_research/verl/logs/final_sequence_init.json", "w") as f:
+            #     import json
+            #     json.dump(final_sequence.tolist(), f)
             
             for i in range(batch_size):
                 batch_chat[i].append({
@@ -298,9 +312,9 @@ class vLLMRollout(BaseRollout):
                         decoded_responses.append(text)
                         observation_indices.append(check_idx)
                 
-                with open("/workspace/lurui-yun/deep_research/verl/logs/decoded_responses.json", "w") as f:
-                    import json
-                    json.dump(decoded_responses, f)
+                # with open("/workspace/lurui-yun/deep_research/verl/logs/decoded_responses.json", "w") as f:
+                #     import json
+                #     json.dump(decoded_responses, f)
 
                 # Exit the loop if no observation responses are found
                 if not observation_indices:
@@ -318,6 +332,11 @@ class vLLMRollout(BaseRollout):
                         try:
                             result = future.result()
                             observations[idx_pos] = result
+                            
+                            # consider the case of Error
+                            # import json
+                            # if "Error:" not in json.dumps(result):
+                            #     observations[idx_pos] = result
                         except Exception as e:
                             print(f"Error processing response {idx_pos}: {e}")
                 
@@ -372,7 +391,12 @@ class vLLMRollout(BaseRollout):
                         # for (new) qwen observation
                         # obv_combined = ['\n' + obv['metadata'] + '\n'+ obv['content'].strip() for obv in observations[i]]
                         # api-fix, merge metadata into content
-                        obv_combined = ['\n' + obv['content'].strip() for obv in observations[i]]
+                        # obv_combined = ['\n' + obv['content'].strip() for obv in observations[i]]
+                        obv_combined = ['\n' + obv['content'] for obv in observations[i]]
+                        
+                        # for shorter observation, at most 5 objects
+                        # import random
+                        # obv_combined = random.sample(obv_combined, min(5, len(obv_combined)))
                         obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
 
                         obs_ids = self.tokenizer(obs_text, add_special_tokens=True, return_tensors="pt")["input_ids"][:, :].to(input_ids.device)
@@ -385,17 +409,30 @@ class vLLMRollout(BaseRollout):
                     # if current_length & observation length > max_length
                     # do not inference for this observation
                     exceed_length = False
-                    pad_pos = current_sequence.size(0)
+                    # pad_start = current_sequence.size(0)
+                    print("current_sequence.shape", current_sequence.shape)
+                    print("current_sequence.size(0)", current_sequence.size(0))
+                    
+                    pad_start = current_sequence.size(0)
                     max_length = final_sequence.size(1)
-                    if pad_pos + obs_ids.size(1) > max_length:
-                        obs_ids = obs_ids[:, :max_length - pad_pos]
+                    assert obs_ids.shape[0] == 1, f"obs_ids.shape[0]: {obs_ids.shape[0]}"
+                    
+                    # fix observation
+                    obs_ids = obs_ids[0]
+                    
+                    # debug for shorter observation, not useful
+                    # obs_ids = obs_ids[:20]
+                    
+                    obs_len = obs_ids.shape[0]
+                    if pad_start + obs_len > max_length:
+                        obs_ids = obs_ids[:max_length - pad_start]
                         exceed_indices.append(i)
                         exceed_length = True
                     
                     # for observation, attention_mask must set to 1, loss_mask set to 0
-                    final_sequence[i, pad_pos:pad_pos + obs_ids.size(1)] = obs_ids.squeeze(0)
-                    final_attention_mask[i, pad_pos:pad_pos + obs_ids.size(1)] = 1
-                    current_sequence = torch.cat([current_sequence.unsqueeze(0), obs_ids], dim=1).squeeze(0)
+                    final_sequence[i, pad_start:pad_start + obs_len] = obs_ids
+                    final_attention_mask[i, pad_start:pad_start + obs_len] = 1
+                    current_sequence = torch.cat([current_sequence, obs_ids])
                     current_sequence = current_sequence[current_sequence != self.pad_token_id]
                     
                     if not exceed_length:
@@ -410,10 +447,13 @@ class vLLMRollout(BaseRollout):
 
                 current_sequences = [seq.squeeze().tolist() for seq in current_sequences]
                 
-                # if turn == 0:
-                #     with open("/workspace/lurui-yun/deep_research/verl/logs/current_sequences.json", "w") as f:
-                #         import json
-                #         json.dump(current_sequences, f)
+                _max_length = self.config.response_length + self.config.prompt_length
+                for seq in current_sequences:
+                    assert len(seq) < _max_length, f"len(seq): {len(seq)}, _max_length: {_max_length}"
+
+                # with open("/workspace/lurui-yun/deep_research/verl/logs/current_sequences.json", "w") as f:
+                #     import json
+                #     json.dump(current_sequences, f)
                 
                 if not current_sequences:
                     break
@@ -425,15 +465,26 @@ class vLLMRollout(BaseRollout):
                     'n': 1
                 }
                 
+                # print(f"pre-check in rank: ", torch.distributed.get_rank())
+                # torch.distributed.barrier()
+                # print(f"post-check in rank: ", torch.distributed.get_rank())
+                
                 # Generate next responses
                 with self.update_sampling_params(**kwargs_for_multi_turn):
+                    # print("self.sampling_params", self.sampling_params)
                     next_outputs = self.inference_engine.generate(
                         prompts=None,
                         sampling_params=self.sampling_params,
                         prompt_token_ids=current_sequences,
                         use_tqdm=False
                     )
+                    print("type(next_outputs)", type(next_outputs))
+                    print("len(next_outputs)", len(next_outputs))
+                    # torch.distributed.barrier()
+                    # print(f"post-check in rank: ", torch.distributed.get_rank())
+                    # print("next_outputs", next_outputs)
                     next_outputs = next_outputs[0].to(input_ids.device)
+                    # next_outputs = next_outputs[0].to("cpu")
                 
                 assert len(current_sequences) == next_outputs.size(0), f"len(current_sequences): {len(current_sequences)}, next_outputs.size(0): {next_outputs.size(0)}"
                 
@@ -450,7 +501,7 @@ class vLLMRollout(BaseRollout):
                     
                     batch_chat[i].append({
                         "role": "assistant",
-                        "content": self.tokenizer.decode(next_output_trim, skip_special_tokens=False).replace("<|endoftext|> ", "")
+                        "content": self.tokenizer.decode(next_output_trim, skip_special_tokens=False).replace("<|endoftext|>", "").strip()
                     })
                     
                     # Find the first pad_token_id position in final_sequence
