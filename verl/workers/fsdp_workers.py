@@ -37,7 +37,9 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.workers.agentic.async_rollout import AsyncRollout
 
 from codetiming import Timer
 
@@ -321,16 +323,25 @@ class ActorRolloutRefWorker(Worker):
                                       tokenizer=self.tokenizer,
                                       model_hf_config=self.actor_model_config,
                                       device_mesh=rollout_device_mesh)
+            elif vllm_mode == "async":
+                rollout = AsyncRollout(model_path=local_path,)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage('After building vllm rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
-            rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
-                                                               inference_engine=rollout.inference_engine,
-                                                               model_config=self.actor_model_config,
-                                                               full_params='hf' in self.config.rollout.load_format,
-                                                               device_mesh=rollout_device_mesh)
+            if vllm_mode == "async":
+                rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
+                                                                  inference_engine=rollout.inference_engine,
+                                                                  model_config=self.actor_model_config,
+                                                                  full_params='hf' in self.config.rollout.load_format,
+                                                                  device_mesh=rollout_device_mesh,)
+            else:
+                rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
+                                                                   inference_engine=rollout.inference_engine,
+                                                                   model_config=self.actor_model_config,
+                                                                   full_params='hf' in self.config.rollout.load_format,
+                                                                   device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
