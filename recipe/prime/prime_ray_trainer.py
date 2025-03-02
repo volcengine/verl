@@ -495,6 +495,11 @@ class RayPRIMETrainer(RayPPOTrainer):
             filter_mask[(acc_tensor > self.config.data.accuracy_upper_bound) &
                         (acc_tensor < self.config.data.accuracy_lower_bound)] = False
 
+        if self.config.data.filter_truncate:
+            length_matrix = batch.batch['attention_mask'][:,-batch.batch['responses'].shape[-1]:].sum(dim=-1).reshape(-1, n_samples)
+            length_tensor = torch.max(length_matrix, dim=-1)
+            filter_mask[length_tensor>=self.config.data.max_response_length-1] = False
+
         reorder_index = torch.argsort(filter_mask, descending=True)
         reorder_index = (reorder_index.unsqueeze(-1) * n_samples + torch.arange(0, n_samples + 1).unsqueeze(0)).view(-1)
         batch.reorder(reorder_index[:int(len(batch) //
