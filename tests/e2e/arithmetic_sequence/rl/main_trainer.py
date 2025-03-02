@@ -22,7 +22,7 @@ from transformers import PreTrainedTokenizer, AutoTokenizer
 
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from tests.e2e.envs.digit_completion import CharTokenizer
 
 
@@ -105,7 +105,7 @@ def main(config):
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
 
     # download the checkpoint from hdfs
-    local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
+    local_path = copy_to_local(config.actor_rollout_ref.model.path)
     local_path = os.path.expanduser(local_path)
     # instantiate tokenizern
     tokenizer = AutoTokenizer.from_pretrained(local_path)

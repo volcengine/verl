@@ -35,6 +35,7 @@ install_requires = [
   'pylatexenc',
   'ray>=2.10',
   'tensordict<0.6',
+  'torchdata',
   'transformers',
   'vllm<=0.6.3',
   'wandb',

@@ -37,6 +37,8 @@ from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from torch.utils.data import RandomSampler, SequentialSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 WorkerType = Type[Worker]
 
@@ -52,6 +54,17 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+
+
+class AdvantageEstimator(str, Enum):
+    """
+    Using an enumeration class to avoid spelling errors in adv_estimator
+    """
+    GAE = 'gae'
+    GRPO = 'grpo'
+    REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
+    REMAX = 'remax'
+    RLOO = 'rloo'
 
 
 @dataclass
@@ -119,7 +132,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     # prepare response group
     # TODO: add other ways to estimate advantages
-    if adv_estimator == 'gae':
+    if adv_estimator == AdvantageEstimator.GAE:
         values = data.batch['values']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -133,7 +146,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                       lam=lam)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'grpo':
+    elif adv_estimator == AdvantageEstimator.GRPO:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -145,7 +158,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                         index=index)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'reinforce_plus_plus':
+    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         token_level_rewards = data.batch['token_level_rewards']
         responses = data.batch['responses']
         response_length = responses.size(-1)
@@ -155,7 +168,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             token_level_rewards=token_level_rewards, eos_mask=response_mask, gamma=gamma)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'remax':
+    elif adv_estimator == AdvantageEstimator.REMAX:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -171,7 +184,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == 'rloo':
+    elif adv_estimator == AdvantageEstimator.RLOO:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -378,9 +391,12 @@ class RayPPOTrainer(object):
         else:
             self.kl_ctrl = core_algos.FixedKLController(kl_coef=0.)
 
-        if self.config.algorithm.adv_estimator == 'gae':
+        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
-        elif self.config.algorithm.adv_estimator in ['grpo', 'reinforce_plue_plus', 'remax', 'rloo']:
+        elif self.config.algorithm.adv_estimator in [
+                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+                AdvantageEstimator.RLOO
+        ]:
             self.use_critic = False
         else:
             raise NotImplementedError
@@ -473,7 +489,6 @@ class RayPPOTrainer(object):
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
-        from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
@@ -490,11 +505,11 @@ class RayPPOTrainer(object):
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
 
-        self.train_dataloader = DataLoader(dataset=self.train_dataset,
-                                           batch_size=self.config.data.train_batch_size,
-                                           drop_last=True,
-                                           collate_fn=collate_fn,
-                                           sampler=sampler)
+        self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+                                                   batch_size=self.config.data.train_batch_size,
+                                                   drop_last=True,
+                                                   collate_fn=collate_fn,
+                                                   sampler=sampler)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
@@ -503,20 +518,21 @@ class RayPPOTrainer(object):
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
-        self.val_dataloader = DataLoader(
+        self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
             # which will schedule the memory themselves.
             batch_size=len(self.val_dataset),
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
             collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
-        assert len(self.val_dataloader) >= 1
+        assert len(
+            self.val_dataloader
+        ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
 
         print(f'Size of train dataloader: {len(self.train_dataloader)}')
-        print(f'Size of val dataloader: {len(self.val_dataloader)}')
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -746,8 +762,8 @@ class RayPPOTrainer(object):
 
         # save dataloader
         dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
-        import dill
-        torch.save(self.train_dataloader, dataloader_local_path, pickle_module=dill)
+        dataloader_state_dict = self.train_dataloader.state_dict()
+        torch.save(dataloader_state_dict, dataloader_local_path)
 
         # latest checkpointed iteration tracker (for atomic usage)
         local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
@@ -802,9 +818,11 @@ class RayPPOTrainer(object):
         # load dataloader,
         # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
-        self.train_dataloader = torch.load(dataloader_local_path)
-        if isinstance(self.train_dataloader.dataset, RLHFDataset):
-            self.train_dataloader.dataset.resume_dataset_state()
+        if os.path.exists(dataloader_local_path):
+            dataloader_state_dict = torch.load(dataloader_local_path)
+            self.train_dataloader.load_state_dict(dataloader_state_dict)
+        else:
+            print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -869,7 +887,7 @@ class RayPPOTrainer(object):
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
-                    if self.config.algorithm.adv_estimator == 'remax':
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info['do_sample'] = False

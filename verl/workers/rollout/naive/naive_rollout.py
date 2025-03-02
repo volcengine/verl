@@ -30,7 +30,7 @@ from verl import DataProto
 from verl.utils.torch_functional import logprobs_from_logits
 from ..base import BaseRollout
 
-__all__ = ['NativeRollout']
+__all__ = ['NaiveRollout']
 
 
 class NaiveRollout(BaseRollout):

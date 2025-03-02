@@ -1,8 +1,8 @@
-# Readme for verl(vllm>=0.7) version
+# Upgrading to vllm >= 0.7
 
 ## Installation
 
-Note: This version of veRL supports **FSDP** for training and **vLLM** for rollout. (Megatron-LM is not supported yet.)
+Note: This version of veRL+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
 
 ```
 # Create the conda environment
@@ -14,16 +14,15 @@ git clone https://github.com/volcengine/verl.git
 cd verl
 pip3 install -e .
 
-# Install vLLM>=0.7
-# (Option1) pip3 install vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
-# (Option2) pip3 install "vllm>=0.7.0" 
+# Install the latest stable version of vLLM
+pip3 install vllm==0.7.3 
 
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
 
 ```
 
-Note that if you are installing stable versions of vLLM (Option2), you need to make some tiny patches manually on vllm (/path/to/site-packages/vllm after installation) after the above steps:
+Note that if you are installing lower versions of vLLM (0.7.0, 0.7.1, 0.7.2), you need to make some tiny patches manually on vllm (/path/to/site-packages/vllm after installation) after the above steps:
 
 - vllm/distributed/parallel_state.py: Remove the assertion below:
 
@@ -40,8 +39,6 @@ if (world_size
 - vllm/executor/uniproc_executor.py: change `local_rank = rank` to `local_rank = int(os.environ["LOCAL_RANK"])`
 - vllm/model_executor/model_loader/weight_utils.py: remove the `torch.cuda.empty_cache()` in `pt_weights_iterator`
 
-These modifications have already been merged into the main branch of vLLM. Thus nightly vLLM or building vLLM from source do not need these patches.
-
 ## Features
 
 ### Use cuda graph
@@ -56,10 +53,19 @@ actor_rollout_ref.rollout.free_cache_engine=False \
 
 For a typical job like examples/ppo_trainer/run_qwen2-7b_seq_balance.sh, the rollout generation time is 115 seconds with vLLM0.6.3, while it is 85 seconds with vLLM0.7.0. By enabling the cudagraph, the generation duration is further reduced to 62 seconds.
 
-**Note:** Currently, if the `n` is greater than 1 in `SamplingParams` in vLLM>=0.7, there is a potential performance issue on the stability of rollout generation time (Some iterations would see generation time bursts). We are working with the vLLM team to check this issue.
+**Note:** Currently, if the `n` is greater than 1 in `SamplingParams` in vLLM>=0.7, there is a potential performance issue on the stability of rollout generation time (Some iterations would see generation time bursts) using vLLM's V0 Engine.
 
-### Other features in vLLM
+### Use vLLM V1 Engine
 
-1. **num_scheduler_step>1:** not supported yet (weight loading has not been aligned with `MultiStepModelRunner`)
-2. **Prefix caching:** not supported yet (vLLM sleep mode does not support prefix caching)
-3. **Chunked prefill:** supported
+Using the vLLM V1 engine can avoid instability issues and achieve additional performance improvements. To use the V1 engine, you can first uninstall the previously installed vLLM and then follow the steps below to install the newer version.
+
+```
+git clone https://github.com/vllm-project/vllm.git
+cd vllm
+git checkout eb24dc4
+sed -i "903a\    data_parallel_size = world_size // pipeline_model_parallel_size // tensor_model_parallel_size" ./vllm/distributed/parallel_state.py
+VLLM_USE_PRECOMPILED=1 pip install --editable .
+```
+
+Then you can enable the V1 engine by setting `export VLLM_USE_V1=1`. In some benchmark tests, the V1 engine demonstrates a 1.5x speed improvement over the vLLM V0 engine.
+The stable support of the vLLM V1 engine will come soon.

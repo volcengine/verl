@@ -75,13 +75,14 @@ actor_rollout_ref:
     load_format: dummy_dtensor
     tensor_model_parallel_size: 2
     max_num_batched_tokens: 8192
+    max_model_len: null
     max_num_seqs: 1024
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
-    enable_chunked_prefill: True # could get higher throughput
+    enable_chunked_prefill: True # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
     # for hf rollout
     do_sample: True
     # number of responses (i.e. num sample times)
