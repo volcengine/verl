@@ -127,6 +127,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
 - [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
 - [Easy-R1](https://github.com/hiyouga/EasyR1): Multi-Modality RL
+- [Code-R1](https://github.com/ganler/code-r1): Reproducing R1 for Code with Reliable Rewards
 
 ## Contribution Guide
 Contributions from the community are welcome!
