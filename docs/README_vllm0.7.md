@@ -62,7 +62,7 @@ Using the vLLM V1 engine can avoid instability issues and achieve additional per
 ```
 git clone https://github.com/vllm-project/vllm.git
 cd vllm
-git checkout eb24dc4
+git checkout 2275784
 sed -i "903a\    data_parallel_size = world_size // pipeline_model_parallel_size // tensor_model_parallel_size" ./vllm/distributed/parallel_state.py
 VLLM_USE_PRECOMPILED=1 pip install --editable .
 ```
