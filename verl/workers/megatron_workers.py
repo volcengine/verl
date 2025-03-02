@@ -432,6 +432,24 @@ class ActorRolloutRefWorker(MegatronWorker):
         assert self._is_actor
         pass
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, execute_mode=Execute.RANK_ZERO)
+    def push_to_hub(self, repo_id: str, local_path: str, private: bool = False, token: str = None):
+        """Push a model to the Hugging Face Hub.
+
+        Args:
+            repo_id (`str`):
+                The name of the repository you want to push your model to. It should be in the format `username/model_name`.
+            local_path (`str`):
+                Path to the local directory containing the model files.
+            private (`bool`, *optional*, defaults to `False`):
+                Whether the model repository should be private.
+            token (`str`, *optional*):
+                The token to use as HTTP bearer authorization for remote files. If None, will use the token generated when
+                running `huggingface-cli login` (stored in `~/.huggingface`).
+        """
+        from verl.utils.huggingface import push_to_hub as _push_to_hub
+        _push_to_hub(repo_id=repo_id, local_path=local_path, private=private, token=token)
+
 
 class CriticWorker(MegatronWorker):
 
