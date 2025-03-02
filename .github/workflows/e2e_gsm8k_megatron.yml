@@ -1,4 +1,5 @@
 name: e2e_gsm8k_megatron
+# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
 
 on:
   # Trigger the workflow on push or pull request,
@@ -48,7 +49,7 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
-          [ ! -d "$HOME/Megatron-LM" ] && git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM $HOME/Megatron-LM
+          [ ! -d "$HOME/Megatron-LM" ] && git clone --single-branch --branch core_r0.11.0 https://github.com/NVIDIA/Megatron-LM.git $HOME/Megatron-LM
           export PYTHONPATH=$PYTHONPATH:$HOME/Megatron-LM
           bash tests/e2e/run_deepseek_megatron.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Qwen)
