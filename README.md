@@ -118,18 +118,20 @@ If you find the project helpful, please cite:
 verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The project is adopted and supported by Anyscale, Bytedance, LMSys.org, Shanghai AI Lab, Tsinghua University, UC Berkeley, UCLA, UIUC, and University of Hong Kong.
 
 ## Awesome work using verl
-- [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
-- [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
-- [Process Reinforcement Through Implicit Rewards](https://github.com/PRIME-RL/PRIME/)
-- [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of DeepSeek R1 Zero recipe for reasoning tasks
-- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
-- [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of **DeepSeek R1 Zero** recipe for reasoning tasks
+- [PRIME](https://github.com/PRIME-RL/PRIME): Process reinforcement through implicit rewards
+- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning **agent** training framework
+- [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
-- [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
-- [Easy-R1](https://github.com/hiyouga/EasyR1): Multi-Modality RL
+- [critic-rl](https://github.com/HKUNLP/critic-rl): LLM critics for code generation
+- [Easy-R1](https://github.com/hiyouga/EasyR1): **Multi-modal** RL training framework
+- [self-rewarding-reasoning-LLM](https://arxiv.org/pdf/2502.19613): self-rewarding and correction with **generative reward models**
+- [Search-R1](https://github.com/PeterGriffinJin/Search-R1): RL with reasoning and **searching (tool-call)** interleaved LLMs
+- [DQO](https://arxiv.org/abs/2410.09302): Enhancing multi-Step reasoning abilities of language models through direct Q-function optimization
+- [FIRE](https://arxiv.org/abs/2410.21236): Flaming-hot initiation with regular execution sampling for large language models
 
 ## Contribution Guide
-Contributions from the community are welcome!
+Contributions from the community are welcome! Please checkout our [roadmap](https://github.com/volcengine/verl/issues/22) and [release plan](https://github.com/volcengine/verl/issues/354).
 
 ### Code formatting
 We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat you code locally, make sure you installed **latest** `yapf`
