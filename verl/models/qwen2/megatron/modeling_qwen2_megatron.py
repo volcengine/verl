@@ -84,7 +84,7 @@ class ParallelQwen2Model(nn.Module):
         embedding_kwargs = tp_utils.get_default_kwargs_for_parallel_embedding()
         if megatron_config is not None:
             assert embedding_kwargs.get('config', False), 'must have ModelParallelConfig'
-            tp_utils.update_kwargs_with_config(embedding_kwargs, self.megatron_config)
+            tp_utils.update_kwargs_with_config(embedding_kwargs, megatron_config)
         self.embed_tokens = tensor_parallel.VocabParallelEmbedding(num_embeddings=config.vocab_size,
                                                                    embedding_dim=config.hidden_size,
                                                                    **embedding_kwargs)
