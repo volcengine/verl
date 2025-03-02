@@ -19,17 +19,24 @@ import torch.nn as nn
 
 # Supported models using HF Rmpad
 # TODO(sgm): HF may supported more than listed here, we should add more after testing
-from transformers import LlamaConfig, MistralConfig, GemmaConfig, Qwen2Config
-
-_REOVEPAD_MODELS = {'llama': LlamaConfig, 'mistral': MistralConfig, 'gemma': GemmaConfig, 'qwen2': Qwen2Config}
+_MODELS_SUPPORT_RMPAD = {'llama', 'mistral', 'gemma', 'qwen2', 'qwen2_vl', 'qwen2_5_vl'}
 
 
 def check_model_support_rmpad(model_type: str):
     assert isinstance(model_type, str)
-    if not model_type in _REOVEPAD_MODELS.keys():
+    if not model_type in _MODELS_SUPPORT_RMPAD:
         raise ValueError(f"Model architecture {model_type} is not supported for now. "
-                         f"RMPad supported architectures: {_REOVEPAD_MODELS.keys()}."
+                         f"RMPad supported architectures: {_MODELS_SUPPORT_RMPAD}."
                          f"Please set `use_remove_padding=False` in the model config.")
+
+    if model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
+        from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+        from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLFlashAttention2
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2
+
+        Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
+        Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
+        print("Qwen2vl patch applied!")
 
 
 # Supported models in Megatron-LM

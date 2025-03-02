@@ -16,7 +16,7 @@ import ray
 import os
 
 import warnings
-
+from typing import Union
 import torch
 import torch.distributed
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType
@@ -24,7 +24,7 @@ from torch.distributed.fsdp import ShardedStateDictConfig, ShardedOptimStateDict
 
 from verl.utils.fs import copy_to_local, is_non_local
 
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from .checkpoint_manager import BaseCheckpointManager
 
@@ -41,12 +41,22 @@ class FSDPCheckpointManager(BaseCheckpointManager):
     We save 
     - sharded model states and optimizer states
     - full lr_scheduler states
-    - huggingface tokenizer and config for ckpt merge
+    - huggingface tokenizer/processor and config for ckpt merge
     """
 
-    def __init__(self, model: FSDP, optimizer: torch.optim.Optimizer,
-                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler, tokenizer: PreTrainedTokenizer, *args, **kwargs):
-        super().__init__(model, optimizer, lr_scheduler, tokenizer)
+    def __init__(self,
+                 model: FSDP,
+                 optimizer: torch.optim.Optimizer,
+                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+                 processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+                 **kwargs):
+
+        if processing_class is None:
+            assert "tokenizer" in kwargs, "tokenizer or processor must be provided"
+            warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
+            processing_class = kwargs.pop("tokenizer")
+
+        super().__init__(model, optimizer, lr_scheduler, processing_class)
 
     def load_checkpoint(self, path=None, del_local_after_load=False, *args, **kwargs):
         if path is None:
@@ -142,7 +152,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             hf_local_path = os.path.join(local_path, 'huggingface')
             os.makedirs(hf_local_path, exist_ok=True)
             self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-            self.tokenizer.save_pretrained(hf_local_path)
+            self.processing_class.save_pretrained(hf_local_path)
 
         torch.distributed.barrier()
 

@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import tokenizer
-from .tokenizer import hf_tokenizer, hf_processor
+from mathruler.grader import extract_boxed_content, grade_answer
 
-__all__ = tokenizer.__all__
+
+def compute_score(predict_str: str, ground_truth: str) -> float:
+    answer = extract_boxed_content(predict_str)
+    if grade_answer(answer, ground_truth):
+        return 1.0  # correct answer
+
+    return 0.0  # wrong answer
