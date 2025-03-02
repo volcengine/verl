@@ -40,6 +40,7 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
+
 WorkerType = Type[Worker]
 
 
@@ -334,6 +335,20 @@ def compute_timing_metrics(batch, timing_raw):
         },
     }
 
+###
+# [SUPPORT AMD:]
+def compute_throughout_metrics(batch, timing_raw, n_gpus):
+    total_num_tokens = sum(batch.meta_info['global_token_num'])
+    time = timing_raw["step"]
+    # estimated_flops, promised_flops = flops_function.estimate_flops(num_tokens, time)
+        # f'Actual TFLOPs/s/GPU​': estimated_flops/(n_gpus),
+        # f'Theoretical TFLOPs/s/GPU​': promised_flops,
+    return {
+        f'total_num_tokens': total_num_tokens, 
+        f'time_per_step': time, 
+        f'Tokens/Sec/GPU': total_num_tokens/(time*n_gpus),
+    }
+###
 
 @contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
@@ -917,6 +932,7 @@ class RayPPOTrainer(object):
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
+
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -993,6 +1009,14 @@ class RayPPOTrainer(object):
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                
+                ###
+                # [SUPPORT AMD:]
+                config = self.config
+                n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+                # Implement actual tflpo and theoretical tflpo  
+                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus)) 
+                ###
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

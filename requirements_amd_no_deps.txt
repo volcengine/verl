@@ -1,0 +1,17 @@
+tensordict<0.6 #will need the coresponding torch version (need to ensure rocm support it)
+
+# tensordict<0.6 #will need the coresponding torch version (need to ensure rocm support it)
+# ray[default]==2.41.0
+
+## [pre-do]
+## intall:
+# torch                             2.5.0a0+gitcedc116
+# torchvision                       0.19.1a0+6194369
+# triton                            3.0.0
+
+##build:
+# flash_attn                        2.6.3
+# vllm                              0.6.3+rocm624
+
+# pip uninstall -y vllm && PYTORCH_ROCM_ARCH="gfx90a;gfx942" pip install "git+https://github.com/vllm-project/vllm.git@v0.6.3#egg=vllm" --no-deps
+# GPU_ARCH=gfx942 MAX_JOBS=$(nproc) pip install "git+https://github.com/Dao-AILab/flash-attention.git@v2.6.3#egg=flash-attention" --no-deps

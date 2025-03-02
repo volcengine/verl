@@ -1,3 +1,19 @@
+data
+
+# Do not ignore /verl/third_party/vllm 
+vllm
+!/verl/third_party/vllm
+src/
+
+docker_env_install_vllm.sh
+docker_run_vllm.sh
+run_grpo.sh
+run_ppo.sh
+run_test.sh
+setup_amd.py
+setup_org.py
+
+
 **/*.pt
 **/checkpoints
 **/wget-log

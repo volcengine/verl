@@ -1,0 +1,27 @@
+FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTORCH_ROCM_ARCH="gfx90a;gfx942" \
+    MAX_JOBS=$(nproc)
+
+# Install vllm
+RUN pip uninstall -y vllm && \
+    git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
+    cd vllm && \
+    python3 setup.py install && \
+    cd .. && \
+    rm -rf vllm
+
+# Copy and install dependencies
+COPY requirements_amd_no_deps.txt requirements_amd.txt ./
+RUN pip install -r requirements_amd_no_deps.txt --no-deps && \
+    pip install -r requirements_amd.txt && \
+    pip install -e . --no-deps
+
+# Set container port
+EXPOSE 8265
+
+# Shared memory size will be set during docker run with --shm-size 128G
