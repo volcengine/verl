@@ -72,6 +72,7 @@ verl is fast with:
    :caption: Performance Tuning Guide
    
    perf/perf_tuning
+   README_vllm0.7.md
 
 .. toctree::
    :maxdepth: 1
@@ -87,6 +88,13 @@ verl is fast with:
    advance/dpo_extension
    advance/fsdp_extension
    advance/megatron_extension
+
+.. toctree::
+   :maxdepth: 1
+   :caption: API References
+
+   data.rst
+
 
 .. toctree::
    :maxdepth: 1

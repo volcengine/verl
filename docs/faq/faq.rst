@@ -55,3 +55,8 @@ Please set the following environment variable. The env var must be set before th
     export VLLM_ATTENTION_BACKEND=XFORMERS
 
 If in doubt, print this env var in each rank to make sure it is properly set.
+
+Checkpoints
+------------------------
+
+If you want to convert the model checkpoint into huggingface safetensor format, please refer to ``scripts/model_merger.py``.

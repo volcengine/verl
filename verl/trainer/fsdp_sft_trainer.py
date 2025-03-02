@@ -39,7 +39,7 @@ from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_fir
 
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
 from verl.utils.dataset import SFTDataset
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from verl.utils.tracking import Tracking
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
 from torch.distributed.device_mesh import DeviceMesh
@@ -83,7 +83,7 @@ class FSDPSFTTrainer(object):
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         # build tokenizer first
-        local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
+        local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
         from verl.utils import hf_tokenizer
         self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code)
         if self.config.data.chat_template is not None:
@@ -167,7 +167,7 @@ class FSDPSFTTrainer(object):
                                            drop_last=True)
 
         self.val_sampler = DistributedSampler(self.val_dataset,
-                                              shuffle=True,
+                                              shuffle=False,
                                               num_replicas=world_size,
                                               rank=rank,
                                               drop_last=True)
@@ -182,7 +182,7 @@ class FSDPSFTTrainer(object):
         # TODO (zhangchi.usc1992):
         # 1. support pretrain from random weights
         # 2. support init directly from sharded weights
-        local_model_path = copy_local_path_from_hdfs(src=self.config.model.partial_pretrain, verbose=True)
+        local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
 
         if self.config.model.get('external_lib', None) is not None:
             # This is used to import external_lib into the huggingface systems

@@ -30,7 +30,7 @@ from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
 from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights
 from verl.utils.megatron_utils import init_model_parallel_config
@@ -111,6 +111,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # normalize config
         if self._is_actor and self._is_rollout:
+            self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
             self.config.actor.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
             if self.config.actor.get('ppo_micro_batch_size', None):
                 self.config.actor.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
@@ -140,7 +141,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GenerationConfig
 
         # Step 1: initialize the tokenizer
-        local_path = copy_local_path_from_hdfs(model_path)
+        local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
@@ -485,7 +486,7 @@ class CriticWorker(MegatronWorker):
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer
-        local_path = copy_local_path_from_hdfs(model_path)
+        local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
@@ -650,7 +651,7 @@ class RewardModelWorker(MegatronWorker):
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer
-        local_path = copy_local_path_from_hdfs(model_path)
+        local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
 
         # Step 2: get the actor_model_config
@@ -714,12 +715,12 @@ class RewardModelWorker(MegatronWorker):
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
-        sft_tokenizer_local_path = copy_local_path_from_hdfs(self.config.model.input_tokenizer)
+        sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
         rm_tokenizer_path = self.config.model.get('rm_tokenizer', None)
         rm_tokenizer = None
         if rm_tokenizer_path is not None:
-            rm_tokenizer_local_path = copy_local_path_from_hdfs(rm_tokenizer_path)
+            rm_tokenizer_local_path = copy_to_local(rm_tokenizer_path)
             rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path)
 
         torch_dtype = torch.bfloat16
