@@ -89,6 +89,7 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times)
     n: 1 # > 1 for grpo
     multi_turn: ${actor_rollout_ref.actor.multi_turn}
+    max_turns: -1
     plugin_browser: False
     path: ${actor_rollout_ref.model.path}
 

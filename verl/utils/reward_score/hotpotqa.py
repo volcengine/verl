@@ -91,24 +91,21 @@ def query_sglang_chat(
 
     return None
 
-def extract_solution(question, response, extractor_urls):
+def extract_solution(question, response, extractor_urls, eos_token):
     # response = response.strip().split('\n')
     # resp_text = [x for x in response if x.strip()]
     # resp_text = "\n".join(resp_text[-3:])
     response = response.replace("<|endoftext|>", "").strip()
     resp_text = response.strip().split("<|assistant|>")[-1]
     
-    # print("*"*20)
-    # print(resp_text)
-    
     # for glm
     # if not resp_text.strip().endswith("<|user|>"):
-    #     return None
-    
     # for qwen
-    # print("resp_text: ", resp_text)
-    if not resp_text.strip().endswith("<|im_end|>"):
-        print("not end with <|im_end|>")
+    # if not resp_text.strip().endswith("<|im_end|>"):
+    
+    # general eos_token
+    if not resp_text.strip().endswith(eos_token):
+        print(f"not end with {eos_token}")
         print(resp_text)
         return -1
 
@@ -142,7 +139,7 @@ def checker_check_equality(question: str, expr1: str, expr2: str, urls):
         return 0
     return response.lower().strip() == "yes"
 
-def compute_score(solution_str, ground_truth, format_score=0., score=1.,question="",extractor_urls=[],checker_urls=[]):
+def compute_score(solution_str, ground_truth, format_score=0., score=1., question="", extractor_urls=[], checker_urls=[], tokenizer=None):
     """The scoring function for GSM8k.
 
     Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
@@ -157,11 +154,14 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1.,question
     # for test
     # return random.random()
     
+    eos_token = tokenizer.eos_token
+    
     # for llm-as-judge
     response = solution_str.replace("<|endoftext|>", "").strip()
     resp_print = response.strip().split("<|assistant|>")[-1]
-    answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls)
+    answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls, eos_token=eos_token)
     
+    # not end with eos_token(length or max turns)
     if answer == -1:
         return float(-1)
     

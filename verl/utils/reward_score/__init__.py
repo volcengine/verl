@@ -14,8 +14,7 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None,question=""):
-    # data_source="hotpotqa" ###
+def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, question="", tokenizer=None):
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
@@ -41,6 +40,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
             # checker_urls=["http://172.18.75.109:8000/v1"],
             extractor_urls=["http://172.20.68.119:8000/v1"],
             checker_urls=["http://172.20.69.226:8000/v1"],
+            tokenizer=tokenizer
         )
         # lurui: must return a float
         print("judgement by hotpotqa: ", res)

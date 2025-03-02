@@ -240,8 +240,10 @@ class vLLMRollout(BaseRollout):
 
             # Initialize tensors for final sequences
             # TODO: can set config parameter: max_turns
-            # max_turns = 10
-            max_turns = 5
+            
+            max_turns = self.config.get('max_turns', -1)
+            assert max_turns > 0, f"max_turns: {max_turns}"
+            
             batch_size = len(response)
             max_seq_length = self.config.response_length + input_ids.size(1)
 

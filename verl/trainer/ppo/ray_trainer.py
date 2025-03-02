@@ -257,34 +257,40 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
         uid_scores[uid].append(score.item())
 
     # Calculate the overlong ratio
-    overlong_ratios = []
     pad_token_id = tokenizer.pad_token_id
-    save_resp_trim = []
+    length_overlong_ratios = []
+    turn_overlong_ratios = []
+    
+    # save_resp_trim = []
     for resp in batch.batch['responses']:
         resp_trim = resp[resp != pad_token_id]
-        save_resp_trim.append(resp_trim.tolist())
-        if len(resp_trim) >= max_response_length:
-            overlong_ratios.append(1)
-        else:
-            overlong_ratios.append(0)
+        # save_resp_trim.append(resp_trim.tolist())
+        length_overlong_ratios.append(int(len(resp_trim) >= max_response_length))
+        turn_overlong_ratios.append(resp_trim[-1] != tokenizer.eos_token_id)
+    
+    length_overlong_ratio = sum(length_overlong_ratios) / len(length_overlong_ratios)
+    turn_overlong_ratio = sum(turn_overlong_ratios) / len(turn_overlong_ratios)
 
-    with open("logs/resp_trim.json", "a") as f:
-        import json
-        f.write(json.dumps(save_resp_trim) + "\n")
-
-
+    # with open("logs/resp_trim.json", "a") as f:
+    #     import json
+    #     f.write(json.dumps(save_resp_trim) + "\n")
+    
+    # convert -1 into 0 for sequence_score, cause -1 also means wrong
+    binary_sequence_score = torch.where(sequence_score == -1, torch.tensor(0.0), sequence_score)
     metrics = {
-        # score
-        'critic/pass@1':
-            torch.mean(sequence_score).detach().item(),
-        'critic/passrate':
+        # metric that search concern
+        'search/pass@1':
+            torch.mean(binary_sequence_score).detach().item(),
+        'search/passrate':
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
-
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/length_overlong_ratio':
+            length_overlong_ratio,
+        'search/turn_overlong_ratio':
+            turn_overlong_ratio,
         'search/overlong_ratio':
-            torch.mean(torch.tensor(overlong_ratios, dtype=torch.float)).detach().item(),
-        
+            length_overlong_ratio + turn_overlong_ratio,
         'search/penalty_minus_1_ratio':
             torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 

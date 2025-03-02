@@ -105,7 +105,8 @@ class NaiveRewardManager:
                 solution_str=sequences_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                question=prompt_str
+                question=prompt_str,
+                tokenizer=self.tokenizer
             )
             return i, valid_response_length, score, data_source, sequences_str
 
