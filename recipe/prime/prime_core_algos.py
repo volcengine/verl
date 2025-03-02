@@ -19,7 +19,6 @@ import verl.utils.torch_functional as verl_F
 
 def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, n_samples, config):
     # calculate rloo reward on different reward sources, and sum again
-
     def masked_rloo(reward_tensor_original, mask_tensor):
         reward_tensor = reward_tensor_original.clone()
         reward_tensor[~mask_tensor] = 0

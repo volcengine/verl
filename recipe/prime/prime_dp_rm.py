@@ -59,6 +59,9 @@ class DataParallelPRIMERewardModel:
         attention_mask = micro_batch['attention_mask']
         position_ids = micro_batch['position_ids']
 
+        num_actions = micro_batch['input_ids'].shape[-1] - prompt_length
+        max_positions = micro_batch['attention_mask'][:, prompt_length:].sum(-1)
+
         if self.use_remove_padding:
             input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
                                                        attention_mask)  # input_ids_rmpad (total_nnz, ...)
@@ -89,7 +92,7 @@ class DataParallelPRIMERewardModel:
             rm_log_labels = pad_input(hidden_states=rm_log_labels.unsqueeze(-1),
                                       indices=indices,
                                       batch=batch_size,
-                                      seqlen=seqlen).squeeze(-1)
+                                      seqlen=seqlen).squeeze(-1)[:, -num_actions - 1:-1]
 
         else:
             rm_output_logits = self.reward_module(input_ids=micro_batch['input_ids'],
@@ -101,7 +104,7 @@ class DataParallelPRIMERewardModel:
                 -1)  # (batch, seq_length)
 
         if self.ref_module is not None:
-            # 不用重复remove pad，只用做好re-pad即可
+            # do not have to pad again
             with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 if self.ulysses_sequence_parallel_size > 1 and self.use_remove_padding:
                     ref_output_logits = self.ref_module(input_ids=input_ids_rmpad,
@@ -117,7 +120,7 @@ class DataParallelPRIMERewardModel:
                     ref_log_labels = pad_input(hidden_states=ref_log_labels.unsqueeze(-1),
                                                indices=indices,
                                                batch=batch_size,
-                                               seqlen=seqlen).squeeze(-1)
+                                               seqlen=seqlen).squeeze(-1)[:, -num_actions - 1:-1]
                 else:
                     ref_output_logits = self.ref_module(input_ids=micro_batch['input_ids'],
                                                         attention_mask=micro_batch['attention_mask'],
@@ -130,8 +133,7 @@ class DataParallelPRIMERewardModel:
         else:
             ref_log_labels = micro_batch['old_log_probs']
 
-        num_actions = micro_batch['input_ids'].shape[-1] - prompt_length
-        max_positions = micro_batch['attention_mask'][:, prompt_length:].sum(-1)
+
 
         ref_log_labels.to(rm_log_labels.dtype)
         q = rm_log_labels[:, -num_actions:] - ref_log_labels[:, -num_actions:]  # this is actually diff of q
@@ -149,9 +151,8 @@ class DataParallelPRIMERewardModel:
                 acc = micro_batch['acc']
                 q_ = q * beta
                 r = torch.zeros_like(q)
-                # TODO: 参考implicit value model在此处的处理方式，应该是靠直接修改max_positions[0]-1位置的q为r-Q_{t-1}，后面的r全部抹0
                 lastgaelam = 0
-                # change the last token and mask out all paddings to make this process easier
+                # change the last token and mask out all paddings to make this process easier if we rely on outcome reward to calculate V
                 for i in range(q.shape[0]):
                     if self.config.prime_use_gt:
                         q_[i, max_positions[i] - 1] = acc[i] - q_[i, :max_positions[i] - 1].sum()
