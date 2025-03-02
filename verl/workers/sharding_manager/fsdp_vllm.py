@@ -15,6 +15,7 @@
 import os
 import logging
 import torch
+import numpy as np
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -127,16 +128,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group(),
-                                                dim=0)
+            size = vllm_ps.get_tensor_model_parallel_world_size()
+            group = vllm_ps.get_tensor_model_parallel_group()
+            data.group_communicate(size, group)
         else:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group().device_group,
-                                                dim=0)
-
+            size = vllm_ps.get_tensor_model_parallel_world_size()
+            group = vllm_ps.get_tensor_model_parallel_group().device_group
+            data.group_communicate(size, group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
