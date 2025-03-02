@@ -314,9 +314,9 @@ class vLLMRollout(BaseRollout):
                         decoded_responses.append(text)
                         observation_indices.append(check_idx)
 
-                with open("logs/decoded_responses.json", "w") as f:
-                    import json
-                    json.dump(decoded_responses, f)
+                # with open("logs/decoded_responses.json", "w") as f:
+                #     import json
+                #     json.dump(decoded_responses, f)
 
                 # Exit the loop if no observation responses are found
                 if not observation_indices:

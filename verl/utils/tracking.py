@@ -41,7 +41,9 @@ class Tracking(object):
             wandb.init(
                 project=project_name, 
                 name=experiment_name,
-                id=experiment_name,
+                id=experiment_name, # for resume
+                group=experiment_name, # for merge
+                job_type='train',
                 resume="allow",
                 config=config
             )
