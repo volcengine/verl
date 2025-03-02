@@ -35,6 +35,7 @@ from torch import nn
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMRollout
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from vllm import SamplingParams
@@ -54,7 +55,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     return token_ids
 
 
-class vLLMRollout(BaseRollout):
+class FIREvLLMRollout(vLLMRollout):
 
     def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
@@ -66,76 +67,17 @@ class vLLMRollout(BaseRollout):
             model_hf_config: the huggingface config to initiallize the generating model in vllm
             **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
         """
-        super().__init__()
-        self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), \
-            "disable CUDA graph (enforce_eager = False) if free cache engine"
+        super().__init__(actor_module, config, tokenizer, model_hf_config, **kwargs)
 
-        tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), \
-            "tensor parallel size should be less than or equal to the world size"
-        max_num_batched_tokens = int(self.config.get('max_num_batched_tokens', 8192))
-
-        if kwargs.get('train_tp', None) is not None:
-            # deployed with megatron
-            import os
-            os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
-            os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
-            train_tp = kwargs.get('train_tp', None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                  num_tp_per_train_tp=num_tp_per_train_tp)
-
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
-            "model context length should be greater than total sequence length"
-
-        max_model_len = self.config.max_model_len if self.config.max_model_len \
-                        else config.prompt_length + config.response_length
-        max_model_len = int(max_model_len)
-
-        if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
-            raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill')
-
-        self.inference_engine = LLM(
-            actor_module,
-            tokenizer=tokenizer,
-            model_hf_config=model_hf_config,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype=config.dtype,
-            enforce_eager=config.enforce_eager,
-            gpu_memory_utilization=config.gpu_memory_utilization,
-            skip_tokenizer_init=False,
-            max_model_len=max_model_len,
-            load_format=config.load_format,
-            disable_log_stats=config.disable_log_stats,
-            max_num_batched_tokens=max_num_batched_tokens,
-            enable_chunked_prefill=config.enable_chunked_prefill,
-        )
-
-        # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights()
-
-        kwargs = dict(
-            n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
-            max_tokens=config.response_length,
-        )
-
-        # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            kwargs['detokenize'] = False
-
-        # supporting adding any sampling params from the config file
-        for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
-                kwargs[k] = config.get(k)
-
-        print(f"kwargs: {kwargs}")
-        self.sampling_params = SamplingParams(**kwargs)
-
-        self.pad_token_id = tokenizer.pad_token_id
+        self.use_fire_sampling = config.get('use_fire_sampling', False)
+        if self.use_fire_sampling:
+            kwargs_0 = kwargs.copy()
+            kwargs_0['temperature'] = 30
+            kwargs_0['max_tokens'] = 1
+            if 'top_k' not in kwargs_0 or kwargs_0['top_k'] <= 0:
+                kwargs_0['top_k'] = 16
+            kwargs['max_tokens'] -= 1
+            self.sampling_params_0 = SamplingParams(**kwargs_0)
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -147,11 +89,22 @@ class vLLMRollout(BaseRollout):
                     old_value = getattr(self.sampling_params, key)
                     old_sampling_params_args[key] = old_value
                     setattr(self.sampling_params, key, value)
+        if self.use_fire_sampling:
+            old_sampling_params_args_0 = {}
+            if kwargs:
+                for key, value in kwargs.items():
+                    if hasattr(self.sampling_params_0, key):
+                        old_value = getattr(self.sampling_params_0, key)
+                        old_sampling_params_args_0[key] = old_value
+                        setattr(self.sampling_params_0, key, value)
         yield
         # roll back to previous sampling params
         # if len(old_sampling_params_args):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
+        if self.use_fire_sampling:
+            for key, value in old_sampling_params_args_0.items():
+                setattr(self.sampling_params_0, key, value)
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -185,18 +138,35 @@ class vLLMRollout(BaseRollout):
                 'n': 1  # if greedy, only 1 response
             }
 
-        # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = self.inference_engine.generate(
-                prompts=None,  # because we have already convert it to prompt token id
-                sampling_params=self.sampling_params,
-                prompt_token_ids=idx_list,
-                use_tqdm=False)
+        if not self.use_fire_sampling:
+            # users can customize different sampling_params at different run
+            with self.update_sampling_params(**kwargs):
+                output = self.inference_engine.generate(
+                    prompts=None,  # because we have already convert it to prompt token id
+                    sampling_params=self.sampling_params,
+                    prompt_token_ids=idx_list,
+                    use_tqdm=False)
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        response = output[0].to(idx.device)
-        log_probs = output[1].to(idx.device)
+            response = output[0].to(idx.device)  # (bs, response_length)
+            log_probs = output[1].to(idx.device)  # (bs, response_length)
+        else:
+            with self.update_sampling_params(**kwargs):
+                output_0 = self.inference_engine.generate(
+                    prompts=None,  # because we have already convert it to prompt token id
+                    sampling_params=self.sampling_params_0,
+                    prompt_token_ids=idx_list,
+                    use_tqdm=False)
+                new_idx_list = []
+                for i in range(batch_size):
+                    new_idx_list.append(idx_list[i] + output_0[0][i].tolist())
+                output = self.inference_engine.generate(
+                    prompts=None,  # because we have already convert it to prompt token id
+                    sampling_params=self.sampling_params,
+                    prompt_token_ids=new_idx_list,
+                    use_tqdm=False)
+
+            response = torch.cat([output_0[0], output[0]], dim=1).to(idx.device)  # (bs, response_length)
+            log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
