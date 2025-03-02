@@ -20,14 +20,12 @@ from tensordict import TensorDict
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
-from sglang.srt.server.engine_fragment import EngineFragment
-from sglang.srt.distributed import ParallelProcessGroups
+from sglang.srt.entrypoints.verl_engine import VerlEngine
 from torch.distributed.device_mesh import init_device_mesh
 from sglang.srt.sampling.sampling_params import SamplingParams
 from verl.third_party.sglang import parallel_state as sglang_ps
 import torch.distributed
 from torch.nn.utils.rnn import pad_sequence
-from transformers import AutoTokenizer
 
 if TYPE_CHECKING:
     from torch import nn
@@ -42,7 +40,7 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     return token_ids
 
 
-# NOTE(ljr): adhoc
+# NOTE(linjunrong): adhoc
 def _post_process_outputs(tokenizer, output):
 
     def _map_each_response(l):
@@ -83,6 +81,7 @@ class SGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        del os.environ['CUDA_VISIBLE_DEVICES']
         assert not (not config.enforce_eager and config.free_cache_engine), \
             "disable CUDA graph (enforce_eager = False) if free cache engine"
 
@@ -103,37 +102,27 @@ class SGLangRollout(BaseRollout):
             "model context length should be greater than total sequence length"
 
         tp_size = tensor_parallel_size
-        local_rank = int(os.environ["LOCAL_RANK"])
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
 
         # init device mesh
         device_mesh_kwargs = dict(mesh_shape=(world_size // tp_size, tp_size, 1), mesh_dim_names=["dp", "tp", "pp"])
-        device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+        # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
         # get tp_rank of this process in this tp group
-        tp_rank = device_mesh_device.get_local_rank("tp")
+        # tp_rank = device_mesh_cpu.get_local_rank("tp")
 
-        self.inference_engine = EngineFragment(
+        self.inference_engine = VerlEngine(
             model_path=actor_module,
-            tp_size=tensor_parallel_size,
-            tp_rank=tp_rank,
-            gpu_id=local_rank,
-            nccl_port=23456,
-            skip_tokenizer_init=False,
-            mem_fraction_static=config.gpu_memory_utilization,
             dtype=config.dtype,
-            parallel_process_groups=ParallelProcessGroups.from_devices_meshes(
-                device_mesh_device=device_mesh_device,
-                device_mesh_cpu=device_mesh_cpu,
-                dim_tp="tp",
-                dim_pp="pp",
-            ),
+            mem_fraction_static=config.gpu_memory_utilization,
+            device_mesh_cpu=device_mesh_cpu["tp"],
+            base_gpu_id=0,
+            gpu_id_step=1
         )
-        sglang_ps.ensure_model_parallel_initialized(tp_size, 1)
 
         #offload
-        self.inference_engine.release_gpu_occupation()
+        self.inference_engine.release_memory_occupation()
 
         kwargs = dict(
             n=1,
@@ -243,7 +232,10 @@ class SGLangRollout(BaseRollout):
             batch_size=batch_size)
 
         # free vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine._entrypoint._scheduler.flush_cache()
+        if (
+            self.config.free_cache_engine and 
+            self.inference_engine._engine is not None
+        ):
+            self.inference_engine._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch)

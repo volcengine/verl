@@ -22,7 +22,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from verl import DataProto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.utils.debug import log_gpu_memory_usage
-from sglang.srt.server.engine_fragment import EngineFragment
+from sglang.srt.entrypoints.verl_engine import VerlEngine
 from ..base import BaseShardingManager
 from verl.third_party.sglang import parallel_state as sglang_ps
 # from vllm.distributed import parallel_state as sglang_ps
@@ -35,7 +35,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def __init__(self,
                  module: FSDP,
-                 inference_engine: EngineFragment,
+                 inference_engine: VerlEngine,
                  model_config,
                  full_params: bool = False,
                  device_mesh: DeviceMesh = None):
@@ -93,7 +93,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
-        self.inference_engine.release_gpu_occupation
+        self.inference_engine.release_memory_occupation
         log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
@@ -113,20 +113,21 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
         data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                            size=sglang_ps.get_tensor_model_parallel_world_size(),
-                                            group=sglang_ps.get_tensor_model_parallel_group(),
+                                            size=self.device_mesh["infer_tp"].mesh.size()[0],
+                                            group=self.device_mesh["infer_tp"].get_group(),
                                             dim=0)
-
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
+        global_rank = self.device_mesh.get_rank()
+        tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
+        src_rank = global_rank // tp_size * tp_size
         broadcast_dict_tensor(data.batch,
-                              src=sglang_ps.get_tensor_model_parallel_src_rank(),
-                              group=sglang_ps.get_tensor_model_parallel_group())
-        dp_rank = torch.distributed.get_rank()
-        dp_size = torch.distributed.get_world_size()  # not consider torch micro-dp
-        tp_size = sglang_ps.get_tensor_model_parallel_world_size()
+                              src=src_rank,
+                              group=self.device_mesh["infer_tp"].get_group())
+        dp_rank = self.device_mesh["dp"].get_local_rank()
+
         if tp_size > 1:
             # TODO: shall we build a micro_dp group for vllm when integrating with vLLM?
             local_prompts = data.chunk(chunks=tp_size)
