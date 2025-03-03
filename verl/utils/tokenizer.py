@@ -14,7 +14,7 @@
 """Utils for tokenization."""
 import warnings
 
-__all__ = ['hf_tokenizer']
+__all__ = ['hf_tokenizer', 'hf_processor']
 
 
 def set_pad_token_id(tokenizer):
@@ -57,3 +57,24 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
     if correct_pad_token:
         set_pad_token_id(tokenizer)
     return tokenizer
+
+
+def hf_processor(name_or_path, **kwargs):
+    """Create a huggingface processor to process multimodal data.
+
+    Args:
+        name_or_path (str): The name of the processor.
+
+    Returns:
+        transformers.ProcessorMixin: The pretrained processor.
+    """
+    from transformers import AutoProcessor
+    try:
+        processor = AutoProcessor.from_pretrained(name_or_path, **kwargs)
+    except Exception:
+        processor = None
+    # Avoid load tokenizer, see:
+    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/auto/processing_auto.py#L344
+    if processor is not None and "Processor" not in processor.__class__.__name__:
+        processor = None
+    return processor
