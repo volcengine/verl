@@ -233,9 +233,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 data_iterator=batch_generator,
                 model=self.reward_model_module,
                 num_microbatches=n_micro_batch,
-                input_shapes=input_shapes,  # must set for flash-attn sequence packing
                 seq_length=infer_batch_size * seq_len,  # no use when input_shapes was set
-                hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=True,
             )
@@ -246,7 +244,6 @@ class MegatronRewardModel(BasePPORewardModel):
                 model=self.reward_model_module,
                 num_microbatches=n_micro_batch,
                 seq_length=infer_batch_size * seq_len,  # in use for pp = 1
-                hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=True,
             )
