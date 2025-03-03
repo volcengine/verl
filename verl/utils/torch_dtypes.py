@@ -19,9 +19,9 @@ import torch
 
 from typing import Union
 
-HALF_LIST = [16, "16", "fp16", "float16"]
-FLOAT_LIST = [32, "32", "fp32", "float32"]
-BFLOAT_LIST = ["bf16", "bfloat16"]
+HALF_LIST = [16, "16", "fp16", "float16", torch.float16]
+FLOAT_LIST = [32, "32", "fp32", "float32", torch.float32]
+BFLOAT_LIST = ["bf16", "bfloat16", torch.bfloat16]
 
 
 class PrecisionType(object):

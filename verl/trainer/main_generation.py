@@ -30,7 +30,7 @@ import pandas as pd
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 from verl.utils.hdfs_io import makedirs
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -42,7 +42,7 @@ def main(config):
     from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-    local_path = copy_local_path_from_hdfs(config.model.path)
+    local_path = copy_to_local(config.model.path)
     from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer(local_path)
 
