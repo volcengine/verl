@@ -167,7 +167,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 self.critic_optimizer.zero_grad()
 
                 for data in micro_batches:
-                    data = data.cuda()  # critic device is cpu when using offload
+                    data = data.to(self.device)  # critic device is cpu when using offload
                     input_ids = data['input_ids']
                     responses = data['responses']
                     attention_mask = data['attention_mask']

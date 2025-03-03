@@ -1,7 +1,11 @@
-# This code is inspired by the torchtune.
-# https://github.com/pytorch/torchtune/blob/main/torchtune/utils/_device.py
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
+#
+# Licensed under the BSD 3-Clause License  (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# https://opensource.org/licenses/BSD-3-Clause
 #
 # Redistribution and use in source and binary forms, with or without modification,
 # are permitted provided that the following conditions are met:
@@ -27,6 +31,9 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 # DAMAGE.
+
+# This code is inspired by the torchtune.
+# https://github.com/pytorch/torchtune/blob/main/torchtune/utils/_device.py
 
 import logging
 from typing import Optional
