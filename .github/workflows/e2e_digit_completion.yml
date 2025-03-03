@@ -16,6 +16,7 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
+      - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_digit_completion.yml
       - "tests/e2e/*.sh"
 

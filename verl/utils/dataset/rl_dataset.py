@@ -20,9 +20,8 @@ import pandas as pd
 
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, PreTrainedTokenizer
-from verl.utils.fs import copy_local_path_from_hdfs
+from torch.utils.data import Dataset
+from transformers import PreTrainedTokenizer
 
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
@@ -93,10 +92,10 @@ class RLHFDataset(Dataset):
         self._read_files_and_tokenize()
 
     def _download(self, use_origin_parquet=False):
-        from verl.utils.fs import copy_local_path_from_hdfs
+        from verl.utils.fs import copy_to_local
         parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
         for i, parquet_file in enumerate(parquet_files):
-            self.parquet_files[i] = copy_local_path_from_hdfs(src=parquet_file, cache_dir=self.cache_dir)
+            self.parquet_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
 
     def _read_files_and_tokenize(self):
         dataframes = []

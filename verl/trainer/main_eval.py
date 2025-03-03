@@ -18,7 +18,7 @@ The input is a parquet file that contains N generated sequences and (optional) t
 """
 
 import hydra
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from verl.utils.reward_score import math, gsm8k
 import pandas as pd
 import numpy as np
@@ -33,7 +33,7 @@ def select_reward_fn(data_source):
 
 @hydra.main(config_path='config', config_name='evaluation', version_base=None)
 def main(config):
-    local_path = copy_local_path_from_hdfs(config.data.path)
+    local_path = copy_to_local(config.data.path)
     dataset = pd.read_parquet(local_path)
     prompts = dataset[config.data.prompt_key]
     responses = dataset[config.data.response_key]
