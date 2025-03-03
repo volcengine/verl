@@ -18,10 +18,6 @@ on:
       - "**/*.py"
       - .github/workflows/e2e_ascend.yml
 
-# Declare permissions just read content.
-permissions: 
-  contents: read
-
 jobs:
   test:
     name: vLLM Ascend test (self-host)
@@ -38,14 +34,12 @@ jobs:
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
         - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
         # Use self-host cache speed up pip and model download
-        - /home/action/actions-runner/_work/cache:/github/home/.cache/
+        # - /home/action/actions-runner/_work/cache:/github/home/.cache/
       options: >-
         --device /dev/davinci0
         --device /dev/davinci_manager
         --device /dev/devmm_svm
         --device /dev/hisi_hdc
-        --privileged
-        --shm-size=10g
     steps:
       - name: Check npu and CANN info
         run: |
