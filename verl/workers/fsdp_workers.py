@@ -17,6 +17,7 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
+import random
 import warnings
 
 import torch
@@ -245,7 +246,7 @@ class ActorRolloutRefWorker(Worker):
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
-        print(f'wrap_policy: {auto_wrap_policy}')
+        # print(f'wrap_policy: {auto_wrap_policy}')
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
@@ -323,27 +324,30 @@ class ActorRolloutRefWorker(Worker):
                                       tokenizer=self.tokenizer,
                                       model_hf_config=self.actor_model_config,
                                       device_mesh=rollout_device_mesh)
-            elif vllm_mode == "async":
-                rollout = AsyncRollout(model_path=local_path,)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage('After building vllm rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
-            if vllm_mode == "async":
-                rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
-                                                                  inference_engine=rollout.inference_engine,
-                                                                  model_config=self.actor_model_config,
-                                                                  full_params='hf' in self.config.rollout.load_format,
-                                                                  device_mesh=rollout_device_mesh,)
-            else:
-                rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
-                                                                   inference_engine=rollout.inference_engine,
-                                                                   model_config=self.actor_model_config,
-                                                                   full_params='hf' in self.config.rollout.load_format,
-                                                                   device_mesh=rollout_device_mesh)
+            rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
+                                                               inference_engine=rollout.inference_engine,
+                                                               model_config=self.actor_model_config,
+                                                               full_params='hf' in self.config.rollout.load_format,
+                                                               device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
-
+        elif self.config.rollout.name == "async":
+            from verl.workers.agentic.async_rollout import AsyncRollout
+            from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
+            local_path = copy_local_path_from_hdfs(self.config.model.path)
+            print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
+            rollout = AsyncRollout(model_path=local_path,)
+            rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
+                                                              inference_engine=rollout.engine,
+                                                              model_config=self.actor_model_config,
+                                                              full_params='hf' in self.config.rollout.load_format,
+                                                              device_mesh=rollout_device_mesh,)
+        else:
+            raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
         return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

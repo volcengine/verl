@@ -33,8 +33,9 @@ def is_megatron_core_available():
 def is_vllm_available():
     try:
         import vllm
+        from verl.third_party.vllm import parallel_state as vllm_ps
         return True
-    except ImportError:
+    except (ImportError, ValueError):
         return False
 
 

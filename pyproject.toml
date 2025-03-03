@@ -13,8 +13,8 @@ build-backend = "setuptools.build_meta"
 # -------------------------------
 [project]
 name = "verl"
-# We'll mark the version as "dynamic" because it's read from the file "verl/version/version" 
-# (PEP 621 calls this "dynamic version"). 
+# We'll mark the version as "dynamic" because it's read from the file "verl/version/version"
+# (PEP 621 calls this "dynamic version").
 # The actual version is specified in the [tool.setuptools.dynamic] section below.
 dynamic = ["version"]
 
@@ -44,7 +44,6 @@ dependencies = [
     "ray>=2.10",
     "tensordict<0.6",
     "transformers",
-    "vllm<=0.6.3.post1",
     'wandb',
 ]
 
@@ -55,6 +54,8 @@ test = [
 ]
 prime = ["pyext"]
 gpu = ["liger-kernel", "flash-attn"]
+vllm = ["vllm<=0.6.3.post1"]
+sgl = ["sglang[all]>=0.4.3.post2"]
 
 # URLs
 [project.urls]

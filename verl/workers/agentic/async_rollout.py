@@ -1,4 +1,5 @@
 import asyncio
+import os
 from dataclasses import asdict
 
 import httpx
@@ -40,7 +41,10 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn):
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, **kwargs):
         super().__init__()
+        print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
+        os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         self.engine = sgl.Engine(model_path=model_path)
+        print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         self.sampling_params = kwargs
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
