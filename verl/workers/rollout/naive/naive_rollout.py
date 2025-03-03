@@ -57,8 +57,8 @@ class NaiveRollout(BaseRollout):
 
         # used to construct attention_mask
         eos_token_id = prompts.meta_info['eos_token_id']
-        if isinstance(eos_token, int):
-            eos_token = [eos_token]
+        if isinstance(eos_token_id, int):
+            eos_token_id = [eos_token_id]
 
         batch_size = idx.size(0)
         prompt_length = idx.size(1)
