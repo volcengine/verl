@@ -44,6 +44,8 @@ jobs:
         --device /dev/davinci_manager
         --device /dev/devmm_svm
         --device /dev/hisi_hdc
+        --privileged
+        --shm-size=10g
     steps:
       - name: Check npu and CANN info
         run: |
