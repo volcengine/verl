@@ -41,7 +41,7 @@ verl is fast with:
 
 - **FSDP** and **Megatron-LM** for training.
 - **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
-- huggingface models support
+- huggingface and modelscope models support
 - Supervised fine-tuning
 - Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer), [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer), [ReMax](https://github.com/volcengine/verl/tree/main/examples/remax_trainer), [Reinforce++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](https://github.com/volcengine/verl/tree/main/examples/rloo_trainer/run_qwen2-7b.sh), etc
   - Support model-based reward and function-based reward (verifiable reward)
