@@ -110,14 +110,16 @@ class SGLangRollout(BaseRollout):
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
         # get tp_rank of this process in this tp group
-        # tp_rank = device_mesh_cpu.get_local_rank("tp")
+        global_rank = device_mesh_cpu.get_rank()
+        tp_size = device_mesh_cpu["tp"].mesh.size()[0]
+        src_rank = global_rank // tp_size * tp_size
 
         self.inference_engine = VerlEngine(
             model_path=actor_module,
             dtype=config.dtype,
             mem_fraction_static=config.gpu_memory_utilization,
             device_mesh_cpu=device_mesh_cpu["tp"],
-            base_gpu_id=0,
+            base_gpu_id=src_rank,
             gpu_id_step=1
         )
 
@@ -231,7 +233,7 @@ class SGLangRollout(BaseRollout):
             },
             batch_size=batch_size)
 
-        # free vllm cache engine
+        # free cache engine
         if (
             self.config.free_cache_engine and 
             self.inference_engine._engine is not None
