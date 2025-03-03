@@ -58,3 +58,13 @@ jobs:
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
           bash tests/e2e/run_qwen_megatron.sh
+      - name: Running gsm8k e2e training tests with 3D parallelism on 16 L20 GPUs with Megatron (Deepseek)
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/e2e/run_deepseek_megatron_parallism.sh
+      - name: Running gsm8k e2e training tests with 3D parallelism on 16 L20 GPUs with Megatron (Qwen)
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/e2e/run_qwen_megatron_parallism.sh
