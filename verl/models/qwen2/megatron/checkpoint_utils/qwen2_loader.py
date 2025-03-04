@@ -29,6 +29,7 @@ def _megatron_calc_layer_map(config):
 
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
+    assert virtual_pp_size == 1, f'qwen2 removepad currently not support VPP'
 
     layer_map = dict()
     num_layers_per_model = config.num_hidden_layers // pp_size // virtual_pp_size
@@ -71,6 +72,7 @@ def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
+    assert virtual_pp_size == 1, f'qwen2 removepad currently not support VPP'
     mp_group = mpu.get_model_parallel_group()
 
     if torch.distributed.get_rank() == 0:
@@ -83,7 +85,7 @@ def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params
 
     assert len(wrapped_models) == virtual_pp_size
     num_layers_per_model = config.num_hidden_layers // pp_size // virtual_pp_size
-    assert num_layers_per_model * pp_size * virtual_pp_size == config.num_hidden_layers
+    assert num_layers_per_model * pp_size * virtual_pp_size == config.num_hidden_layers, f'num_layers_per_model: {num_layers_per_model} * pp_size: {pp_size} * virtual_pp_size: {virtual_pp_size} != config.num_hidden_layers: {config.num_hidden_layers}'
 
     models = [None] * len(wrapped_models)
 
