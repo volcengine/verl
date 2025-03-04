@@ -55,7 +55,15 @@ class AsyncRollout(BaseRollout):
         time.sleep(torch.distributed.get_rank() * 0)
         print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-        self.engine = sgl.Engine(model_path=model_path, cpu_offload_gb=500, enable_memory_saver=True, mem_fraction_static=0.3)
+        total_len = config.prompt_length + config.response_length
+        self.engine = sgl.Engine(
+            model_path=model_path,
+            cpu_offload_gb=500,
+            dtype=config.dtype,
+            max_total_tokens=total_len,
+            enable_memory_saver=True,
+            mem_fraction_static=config.gpu_memory_utilization,
+        )
         print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
         self.engine.release_memory_occupation()
         print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
