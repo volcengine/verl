@@ -40,21 +40,21 @@ verl is fast with:
 ## Key Features
 
 - **FSDP** and **Megatron-LM** for training.
-- **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
-- huggingface models support
-- Supervised fine-tuning
-- Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer), [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer), [ReMax](https://github.com/volcengine/verl/tree/main/examples/remax_trainer), [Reinforce++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](https://github.com/volcengine/verl/tree/main/examples/rloo_trainer/run_qwen2-7b.sh), etc
+- **vLLM** and **HF Transformers** for rollout generation, **SGLang** support coming soon.
+- Compatible with Hugging Face Transformers.
+- Supervised fine-tuning.
+- Reinforcement learning with [PPO](examples/ppo_trainer/), [GRPO](examples/grpo_trainer/), [ReMax](examples/remax_trainer/), [Reinforce++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](examples/rloo_trainer/), etc.
   - Support model-based reward and function-based reward (verifiable reward)
-- flash-attention, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [long context](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh)
-- scales up to 70B models and hundreds of GPUs
-- experiment tracking with wandb, swanlab and mlflow
+  - Support vision-language models (VLMs) and [multi-modal RL](examples/grpo_trainer/run_qwen2_5_vl-7b.sh)
+- Flash attention 2, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [sequence parallelism](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh).
+- Scales up to 70B models and hundreds of GPUs.
+- Experiment tracking with wandb, swanlab, mlflow and tensorboard.
 
 ## Upcoming Features
 - Reward model training
 - DPO training
 - DeepSeek integration with Megatron v0.11
 - SGLang integration
-- vision language model RL
 
 ## Getting Started
 
