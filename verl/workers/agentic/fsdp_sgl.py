@@ -6,6 +6,7 @@ from sglang.srt.entrypoints.engine import Engine
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.tensor import DTensor
 
 from verl import DataProto
 from verl.utils.debug import log_gpu_memory_usage
@@ -73,10 +74,13 @@ class FSDPSGLShardingManager(BaseShardingManager):
     def __enter__(self):
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
         st = self.module.state_dict()
-        dtype = next(iter(st.values())).dtype
-        print(f"state_dict dtype: {dtype}")
+        k, v = next(iter(st.items()))
+        print(f"state_dict dtype of {k}: {v.dtype}")
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
-        self.inference_engine.update_weights_from_tensor([(k, v) for k, v in st.items()])
+        print("resuming memory occupation")
+        self.inference_engine.resume_memory_occupation()
+        print("resumed memory occupation")
+        self.inference_engine.update_weights_from_tensor([(k, v.full_tensor() if isinstance(v, DTensor) else v) for k, v in st.items()])
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del st
@@ -90,6 +94,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before sglang offload in sharding manager', logger=logger)
+        self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage('After sglang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
