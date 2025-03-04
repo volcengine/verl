@@ -26,7 +26,6 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 from verl.third_party.sglang import parallel_state as sglang_ps
 import torch.distributed
 from torch.nn.utils.rnn import pad_sequence
-
 if TYPE_CHECKING:
     from torch import nn
 
@@ -81,7 +80,11 @@ class SGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+
         del os.environ['CUDA_VISIBLE_DEVICES']
+        if os.environ['ENSURE_CUDA_VISIBLE_DEVICES']:
+            os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['ENSURE_CUDA_VISIBLE_DEVICES']
+
         assert not (not config.enforce_eager and config.free_cache_engine), \
             "disable CUDA graph (enforce_eager = False) if free cache engine"
 
