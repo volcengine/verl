@@ -26,7 +26,7 @@ import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils import hf_tokenizer
 
@@ -68,7 +68,7 @@ class SFTDataset(Dataset):
 
     def _download(self):
         for i, parquet_file in enumerate(self.parquet_files):
-            self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
+            self.parquet_files[i] = copy_to_local(parquet_file, verbose=True)
 
     def _read_files_and_tokenize(self):
 

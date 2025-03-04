@@ -1,4 +1,4 @@
-name: vllm
+name: e2e_digit_completion_fire
 
 on:
   # Trigger the workflow on push or pull request,
@@ -6,25 +6,23 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
     paths:
       - "**/*.py"
-      - .github/workflows/vllm.yml
+      - .github/workflows/e2e_digit_completion_fire.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
     paths:
       - "**/*.py"
-      - "verl/trainer/config/*.yaml"
-      - .github/workflows/vllm.yml
+      - .github/workflows/e2e_digit_completion_fire.yml
+      - "tests/e2e/*.sh"
 
 # Declare permissions just read content.
 permissions: 
   contents: read
 
 jobs:
-  vllm:
+  e2e_digit_completion:
     runs-on: [self-hosted, l20-0]
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -42,18 +40,7 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install -e .[test]
-          pip3 install vllm==0.5.4
-      - name: Running vllm tests on 8 L20 GPUs
+      - name: Running digit completon e2e training tests on 8 L20 GPUs
         run: |
-          cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
-      - name: Test the latest vLLM
-        run: |
-          pip3 install --upgrade vllm
-          cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
-      - name: Run QWen 0.5B generation test
-        run: |
-          cd tests/generation
-          bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet
-          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+          ray stop --force
+          bash tests/e2e/run_ray_trainer_fire_sampling.sh

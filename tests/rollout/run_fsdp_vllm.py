@@ -35,8 +35,8 @@ def main():
     local_cache_path = os.path.expanduser(local_cache_path)
     hdfs_path = 'Qwen/Qwen2-7B-Instruct'
 
-    from verl.utils.fs import copy_local_path_from_hdfs
-    local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
+    from verl.utils.fs import copy_to_local
+    local_model_path = copy_to_local(src=hdfs_path, cache_dir=local_cache_path)
     tokenizer = AutoTokenizer.from_pretrained(local_model_path, trust_remote_code=True)
     actor_model_config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=True)
     with torch.device("cuda"):
