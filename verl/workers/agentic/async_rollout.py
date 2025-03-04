@@ -56,9 +56,11 @@ class AsyncRollout(BaseRollout):
         print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         total_len = config.prompt_length + config.response_length
+        print(f"async rollout {config.gpu_memory_utilization=}")
         self.engine = sgl.Engine(
             model_path=model_path,
-            cpu_offload_gb=500,
+            # cpu_offload_gb=500,
+            port=40000,
             dtype=config.dtype,
             max_total_tokens=total_len,
             enable_memory_saver=True,
