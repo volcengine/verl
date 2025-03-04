@@ -105,7 +105,7 @@ class AsyncRollout(BaseRollout):
             print(f"stop token: [{stop_id}] - [{stop_token}]")
             # only finish with <|observation|> token can be multi-turn
             if not stop_token.strip() == '<|observation|>':
-                return {"done": True, "ids": [], "observation_times": 0}
+                return {"done": True, "ids": [], "observations_times": 0}
             action = tokenizer.decode(action_ids, skip_special_tokens=False)
             text = action.split("<|observation|>")[0].strip()
 
@@ -128,7 +128,7 @@ class AsyncRollout(BaseRollout):
             # combine part
             obv_combined = ['\n' + obv['content'].strip() for obv in ret]
             obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-            return {"done": False, "ids": tokenizer.encode(obs_text), "observation_times": 1}
+            return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
