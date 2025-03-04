@@ -186,8 +186,12 @@ class ActorRolloutRefWorker(MegatronWorker):
             hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider)
             # Fetch the model at current rank
             actor_module = hybrid_engine.this_rank_models
+            actor_modules_list = []
             if isinstance(actor_module, nn.ModuleList):
-                actor_module = [actor_module[0]]
+                for module in actor_module:
+                    actor_modules_list.append(module)
+            actor_module = actor_modules_list
+            print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 load_megatron_model_weights(self.config,
                                             actor_model_config,

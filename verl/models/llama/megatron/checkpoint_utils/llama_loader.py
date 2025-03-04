@@ -27,8 +27,9 @@ def _megatron_calc_layer_map(config):
             mapping from the global layer index to
             a tuple of (pp_rank, virtual_pp_rank, layer_idx inside model)
     """
-    import megatron
     from megatron.core import mpu
+
+    print(f'get megatron data parallel size: {mpu.get_data_parallel_world_size()}')
 
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
@@ -53,9 +54,8 @@ def _megatron_calc_layer_map(config):
 def load_state_dict_to_megatron_llama(state_dict, wrapped_models, config, params_dtype, is_value_model=False):
     """Load merged state_dict to sharded Megatron module in training.
     """
-    import megatron
     from megatron.core import mpu
-    from megatron.training.utils import print_rank_0, unwrap_model
+    from verl.utils.megatron_utils import print_rank_0, unwrap_model
     from megatron.core.transformer.module import Float16Module
     from megatron.core import DistributedDataParallel as LocalDDP
     from torch.nn.parallel import DistributedDataParallel as torchDDP
