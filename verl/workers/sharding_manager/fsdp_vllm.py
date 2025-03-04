@@ -15,6 +15,7 @@
 import os
 import logging
 import torch
+import numpy as np
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -126,17 +127,20 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
+        tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group(),
-                                                dim=0)
+            group = vllm_ps.get_tensor_model_parallel_group()
         else:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group().device_group,
-                                                dim=0)
+            group = vllm_ps.get_tensor_model_parallel_group().device_group
 
+        prev_device = data.batch.device
+        data.batch = data.batch.cuda(device=torch.cuda.current_device())
+        data.batch = allgather_dict_tensors(data.batch.contiguous(), size=tp_size, group=group, dim=0)
+        data.batch = data.batch.to(prev_device)
+        # all gather non_tensor_batch
+        all_non_tensor_batch = [None for _ in range(tp_size)]
+        torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
+        data.non_tensor_batch = {k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch}
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

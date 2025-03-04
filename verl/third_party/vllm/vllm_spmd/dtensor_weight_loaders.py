@@ -203,7 +203,11 @@ def qwen2vl_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) ->
         for param_name, weight_name, shard_id in stacked_params_mapping:
             if weight_name not in name:
                 continue
-            name = name.replace(weight_name, param_name)
+
+            if "visual" in name:
+                continue
+
+            name = "language_model." + name.replace(weight_name, param_name)
             # Skip loading extra bias for GPTQ models.
             if name.endswith(".bias") and name not in params_dict:
                 continue
@@ -216,6 +220,11 @@ def qwen2vl_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) ->
             # Skip loading extra bias for GPTQ models.
             if name.endswith(".bias") and name not in params_dict:
                 continue
+            if "visual" in name:
+                name = name
+            else:
+                name = "language_model." + name
+
             param = params_dict[name]
             local_loaded_weight = redistribute_dtensor(param_name=name, loaded_weights=loaded_weight)
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
@@ -355,6 +364,7 @@ __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
     "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,
     "DeepseekV2ForCausalLM": deepseekv2_dtensor_weight_loader,
     "Qwen2VLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
+    "Qwen2_5_VLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
 }
 
 
