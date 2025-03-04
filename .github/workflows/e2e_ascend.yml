@@ -38,7 +38,7 @@ jobs:
         --device /dev/devmm_svm
         --device /dev/hisi_hdc
         --privileged
-        --network host
+        --network "host"
     steps:
       - name: Check npu and CANN info
         run: |
