@@ -114,7 +114,8 @@ class AsyncRollout(BaseRollout):
                     ret = response.json()
             except Exception as e:
                 print(f"API call failed: {e}")
-                raise
+                ret = [{"content": "API call failed"}]
+                # raise
 
             # combine part
             obv_combined = ['\n' + obv['content'].strip() for obv in ret]
@@ -123,6 +124,7 @@ class AsyncRollout(BaseRollout):
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
+        position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
         device = input_ids.device
         tasks = [ids_agent_loop(prompt_ids=prompt, gen_fn=gen_fn, obs_fn=obs_fn) for prompt in idx_list]
@@ -145,6 +147,14 @@ class AsyncRollout(BaseRollout):
             loss_mask[i, :len(r["loss_mask"])] = torch.tensor(r["loss_mask"], device=device)
             attn_mask[i, :len(r["ids"])] = 1
 
+        batch_size = len(results)
+        response_length = responses.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+
+        response_position_ids = position_ids[:, -1:] + delta_position_id
+        position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
+
         concat_ids = torch.cat([input_ids, responses], dim=1)
 
         # collect obs metrics
@@ -164,7 +174,8 @@ class AsyncRollout(BaseRollout):
             "input_ids": concat_ids,
             "loss_mask": loss_mask,
             "attention_mask": attn_mask,
+            "position_ids": position_ids,
             **obs_metrics,
-        }, batch_size=len(results))
+        }, batch_size=batch_size)
 
         return DataProto(batch=batch)
