@@ -86,4 +86,4 @@ jobs:
       - name: Running gsm8k e2e with prime alg
         run: | 
           ray stop --force
-          bash tests/e2e/run_qwen_gm8k_prime.sh
+          bash tests/e2e/run_qwen_gsm8k_prime.sh
