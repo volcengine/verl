@@ -55,7 +55,7 @@ class NaiveRewardManager:
         #     # decode
         #     sequences = torch.cat((valid_prompt_ids, valid_response_ids))
         #     sequences_str = self.tokenizer.decode(sequences)
-            
+
         #     prompt_str = self.tokenizer.decode(valid_prompt_ids)
         #     ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
@@ -78,9 +78,9 @@ class NaiveRewardManager:
         #     if already_print_data_sources[data_source] < self.num_examine:
         #         already_print_data_sources[data_source] += 1
         #         # print(sequences_str)
-        
+
         # parallel eval
-        
+
         import concurrent.futures
 
         def compute_score_for_item(i, data_item):
@@ -91,7 +91,7 @@ class NaiveRewardManager:
 
             response_ids = data_item.batch['responses']
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids
+            valid_response_ids = response_ids[:valid_response_length]
 
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
             sequences_str = self.tokenizer.decode(sequences)
@@ -100,6 +100,7 @@ class NaiveRewardManager:
             data_source = data_item.non_tensor_batch['data_source']
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
+            # print(f"naive reward manager {self.tokenizer=}")
             score = self.compute_score(
                 data_source=data_source,
                 solution_str=sequences_str,
