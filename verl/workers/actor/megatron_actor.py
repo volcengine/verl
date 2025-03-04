@@ -19,21 +19,25 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import importlib
 from functools import partial
+from packaging.version import Version
 from typing import Iterable, Dict
 
 import torch
 from torch import nn
 import torch.distributed
 # from megatron import get_args
-from megatron.optimizer import DistributedOptimizer
-from verl.utils.megatron.optimizer_config import OptimizerConfig
+from megatron.core.optimizer import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
-from megatron.core.utils import get_model_config
+from verl.utils.megatron_utils import get_model_config
 from megatron.core.pipeline_parallel import get_forward_backward_func
+
 from megatron.core.distributed import finalize_model_grads
 # from megatron.core.optimizer import DistributedOptimizer
+
+from megatron.core.optimizer import DistributedOptimizer
 
 from omegaconf import OmegaConf
 from verl.utils.megatron.tensor_parallel import vocab_parallel_compute_entropy_loss, vocab_parallel_log_probs_from_logits
@@ -160,7 +164,7 @@ class MegatronPPOActor(BasePPOActor):
             response = data['responses']
             response_length = response.size(1)
             logits = output['logits']
-            logits = logits[:, -response_length - 1:-1]
+            logits = logits[:, -response_length - 1:-1].contiguous()
             log_probs = vocab_parallel_log_probs_from_logits(logits, response)
             return {'log_probs': log_probs}
 
@@ -275,8 +279,10 @@ class MegatronPPOActor(BasePPOActor):
 
             # compute policy loss
             logits = output.logits
-            logits = logits[:, -response_length - 1:-1]
+            logits = logits[:, -response_length - 1:-1].contiguous()
+            logits_back = logits.clone()
             log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+            logits = logits_back
             pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                           log_prob=log_prob,
                                                                           advantages=advantages,
@@ -316,9 +322,7 @@ class MegatronPPOActor(BasePPOActor):
                 data_iterator=batch_generator,
                 model=self.actor_module,
                 num_microbatches=n_micro_batch,
-                input_shapes=input_shapes,  # must set for flash-attn sequence packing
                 seq_length=batch_size * seq_len,  # no use when input_shapes was set
-                hidden_size=self.model_config.hidden_size,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
@@ -329,7 +333,6 @@ class MegatronPPOActor(BasePPOActor):
                 model=self.actor_module,
                 num_microbatches=n_micro_batch,
                 seq_length=batch_size * seq_len,  # in use for pp = 1
-                hidden_size=self.model_config.hidden_size,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
             )
@@ -355,14 +358,14 @@ class MegatronPPOActor(BasePPOActor):
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
-                chunk.zero_grad_buffer(zero_buffer=(not self.actor_optimizer_config.use_distributed_optimizer))
+                chunk.zero_grad_buffer()
 
             metric_micro_batch = self.forward_backward_batch(data)
             for metric in metric_micro_batch:
                 append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
 
-            update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step(
-                self.megatron_config, self.megatron_config.timers)
+            update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
+
             if update_successful:
                 # allgather already execute in optimizer.step in new megatron
                 pass
