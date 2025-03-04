@@ -23,9 +23,6 @@ jobs:
     name: vLLM Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
     env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
       image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
