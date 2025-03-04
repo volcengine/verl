@@ -135,9 +135,10 @@ class AsyncRollout(BaseRollout):
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
         position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
+        attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
         device = input_ids.device
-        tasks = [ids_agent_loop(prompt_ids=prompt, gen_fn=gen_fn, obs_fn=obs_fn) for prompt in idx_list]
+        tasks = [ids_agent_loop(prompt_ids=list(prompt), gen_fn=gen_fn, obs_fn=obs_fn) for prompt in idx_list]
         loop = asyncio.get_event_loop()
         results = loop.run_until_complete(asyncio.gather(*tasks))
 
@@ -145,8 +146,8 @@ class AsyncRollout(BaseRollout):
         max_len = self.config.response_length
         # all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
         responses = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
-        loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
-        attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        resp_loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        resp_attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
 
         for i, r in enumerate(results):
             # all_ids[i, :len(r["ids"])] = torch.tensor(r["ids"], device=device)
@@ -154,8 +155,8 @@ class AsyncRollout(BaseRollout):
             gen_ids = torch.tensor(r["ids"][prompt_len:], device=device)
             resp_len = len(gen_ids)
             responses[i, :resp_len] = gen_ids
-            loss_mask[i, :len(r["loss_mask"])] = torch.tensor(r["loss_mask"], device=device)
-            attn_mask[i, :len(r["ids"])] = 1
+            resp_loss_mask[i, :len(r["loss_mask"]) - prompt_len] = torch.tensor(r["loss_mask"][prompt_len:], device=device)
+            resp_attn_mask[i, :resp_len] = 1
 
         batch_size = len(results)
         response_length = responses.size(1)
@@ -166,6 +167,8 @@ class AsyncRollout(BaseRollout):
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
         concat_ids = torch.cat([input_ids, responses], dim=1)
+        concat_loss_mask = torch.cat([torch.zeros_like(input_ids), resp_loss_mask], dim=1)
+        concat_attn_mask = torch.cat([attn_mask, resp_attn_mask], dim=1)
 
         # collect obs metrics
         obs_metrics = {}
@@ -182,10 +185,12 @@ class AsyncRollout(BaseRollout):
             "prompts": input_ids,
             "responses": responses,
             "input_ids": concat_ids,
-            "loss_mask": loss_mask,
-            "attention_mask": attn_mask,
+            "loss_mask": concat_loss_mask,
+            "attention_mask": concat_attn_mask,
             "position_ids": position_ids,
             **obs_metrics,
         }, batch_size=batch_size)
+
+        # torch.save(batch, f"batches/batch_{time.time()}.pt")
 
         return DataProto(batch=batch)
