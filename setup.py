@@ -39,7 +39,6 @@ install_requires = [
   'transformers',
   'vllm<=0.6.3',
   'wandb',
-  'modelscope',
 ]
 
 TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
