@@ -6,6 +6,7 @@ import httpx
 import sglang as sgl
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from tensordict import TensorDict
 from verl.utils.swedev_utils import *
 from verl import DataProto
@@ -52,11 +53,10 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class AsyncRollout(BaseRollout):
-    def __init__(self, model_path, config, **kwargs):
+    def __init__(self, model_path, config: DictConfig):
         super().__init__()
         torch.distributed.barrier()
-        time.sleep(torch.distributed.get_rank() * 0)
-        print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
+        # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
@@ -75,9 +75,10 @@ class AsyncRollout(BaseRollout):
         print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
-        self.sampling_params = kwargs
+        self.is_swedev = self.config.is_swedev
+        self.sampling_params = dict(config.sampling_params)
         self.sampling_params.update({
-            "max_new_tokens": 512,
+            # "max_new_tokens": 512,
             "skip_special_tokens": False,
             "stop": ["<|user|>", "<|observation|>", "<|im_end|>"],
         })
@@ -109,16 +110,46 @@ class AsyncRollout(BaseRollout):
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
-            action = tokenizer.decode(action_ids, skip_special_tokens=False)
-            if is_stop(action):
-                return {"done": True, "ids": [], "observation_times": 0}
-            obs = call_observation_api(sid, action)
-            return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
+            
+            # TODO: combine get_obs logic for dr & swe
+            if not self.is_swedev:
+                # only finish with <|observation|> token can be multi-turn
+                if not stop_token.strip() == '<|observation|>':
+                    return {"done": True, "ids": [], "observations_times": 0}
+                action = tokenizer.decode(action_ids, skip_special_tokens=False)
+                text = action.split("<|observation|>")[0].strip()
+
+                # call api part
+                url = "http://172.16.65.43:8888/observation_kilt/"
+                # payload = {"content": text}
+                # new feature, for kilt_browser, we currently use translator
+                payload = {"content": text, "translate": True}
+                try:
+                    # api_response = requests.post(url, json=payload)
+                    # return api_response.json()
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(url, json=payload)
+                        ret = response.json()
+                except Exception as e:
+                    print(f"API call failed: {e}")
+                    ret = [{"content": "API call failed"}]
+                    # raise
+
+                # combine part
+                obv_combined = ['\n' + obv['content'].strip() for obv in ret]
+                obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+                return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}                
+            else:
+                action = tokenizer.decode(action_ids, skip_special_tokens=False)
+                if is_stop(action):
+                    return {"done": True, "ids": [], "observation_times": 0}
+                obs = call_observation_api(sid, action)
+                return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
         instance_ids = None
-        if self.config.is_swedev:
+        if self.is_swedev:
             instance_ids = prompts.batch['instance_id']
             instance_ids = instance_ids.repeat_interleave(self.config.n, dim=0)
         sids = [None] * len(input_ids)
@@ -126,18 +157,19 @@ class AsyncRollout(BaseRollout):
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
 
-        if self.config.is_swedev:
+        if self.is_swedev:
             with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
                 future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
                 for future in as_completed(future_to_idx):
                     try:
-                        result_idx, sid = future.result()
-                        print(f"Got SID: {result_idx}, {sid}, SIDS: {sids}")
-                        sids[result_idx] = sid
+                        result_idx, result = future.result()
+                        print(f"Got SID: {result_idx}, {result}, SIDS: {sids}")
+                        if results:
+                            sids[result_idx] = result["sid"]
                     except Exception as e:
                         print(f"Error processing instance: {e}")
                         traceback.print_exc()
-
+            print(f"Got sids: {sids}")
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
@@ -188,7 +220,8 @@ class AsyncRollout(BaseRollout):
                     obs_metrics[k].append(v)
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
-
+        sids = [sid if sid != None else 0 for sid in sids]
+        print(sids)
         batch = TensorDict({
             "prompts": input_ids,
             "responses": responses,
@@ -196,6 +229,7 @@ class AsyncRollout(BaseRollout):
             "loss_mask": concat_loss_mask,
             "attention_mask": concat_attn_mask,
             "position_ids": position_ids,
+            "sids": torch.tensor(sids, dtype=torch.int64, device=input_ids.device),
             **obs_metrics,
         }, batch_size=batch_size)
 
