@@ -566,18 +566,6 @@ class RayPPOTrainer(object):
         if generations_to_log == 0:
             return
 
-        # Check if we have any supported loggers configured
-        supported_loggers = {'wandb', 'swanlab'}
-        configured_loggers = set(self.config.trainer.logger.split(',')) if isinstance(self.config.trainer.logger,
-                                                                                      str) else set()
-        active_loggers = supported_loggers.intersection(configured_loggers)
-
-        if generations_to_log > 0 and not active_loggers:
-            print(
-                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no supported logger (wandb/swanlab) is found.'
-            )
-            return
-
         import numpy as np
 
         # Create tuples of (input, output, score) and sort by input text
@@ -592,7 +580,7 @@ class RayPPOTrainer(object):
         samples = samples[:generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(active_loggers, samples, self.global_steps)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
         reward_tensor_lst = []
