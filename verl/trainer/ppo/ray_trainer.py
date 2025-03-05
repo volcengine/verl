@@ -37,6 +37,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -378,6 +379,7 @@ class RayPPOTrainer(object):
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
+        self.validation_generations_logger = ValidationGenerationsLogger()
 
         # define KL control
         if self.use_reference_policy:
@@ -558,89 +560,39 @@ class RayPPOTrainer(object):
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
-        
+
         generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
-        
+
         if generations_to_log == 0:
             return
-        
+
         # Check if we have any supported loggers configured
         supported_loggers = {'wandb', 'swanlab'}
-        configured_loggers = set(self.config.trainer.logger.split(',')) if isinstance(self.config.trainer.logger, str) else set()
+        configured_loggers = set(self.config.trainer.logger.split(',')) if isinstance(self.config.trainer.logger,
+                                                                                      str) else set()
         active_loggers = supported_loggers.intersection(configured_loggers)
-        
+
         if generations_to_log > 0 and not active_loggers:
-            print('WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no supported logger (wandb/swanlab) is found.')
+            print(
+                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no supported logger (wandb/swanlab) is found.'
+            )
             return
-        
+
         import numpy as np
-        
+
         # Create tuples of (input, output, score) and sort by input text
         samples = list(zip(inputs, outputs, scores))
         samples.sort(key=lambda x: x[0])  # Sort by input text
-        
+
         # Use fixed random seed for deterministic shuffling
         rng = np.random.RandomState(42)
         rng.shuffle(samples)
-        
+
         # Take first N samples after shuffling
         samples = samples[:generations_to_log]
-        
+
         # Log to each configured logger
-        if 'wandb' in active_loggers:
-            self._log_generations_to_wandb(samples)
-        
-        if 'swanlab' in active_loggers:
-            self._log_generations_to_swanlab(samples)
-
-    def _log_generations_to_wandb(self, samples):
-        """Log samples to wandb as a table"""
-        import wandb
-        
-        # Create column names for all samples
-        columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
-        
-        if not hasattr(self, 'validation_table'):
-            # Initialize the table on first call
-            self.validation_table = wandb.Table(columns=columns)
-        
-        # Create a new table with same columns and existing data
-        # Workaround for https://github.com/wandb/wandb/issues/2981#issuecomment-1997445737
-        new_table = wandb.Table(columns=columns, data=self.validation_table.data)
-        
-        # Add new row with all data
-        row_data = []
-        row_data.append(self.global_steps)
-        for sample in samples:
-            row_data.extend(sample)
-        
-        new_table.add_data(*row_data)
-        
-        # Update reference and log
-        wandb.log({"val/generations": new_table}, step=self.global_steps)
-        self.validation_table = new_table
-
-    def _log_generations_to_swanlab(self, samples):
-        """Log samples to swanlab as text"""
-        import swanlab
-        
-        swanlab_text_list = []
-        for i, sample in enumerate(samples):
-            row_text = f"""
-            input: {sample[0]}
-            
-            ---
-            
-            output: {sample[1]}
-            
-            ---
-            
-            score: {sample[2]}
-            """
-            swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i+1}"))
-        
-        # Log to swanlab
-        swanlab.log({"val/generations": swanlab_text_list}, step=self.global_steps)
+        self.validation_generations_logger.log(active_loggers, samples, self.global_steps)
 
     def _validate(self):
         reward_tensor_lst = []
