@@ -27,7 +27,7 @@ from omegaconf import DictConfig, open_dict
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
-from verl.utils import hf_tokenizer
+from verl.utils import hf_tokenizer, hf_processor
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
@@ -151,7 +151,7 @@ class ActorRolloutRefWorker(Worker):
                                role='actor'):
         from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.torch_dtypes import PrecisionType
-        from transformers import AutoModelForCausalLM, AutoConfig
+        from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForVision2Seq
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, CPUOffload
         from torch import optim
 
@@ -163,6 +163,7 @@ class ActorRolloutRefWorker(Worker):
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
         torch_dtype = fsdp_config.get('model_dtype', None)
         if torch_dtype is None:
@@ -198,11 +199,16 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                torch_dtype=torch_dtype,
-                                                                config=actor_model_config,
-                                                                attn_implementation='flash_attention_2',
-                                                                trust_remote_code=trust_remote_code)
+            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+                actor_module_class = AutoModelForVision2Seq
+            else:
+                actor_module_class = AutoModelForCausalLM
+
+            actor_module = actor_module_class.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                              torch_dtype=torch_dtype,
+                                                              config=actor_model_config,
+                                                              attn_implementation='flash_attention_2',
+                                                              trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
@@ -302,7 +308,11 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
         elif self.config.rollout.name == 'vllm':
-            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            if self.config.rollout.use_fire_sampling:
+                from verl.workers.rollout.vllm_rollout import FIREvLLMRollout as vLLMRollout
+                from verl.workers.rollout.vllm_rollout import vllm_mode
+            else:
+                from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
             log_gpu_memory_usage('Before building vllm rollout', logger=None)
             local_path = copy_to_local(self.config.model.path)
@@ -396,10 +406,11 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
-            self.checkpoint_manager = FSDPCheckpointManager(model=self.actor_module_fsdp,
-                                                            optimizer=self.actor.actor_optimizer,
-                                                            lr_scheduler=self.actor_lr_scheduler,
-                                                            tokenizer=self.tokenizer)
+            self.checkpoint_manager = FSDPCheckpointManager(
+                model=self.actor_module_fsdp,
+                optimizer=self.actor.actor_optimizer,
+                lr_scheduler=self.actor_lr_scheduler,
+                processing_class=self.processor if self.processor is not None else self.tokenizer)
 
         torch.cuda.empty_cache()
 
@@ -637,6 +648,7 @@ class CriticWorker(Worker):
 
         tokenizer_path = copy_to_local(config.model.tokenizer_path)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
+        self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
 
         from omegaconf import OmegaConf
         override_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
@@ -760,10 +772,11 @@ class CriticWorker(Worker):
                                             critic_optimizer=self.critic_optimizer)
 
         self.flops_counter = FlopsCounter(self.critic_model_config)
-        self.checkpoint_manager = FSDPCheckpointManager(model=self.critic_module,
-                                                        optimizer=self.critic_optimizer,
-                                                        lr_scheduler=self.critic_lr_scheduler,
-                                                        tokenizer=self.tokenizer)
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.critic_module,
+            optimizer=self.critic_optimizer,
+            lr_scheduler=self.critic_lr_scheduler,
+            processing_class=self.processor if self.processor is not None else self.tokenizer)
 
         torch.cuda.empty_cache()
 

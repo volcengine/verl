@@ -14,9 +14,9 @@
 
 import megatron
 from megatron.core import mpu
-from megatron.utils import print_rank_0, unwrap_model
-from megatron.model import Float16Module
-from megatron.model import DistributedDataParallel as LocalDDP
+from megatron.training.utils import print_rank_0, unwrap_model
+from megatron.core.transformer.module import Float16Module
+from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 import torch
 import time
@@ -77,7 +77,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
-        wrapped_modelss (list of megatron.model.DistributedDataParallel):
+        wrapped_modelss (list of megatron.core.distributed.DistributedDataParallel):
             The local DDP wrapped megatron modules.
         dtype (str or None):
             The data type of state_dict. if None, the data type of the original parameters
