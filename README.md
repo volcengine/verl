@@ -42,7 +42,7 @@ verl is fast with:
 
 - **FSDP** and **Megatron-LM** for training.
 - **vLLM** and **HF Transformers** for rollout generation, **SGLang** support coming soon.
-- Compatible with Hugging Face Transformers.
+- Compatible with Hugging Face Transformers and Modelscope Hub.
 - Supervised fine-tuning.
 - Reinforcement learning with [PPO](examples/ppo_trainer/), [GRPO](examples/grpo_trainer/), [ReMax](examples/remax_trainer/), [Reinforce++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](examples/rloo_trainer/), etc.
   - Support model-based reward and function-based reward (verifiable reward)
