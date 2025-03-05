@@ -28,7 +28,6 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=
             print(f"Too long... {len(all_ids)}, {max_length}")
             break
         obs = await obs_fn(action, sid)
-        print(f"Get obs: {obs}")
         obs_ids = obs.pop("ids")
         all_ids += obs_ids
         loss_mask += [0] * len(obs_ids)
