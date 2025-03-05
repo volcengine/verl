@@ -28,7 +28,8 @@ verl is fast with:
 </p>
 
 ## News
-- [2025/3] We will present verl(HybridFlow) at [EuroSys 2025](https://2025.eurosys.org/). See you in in Rotterdam!
+- [2025/3] We will present verl(HybridFlow) at [EuroSys 2025](https://2025.eurosys.org/). See you in Rotterdam!
+- [2025/3] We will introduce the programming model of verl at the [vLLM Beijing Meetup](https://mp.weixin.qq.com/s/n77GibL2corAtQHtVEAzfg) on 3/16. See you in Beijing!
 - [2025/2] verl v0.2.0.post1 is released! See [release note](https://github.com/volcengine/verl/releases/) for details.
 - [2025/2] We presented verl in the [Bytedance/NVIDIA/Anyscale Ray Meetup](https://lu.ma/ji7atxux). See you in San Jose!
 - [2025/1] [Doubao-1.5-pro](https://team.doubao.com/zh/special/doubao_1_5_pro) is released with SOTA-level performance on LLM & VLM. The RL scaling preview model is trained using verl, reaching OpenAI O1-level performance on math benchmarks (70.0 pass@1 on AIME).
@@ -122,6 +123,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [PRIME](https://github.com/PRIME-RL/PRIME): Process reinforcement through implicit rewards
 - [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning **agent** training framework
 - [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- [SkyThought](https://github.com/NovaSky-AI/SkyThought): RL training for Sky-T1-7B by NovaSky AI team.
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
 - [critic-rl](https://github.com/HKUNLP/critic-rl): LLM critics for code generation
 - [Easy-R1](https://github.com/hiyouga/EasyR1): **Multi-modal** RL training framework
