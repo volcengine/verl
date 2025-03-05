@@ -402,6 +402,8 @@ class RayPPOTrainer(object):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
+        self.is_swedev = config.data.get('is_swedev', False)
+
         self.tokenizer = tokenizer
         self.config = config
         self.reward_fn = reward_fn
@@ -535,7 +537,9 @@ class RayPPOTrainer(object):
                                          max_prompt_length=self.config.data.max_prompt_length,
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error')
+                                         truncation='error',
+                                         is_swedev=self.is_swedev
+                                         )
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -556,7 +560,9 @@ class RayPPOTrainer(object):
                                        max_prompt_length=self.config.data.max_prompt_length,
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
+                                       truncation='error',
+                                       is_swedev=self.is_swedev
+                                       )
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
@@ -942,7 +948,10 @@ class RayPPOTrainer(object):
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
-                gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                batch_keys = ['input_ids', 'attention_mask', 'position_ids']
+                if self.is_swedev:
+                    batch_keys.append('instance_id')
+                gen_batch = batch.pop(batch_keys=batch_keys)
 
                 with _timer('step', timing_raw):
                     # generate a batch
