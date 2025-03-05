@@ -75,6 +75,7 @@ class AsyncRollout(BaseRollout):
         print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
+        self.is_swedev = self.config.is_swedev
         self.sampling_params = kwargs
         self.sampling_params.update({
             "max_new_tokens": 512,
@@ -109,16 +110,46 @@ class AsyncRollout(BaseRollout):
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
-            action = tokenizer.decode(action_ids, skip_special_tokens=False)
-            if is_stop(action):
-                return {"done": True, "ids": [], "observation_times": 0}
-            obs = call_observation_api(sid, action)
-            return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
+            
+            # TODO: combine get_obs logic for dr & swe
+            if self.is_swedev:
+                # only finish with <|observation|> token can be multi-turn
+                if not stop_token.strip() == '<|observation|>':
+                    return {"done": True, "ids": [], "observations_times": 0}
+                action = tokenizer.decode(action_ids, skip_special_tokens=False)
+                text = action.split("<|observation|>")[0].strip()
+
+                # call api part
+                url = "http://172.16.65.43:8888/observation_kilt/"
+                # payload = {"content": text}
+                # new feature, for kilt_browser, we currently use translator
+                payload = {"content": text, "translate": True}
+                try:
+                    # api_response = requests.post(url, json=payload)
+                    # return api_response.json()
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(url, json=payload)
+                        ret = response.json()
+                except Exception as e:
+                    print(f"API call failed: {e}")
+                    ret = [{"content": "API call failed"}]
+                    # raise
+
+                # combine part
+                obv_combined = ['\n' + obv['content'].strip() for obv in ret]
+                obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+                return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}                
+            else:
+                action = tokenizer.decode(action_ids, skip_special_tokens=False)
+                if is_stop(action):
+                    return {"done": True, "ids": [], "observation_times": 0}
+                obs = call_observation_api(sid, action)
+                return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
         instance_ids = None
-        if self.config.is_swedev:
+        if self.is_swedev:
             instance_ids = prompts.batch['instance_id']
             instance_ids = instance_ids.repeat_interleave(self.config.n, dim=0)
         sids = [None] * len(input_ids)
@@ -126,7 +157,7 @@ class AsyncRollout(BaseRollout):
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
 
-        if self.config.is_swedev:
+        if self.is_swedev:
             with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
                 future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
                 for future in as_completed(future_to_idx):
