@@ -7,12 +7,13 @@ import sglang as sgl
 import torch
 import torch.distributed
 from tensordict import TensorDict
-
+from verl.utils.swedev_utils import *
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length):
+async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=None):
     done = False
     all_ids = prompt_ids
     loss_mask = [0] * len(all_ids)
@@ -24,7 +25,7 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length):
         loss_mask += [1] * len(action)
         if len(all_ids) >= max_length:
             break
-        obs = await obs_fn(action)
+        obs = await obs_fn(action, sid)
         obs_ids = obs.pop("ids")
         all_ids += obs_ids
         loss_mask += [0] * len(obs_ids)
@@ -103,52 +104,49 @@ class AsyncRollout(BaseRollout):
             return tokenizer.encode(text)
 
         # TODO: to support more generalized scenario, logics here should be decoupled into agent env.
-        async def obs_fn(action_ids):
+        async def obs_fn(action_ids, sid=None):
             # find <|observation|> token part
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
-            # only finish with <|observation|> token can be multi-turn
-            if not stop_token.strip() == '<|observation|>':
-                return {"done": True, "ids": [], "observations_times": 0}
             action = tokenizer.decode(action_ids, skip_special_tokens=False)
-            text = action.split("<|observation|>")[0].strip()
-
-            # call api part
-            url = "http://172.16.65.43:8888/observation_kilt/"
-            # payload = {"content": text}
-            # new feature, for kilt_browser, we currently use translator
-            payload = {"content": text, "translate": True}
-            try:
-                # api_response = requests.post(url, json=payload)
-                # return api_response.json()
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=payload)
-                    ret = response.json()
-            except Exception as e:
-                print(f"API call failed: {e}")
-                ret = [{"content": "API call failed"}]
-                # raise
-
-            # combine part
-            obv_combined = ['\n' + obv['content'].strip() for obv in ret]
-            obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-            return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}
+            if is_stop(action):
+                return {"done": True, "ids": [], "observation_times": 0}
+            obs = call_observation_api(sid, action)
+            return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
+        instance_ids = None
+        if self.config.is_swedev:
+            instance_ids = prompts.batch['instance_id']
+            instance_ids = instance_ids.repeat_interleave(self.config.n, dim=0)
+        sids = [None] * len(input_ids)
         position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
+
+        if self.config.is_swedev:
+            with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
+                future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
+                for future in as_completed(future_to_idx):
+                    try:
+                        result_idx, sid = future.result()
+                        print(f"Got SID: {result_idx}, {sid}, SIDS: {sids}")
+                        sids[result_idx] = sid
+                    except Exception as e:
+                        print(f"Error processing instance: {e}")
+                        traceback.print_exc()
+
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
-            prompt_ids=list(prompt),
+            prompt_ids=prompt, 
             gen_fn=gen_fn,
-            obs_fn=obs_fn,
+            obs_fn=obs_fn, 
             max_turns=self.config.max_turns,
-            max_length=self.total_len
-        ) for prompt in idx_list]
+            max_length=self.total_len,
+            sid=sid) for (prompt, sid) in zip(idx_list, sids)]
         loop = asyncio.get_event_loop()
         results = loop.run_until_complete(asyncio.gather(*tasks))
 

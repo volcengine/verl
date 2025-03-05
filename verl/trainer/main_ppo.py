@@ -75,6 +75,8 @@ def main_task(config, compute_score=None):
     }
 
     global_pool_id = 'global_pool'
+    print(f'config.trainer.nnodes: {config.trainer.nnodes}')
+    print(f'config.trainer.n_gpus_per_node: {config.trainer.n_gpus_per_node}')
     resource_pool_spec = {
         global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
     }
@@ -107,6 +109,9 @@ def main_task(config, compute_score=None):
     elif reward_manager_name == 'prime':
         from verl.workers.reward_manager import PrimeRewardManager
         reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == "swedev":
+        from verl.workers.reward_manager import SWEDevRewardManager
+        reward_manager_cls = SWEDevRewardManager
     else:
         raise NotImplementedError
     reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
