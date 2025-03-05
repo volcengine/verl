@@ -605,18 +605,19 @@ class RayPPOTrainer(object):
         # Update reference and log
         wandb.log({"val/generations": new_table}, step=self.global_steps)
         self.validation_table = new_table
- 
+
     def _maybe_log_val_generations_to_swanlab(self, inputs, outputs, scores):
         """Log a table of validation samples to swanlab"""
 
-        generations_to_log = self.config.trainer.val_generations_to_log_to_swanlab
+        generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
 
         if generations_to_log == 0:
             return
 
         if generations_to_log > 0 and 'swanlab' not in self.config.trainer.logger:
             print(
-                'WARNING: `val_generations_to_log_to_swanlab` is set to a positive value, but no swanlab logger is found. ')
+                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no swanlab logger is found. '
+            )
             return
 
         import swanlab
@@ -637,18 +638,15 @@ class RayPPOTrainer(object):
         swanlab_text_list = []
         for i, sample in enumerate(samples):
             row_text = f"""
-            input: 
-            {sample[0]}
+            input: {sample[0]}
             
             ---
             
-            output: 
-            {sample[1]}
+            output: {sample[1]}
             
             ---
             
-            score: 
-            {sample[2]}
+            score: {sample[2]}
             """
             swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i+1}"))
 
@@ -719,8 +717,12 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-        self._maybe_log_val_generations_to_swanlab(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        if "wandb" in self.config.trainer.logger:
+            self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        if "swanlab" in self.config.trainer.logger:
+            self._maybe_log_val_generations_to_swanlab(inputs=sample_inputs,
+                                                       outputs=sample_outputs,
+                                                       scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)

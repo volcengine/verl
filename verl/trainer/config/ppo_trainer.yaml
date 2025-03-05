@@ -162,7 +162,6 @@ trainer:
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
   val_generations_to_log_to_wandb: 0
-  val_generations_to_log_to_swanlab: 0
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
