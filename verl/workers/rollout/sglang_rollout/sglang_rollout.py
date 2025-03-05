@@ -137,6 +137,7 @@ class SGLangRollout(BaseRollout):
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
+        kwargs['repetition_penalty'] = 1.0
         print(f"kwargs: {kwargs}")
         self.sampling_params = kwargs
 
@@ -149,15 +150,15 @@ class SGLangRollout(BaseRollout):
         old_sampling_params_args = {}
         if kwargs:
             for key, value in kwargs.items():
-                if hasattr(self.sampling_params, key):
-                    old_value = getattr(self.sampling_params, key)
+                if key in self.sampling_params:
+                    old_value = self.sampling_params[key]
                     old_sampling_params_args[key] = old_value
-                    setattr(self.sampling_params, key, value)
+                    self.sampling_params[key] = value
         yield
         # roll back to previous sampling params
         # if len(old_sampling_params_args):
         for key, value in old_sampling_params_args.items():
-            setattr(self.sampling_params, key, value)
+            self.sampling_params[key] = value
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -189,6 +190,7 @@ class SGLangRollout(BaseRollout):
             }
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
+            print(f"{self.sampling_params=}")
             output = self.inference_engine.generate(
                 prompt=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
