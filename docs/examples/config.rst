@@ -349,9 +349,9 @@ Trainer
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
 
 - ``trainer.total_epochs``: Number of epochs in training.
-- ``trainer.project_name``: For wandb
-- ``trainer.experiment_name``: For wandb
-- ``trainer.logger``: Support console and wandb
+- ``trainer.project_name``: For wandb, swanlab
+- ``trainer.experiment_name``: For wandb, swanlab
+- ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
