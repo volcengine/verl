@@ -35,7 +35,10 @@ if __name__ == '__main__':
     train_dataset = dataset['train']
     test_dataset = dataset['test']
 
-    instruction_following = r"Please reason step by step, and put your final answer within \boxed{}."
+    instruction_following = (
+        r'You FIRST think about the reasoning process as an internal monologue and then provide the final answer. '
+        r'The reasoning process MUST BE enclosed within <think> </think> tags. The final answer MUST BE put in \boxed{}.'
+    )
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):

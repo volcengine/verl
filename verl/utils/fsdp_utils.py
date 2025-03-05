@@ -26,7 +26,7 @@ from transformers.trainer_pt_utils import get_module_class_from_name
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from verl.utils.device import is_cuda_available
+from verl.utils.device import is_cuda_available, get_device_name
 
 
 def init_fn(x: torch.nn.Module):
@@ -141,7 +141,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
         if handle._offload_params:
             continue
         flat_param = handle.flat_param
-        handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        handle.flat_param_to(torch.device(f"{get_device_name()}:{device_id}"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
 
