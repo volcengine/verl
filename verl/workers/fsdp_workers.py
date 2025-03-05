@@ -416,7 +416,8 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
-        data = data.to('cuda')
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
 
         assert self._is_actor
         if self._is_offload_param:
@@ -424,7 +425,8 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
-        data.batch = data.batch.cuda()
+        # Support all hardwares
+        data.batch = data.batch.to(torch.cuda.current_device())
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
@@ -459,13 +461,15 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
-        prompts = prompts.to('cuda')
+        # Support all hardwares
+        prompts = prompts.to(torch.cuda.current_device())
 
         assert self._is_rollout
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        prompts.batch = prompts.batch.cuda()
+        # Support all hardwares
+        prompts.batch = prompts.batch.to(torch.cuda.current_device())
         meta_info = {
             'eos_token_id':
                 self.generation_config.eos_token_id
@@ -504,7 +508,9 @@ class ActorRolloutRefWorker(Worker):
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-        data = data.to('cuda')
+
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
         # we should always recompute old_log_probs when it is HybridEngine
         data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
@@ -537,7 +543,8 @@ class ActorRolloutRefWorker(Worker):
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
 
-        data = data.to('cuda')
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
 
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
@@ -782,7 +789,9 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-        data = data.to('cuda')
+
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -804,7 +813,8 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
-        data = data.to('cuda')
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
@@ -1103,11 +1113,13 @@ class RewardModelWorker(Worker):
     def compute_rm_score(self, data: DataProto):
         import itertools
         from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-        data = data.to('cuda')
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
 
-        rm_data.batch = rm_data.batch.cuda()
+        # Support all hardwares
+        rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:

@@ -74,6 +74,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = 'hf' if self.full_params else 'dtensor'
+
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:

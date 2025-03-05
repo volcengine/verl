@@ -198,11 +198,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                 self.critic_optimizer.zero_grad()
 
                 for data in micro_batches:
+                    #Support all devices
                     if isinstance(data, DataProto):
-                        data = {**data.batch.cuda(), **data.non_tensor_batch}
+                        data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
                     else:
-                        data = data.cuda()  # critic device is cpu when using offload
-
+                        data = data.to(torch.cuda.current_device())  # critic device is cpu when using offload
                     input_ids = data['input_ids']
                     responses = data['responses']
                     attention_mask = data['attention_mask']
