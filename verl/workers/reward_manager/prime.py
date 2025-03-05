@@ -43,7 +43,12 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
+async def parallel_compute_score_async(evaluation_func,
+                                       completions,
+                                       references,
+                                       tasks,
+                                       extra_info=None,
+                                       num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         if extra_info is None:
