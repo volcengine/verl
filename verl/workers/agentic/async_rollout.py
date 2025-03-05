@@ -146,8 +146,12 @@ class AsyncRollout(BaseRollout):
                     print(f"Action stop: {action}")
                     return {"done": True, "ids": [], "observation_times": 0}
 
-                obs = call_observation_api(sid, action)
-                print(f"Get obs: {obs}")
+                result = call_observation_api(sid, action)
+                # TODO(haoran): handle here
+                try:
+                    obs = result["content"]
+                except:
+                    obs = "Error"
                 return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
@@ -160,7 +164,7 @@ class AsyncRollout(BaseRollout):
         position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
-
+        
         if self.is_swedev:
             with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
                 future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
@@ -176,7 +180,7 @@ class AsyncRollout(BaseRollout):
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
-            prompt_ids=prompt, 
+            prompt_ids=list(prompt),
             gen_fn=gen_fn,
             obs_fn=obs_fn, 
             max_turns=self.config.max_turns,
@@ -198,6 +202,7 @@ class AsyncRollout(BaseRollout):
             gen_ids = torch.tensor(r["ids"][prompt_len:], device=device)
             resp_len = len(gen_ids)
             responses[i, :resp_len] = gen_ids
+            print(f'After prompt len: {prompt_len}, {len(r["loss_mask"])}')
             resp_loss_mask[i, :len(r["loss_mask"]) - prompt_len] = torch.tensor(r["loss_mask"][prompt_len:], device=device)
             resp_attn_mask[i, :resp_len] = 1
 
@@ -224,7 +229,6 @@ class AsyncRollout(BaseRollout):
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
         sids = [sid if sid != None else 0 for sid in sids]
-        print(sids)
         batch = TensorDict({
             "prompts": input_ids,
             "responses": responses,

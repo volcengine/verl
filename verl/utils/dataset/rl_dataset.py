@@ -119,6 +119,7 @@ class RLHFDataset(Dataset):
                 tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
                                                                 axis=1)]
         else:
+            print(f'max prompt len: {self.max_prompt_length}')
             self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
                 tokenizer.apply_chat_template([
                         {"role": "system", "content": get_system_prompt()},
@@ -172,6 +173,8 @@ class RLHFDataset(Dataset):
         row_dict['attention_mask'] = attention_mask[0]
         row_dict['position_ids'] = position_ids[0]
 
+        print(f"Row {len(row_dict['input_ids'])}")
+        
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict['raw_prompt'] = chat.tolist()

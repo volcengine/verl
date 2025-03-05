@@ -241,7 +241,6 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     print(sequence_score)
 
     print("observations_times")
-    print(batch.batch['observations_times'])
 
     with open("logs/uid.txt", "a") as f:
         f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")

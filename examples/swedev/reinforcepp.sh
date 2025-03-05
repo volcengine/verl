@@ -25,8 +25,8 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=$TEST_FILE \
     data.train_batch_size=8 \
     data.val_batch_size=8 \
-    data.max_prompt_length=6144 \
-    data.max_response_length=2000 \
+    data.max_prompt_length=26144 \
+    data.max_response_length=5000 \
     data.shuffle=False \
     +data.is_swedev=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -51,6 +51,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=2 \
     +actor_rollout_ref.rollout.is_swedev=True \
     actor_rollout_ref.rollout.multi_turn=True \
+    actor_rollout_ref.rollout.prompt_length=26144 \
+    actor_rollout_ref.rollout.response_length=5000 \
     actor_rollout_ref.rollout.max_turns=10 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
