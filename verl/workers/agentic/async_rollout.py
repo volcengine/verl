@@ -1,28 +1,29 @@
 import asyncio
 import os
 import time
-from dataclasses import asdict
 
 import httpx
 import sglang as sgl
 import torch
 import torch.distributed
-from sglang.srt.managers.io_struct import InitWeightsUpdateGroupReqInput, UpdateWeightsFromDistributedReqInput
 from tensordict import TensorDict
 
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
 
 
-async def ids_agent_loop(prompt_ids, gen_fn, obs_fn):
+async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length):
     done = False
     all_ids = prompt_ids
     loss_mask = [0] * len(all_ids)
     obs_metrics = {}
-    while not done:
+    turn = 0
+    while not done and len(all_ids) < max_length and turn < max_turns:
         action = await gen_fn(all_ids)
         all_ids += action
         loss_mask += [1] * len(action)
+        if len(all_ids) >= max_length:
+            break
         obs = await obs_fn(action)
         obs_ids = obs.pop("ids")
         all_ids += obs_ids
@@ -33,6 +34,7 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn):
                 obs_metrics[k] = v
             else:
                 obs_metrics[k] += v
+        turn += 1
     return {
         "ids": all_ids,
         "loss_mask": loss_mask,
@@ -55,14 +57,15 @@ class AsyncRollout(BaseRollout):
         time.sleep(torch.distributed.get_rank() * 0)
         print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-        total_len = config.prompt_length + config.response_length
+        self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
         self.engine = sgl.Engine(
             model_path=model_path,
             # cpu_offload_gb=500,
             port=40000,
             dtype=config.dtype,
-            max_total_tokens=total_len,
+            max_total_tokens=self.total_len,
+            max_prefill_tokens=self.total_len,
             enable_memory_saver=True,
             mem_fraction_static=config.gpu_memory_utilization,
         )
@@ -138,12 +141,19 @@ class AsyncRollout(BaseRollout):
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
         device = input_ids.device
-        tasks = [ids_agent_loop(prompt_ids=list(prompt), gen_fn=gen_fn, obs_fn=obs_fn) for prompt in idx_list]
+        print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
+        tasks = [ids_agent_loop(
+            prompt_ids=list(prompt),
+            gen_fn=gen_fn,
+            obs_fn=obs_fn,
+            max_turns=self.config.max_turns,
+            max_length=self.total_len
+        ) for prompt in idx_list]
         loop = asyncio.get_event_loop()
         results = loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
-        max_len = self.config.response_length
+        max_len = self.total_len
         # all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
         responses = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
         resp_loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
