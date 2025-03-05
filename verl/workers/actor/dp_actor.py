@@ -15,6 +15,7 @@
 Single Process Actor
 """
 
+from collections import defaultdict
 import itertools
 from typing import Iterable, Tuple
 
@@ -26,14 +27,14 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, masked_mean
+from verl.utils.torch_functional import allgather_dict_tensors, logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
-__all__ = ['DataParallelPPOActor']
+__all__ = ['DataParallelPPOActor', 'OptimalBaselineDataParallelPPOActor']
 
 
 class DataParallelPPOActor(BasePPOActor):
@@ -150,6 +151,14 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_optimizer.step()
         return grad_norm
 
+    def _reset_optimizer(self):
+        from torch import optim
+        del self.actor_optimizer
+        self.actor_optimizer = optim.AdamW(self.actor_module.parameters(),
+                                           lr=self.config.optim.lr,
+                                           betas=self.config.optim.get('betas', (0.9, 0.999)),
+                                           weight_decay=self.config.optim.get('weight_decay', 1e-2))
+
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -206,7 +215,12 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        old_log_probs_compute = data.meta_info['old_log_probs_compute']
+        if old_log_probs_compute:
+            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        else:
+            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'advantages']
+
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
@@ -214,6 +228,10 @@ class DataParallelPPOActor(BasePPOActor):
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         dataloader = batch.split(self.config.ppo_mini_batch_size)
+
+        # reset optimizer for mirror descent
+        if self.config.adv_estimator == 'mirror_descent':
+            self._reset_optimizer()
 
         metrics = {}
         for epoch in range(self.config.ppo_epochs):
@@ -236,7 +254,7 @@ class DataParallelPPOActor(BasePPOActor):
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
                     response_mask = attention_mask[:, -response_length:]
-                    old_log_prob = data['old_log_probs']
+                    # old_log_prob = data['old_log_probs']
                     advantages = data['advantages']
 
                     clip_ratio = self.config.clip_ratio
@@ -245,11 +263,27 @@ class DataParallelPPOActor(BasePPOActor):
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
-                    pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                  log_prob=log_prob,
-                                                                                  advantages=advantages,
-                                                                                  eos_mask=response_mask,
-                                                                                  cliprange=clip_ratio)
+                    if old_log_probs_compute:
+                        old_log_prob = data['old_log_probs']
+                    else:
+                        # speed optimization, only compute old_log_prob when train_batch_size and ppo_mini_batch_size are the different
+                        # otherwise, old_log_prob is the same as log_prob, but no gradient
+                        old_log_prob = log_prob.clone().detach()
+
+                    if self.config.adv_estimator == 'mirror_descent':
+                        pg_loss, reinforce_loss, regularization_loss = core_algos.compute_mirror_descent_policy_loss(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            eos_mask=response_mask,
+                            tau=self.config.tau)
+                    else:
+                        pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                      log_prob=log_prob,
+                                                                                      advantages=advantages,
+                                                                                      eos_mask=response_mask,
+                                                                                      cliprange=clip_ratio)
+
                     # compute entropy loss from entropy
                     entropy_loss = verl_F.masked_mean(entropy, response_mask)
 
@@ -275,12 +309,20 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss / self.gradient_accumulation
                     loss.backward()
 
-                    data = {
-                        'actor/entropy_loss': entropy_loss.detach().item(),
-                        'actor/pg_loss': pg_loss.detach().item(),
-                        'actor/pg_clipfrac': pg_clipfrac.detach().item(),
-                        'actor/ppo_kl': ppo_kl.detach().item(),
-                    }
+                    if self.config.adv_estimator == 'mirror_descent':
+                        data = {
+                            'actor/entropy_loss': entropy_loss.detach().item(),
+                            'actor/pg_loss': pg_loss.detach().item(),
+                            'actor/reinforce_loss': reinforce_loss.detach().item(),
+                            'actor/regularization_loss': regularization_loss.detach().item(),
+                        }
+                    else:
+                        data = {
+                            'actor/entropy_loss': entropy_loss.detach().item(),
+                            'actor/pg_loss': pg_loss.detach().item(),
+                            'actor/pg_clipfrac': pg_clipfrac.detach().item(),
+                            'actor/ppo_kl': ppo_kl.detach().item(),
+                        }
                     append_to_dict(metrics, data)
 
                 grad_norm = self._optimizer_step()

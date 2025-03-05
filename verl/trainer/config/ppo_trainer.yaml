@@ -35,6 +35,9 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
+    tau: 100.0 # for mirror descent regularization weight
+    adv_estimator: ${algorithm.adv_estimator}
+#    estimate_optimal_baseline: False
     optim:
       lr: 1e-6
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -62,6 +65,7 @@ actor_rollout_ref:
   rollout:
     name: vllm
     temperature: 1.0
+    temperature_val: ${actor_rollout_ref.rollout.temperature}
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
     prompt_length: ${data.max_prompt_length}  # not use for opensource
@@ -87,6 +91,7 @@ actor_rollout_ref:
     do_sample: True
     # number of responses (i.e. num sample times)
     n: 1 # > 1 for grpo
+    n_val: 16
 
 critic:
   strategy: fsdp
@@ -148,6 +153,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  normalize_advantage: False # whether to normalize the advantage by std
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
     type: fixed
@@ -172,3 +178,5 @@ trainer:
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  val_only: False
+  save_hf_model: True

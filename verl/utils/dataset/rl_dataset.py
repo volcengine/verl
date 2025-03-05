@@ -68,6 +68,7 @@ class RLHFDataset(Dataset):
                  cache_dir='~/.cache/verl/rlhf',
                  chat_template_func=None,
                  return_raw_chat=False,
+                 disable_chat_template=True,
                  truncation='error'):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
@@ -84,6 +85,7 @@ class RLHFDataset(Dataset):
         self.return_raw_chat = return_raw_chat
         self.chat_template_func = chat_template_func
         self.truncation = truncation
+        self.disable_chat_template = disable_chat_template
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -110,9 +112,10 @@ class RLHFDataset(Dataset):
         # filter out too long prompts
         tokenizer = self.tokenizer
         prompt_key = self.prompt_key
-        self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                             axis=1)]
+        tokenize_fn = lambda doc: tokenizer.encode(doc[prompt_key]) if self.disable_chat_template else tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
+        if self.filter_prompts:
+            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
+                tokenize_fn(doc)) <= self.max_prompt_length, axis=1)]
 
         print(f'filter dataset len: {len(self.dataframe)}')
 
@@ -136,7 +139,10 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
 
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        if self.disable_chat_template:
+            prompt_with_chat_template = chat
+        else:
+            prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                          tokenizer=self.tokenizer,

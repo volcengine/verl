@@ -57,7 +57,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
         remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
-            f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
+            f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path}'
         )
         local_model_path = copy_to_local(remote_model_path)
         local_optim_path = copy_to_local(remote_optim_path)
@@ -67,10 +67,17 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optimizer_state_dict = torch.load(local_optim_path)
         extra_state_dict = torch.load(local_extra_state_path)
 
+        if self.optimizer is not None:
+            remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+            print(f'[rank-{self.rank}]: Loading optimizer from {remote_optim_path}')
+            local_optim_path = copy_to_local(remote_optim_path)
+            optimizer_state_dict = torch.load(local_optim_path)
+
         if del_local_after_load:
             try:
                 os.remove(local_model_path) if is_non_local(local_model_path) else None
-                os.remove(local_optim_path) if is_non_local(local_optim_path) else None
+                if self.optimizer is not None:
+                    os.remove(local_optim_path) if is_non_local(local_optim_path) else None
                 os.remove(local_extra_state_path) if is_non_local(local_extra_state_path) else None
             except Exception as e:
                 print(
@@ -125,15 +132,20 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     'rng': self.get_rng_state(),
                 }
                 model_path = os.path.join(local_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
-                optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+                # optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
                 extra_path = os.path.join(local_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
 
                 print(f'[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}')
                 print(f'[rank-{self.rank}]: Saving checkpoint to {os.path.abspath(model_path)}')
                 print(f'[rank-{self.rank}]: Saving extra_state to {os.path.abspath(extra_path)}')
                 torch.save(model_state_dict, model_path)
-                torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
+                # torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
+
+                if self.optimizer is not None:
+                    optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+                    print(f'[rank-{self.rank}]: Saving optimizer to {os.path.abspath(optim_path)}')
+                    torch.save(optimizer_state_dict, optim_path)
 
         # wait for everyone to dump to local
         torch.distributed.barrier()

@@ -167,14 +167,12 @@ class vLLMRollout(BaseRollout):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
         do_sample = prompts.meta_info.get('do_sample', True)
-        if not do_sample:
+        # kwargs for validation
+        if prompts.meta_info.get('validate', False):
             kwargs = {
-                'best_of': 1,
-                'top_p': 1.0,
-                'top_k': -1,
-                'min_p': 0.0,
-                'temperature': 0,
-                'n': 1  # if greedy, only 1 response
+                'temperature': self.config.temperature_val,
+                'n': self.config.n_val, # repeate samples
+                'do_sample': do_sample
             }
 
         # users can customize different sampling_params at different run
@@ -196,7 +194,12 @@ class vLLMRollout(BaseRollout):
         response = pad_2d_list_to_length(response, self.pad_token_id,
                                          max_length=self.config.response_length).to(idx.device)
 
-        if self.config.n > 1 and do_sample:
+        if self.config.n_val > 1 and do_sample and prompts.meta_info.get('validate', False):
+            idx = idx.repeat_interleave(self.config.n_val, dim=0)
+            attention_mask = attention_mask.repeat_interleave(self.config.n_val, dim=0)
+            position_ids = position_ids.repeat_interleave(self.config.n_val, dim=0)
+            batch_size = batch_size * self.config.n_val
+        elif self.config.n > 1 and do_sample and not prompts.meta_info.get('validate', False):
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)

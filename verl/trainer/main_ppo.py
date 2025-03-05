@@ -19,10 +19,104 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import ray
 import hydra
 
+from verl import DataProto
+from verl.utils.reward_score import _default_compute_score
+import torch
+
+
+class BatchedRewardManager:
+    """The reward manager.
+    """
+
+    def __init__(self, tokenizer, num_examine, compute_score=None) -> None:
+        self.tokenizer = tokenizer
+        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.compute_score = compute_score or _default_compute_score
+
+    def __call__(self, data: DataProto):
+        """We will expand this function gradually based on the available datasets"""
+
+        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        if 'rm_scores' in data.batch.keys():
+            return data.batch['rm_scores']
+
+        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+
+        already_print_data_sources = {}
+
+        data_sources = []
+        solutions = []
+        ground_truths = []
+        extra_infos = []
+        valid_response_lengths = []
+
+        for i in range(len(data)):
+            data_item = data[i]  # DataProtoItem
+
+            prompt_ids = data_item.batch['prompts']
+
+            prompt_length = prompt_ids.shape[-1]
+
+            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+            response_ids = data_item.batch['responses']
+            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+            valid_response_ids = response_ids[:valid_response_length]
+
+            # decode
+            sequences = torch.cat((valid_prompt_ids, valid_response_ids))
+            sequences_str = self.tokenizer.decode(sequences)
+
+            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+
+            data_source = data_item.non_tensor_batch['data_source']
+
+            extra_info = data_item.non_tensor_batch.get('extra_info', None)
+
+            data_sources.append(data_source)
+            solutions.append(sequences_str)
+            ground_truths.append(ground_truth)
+            extra_infos.append(extra_info)
+            valid_response_lengths.append(valid_response_length)
+
+            if data_source not in already_print_data_sources:
+                already_print_data_sources[data_source] = 0
+
+            if already_print_data_sources[data_source] < self.num_examine:
+                already_print_data_sources[data_source] += 1
+                print(sequences_str)
+
+        scores = self.compute_score(
+            data_sources=data_sources,
+            solution_strs=solutions,
+            ground_truths=ground_truths,
+            extra_infos=extra_infos,
+        )
+
+        for i in range(len(data)):
+            reward_tensor[i, valid_response_length - 1] = scores[i]
+
+        return reward_tensor
+
+def judge_compute_score(data_sources, solution_strs, ground_truths, extra_infos=None):
+    from nemo_skills.training.openrlhf.math_reward import reward_func
+    prompt_metadata = []
+    for ground_truth, extra_info, in zip(ground_truths, extra_infos):
+        prompt_metadata.append({
+            "problem": extra_info['problem'],
+            "expected_answer": ground_truth,
+        })
+    return reward_func(solution_strs, None, prompt_metadata)
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
-    run_ppo(config)
+    compute_score = config.reward_model.get('compute_score', None)
+    if compute_score == 'math-judge':
+        compute_score_fn = judge_compute_score
+    else:
+        compute_score_fn = None
+    run_ppo(config, compute_score_fn)
 
 
 def run_ppo(config, compute_score=None):
@@ -106,12 +200,14 @@ def main_task(config, compute_score=None):
     elif reward_manager_name == 'prime':
         from verl.workers.reward_manager import PrimeRewardManager
         reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == 'batched':
+        reward_manager_cls = BatchedRewardManager
     else:
         raise NotImplementedError
     reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
 
-    # Note that we always use function-based RM for validation
-    val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
+    # Turn off num_examine, context length too long
+    val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 

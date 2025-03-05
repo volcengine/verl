@@ -111,7 +111,8 @@ def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torc
 def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    eos_mask: torch.Tensor,
                                    index: torch.Tensor,
-                                   epsilon: float = 1e-6):
+                                   epsilon: float = 1e-6,
+                                   normalize: bool = True):
     """
     Compute advantage for GRPO, operating only on Outcome reward 
     (with only one scalar reward for each response).
@@ -148,7 +149,10 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            if normalize:
+                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            else:
+                scores[i] = scores[i] - id2mean[index[i]]
         scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
 
     return scores, scores
@@ -233,6 +237,8 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
     return advantages, returns
 
 
+
+
 def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor,
                                     eos_mask: torch.Tensor):
     """
@@ -269,6 +275,37 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
+def get_policy_probability(old_log_prob, log_prob):
+    """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
+    Args:
+        old_log_prob: `(torch.Tensor)`
+            shape: (bs, response_length)
+        log_prob: `(torch.Tensor)`
+            shape: (bs, response_length)
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        eos_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        cliprange: (float)
+            The clip range used in PPO. See https://arxiv.org/abs/1707.06347
+    Returns:
+        pg_loss: `a scalar torch.Tensor`
+            policy gradient loss computed via PPO
+        pg_clipfrac: (float)
+            a float number indicating the fraction of policy gradient loss being clipped
+    """
+    if old_log_prob is None:
+        # old_log_prob has the same values as log_prob, but no gradient
+        # stop the gradient of log_prob
+        negative_approx_kl = log_prob - log_prob.detach()
+    else:
+        negative_approx_kl = log_prob - old_log_prob
+    ratio = torch.exp(negative_approx_kl)
+    pg_losses = -ratio
+    # we divide by advantages to get the probability of the policy
+    return pg_losses
+
+
 def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
 
@@ -301,6 +338,39 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
     pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
     return pg_loss, pg_clipfrac, ppo_kl
+
+
+def compute_mirror_descent_policy_loss(old_log_prob, log_prob, advantages, eos_mask, tau):
+    """Check https://arxiv.org/pdf/2501.12599 pdf for details
+    Args:
+        old_log_prob: `(torch.Tensor)`
+            shape: (bs, response_length)
+        log_prob: `(torch.Tensor)`
+            shape: (bs, response_length)
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        eos_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        tau: (float)
+            the regularization weight
+    Returns:
+        pg_loss: `a scalar torch.Tensor`
+            the full loss
+        reinforce_loss: `a scalar torch.Tensor`
+            the reinforce loss
+        regularization_loss: `a scalar torch.Tensor`
+            the regularization loss
+    """
+    reinforce_losses = -advantages * log_prob
+    reinforce_loss = verl_F.masked_mean(reinforce_losses, eos_mask)
+
+    log_prob_diff = log_prob - old_log_prob
+    regularization_loss = tau / 2.0 * log_prob_diff * log_prob_diff
+    regularization_loss = verl_F.masked_mean(regularization_loss, eos_mask)
+
+    pg_loss = reinforce_loss + regularization_loss
+    return pg_loss, reinforce_loss, regularization_loss
+
 
 
 def compute_entropy_loss(logits, eos_mask):

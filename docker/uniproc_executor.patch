@@ -1,0 +1,11 @@
+--- uniproc_executor.py.origin	2025-02-15 15:41:13.379770198 +0000
++++ /usr/local/lib/python3.10/dist-packages/vllm/executor/uniproc_executor.py	2025-02-15 15:42:38.034619307 +0000
+@@ -101,7 +101,7 @@
+         # - MASTER_PORT
+         distributed_init_method = "env://"
+         rank = int(os.environ["RANK"])
+-        local_rank = rank
++        local_rank = int(os.environ["LOCAL_RANK"])
+         is_driver_worker = True
+         kwargs = dict(
+             vllm_config=self.vllm_config,

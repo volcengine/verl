@@ -1,0 +1,10 @@
+--- weight_utils.py.origin	2025-02-15 15:42:00.105238871 +0000
++++ /usr/local/lib/python3.10/dist-packages/vllm/model_executor/model_loader/weight_utils.py	2025-02-15 15:43:16.530005427 +0000
+@@ -453,7 +453,6 @@
+         state = torch.load(bin_file, map_location="cpu", weights_only=True)
+         yield from state.items()
+         del state
+-        torch.cuda.empty_cache()
+
+
+ def get_gguf_extra_tensor_names(

@@ -37,6 +37,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.timer import TimeoutChecker
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -65,6 +66,7 @@ class AdvantageEstimator(str, Enum):
     REINFORCE_PLUS_PLUS = 'reinforce_plus_plus'
     REMAX = 'remax'
     RLOO = 'rloo'
+    MIRROR_DESCENT = 'mirror_descent'
 
 
 @dataclass
@@ -129,7 +131,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, normalize=True):
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
@@ -146,7 +148,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                       lam=lam)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.GRPO:
+    elif adv_estimator == AdvantageEstimator.GRPO or adv_estimator == AdvantageEstimator.MIRROR_DESCENT:
         token_level_rewards = data.batch['token_level_rewards']
         index = data.non_tensor_batch['uid']
         responses = data.batch['responses']
@@ -155,7 +157,8 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         response_mask = attention_mask[:, -response_length:]
         advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
                                                                         eos_mask=response_mask,
-                                                                        index=index)
+                                                                        index=index,
+                                                                        normalize=normalize)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
@@ -359,7 +362,7 @@ class RayPPOTrainer(object):
                  val_reward_fn=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
-
+        self.timeout = TimeoutChecker()
         self.tokenizer = tokenizer
         self.config = config
         self.reward_fn = reward_fn
@@ -398,8 +401,16 @@ class RayPPOTrainer(object):
                 AdvantageEstimator.RLOO
         ]:
             self.use_critic = False
+        elif self.config.algorithm.adv_estimator == AdvantageEstimator.MIRROR_DESCENT:
+            self.use_critic = False
+            self.use_reference_policy = False
+            self.config.actor_rollout_ref.actor.use_kl_loss = False
         else:
             raise NotImplementedError
+
+        if not self.config.actor_rollout_ref.actor.use_kl_loss:
+            # if not use kl loss, we do not need to use reference policy
+            self.use_reference_policy = False
 
         self._validate_config()
         self._create_dataloader()
@@ -601,6 +612,7 @@ class RayPPOTrainer(object):
     def _validate(self):
         reward_tensor_lst = []
         data_source_lst = []
+        data_uid_lst = []
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -617,14 +629,19 @@ class RayPPOTrainer(object):
             # Store original inputs
             input_ids = test_batch.batch['input_ids']
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            input_texts = [x for x in input_texts for _ in range(self.config.actor_rollout_ref.rollout.n_val)]
             sample_inputs.extend(input_texts)
+
+            # extend with uid info
+            test_batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(test_batch.batch))],
+                                                          dtype=object)
 
             test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
             test_gen_batch.meta_info = {
                 'eos_token_id': self.tokenizer.eos_token_id,
                 'pad_token_id': self.tokenizer.pad_token_id,
                 'recompute_log_prob': False,
-                'do_sample': False,
+                'do_sample': True if self.config.actor_rollout_ref.rollout.n_val > 1 else False,
                 'validate': True,
             }
 
@@ -632,14 +649,14 @@ class RayPPOTrainer(object):
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             # unpad
-            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-            print('validation generation end')
+            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size*self.config.actor_rollout_ref.rollout.n_val)
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch['responses']
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
+            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_val, interleave=True)
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
@@ -650,24 +667,48 @@ class RayPPOTrainer(object):
             sample_scores.extend(scores)
 
             reward_tensor_lst.append(reward_tensor)
-            data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+            data_source = test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0])
+            for idx, x in enumerate(test_batch.non_tensor_batch['extra_info']):
+                if 'name' in x:
+                    data_source[idx] = x['name']
+            data_source_lst.append(data_source)
+            data_uid_lst.append(test_batch.non_tensor_batch['uid'])
 
         self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
+        data_uids = np.concatenate(data_uid_lst, axis=0)
 
         # evaluate test_score based on data source
         data_source_reward = {}
         for i in range(reward_tensor.shape[0]):
             data_source = data_sources[i]
+            data_uid = data_uids[i]
             if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
+                data_source_reward[data_source] = {}
+            if data_uid not in data_source_reward[data_source]:
+                data_source_reward[data_source][data_uid] = []
+            data_source_reward[data_source][data_uid].append(reward_tensor[i].item())
 
         metric_dict = {}
+        stacked_rewards = []
         for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+            # shape (bs, n)
+            rewards = np.array(list(rewards.values()))
+            stacked_rewards.append(rewards)
+            # Here we assume reward model generates binary 0/1 rewards
+            metric_dict[f'val/test_score/{data_source}/pass@1'] = np.mean(rewards)
+            metric_dict[f'val/test_score/{data_source}/pass@1/std'] = np.mean(rewards.std(axis=1))
+            metric_dict[f'val/test_score/{data_source}/pass@{self.config.actor_rollout_ref.rollout.n_val}'] = np.mean(
+                rewards.max(axis=1))
+
+        if len(list(data_source_reward.keys())) > 1:
+            stacked_rewards = np.concatenate(stacked_rewards, axis=0)
+            metric_dict[f'val/test_score/all/pass@1'] = np.mean(stacked_rewards)
+            metric_dict[f'val/test_score/all/pass@1/std'] = np.mean(stacked_rewards.std(axis=1))
+            metric_dict[f'val/test_score/all/pass@{self.config.actor_rollout_ref.rollout.n_val}'] = np.mean(
+                stacked_rewards.max(axis=1))
 
         return metric_dict
 
@@ -750,6 +791,9 @@ class RayPPOTrainer(object):
                                               actor_remote_path,
                                               self.global_steps,
                                               remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
+
+        if self.config.trainer.save_hf_model:
+            self.actor_rollout_wg.save_model(actor_local_path)
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, 'critic')
@@ -908,6 +952,9 @@ class RayPPOTrainer(object):
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
+                    batch.non_tensor_batch['sample_uid'] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                        dtype=object)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -918,9 +965,14 @@ class RayPPOTrainer(object):
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                     # recompute old_log_probs
-                    with _timer('old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        batch = batch.union(old_log_prob)
+                    if self.config.data.train_batch_size == self.config.actor_rollout_ref.actor.ppo_mini_batch_size:
+                        batch.meta_info['old_log_probs_compute'] = False
+                        batch.meta_info['temperature'] = self.config.actor_rollout_ref.rollout.temperature
+                    else:
+                        batch.meta_info['old_log_probs_compute'] = True
+                        with _timer('old_log_prob', timing_raw):
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -961,7 +1013,8 @@ class RayPPOTrainer(object):
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
-                                                  num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                                  num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                                  normalize=self.config.algorithm.normalize_advantage)
 
                     # update critic
                     if self.use_critic:
@@ -983,10 +1036,14 @@ class RayPPOTrainer(object):
                         self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
+                        pprint(f'Step {self.global_steps} validation metrics: {val_metrics}')
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+                    elif self.timeout.check_save():
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
@@ -999,7 +1056,7 @@ class RayPPOTrainer(object):
 
                 self.global_steps += 1
 
-                if self.global_steps >= self.total_training_steps:
+                if self.global_steps >= self.total_training_steps or self.timeout.last_saved:
 
                     # perform validation after training
                     if self.val_reward_fn is not None:

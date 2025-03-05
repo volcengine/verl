@@ -1,0 +1,16 @@
+--- parallel_state.py.origin	2025-02-15 15:36:05.655683457 +0000
++++ /usr/local/lib/python3.10/dist-packages/vllm/distributed/parallel_state.py	2025-02-15 15:38:29.233123711 +0000
+@@ -1024,13 +1024,6 @@
+     backend = backend or torch.distributed.get_backend(
+         get_world_group().device_group)
+
+-    if (world_size
+-            != tensor_model_parallel_size * pipeline_model_parallel_size):
+-        raise RuntimeError(
+-            f"world_size ({world_size}) is not equal to "
+-            f"tensor_model_parallel_size ({tensor_model_parallel_size}) x "
+-            f"pipeline_model_parallel_size ({pipeline_model_parallel_size})")
+-
+     # Build the tensor model-parallel groups.
+     num_tensor_model_parallel_groups: int = (world_size //
+                                              tensor_model_parallel_size)

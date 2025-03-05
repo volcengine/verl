@@ -26,7 +26,8 @@ import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from verl import DataProto
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import Execute, register, Dispatch
+from verl.utils.checkpoint.convert_checkpoint import merge_checkpoint
 from verl.utils import hf_tokenizer
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fs import copy_to_local
@@ -155,7 +156,7 @@ class ActorRolloutRefWorker(Worker):
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, CPUOffload
         from torch import optim
 
-        assert role in ['actor', 'ref']
+        assert role in ['actor', 'ref', 'rollout']
 
         log_gpu_memory_usage('Before init from HF AutoModel', logger=logger)
         local_path = copy_to_local(model_path)
@@ -201,7 +202,7 @@ class ActorRolloutRefWorker(Worker):
             actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                 torch_dtype=torch_dtype,
                                                                 config=actor_model_config,
-                                                                attn_implementation='flash_attention_2',
+                                                                attn_implementation="flash_attention_2",
                                                                 trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
@@ -247,7 +248,7 @@ class ActorRolloutRefWorker(Worker):
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
-        cpu_offload = None if role == 'actor' else CPUOffload(offload_params=True)
+        cpu_offload = None if role in ['actor', 'rollout'] else CPUOffload(offload_params=True)
         actor_module_fsdp = FSDP(
             actor_module,
             cpu_offload=cpu_offload,
@@ -331,6 +332,11 @@ class ActorRolloutRefWorker(Worker):
 
         return rollout, rollout_sharding_manager
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, execute_mode=Execute.RANK_ZERO, blocking=False)
+    def save_model(self, path):
+        print(f'Saving model to {path[0]}')
+        merge_checkpoint(path[0], None)
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         from verl.workers.actor import DataParallelPPOActor
@@ -359,7 +365,7 @@ class ActorRolloutRefWorker(Worker):
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False),
                 use_liger=self.config.model.get('use_liger', False),
-                role='actor')
+                role='actor' if self._is_actor else 'rollout')
 
             # get the original unwrapped module
             self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
@@ -397,7 +403,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_manager = FSDPCheckpointManager(model=self.actor_module_fsdp,
-                                                            optimizer=self.actor.actor_optimizer,
+                                                            optimizer=None if self.actor.config.adv_estimator == 'mirror_descent' else self.actor.actor_optimizer,
                                                             lr_scheduler=self.actor_lr_scheduler,
                                                             tokenizer=self.tokenizer)
 
