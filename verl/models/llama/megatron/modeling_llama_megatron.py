@@ -598,11 +598,6 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz+pad)
 
-        from verl.utils.logging_utils import log_to_file
-        from megatron.core import mpu
-
-        log_to_file(f'pp_rank: {mpu.get_pipeline_model_parallel_rank()}, vpp_rank: {mpu.get_virtual_pipeline_model_parallel_rank()}, input_ids_rmpad.shape: {input_ids_rmpad.shape}')
-
         outputs = self.model(input_ids=input_ids_rmpad,
                              position_ids=position_ids,
                              sequence_length=sequence_length,

@@ -172,6 +172,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
+        overlap_p2p_comm=True,
+        batch_p2p_comm=False,
         pipeline_dtype=dt,
         params_dtype=dt,
         sequence_parallel=True,
