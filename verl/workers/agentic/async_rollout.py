@@ -228,7 +228,7 @@ class AsyncRollout(BaseRollout):
             "loss_mask": concat_loss_mask,
             "attention_mask": concat_attn_mask,
             "position_ids": position_ids,
-            "sids": sids
+            "sids": torch.tensor(sids, dtype=torch.int64, device=input_ids.device),
             **obs_metrics,
         }, batch_size=batch_size)
 
