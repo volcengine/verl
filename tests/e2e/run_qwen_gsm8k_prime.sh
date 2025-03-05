@@ -12,7 +12,7 @@ python3 -m recipe.prime.main_prime \
     data.accuracy_lower_bound=0.2 \
     data.accuracy_upper_bound=0.8 \
     data.oversample_factor=4 \
-    data.return_raw_chat=True
+    data.return_raw_chat=True \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
