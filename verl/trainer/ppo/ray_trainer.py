@@ -556,85 +556,74 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
-    def _maybe_log_val_generations_to_wandb(self, inputs, outputs, scores):
-        """Log a table of validation samples to wandb"""
-
+    def _maybe_log_val_generations(self, inputs, outputs, scores):
+        """Log a table of validation samples to the configured logger (wandb or swanlab)"""
+        
         generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
-
+        
         if generations_to_log == 0:
             return
-
-        if generations_to_log > 0 and 'wandb' not in self.config.trainer.logger:
-            print(
-                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no wandb logger is found. ')
+        
+        # Check if we have any supported loggers configured
+        supported_loggers = {'wandb', 'swanlab'}
+        configured_loggers = set(self.config.trainer.logger.split(',')) if isinstance(self.config.trainer.logger, str) else set()
+        active_loggers = supported_loggers.intersection(configured_loggers)
+        
+        if generations_to_log > 0 and not active_loggers:
+            print('WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no supported logger (wandb/swanlab) is found.')
             return
-
-        import wandb
+        
         import numpy as np
-
+        
         # Create tuples of (input, output, score) and sort by input text
         samples = list(zip(inputs, outputs, scores))
         samples.sort(key=lambda x: x[0])  # Sort by input text
-
+        
         # Use fixed random seed for deterministic shuffling
         rng = np.random.RandomState(42)
         rng.shuffle(samples)
-
+        
         # Take first N samples after shuffling
         samples = samples[:generations_to_log]
+        
+        # Log to each configured logger
+        if 'wandb' in active_loggers:
+            self._log_generations_to_wandb(samples)
+        
+        if 'swanlab' in active_loggers:
+            self._log_generations_to_swanlab(samples)
 
+    def _log_generations_to_wandb(self, samples):
+        """Log samples to wandb as a table"""
+        import wandb
+        
         # Create column names for all samples
         columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
-
+        
         if not hasattr(self, 'validation_table'):
             # Initialize the table on first call
             self.validation_table = wandb.Table(columns=columns)
-
+        
         # Create a new table with same columns and existing data
         # Workaround for https://github.com/wandb/wandb/issues/2981#issuecomment-1997445737
         new_table = wandb.Table(columns=columns, data=self.validation_table.data)
-
+        
         # Add new row with all data
         row_data = []
         row_data.append(self.global_steps)
         for sample in samples:
             row_data.extend(sample)
-
+        
         new_table.add_data(*row_data)
-
+        
         # Update reference and log
         wandb.log({"val/generations": new_table}, step=self.global_steps)
         self.validation_table = new_table
 
-    def _maybe_log_val_generations_to_swanlab(self, inputs, outputs, scores):
-        """Log a table of validation samples to swanlab"""
-
-        generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
-
-        if generations_to_log == 0:
-            return
-
-        if generations_to_log > 0 and 'swanlab' not in self.config.trainer.logger:
-            print(
-                'WARNING: `val_generations_to_log_to_wandb` is set to a positive value, but no swanlab logger is found. '
-            )
-            return
-
+    def _log_generations_to_swanlab(self, samples):
+        """Log samples to swanlab as text"""
         import swanlab
-        import numpy as np
-
-        # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
-        samples.sort(key=lambda x: x[0])  # Sort by input text
-
-        # Use fixed random seed for deterministic shuffling
-        rng = np.random.RandomState(42)
-        rng.shuffle(samples)
-
-        # Take first N samples after shuffling
-        samples = samples[:generations_to_log]
-
-        # Add new row with all data
+        
         swanlab_text_list = []
         for i, sample in enumerate(samples):
             row_text = f"""
@@ -649,8 +638,8 @@ class RayPPOTrainer(object):
             score: {sample[2]}
             """
             swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i+1}"))
-
-        # Update reference and log
+        
+        # Log to swanlab
         swanlab.log({"val/generations": swanlab_text_list}, step=self.global_steps)
 
     def _validate(self):
@@ -717,12 +706,7 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        if "wandb" in self.config.trainer.logger:
-            self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-        if "swanlab" in self.config.trainer.logger:
-            self._maybe_log_val_generations_to_swanlab(inputs=sample_inputs,
-                                                       outputs=sample_outputs,
-                                                       scores=sample_scores)
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
