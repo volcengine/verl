@@ -270,7 +270,7 @@ class ActorRolloutRefWorker(Worker):
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
         # TODO: add more optimizer args into config
-        if role == 'actor':
+        if role == 'actor' and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup
             actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
                                           lr=optim_config.lr,
