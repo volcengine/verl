@@ -304,9 +304,9 @@ class RayPRIMETrainer(RayPPOTrainer):
         # load actor
         self.actor_rollout_wg.load_checkpoint(actor_path,
                                               del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
-        # load critic
+        # load rm
         if self.use_rm:
-            self.critic_wg.load_checkpoint(reward_path,
+            self.rm_wg.load_checkpoint(reward_path,
                                            del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
         # load dataloader,
