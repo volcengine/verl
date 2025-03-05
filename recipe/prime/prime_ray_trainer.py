@@ -306,8 +306,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                                               del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
         # load rm
         if self.use_rm:
-            self.rm_wg.load_checkpoint(reward_path,
-                                           del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
+            self.rm_wg.load_checkpoint(reward_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
 
         # load dataloader,
         # TODO: from remote not implemented yet
@@ -488,7 +487,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         n_samples = int(self.config.actor_rollout_ref.rollout.n)
         reward_matrix = torch.tensor(scores).reshape(-1, n_samples)
 
-        filter_mask = torch.zeros((reward_matrix.shape[0]), dtype=torch.bool)
+        filter_mask = torch.ones((reward_matrix.shape[0]), dtype=torch.bool)
 
         if self.config.data.filter_accuracy:
             acc_tensor = torch.mean(reward_matrix, dim=-1)
@@ -496,12 +495,13 @@ class RayPRIMETrainer(RayPPOTrainer):
                         (acc_tensor < self.config.data.accuracy_lower_bound)] = False
 
         if self.config.data.filter_truncate:
-            length_matrix = batch.batch['attention_mask'][:,-batch.batch['responses'].shape[-1]:].sum(dim=-1).reshape(-1, n_samples)
+            length_matrix = batch.batch['attention_mask'][:, -batch.batch['responses'].shape[-1]:].sum(dim=-1).reshape(
+                -1, n_samples)
             length_tensor = torch.max(length_matrix, dim=-1)[0]
-            filter_mask[length_tensor>=self.config.data.max_response_length-1] = False
+            filter_mask[length_tensor >= self.config.data.max_response_length - 1] = False
 
         reorder_index = torch.argsort(filter_mask, descending=True)
-        reorder_index = (reorder_index.unsqueeze(-1) * n_samples + torch.arange(0, n_samples + 1).unsqueeze(0)).view(-1)
+        reorder_index = (reorder_index.unsqueeze(-1) * n_samples + torch.arange(0, n_samples).unsqueeze(0)).view(-1)
         batch.reorder(reorder_index[:int(len(batch) //
                                          self.config.data.oversample_factor)])  # this operation is inplace
 

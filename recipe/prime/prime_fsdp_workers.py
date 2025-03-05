@@ -164,7 +164,19 @@ class PRIMERewardModelWorker(Worker):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        ref_module = copy.deepcopy(reward_module)
+        with init_context(), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            setattr(reward_model_config, 'classifier_dropout', 0.)
+            setattr(reward_model_config, 'hidden_dropout', '0')
+            ref_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=copy_local_path_from_hdfs(
+                config.model.ref_path),
+                                                              torch_dtype=torch_dtype,
+                                                              config=reward_model_config,
+                                                              attn_implementation='flash_attention_2',
+                                                              trust_remote_code=trust_remote_code)
+
+            # some parameters may not in torch_dtype
+            ref_module.to(torch_dtype)
 
         reward_module = FSDP(reward_module,
                              param_init_fn=init_fn,

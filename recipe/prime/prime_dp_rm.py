@@ -133,8 +133,6 @@ class DataParallelPRIMERewardModel:
         else:
             ref_log_labels = micro_batch['old_log_probs']
 
-
-
         ref_log_labels.to(rm_log_labels.dtype)
         q = rm_log_labels[:, -num_actions:] - ref_log_labels[:, -num_actions:]  # this is actually diff of q
 
