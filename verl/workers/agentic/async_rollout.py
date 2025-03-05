@@ -112,7 +112,7 @@ class AsyncRollout(BaseRollout):
             print(f"stop token: [{stop_id}] - [{stop_token}]")
             
             # TODO: combine get_obs logic for dr & swe
-            if self.is_swedev:
+            if not self.is_swedev:
                 # only finish with <|observation|> token can be multi-turn
                 if not stop_token.strip() == '<|observation|>':
                     return {"done": True, "ids": [], "observations_times": 0}
@@ -162,13 +162,14 @@ class AsyncRollout(BaseRollout):
                 future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
                 for future in as_completed(future_to_idx):
                     try:
-                        result_idx, sid = future.result()
-                        print(f"Got SID: {result_idx}, {sid}, SIDS: {sids}")
-                        sids[result_idx] = sid
+                        result_idx, result = future.result()
+                        print(f"Got SID: {result_idx}, {result}, SIDS: {sids}")
+                        if results:
+                            sids[result_idx] = result["sid"]
                     except Exception as e:
                         print(f"Error processing instance: {e}")
                         traceback.print_exc()
-
+            print(f"Got sids: {sids}")
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
@@ -220,7 +221,7 @@ class AsyncRollout(BaseRollout):
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
         sids = [sid if sid != None else 0 for sid in sids]
-            
+        print(sids)
         batch = TensorDict({
             "prompts": input_ids,
             "responses": responses,
