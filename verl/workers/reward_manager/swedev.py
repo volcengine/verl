@@ -69,8 +69,7 @@ class SWEDevRewardManager:
         batch_size = input_ids.shape[0]
         full_response_length = data.batch['responses'].shape[-1]
         response_mask = data.batch['attention_mask'][:, -full_response_length:]
-        response_length = response_mask.sum(-1).float()  # (batch_size,)
-        # reward_tensor = torch.zeros([batch_size, full_response_length], dtype=torch.float32)
+        response_length = response_mask.sum(-1)  # (batch_size,)
         sids = data.batch['sids']
         reward_tensor = asyncio.run(self.process_batch(sids, response_length, batch_size, full_response_length))
         return reward_tensor
