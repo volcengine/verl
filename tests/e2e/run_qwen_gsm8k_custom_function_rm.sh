@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e -x
 FILE="my_reward_function.py"
 rm -rf $FILE
 cat <<EOF > "$FILE"
@@ -8,7 +8,6 @@ def my_reward_function(data_source, solution_str, ground_truth, extra_info=None)
     return 0.1
 EOF
 
-set -x
 
 OUTPUT_FILE="output_custom_reward.txt"
 rm -rf $OUTPUT_FILE
