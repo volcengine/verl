@@ -492,7 +492,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         if self.config.data.filter_accuracy:
             acc_tensor = torch.mean(reward_matrix, dim=-1)
-            filter_mask[(acc_tensor > self.config.data.accuracy_upper_bound) &
+            filter_mask[(acc_tensor > self.config.data.accuracy_upper_bound) |
                         (acc_tensor < self.config.data.accuracy_lower_bound)] = False
 
         if self.config.data.filter_truncate:
