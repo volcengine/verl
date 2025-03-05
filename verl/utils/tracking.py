@@ -163,7 +163,7 @@ def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
     assert isinstance(ans, dict)
     return ans
 
-
+@dataclasses.dataclass
 class ValidationGenerationsLogger:
 
     def log(self, loggers, samples, step):
