@@ -188,7 +188,8 @@ class AsyncRollout(BaseRollout):
                     obs_metrics[k].append(v)
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
-
+        sids = [sid if sid != None else 0 for sid in sids]
+            
         batch = TensorDict({
             "prompts": input_ids,
             "responses": responses,
@@ -196,6 +197,7 @@ class AsyncRollout(BaseRollout):
             "loss_mask": concat_loss_mask,
             "attention_mask": concat_attn_mask,
             "position_ids": position_ids,
+            "sids": sids
             **obs_metrics,
         }, batch_size=batch_size)
 
