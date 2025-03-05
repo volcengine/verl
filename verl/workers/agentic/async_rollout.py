@@ -36,8 +36,8 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length):
                 obs_metrics[k] += v
         turn += 1
     return {
-        "ids": all_ids,
-        "loss_mask": loss_mask,
+        "ids": all_ids[:max_length],
+        "loss_mask": loss_mask[:max_length],
         **obs_metrics,
     }
 
