@@ -637,15 +637,18 @@ class RayPPOTrainer(object):
         swanlab_text_list = []
         for i, sample in enumerate(samples):
             row_text = f"""
-            input: {sample[0]}
+            input: 
+            {sample[0]}
             
             ---
             
-            output: {sample[1]}
+            output: 
+            {sample[1]}
             
             ---
             
-            score: {sample[2]}
+            score: 
+            {sample[2]}
             """
             swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i+1}"))
 
