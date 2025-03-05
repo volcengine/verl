@@ -6,6 +6,7 @@ import httpx
 import sglang as sgl
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from tensordict import TensorDict
 
 from verl import DataProto
@@ -51,11 +52,10 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 
 class AsyncRollout(BaseRollout):
-    def __init__(self, model_path, config, **kwargs):
+    def __init__(self, model_path, config: DictConfig):
         super().__init__()
         torch.distributed.barrier()
-        time.sleep(torch.distributed.get_rank() * 0)
-        print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
+        # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
@@ -74,9 +74,9 @@ class AsyncRollout(BaseRollout):
         print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
-        self.sampling_params = kwargs
+        self.sampling_params = dict(config.sampling_params)
         self.sampling_params.update({
-            "max_new_tokens": 512,
+            # "max_new_tokens": 512,
             "skip_special_tokens": False,
             "stop": ["<|user|>", "<|observation|>", "<|im_end|>"],
         })
