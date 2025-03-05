@@ -23,7 +23,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
-
+from verl.utils.swedev_utils import *
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
 
@@ -69,10 +69,13 @@ class RLHFDataset(Dataset):
                  cache_dir='~/.cache/verl/rlhf',
                  chat_template_func=None,
                  return_raw_chat=False,
-                 truncation='error'):
+                 truncation='error',
+                 is_swedev=False,
+                ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
+        self.is_swedev = is_swedev
         self.parquet_files = copy.deepcopy(parquet_files)
         self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
         self.cache_dir = os.path.expanduser(cache_dir)
@@ -111,10 +114,23 @@ class RLHFDataset(Dataset):
         # filter out too long prompts
         tokenizer = self.tokenizer
         prompt_key = self.prompt_key
-        self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                             axis=1)]
-
+        if not self.is_swedev:
+            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
+                tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
+                                                                axis=1)]
+        else:
+            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
+                tokenizer.apply_chat_template([
+                        {"role": "system", "content": get_system_prompt()},
+                        {"role": "user", "content": get_instruction({
+                            "version": doc["version"],
+                            "repo": doc["repo"],
+                            "problem_statement": doc["problem_statement"],
+                        })}
+                    ],
+                    add_generation_prompt=True)) <= self.max_prompt_length, axis=1)
+            ]
+            self.dataframe['instance_id'] = self.dataframe['instance_id'].apply(string_to_hash_tensor)
         print(f'filter dataset len: {len(self.dataframe)}')
 
     def resume_dataset_state(self):
@@ -134,11 +150,15 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict = self.dataframe.iloc[item].to_dict()
-
-        chat = row_dict.pop(self.prompt_key)
+        if self.is_swedev:
+            chat = [
+                {"role": "system", "content": get_system_prompt()},
+                {"role": "user", "content": get_instruction(row_dict)}
+            ]
+        else:
+            chat = row_dict.pop(self.prompt_key)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
-
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                          tokenizer=self.tokenizer,
                                                                          max_length=self.max_prompt_length,
