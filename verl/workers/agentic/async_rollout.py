@@ -25,6 +25,7 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=
         all_ids += action
         loss_mask += [1] * len(action)
         if len(all_ids) >= max_length:
+            print(f"Too long... {len(all_ids)}, {max_length}")
             break
         obs = await obs_fn(action, sid)
         obs_ids = obs.pop("ids")
@@ -142,8 +143,11 @@ class AsyncRollout(BaseRollout):
             else:
                 action = tokenizer.decode(action_ids, skip_special_tokens=False)
                 if is_stop(action):
+                    print(f"Action stop: {action}")
                     return {"done": True, "ids": [], "observation_times": 0}
+
                 obs = call_observation_api(sid, action)
+                print(f"Get obs: {obs}")
                 return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
@@ -163,9 +167,8 @@ class AsyncRollout(BaseRollout):
                 for future in as_completed(future_to_idx):
                     try:
                         result_idx, result = future.result()
-                        print(f"Got SID: {result_idx}, {result}, SIDS: {sids}")
-                        if results:
-                            sids[result_idx] = result["sid"]
+                        if result:
+                            sids[result_idx] = int(result["sid"])
                     except Exception as e:
                         print(f"Error processing instance: {e}")
                         traceback.print_exc()
