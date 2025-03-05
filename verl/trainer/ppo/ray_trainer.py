@@ -887,11 +887,9 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-        # we start from step 1
-        self.global_steps += 1
-
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                self.global_steps += 1
                 metrics = {}
                 timing_raw = {}
 
@@ -1023,8 +1021,6 @@ class RayPPOTrainer(object):
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
-
-                self.global_steps += 1
 
                 if self.global_steps >= self.total_training_steps:
 
