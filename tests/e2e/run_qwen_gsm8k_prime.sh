@@ -13,7 +13,7 @@ python3 -m recipe.prime.main_prime \
     data.accuracy_upper_bound=0.8 \
     data.oversample_factor=4 \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path=HuggingFaceTB/SmolLM-135M \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -28,7 +28,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     algorithm.adv_estimator=rloo \
-    reward_model.model.path=Qwen/Qwen2.5-0.5B \
+    reward_model.model.path=HuggingFaceTB/SmolLM-135M \
     reward_model.micro_batch_size=16 \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \
