@@ -260,21 +260,22 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     pad_token_id = tokenizer.pad_token_id
     length_overlong_ratios = []
     turn_overlong_ratios = []
-    
+
     # save_resp_trim = []
-    for resp in batch.batch['responses']:
-        resp_trim = resp[resp != pad_token_id]
+    for resp, mask in zip(batch.batch['responses'], response_mask):
+        resp_len = mask.sum().item()
         # save_resp_trim.append(resp_trim.tolist())
-        length_overlong_ratios.append(int(len(resp_trim) >= max_response_length))
-        turn_overlong_ratios.append(resp_trim[-1] != tokenizer.eos_token_id)
-    
+        length_overlong_ratios.append(int(resp_len >= max_response_length))
+        turn_overlong_ratios.append(resp[resp_len - 1] != tokenizer.eos_token_id)
+
     length_overlong_ratio = sum(length_overlong_ratios) / len(length_overlong_ratios)
     turn_overlong_ratio = sum(turn_overlong_ratios) / len(turn_overlong_ratios)
+    overlong_ratio = sum(a or b for a, b in zip(length_overlong_ratios, turn_overlong_ratios)) / len(length_overlong_ratios)
 
     # with open("logs/resp_trim.json", "a") as f:
     #     import json
     #     f.write(json.dumps(save_resp_trim) + "\n")
-    
+
     # convert -1 into 0 for sequence_score, cause -1 also means wrong
     binary_sequence_score = torch.where(sequence_score == -1, torch.tensor(0.0), sequence_score)
     metrics = {
@@ -290,7 +291,7 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
         'search/turn_overlong_ratio':
             turn_overlong_ratio,
         'search/overlong_ratio':
-            length_overlong_ratio + turn_overlong_ratio,
+            overlong_ratio,
         'search/penalty_minus_1_ratio':
             torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
