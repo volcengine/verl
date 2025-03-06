@@ -13,7 +13,7 @@ DATASET_PREFIX=/workspace/haoran-cloud/verl-deep-research/datasets
 TRAIN_FILE=$DATASET_PREFIX/debug.parquet
 TEST_FILE=$DATASET_PREFIX/debug.parquet
 
-MODEL_PATH=/workspace/haoran-cloud/model/Qwen2.5-7B
+MODEL_PATH=/workspace/haoran/models/Qwen2.5-Coder-7B-Instruct-SWE-0203-1e-5_bs64_3_32k
 SAVE_PATH=/workspace/haoran-cloud/verl-deep-research/test
 
 python3 -m verl.trainer.main_ppo \
@@ -25,8 +25,8 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=$TEST_FILE \
     data.train_batch_size=8 \
     data.val_batch_size=8 \
-    data.max_prompt_length=26144 \
-    data.max_response_length=5000 \
+    data.max_prompt_length=10000 \
+    data.max_response_length=20000 \
     data.shuffle=False \
     +data.is_swedev=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
@@ -48,6 +48,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     +actor_rollout_ref.rollout.sampling_params.temperature=0.9 \
     +actor_rollout_ref.rollout.sampling_params.top_p=0.9 \
+    +actor_rollout_ref.rollout.sampling_params.max_new_tokens=1024 \
     actor_rollout_ref.rollout.n=2 \
     +actor_rollout_ref.rollout.is_swedev=True \
     actor_rollout_ref.rollout.multi_turn=True \

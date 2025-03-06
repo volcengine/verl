@@ -1,4 +1,4 @@
-# TODO(haoran): check prompt template
+# TODO(haoran): response 
 # TODO(haoran): time control; loss_mask
 # TODO(haoran): check reason for loading weight
 # TODO(haoran): tackle obs
@@ -6,7 +6,7 @@
 import asyncio
 import os
 import time
-
+import asyncio
 import httpx
 import sglang as sgl
 import torch
@@ -43,9 +43,10 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=
             else:
                 obs_metrics[k] += v
         turn += 1
-    
+        await asyncio.sleep(3)
+
     if sid: # for swedev postprocessing
-        call_postprocess_api(sid)
+        await call_postprocess_api(sid)
 
     return {
         "ids": all_ids[:max_length],
@@ -87,11 +88,17 @@ class AsyncRollout(BaseRollout):
         self.config = config
         self.is_swedev = self.config.is_swedev
         self.sampling_params = dict(config.sampling_params)
-        self.sampling_params.update({
-            # "max_new_tokens": 512,
-            "skip_special_tokens": False,
-            "stop": ["<|user|>", "<|observation|>", "<|im_end|>"],
-        })
+        if not self.is_swedev:
+            self.sampling_params.update({
+                # "max_new_tokens": 512,
+                "skip_special_tokens": False,
+                "stop": ["<|user|>", "<|observation|>", "<|im_end|>"],
+            })
+        else:
+            self.sampling_params.update({
+                "skip_special_tokens": False,
+            })
+            
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         sampling_params = self.sampling_params.copy()
@@ -104,17 +111,24 @@ class AsyncRollout(BaseRollout):
             # else:
             assert isinstance(prompt, list) and isinstance(prompt[0], int), f"not list int: {prompt=}"
             res = await self.engine.async_generate(input_ids=prompt, sampling_params=sampling_params)
-            # print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
+            # torch.distributed.get_rank() == 0 and print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]
-            finish_reason = res["meta_info"]["finish_reason"]
-            if finish_reason["type"] == "stop":
-                matched = finish_reason["matched"]
-                if isinstance(matched, int):
-                    matched = tokenizer.decode([matched])
-                text += matched
-            with open("logs/action.txt", "w") as f:
-                f.write(f'{repr(text)}\n{repr(tokenizer.encode(text))}')
-            return tokenizer.encode(text)
+            if not self.is_swedev:
+                finish_reason = res["meta_info"]["finish_reason"]
+                if finish_reason["type"] == "stop":
+                    matched = finish_reason["matched"]
+                    if isinstance(matched, int):
+                        matched = tokenizer.decode([matched])
+                    text += matched
+                action_ids = tokenizer.encode(text)
+            else:
+                action_ids = tokenizer.encode(text)
+                if action_ids[-1] == 151645:
+                    action_ids = action_ids[:-1]
+                action_ids += get_generation_tokens(role="user")
+            # with open("logs/action.txt", "w") as f:
+            #     f.write(f'{repr(text)}\n{repr(tokenizer.encode(text))}')
+            return action_ids
 
         # TODO: to support more generalized scenario, logics here should be decoupled into agent env.
         async def obs_fn(action_ids, sid=None):    
@@ -141,29 +155,55 @@ class AsyncRollout(BaseRollout):
                 except Exception as e:
                     print(f"API call failed: {e}")
                     ret = [{"content": "API call failed"}]
-                    # raise
-
                 # combine part
                 obv_combined = ['\n' + obv['content'].strip() for obv in ret]
                 obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
                 return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}                
-            else:
+            else: # for swe-dev
                 action = tokenizer.decode(action_ids, skip_special_tokens=False)
+                action = clear_suffix(action)
                 if is_stop(action):
-                    print(f"Action stop: {action}")
-                    return {"done": True, "ids": [], "observation_times": 0}
+                    return {"done": True, "ids": [], "observation_times": 1}
+                
+                sid_value = None
+                if sid is not None:
+                    if isinstance(sid, torch.Tensor):
+                        sid_value = sid.item()
+                    else:
+                        sid_value = sid
+                        
+                url = get_api(type="action")
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "sid": sid_value,
+                    "content": action,
+                }
 
-                result = call_observation_api(sid, action)
-                # TODO(haoran): handle here
                 try:
-                    obs = result["content"]
-                except:
-                    obs = "Error"
-                torch.distributed.get_rank() == 0 and print(f'Action for rank {torch.distributed.get_rank()=}, sid {sid}: {repr(action)}, obs: {repr(obs)}')
+                    async with httpx.AsyncClient() as client:
+                        ret = await client.post(url, json=payload, headers=headers, timeout=120)
+                        ret.raise_for_status()
+                        result = ret.json()
+                        if "content" in result:
+                            obs = result["content"]
+                        else:
+                            print(f"Warning: No content in response: {result}")
+                            obs = "Error: No content in response"
+                except Exception as e:
+                    print(f"Observation - API call failed: {e}")
+                    obs = f"API call failed: {e}"
+                    result = {"content": obs}
+                    
+                print(f'Obs: {result.keys() if result else "No result"}')
+                obs_ids = tokenizer.encode(obs) 
+                if len(obs_ids) > 0 and obs_ids[-1] == 151643: # <|endoftext|>
+                    obs_ids = obs_ids[:-1]
+                obs_ids = obs_ids + get_generation_tokens("assistant")
+                
                 with open("logs/obs.txt", "w") as f:
-                    f.write(f'{repr(obs)}\n{repr(tokenizer.encode(obs))}')
-
-                return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
+                    f.write(f'{repr(obs)}\n{repr(obs_ids)}')
+                    
+                return {"done": False, "ids": obs_ids, "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
@@ -177,17 +217,29 @@ class AsyncRollout(BaseRollout):
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
         
         if self.is_swedev:
-            with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
-                future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
-                for future in as_completed(future_to_idx):
-                    try:
-                        result_idx, result = future.result()
-                        if result:
-                            sids[result_idx] = int(result["sid"])
-                    except Exception as e:
-                        print(f"Error processing instance: {e}")
-                        traceback.print_exc()
-            print(f"Got sids: {sids}")
+            tasks = [initialize_runtime(idx, instance_id.item()) for idx, instance_id in enumerate(instance_ids)]
+            loop = asyncio.get_event_loop()
+            results = loop.run_until_complete(asyncio.gather(*tasks))
+            for result in results:
+                try:
+                    result_idx, result_data = result
+                    if result_data:
+                        sids[result_idx] = int(result_data["sid"])
+                except Exception as e:
+                    print(f"Error processing instance: {e}")
+                    traceback.print_exc()        
+        # if self.is_swedev:
+        #     tasks = [initialize_runtime(idx, instance_id.item()) for idx, instance_id in enumerate(instance_ids)]            
+        #     results = await asyncio.gather(*tasks, return_exceptions=True)
+        #     for result in results:
+        #         if isinstance(result, Exception):
+        #             print(f"Error processing instance: {result}")
+        #             traceback.print_exc()
+        #         else:
+        #             result_idx, result_data = result
+        #             if result_data:
+        #                 sids[result_idx] = int(result_data["sid"])
+
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
@@ -213,7 +265,7 @@ class AsyncRollout(BaseRollout):
             gen_ids = torch.tensor(r["ids"][prompt_len:], device=device)
             resp_len = len(gen_ids)
             responses[i, :resp_len] = gen_ids
-            print(f'After prompt len: {prompt_len}, {len(r["loss_mask"])}')
+            # print(f'After prompt len: {prompt_len}, {len(r["loss_mask"])}')
             resp_loss_mask[i, :len(r["loss_mask"]) - prompt_len] = torch.tensor(r["loss_mask"][prompt_len:], device=device)
             resp_attn_mask[i, :resp_len] = 1
 
@@ -237,7 +289,7 @@ class AsyncRollout(BaseRollout):
                     if k not in obs_metrics:
                         obs_metrics[k] = []
                     obs_metrics[k].append(v)
-        print(f"{obs_metrics=}")
+        # print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
         sids = [sid if sid != None else 0 for sid in sids]
         batch = TensorDict({

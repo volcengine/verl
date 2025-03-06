@@ -1,28 +1,38 @@
+import asyncio
 import requests
 import hashlib
 import random
+import aiohttp
 import torch
 from tensordict import TensorDict
 
 OBS_ERROR_MSG = "obs too long"
 
+def clear_suffix(text):
+    text = text.replace('<|im_end|>\n<|im_start|>user\n', '')
+    text = text.replace('<|im_end|>\n<|im_start|>assistant\n', '')
+    text = text.rstrip()
+    return text
+
 def is_stop(response):
     is_finish = "<function=finish>" in response
     return is_finish
 
-def initialize_runtime(idx, instance_id):
+async def initialize_runtime(idx, instance_id):
     url = get_api(type="start")
     payload = {"instance_hash": instance_id}
     try:
-        api_response = requests.post(url, json=payload)
-        return idx, api_response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=600) as response:
+                result = await response.json()
+                await asyncio.sleep(5)
+                return idx, result
     except Exception as e:
         print(f"Initializing - API call failed: {e}")
         return idx, None
-
-def call_observation_api(sid, text: str):
-    """Call external API to get observation for a given text"""
-    if type(sid) == torch.Tensor:
+    
+async def call_observation_api(sid, text: str):
+    if isinstance(sid, torch.Tensor):
         sid = sid.item()
     url = get_api(type="action")
     payload = {
@@ -30,20 +40,22 @@ def call_observation_api(sid, text: str):
         "content": text,
     }
     try:
-        api_response = requests.post(url, json=payload)
-        return api_response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                return await response.json()
     except Exception as e:
         print(f"Observation - API call failed: {e}")
         return None    
 
-def call_postprocess_api(sid: str):
+async def call_postprocess_api(sid: str):
     url = get_api(type="postprocess")
-    if type(sid) == torch.Tensor:
+    if isinstance(sid, torch.Tensor):
         sid = sid.item()
     payload = {"sid": sid}
     try:
-        api_response = requests.post(url, json=payload)
-        return api_response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=600) as response:
+                return await response.json()
     except Exception as e:
         print(f"Postprocess - API call failed: {e}")
         return None
