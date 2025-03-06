@@ -19,6 +19,7 @@ from .base import BaseShardingManager
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.utils.torch_functional import allgather_dict_tensors
+from verl.protocol import all_gather_data_proto
 from verl.utils.ulysses import set_ulysses_sequence_parallel_group, get_ulysses_sequence_parallel_group
 import numpy as np
 
@@ -63,16 +64,7 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
             sp_size = self.device_mesh['sp'].size()
             group = self.device_mesh['sp'].get_group()
 
-            prev_device = data.batch.device
-            data.batch = data.batch.cuda(device=torch.cuda.current_device())
-            data.batch = allgather_dict_tensors(data.batch.contiguous(), size=sp_size, group=group, dim=0)
-            data.batch = data.batch.to(prev_device)
-            # all gather non_tensor_batch
-            all_non_tensor_batch = [None for _ in range(sp_size)]
-            torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
-            data.non_tensor_batch = {
-                k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch
-            }
+            all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

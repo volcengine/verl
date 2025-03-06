@@ -72,3 +72,6 @@ jobs:
         run: |
           pip3 install transformers==4.45.0
           torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Run distributed test
+        run: |
+          bash tests/distributed/run_all.sh
