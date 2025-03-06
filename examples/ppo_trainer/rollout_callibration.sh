@@ -48,7 +48,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name='verl_example_gsm8k' \
     trainer.experiment_name="${ENGINE}-${TIME}" \
     trainer.n_gpus_per_node=8 \
-    trainer.val_before_train=True \
+    +trainer.val_before_train=True \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
