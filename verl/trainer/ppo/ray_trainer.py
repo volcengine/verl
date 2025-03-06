@@ -279,12 +279,15 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     binary_sequence_score = torch.where(sequence_score == -1, torch.tensor(0.0), sequence_score)
     metrics = {
         # metric that search concern
+        # TODO: find a more general way to deal with these
         'search/pass@1':
             torch.mean(binary_sequence_score).detach().item(),
         'search/passrate':
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/failed_times':
+            torch.mean(batch.batch['failed_times'].float()).detach().item(),
         'search/length_overlong_ratio':
             length_overlong_ratio,
         'search/turn_overlong_ratio':
@@ -378,8 +381,10 @@ def compute_timing_metrics(batch, timing_raw):
 
 @contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
+    print(f"++++++++++ STAGE {name} START ++++++++++")
     with Timer(name=name, logger=None) as timer:
         yield
+    print(f"---------- STAGE {name} ENDED ---------- {timer.last=}")
     timing_raw[name] = timer.last
 
 

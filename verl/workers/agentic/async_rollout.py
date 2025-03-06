@@ -76,7 +76,7 @@ class AsyncRollout(BaseRollout):
         print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
-        self.is_swedev = self.config.is_swedev
+        self.is_swedev = self.config.get("is_swedev", False)
         self.sampling_params = dict(config.sampling_params)
         self.sampling_params.update({
             # "max_new_tokens": 512,
@@ -95,7 +95,8 @@ class AsyncRollout(BaseRollout):
             # else:
             assert isinstance(prompt, list) and isinstance(prompt[0], int), f"not list int: {prompt=}"
             res = await self.engine.async_generate(input_ids=prompt, sampling_params=sampling_params)
-            print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
+            if torch.distributed.get_rank() == 0:
+                print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]
             finish_reason = res["meta_info"]["finish_reason"]
             if finish_reason["type"] == "stop":
@@ -111,12 +112,12 @@ class AsyncRollout(BaseRollout):
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
-            
+
             # TODO: combine get_obs logic for dr & swe
             if not self.is_swedev:
                 # only finish with <|observation|> token can be multi-turn
                 if not stop_token.strip() == '<|observation|>':
-                    return {"done": True, "ids": [], "observations_times": 0}
+                    return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0}
                 action = tokenizer.decode(action_ids, skip_special_tokens=False)
                 text = action.split("<|observation|>")[0].strip()
 
@@ -125,6 +126,7 @@ class AsyncRollout(BaseRollout):
                 # payload = {"content": text}
                 # new feature, for kilt_browser, we currently use translator
                 payload = {"content": text, "translate": True}
+                failed = 0
                 try:
                     # api_response = requests.post(url, json=payload)
                     # return api_response.json()
@@ -134,12 +136,13 @@ class AsyncRollout(BaseRollout):
                 except Exception as e:
                     print(f"API call failed: {e}")
                     ret = [{"content": "API call failed"}]
+                    failed = 1
                     # raise
 
                 # combine part
                 obv_combined = ['\n' + obv['content'].strip() for obv in ret]
                 obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-                return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}                
+                return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1, "failed_times": failed}
             else:
                 action = tokenizer.decode(action_ids, skip_special_tokens=False)
                 if is_stop(action):
@@ -164,7 +167,7 @@ class AsyncRollout(BaseRollout):
         position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
         idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
-        
+
         if self.is_swedev:
             with ThreadPoolExecutor(max_workers=min(len(instance_ids), 10)) as executor:
                 future_to_idx = {executor.submit(initialize_runtime, idx, instance_id.item()): (idx, instance_id) for idx, instance_id in enumerate(instance_ids)}
@@ -182,7 +185,7 @@ class AsyncRollout(BaseRollout):
         tasks = [ids_agent_loop(
             prompt_ids=list(prompt),
             gen_fn=gen_fn,
-            obs_fn=obs_fn, 
+            obs_fn=obs_fn,
             max_turns=self.config.max_turns,
             max_length=self.total_len,
             sid=sid) for (prompt, sid) in zip(idx_list, sids)]

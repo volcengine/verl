@@ -239,6 +239,7 @@ class ActorRolloutRefWorker(Worker):
             buffer_dtype = torch.bfloat16
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
+        print(f'actor module Mixed precision: {mixed_precision}')
 
         auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None))
 
@@ -339,7 +340,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.agentic.async_rollout import AsyncRollout
             from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
             local_path = copy_local_path_from_hdfs(self.config.model.path)
-            print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
+            # print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
             rollout = AsyncRollout(model_path=local_path, config=self.config.rollout)
             rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
                                                               inference_engine=rollout.engine,

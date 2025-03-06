@@ -89,7 +89,7 @@ def query_sglang_chat(
             # e), "request_data": request_data}) + "\n")
             time.sleep(sleep_time)
 
-    return None
+    return ""
 
 def extract_solution(question, response, extractor_urls, eos_token):
     # response = response.strip().split('\n')
@@ -97,12 +97,12 @@ def extract_solution(question, response, extractor_urls, eos_token):
     # resp_text = "\n".join(resp_text[-3:])
     response = response.replace("<|endoftext|>", "").strip()
     resp_text = response.strip().split("<|assistant|>")[-1]
-    
+
     # for glm
     # if not resp_text.strip().endswith("<|user|>"):
     # for qwen
     # if not resp_text.strip().endswith("<|im_end|>"):
-    
+
     # general eos_token
     if not resp_text.strip().endswith(eos_token):
         print(f"not end with {eos_token}")
@@ -110,7 +110,7 @@ def extract_solution(question, response, extractor_urls, eos_token):
         return -1
 
     answer_template = EXTRACTION_TEMPLATE.format(
-        question=question, 
+        question=question,
         answer=resp_text
     )
     answer = None
@@ -127,14 +127,15 @@ def extract_solution(question, response, extractor_urls, eos_token):
 
 def checker_check_equality(question: str, expr1: str, expr2: str, urls):
     prompt = EQUALITY_TEMPLATE % {"question":question,"expression1": expr1, "expression2": expr2}
-    print(prompt)
+    # print(prompt)
+    response = []
     for _ in range(10):
         response = query_sglang_chat(prompt, urls)
         if response and len(response) == 0:
             continue
         else:
             break
-    print(response)
+    # print(response)
     if len(response) == 0:
         return 0
     return response.lower().strip() == "yes"
@@ -153,18 +154,21 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1., questio
     """
     # for test
     # return random.random()
-    
+    # print(f"compute score {tokenizer=}")
+
     eos_token = tokenizer.eos_token
-    
+
     # for llm-as-judge
     response = solution_str.replace("<|endoftext|>", "").strip()
     resp_print = response.strip().split("<|assistant|>")[-1]
     answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls, eos_token=eos_token)
-    
+    print(f"computing score of {answer=} {ground_truth=}")
+
     # not end with eos_token(length or max turns)
+
     if answer == -1:
         return float(-1)
-    
+
     if answer is None:
         ans = float(0)
     else:
@@ -175,7 +179,7 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1., questio
                 ans = float(score)
             else:
                 ans = format_score
-    
+
     import json
     print(json.dumps({"resp": resp_print, "answer": answer, "ground_truth": ground_truth, "judge": ans}, ensure_ascii=False))
     return ans

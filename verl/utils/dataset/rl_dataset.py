@@ -173,8 +173,8 @@ class RLHFDataset(Dataset):
         row_dict['attention_mask'] = attention_mask[0]
         row_dict['position_ids'] = position_ids[0]
 
-        print(f"Row {len(row_dict['input_ids'])}")
-        
+        # print(f"Row {len(row_dict['input_ids'])}")
+
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict['raw_prompt'] = chat.tolist()
