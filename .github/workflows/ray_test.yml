@@ -25,6 +25,7 @@ permissions:
 jobs:
   ray:
     runs-on: [self-hosted, l20-0]
+    timeout-minutes: 5 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
