@@ -20,21 +20,50 @@ import ray
 import hydra
 
 
+def get_custom_reward_fn(config):
+    import importlib.util, os
+
+    reward_fn_config = config.get("custom_reward_function") or {}
+    file_path = reward_fn_config.get("path")
+    if not file_path:
+        return None
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
+
+    spec = importlib.util.spec_from_file_location("custom_module", file_path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+
+    function_name = reward_fn_config.get("name")
+
+    if not hasattr(module, function_name):
+        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
+
+    print(f"using customized reward function '{function_name}' from '{file_path}'")
+
+    return getattr(module, function_name)
+
+
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
     run_ppo(config)
 
 
-def run_ppo(config, compute_score=None):
+def run_ppo(config) -> None:
+
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
 
-    ray.get(main_task.remote(config, compute_score))
+    ray.get(main_task.remote(config))
 
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
-def main_task(config, compute_score=None):
+def main_task(config):
     from verl.utils.fs import copy_to_local
     # print initial config
     from pprint import pprint
@@ -109,6 +138,8 @@ def main_task(config, compute_score=None):
         reward_manager_cls = PrimeRewardManager
     else:
         raise NotImplementedError
+
+    compute_score = get_custom_reward_fn(config)
     reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
 
     # Note that we always use function-based RM for validation
