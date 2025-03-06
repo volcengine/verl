@@ -118,6 +118,19 @@ class Worker(WorkerHelper):
     def __init__(self, cuda_visible_devices=None) -> None:
         # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
         import os
+
+        ###
+        # [SUPPORT AMD: torch]
+        import torch
+        ###
+
+        ###
+        # [SUPPORT AMD: torch]
+        if "AMD" in torch.cuda.get_device_name():
+            os.environ['CUDA_VISIBLE_DEVICES'] = os.environ.get('ROCR_VISIBLE_DEVICES')
+            os.environ['LOCAL_RANK'] = os.environ.get('RAY_LOCAL_RANK')
+        ###
+
         world_size = int(os.environ['WORLD_SIZE'])
         rank = int(os.environ['RANK'])
         self._rank = rank
@@ -128,6 +141,18 @@ class Worker(WorkerHelper):
 
         local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
+
+        ###
+        # [SUPPORT AMD: torch]
+        if "AMD" in torch.cuda.get_device_name():
+            self.local_rank = int(os.environ['LOCAL_RANK'])
+        ###
+
+        ###
+        # [SUPPORT AMD: torch]
+        if "AMD" in torch.cuda.get_device_name():
+            cuda_visible_devices = str(local_rank)
+        ###
 
         store = {
             '_world_size': world_size,
@@ -142,6 +167,13 @@ class Worker(WorkerHelper):
 
         meta = WorkerMeta(store=store)
         self._configure_with_meta(meta=meta)
+
+        ###
+        # [SUPPORT AMD: torch]
+        # torch.cuda.set_device(local_rank)
+        if "AMD" in torch.cuda.get_device_name():
+            torch.cuda.set_device(int(cuda_visible_devices))
+        ###
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """
