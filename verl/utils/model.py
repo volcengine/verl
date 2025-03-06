@@ -301,7 +301,8 @@ def load_megatron_model_weights(config,
     with init_context(), warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if 'mistral7b-rm' in config.model.path:
-            model = MistralForSequenceClassification.from_pretrained(local_model_path)  # use score head instead of lm_head
+            model = MistralForSequenceClassification.from_pretrained(
+                local_model_path)  # use score head instead of lm_head
             state_dict = model.state_dict()
             state_dict['lm_head.weight'] = state_dict['score.weight']
             state_dict['model.embed_tokens.weight'] = state_dict[
@@ -323,7 +324,6 @@ def load_megatron_model_weights(config,
                       is_value_model=is_value_model,
                       tie_word_embeddings=model_config.tie_word_embeddings)
     return model.config
-
 
 
 # pad input_ids_rmpad, cu_seqlens and max_seqlen_in_batch to be divisible by tp

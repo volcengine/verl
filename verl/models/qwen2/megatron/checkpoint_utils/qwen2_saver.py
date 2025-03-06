@@ -81,6 +81,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=Fals
             The merged state_dict in rank 0, and an empty dictionary in other ranks.
     """
     start_time = time.time()
+
     def _get_gpt_model(model):
         return model
 
@@ -372,13 +373,11 @@ def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=Fals
 
             _broadcast_tp_shard_tensor_qkv(
                 sync_layer.self_attn.qkv_proj.bias,
-               f"{layer_name}.self_attn.q_proj.bias",
-               f"{layer_name}.self_attn.k_proj.bias",
-               f"{layer_name}.self_attn.v_proj.bias",
+                f"{layer_name}.self_attn.q_proj.bias",
+                f"{layer_name}.self_attn.k_proj.bias",
+                f"{layer_name}.self_attn.v_proj.bias",
                 src_pp_rank=src_pp_rank,
-
             )
-
 
             _broadcast_tp_shard_tensor(
                 sync_layer.self_attn.o_proj.weight,

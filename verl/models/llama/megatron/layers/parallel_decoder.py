@@ -31,6 +31,7 @@ from .parallel_rmsnorm import ParallelLlamaRMSNorm
 
 from verl.utils.megatron_utils import TransformerConfig, convert_config
 
+
 class ParallelLlamaDecoderLayer(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):

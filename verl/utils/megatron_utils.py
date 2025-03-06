@@ -250,6 +250,7 @@ def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_gra
                     param.grad = param.grad.to(device_id, non_blocking=True)
     torch.cuda.empty_cache()
 
+
 def print_rank_0(message):
     """If distributed is initialized, print only on rank 0."""
     if torch.distributed.is_initialized():

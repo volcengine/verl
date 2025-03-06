@@ -26,6 +26,7 @@ def get_weight_loader(arch: str):
     raise ValueError(f"Model architectures {arch} loader are not supported for now. "
                      f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}")
 
+
 def get_weight_saver(arch: str):
     from verl.models.qwen2.megatron.checkpoint_utils.qwen2_saver import merge_megatron_ckpt_llama
     _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY = {

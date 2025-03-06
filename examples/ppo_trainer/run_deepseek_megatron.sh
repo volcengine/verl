@@ -1,6 +1,7 @@
 set -x
 
 # prepare pre-trained model ckpt
+# deepseek-llm-7b-chat has 30 layers, which is not good to use with PP=2 and VPP=2, try using a 6.7b model instead
 # huggingface-cli download deepseek-ai/deepseek-llm-7b-chat --local-dir $HOME/models/deepseek-llm-7b-chat
 huggingface-cli download deepseek-ai/deepseek-coder-6.7b-instruct
 

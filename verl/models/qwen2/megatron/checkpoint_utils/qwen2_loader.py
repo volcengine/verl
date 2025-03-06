@@ -47,7 +47,12 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params_dtype, is_value_model=False, tie_word_embeddings=False):
+def load_state_dict_to_megatron_qwen2(state_dict,
+                                      wrapped_models,
+                                      config,
+                                      params_dtype,
+                                      is_value_model=False,
+                                      tie_word_embeddings=False):
     """Load merged state_dict to sharded Megatron module in training.
     """
     from verl.utils.megatron_utils import print_rank_0, unwrap_model

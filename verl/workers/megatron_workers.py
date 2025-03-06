@@ -166,6 +166,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
         self.architecture = getattr(actor_model_config, "architecture", None)
+
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config
             # vpp is not supported yet because it will hang for some reason. Need debugging
@@ -196,10 +197,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 self.hf_config = load_megatron_model_weights(self.config,
-                                            actor_model_config,
-                                            actor_module,
-                                            params_dtype=megatron_config.params_dtype,
-                                            is_value_model=False)
+                                                             actor_model_config,
+                                                             actor_module,
+                                                             params_dtype=megatron_config.params_dtype,
+                                                             is_value_model=False)
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
@@ -215,10 +216,10 @@ class ActorRolloutRefWorker(MegatronWorker):
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print(f'load ref weight start')
                 self.hf_config = load_megatron_model_weights(self.config,
-                                            actor_model_config,
-                                            ref_module,
-                                            params_dtype=megatron_config.params_dtype,
-                                            is_value_model=False)
+                                                             actor_model_config,
+                                                             ref_module,
+                                                             params_dtype=megatron_config.params_dtype,
+                                                             is_value_model=False)
             log_gpu_memory_usage('After ref module init', logger=logger)
             return ref_module, actor_model_config
 
@@ -448,7 +449,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
         assert self._is_actor
         from verl.models.weight_loader_registry import get_weight_saver
-        arch = self.architecture[0] # assume only one element in config architecture
+        arch = self.architecture[0]  # assume only one element in config architecture
         weight_saver = get_weight_saver(arch)
         state_dict = weight_saver(self.actor_module,
                                   self.hf_config,
@@ -470,7 +471,6 @@ class ActorRolloutRefWorker(MegatronWorker):
                 else:
                     from transformers import AutoModelForCausalLM
                     model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
-
 
                 model.save_pretrained(checkpoint_path, state_dict=state_dict)
                 self.tokenizer.save_pretrained(checkpoint_path)
@@ -658,7 +658,6 @@ class CriticWorker(MegatronWorker):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
         print("save for critic model not tested.")
         pass
-
 
 
 class RewardModelWorker(MegatronWorker):

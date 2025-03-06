@@ -31,6 +31,7 @@ from .parallel_rmsnorm import ParallelQwen2RMSNorm
 
 from verl.utils.megatron_utils import TransformerConfig, convert_config
 
+
 class ParallelQwen2DecoderLayer(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):

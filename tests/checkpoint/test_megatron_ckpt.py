@@ -26,8 +26,11 @@ from verl.utils.fs import copy_local_path_from_hdfs
 MODEL_PATH = 'Qwen/Qwen2.5-0.5B'
 DATA_PATH = 'data/gsm8k/'
 SAVE_PATH = '/tmp/checkpoint'
+
+
 def make_reward_function(tokenizer, num_examine):
     return None
+
 
 additional_config = {
     'data': {
@@ -99,14 +102,18 @@ additional_config = {
     }
 }
 
+
 def check_result(origin_path, megatron_path, input_text):
     from transformers import AutoModelForCausalLM
     import torch
     print("check result")
     torch_dtype = torch.float16
-    origin_model = AutoModelForCausalLM.from_pretrained(origin_path, torch_dtype=torch_dtype,).eval()
+    origin_model = AutoModelForCausalLM.from_pretrained(
+        origin_path,
+        torch_dtype=torch_dtype,
+    ).eval()
 
-    origin_model =origin_model.to('cuda')
+    origin_model = origin_model.to('cuda')
     tokenizer = AutoTokenizer.from_pretrained(origin_path)
 
     inputs = tokenizer(input_text, return_tensors="pt").to('cuda')
@@ -114,8 +121,11 @@ def check_result(origin_path, megatron_path, input_text):
     origin_text = tokenizer.decode(origin_outputs[0], skip_special_tokens=True)
     print(f"origin_text: {origin_text}")
 
-    megatron_model = AutoModelForCausalLM.from_pretrained(megatron_path, torch_dtype=torch_dtype,).eval()
-    megatron_model =megatron_model.to('cuda')
+    megatron_model = AutoModelForCausalLM.from_pretrained(
+        megatron_path,
+        torch_dtype=torch_dtype,
+    ).eval()
+    megatron_model = megatron_model.to('cuda')
     megatron_outputs = megatron_model.generate(**inputs, max_new_tokens=8)
     megatron_text = tokenizer.decode(megatron_outputs[0], skip_special_tokens=True)
     print(f"megatron_text: {megatron_text}")
