@@ -13,9 +13,9 @@
 # limitations under the License.
 
 import torch
-from transformers import PretrainedConfig, Qwen2Config, LlamaConfig
+from transformers import PretrainedConfig
 
-VALID_CONFIG_TYPE = (Qwen2Config, LlamaConfig)
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl"}
 
 
 def get_device_flops(unit="T"):
@@ -32,7 +32,10 @@ def get_device_flops(unit="T"):
 
     device_name = torch.cuda.get_device_name()
     flops = float("inf")  # INF flops for unkown gpu type
-    if "H100" in device_name or "H800" in device_name:
+
+    if "MI300X" in device_name:
+        flops = 1336e12
+    elif "H100" in device_name or "H800" in device_name:
         flops = 989e12
     elif "A100" in device_name or "A800" in device_name:
         flops = 312e12
@@ -59,18 +62,22 @@ class FlopsCounter:
     """
 
     def __init__(self, config: PretrainedConfig):
-        if not isinstance(config, VALID_CONFIG_TYPE):
-            print(f"Only support config type of {VALID_CONFIG_TYPE}, but got {type(config)}. "
+        if not config.model_type in VALID_CONFIG_TYPE:
+            print(f"Only support config type of {VALID_CONFIG_TYPE}, but got {self.config.model_type}. "
                   f"MFU will always be zero.")
 
-        self.estimate_func = {"qwen2": self._estimate_qwen2_flops, 'llama': self._estimate_qwen2_flops}
+        self.estimate_func = {
+            'qwen2': self._estimate_qwen2_flops,
+            'llama': self._estimate_qwen2_flops,
+            'qwen2_vl': self._estimate_qwen2_flops,
+            'qwen2_5_vl': self._estimate_qwen2_flops
+        }
         self.config = config
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
         return 0
 
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
-        assert isinstance(self.config, (Qwen2Config, LlamaConfig))
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers

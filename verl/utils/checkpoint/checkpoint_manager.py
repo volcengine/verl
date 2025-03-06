@@ -15,11 +15,11 @@ import os
 import shutil
 from filelock import FileLock
 import tempfile
-
+from typing import Union
 import torch
 import torch.distributed
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, ProcessorMixin
 import numpy as np
 import random
 
@@ -40,14 +40,15 @@ class BaseCheckpointManager:
     """
 
     def __init__(self, model: FSDP, optimizer: torch.optim.Optimizer,
-                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler, tokenizer: PreTrainedTokenizer):
+                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler, processing_class: Union[PreTrainedTokenizer,
+                                                                                             ProcessorMixin]):
         self.previous_global_step = None
         self.previous_save_local_path = None
 
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
-        self.tokenizer = tokenizer
+        self.processing_class = processing_class
 
         assert isinstance(self.model, FSDP)
         self.rank = torch.distributed.get_rank()

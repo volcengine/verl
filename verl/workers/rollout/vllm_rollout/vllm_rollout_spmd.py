@@ -24,6 +24,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
+import numpy as np
 from typing import List
 from contextlib import contextmanager
 from omegaconf import DictConfig
@@ -31,7 +32,7 @@ import torch
 import torch.distributed
 from tensordict import TensorDict
 from torch import nn
-
+from typing import Any, Union
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -52,6 +53,13 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
+
+
+def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[torch.Tensor, List[Any]]:
+    if isinstance(value, torch.Tensor):
+        return value.repeat_interleave(repeats, dim=0)
+    else:
+        return np.repeat(value, repeats, axis=0)
 
 
 class vLLMRollout(BaseRollout):
@@ -103,6 +111,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            enable_prefix_caching=True,
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -110,7 +119,7 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
         )
 
@@ -160,10 +169,23 @@ class vLLMRollout(BaseRollout):
 
         batch_size = idx.size(0)
 
-        idx_list = []
-        # parse idx from torch.Tensor to List[List[str]]
-        for i in range(batch_size):
-            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+        non_tensor_batch = prompts.non_tensor_batch
+        if 'raw_prompt_ids' not in non_tensor_batch:
+            non_tensor_batch['raw_prompt_ids'] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
+
+        if batch_size != len(non_tensor_batch['raw_prompt_ids']):
+            raise RuntimeError('vllm sharding manager is not work properly.')
+
+        if 'multi_modal_data' in non_tensor_batch:
+            vllm_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(non_tensor_batch.pop('raw_prompt_ids'),
+                                                        non_tensor_batch.pop('multi_modal_data')):
+                vllm_inputs.append({'prompt_token_ids': raw_prompt_ids, 'multi_modal_data': multi_modal_data})
+        else:
+            vllm_inputs = [{
+                'prompt_token_ids': raw_prompt_ids
+            } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
 
         do_sample = prompts.meta_info.get('do_sample', True)
         if not do_sample:
@@ -179,9 +201,8 @@ class vLLMRollout(BaseRollout):
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             outputs = self.inference_engine.generate(
-                prompts=None,  # because we have already convert it to prompt token id
+                prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
-                prompt_token_ids=idx_list,
                 use_tqdm=False)
 
         # TODO(sgm): disable logprob when recompute_log_prob is enable
@@ -196,15 +217,21 @@ class vLLMRollout(BaseRollout):
                                          max_length=self.config.response_length).to(idx.device)
 
         if self.config.n > 1 and do_sample:
-            idx = idx.repeat_interleave(self.config.n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
-            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
+            idx = _repeat_interleave(idx, self.config.n)
+            attention_mask = _repeat_interleave(attention_mask, self.config.n)
+            position_ids = _repeat_interleave(position_ids, self.config.n)
             batch_size = batch_size * self.config.n
+            if 'multi_modal_inputs' in non_tensor_batch.keys():
+                non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
+                                                                            self.config.n)
+
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        delta_position_id = delta_position_id.unsqueeze(0).expand(batch_size, -1)
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(batch_size, 3, -1)
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
@@ -231,4 +258,4 @@ class vLLMRollout(BaseRollout):
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
-        return DataProto(batch=batch)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

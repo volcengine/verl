@@ -1,3 +1,4 @@
+
 **/*.pt
 **/checkpoints
 **/wget-log
@@ -116,6 +117,11 @@ tests/e2e/toy_examples/deepspeed/synchronous/output.txt
 # ckpt
 *.lock
 
+<<<<<<< HEAD
 # log
 log/*
 outputs/*
+=======
+# data
+*.parquet
+>>>>>>> main

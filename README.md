@@ -28,7 +28,8 @@ verl is fast with:
 </p>
 
 ## News
-- [2025/3] We will present verl(HybridFlow) at [EuroSys 2025](https://2025.eurosys.org/). See you in in Rotterdam!
+- [2025/3] We will present verl(HybridFlow) at [EuroSys 2025](https://2025.eurosys.org/). See you in Rotterdam!
+- [2025/3] We will introduce the programming model of verl at the [vLLM Beijing Meetup](https://mp.weixin.qq.com/s/n77GibL2corAtQHtVEAzfg) on 3/16. See you in Beijing!
 - [2025/2] verl v0.2.0.post1 is released! See [release note](https://github.com/volcengine/verl/releases/) for details.
 - [2025/2] We presented verl in the [Bytedance/NVIDIA/Anyscale Ray Meetup](https://lu.ma/ji7atxux). See you in San Jose!
 - [2025/1] [Doubao-1.5-pro](https://team.doubao.com/zh/special/doubao_1_5_pro) is released with SOTA-level performance on LLM & VLM. The RL scaling preview model is trained using verl, reaching OpenAI O1-level performance on math benchmarks (70.0 pass@1 on AIME).
@@ -40,21 +41,21 @@ verl is fast with:
 ## Key Features
 
 - **FSDP** and **Megatron-LM** for training.
-- **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
-- huggingface models support
-- Supervised fine-tuning
-- Reinforcement learning from human feedback with [PPO](https://github.com/volcengine/verl/tree/main/examples/ppo_trainer), [GRPO](https://github.com/volcengine/verl/tree/main/examples/grpo_trainer), [ReMax](https://github.com/volcengine/verl/tree/main/examples/remax_trainer), Reinforce++, [RLOO](https://github.com/volcengine/verl/tree/main/examples/rloo_trainer/run_qwen2-7b.sh), etc
+- **vLLM** and **HF Transformers** for rollout generation, **SGLang** support coming soon.
+- Compatible with Hugging Face Transformers and Modelscope Hub.
+- Supervised fine-tuning.
+- Reinforcement learning with [PPO](examples/ppo_trainer/), [GRPO](examples/grpo_trainer/), [ReMax](examples/remax_trainer/), [Reinforce++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](examples/rloo_trainer/), etc.
   - Support model-based reward and function-based reward (verifiable reward)
-- flash-attention, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [long context](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh)
-- scales up to 70B models and hundreds of GPUs
-- experiment tracking with wandb, swanlab and mlflow
+  - Support vision-language models (VLMs) and [multi-modal RL](examples/grpo_trainer/run_qwen2_5_vl-7b.sh)
+- Flash attention 2, [sequence packing](examples/ppo_trainer/run_qwen2-7b_seq_balance.sh), [sequence parallelism](examples/ppo_trainer/run_deepseek7b_llm_sp2.sh) support via DeepSpeed Ulysses, [LoRA](examples/sft/gsm8k/run_qwen_05_peft.sh), [Liger-kernel](examples/sft/gsm8k/run_qwen_05_sp2_liger.sh).
+- Scales up to 70B models and hundreds of GPUs.
+- Experiment tracking with wandb, swanlab, mlflow and tensorboard.
 
 ## Upcoming Features
 - Reward model training
 - DPO training
 - DeepSeek integration with Megatron v0.11
 - SGLang integration
-- vision language model RL
 
 ## Getting Started
 
@@ -97,7 +98,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 ## Performance Tuning Guide
 The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
 
-## vLLM v0.7 testing version
+## vLLM v0.7 integration preview
 We have released a testing version of veRL that supports vLLM>=0.7.0. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md) for installation guide and more information.
 
 ## Citation and acknowledgement
@@ -115,21 +116,28 @@ If you find the project helpful, please cite:
 }
 ```
 
-verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The project is adopted and supported by Anyscale, Bytedance, LMSys.org, Shanghai AI Lab, Tsinghua University, UC Berkeley, UCLA, UIUC, and University of Hong Kong.
+verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The project is adopted and supported by Anyscale, Bytedance, LMSys.org, Shanghai AI Lab, Tsinghua University, UC Berkeley, UCLA, UIUC, University of Hong Kong, and many more.
 
 ## Awesome work using verl
-- [Enhancing Multi-Step Reasoning Abilities of Language Models through Direct Q-Function Optimization](https://arxiv.org/abs/2410.09302)
-- [Flaming-hot Initiation with Regular Execution Sampling for Large Language Models](https://arxiv.org/abs/2410.21236)
-- [Process Reinforcement Through Implicit Rewards](https://github.com/PRIME-RL/PRIME/)
-- [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of DeepSeek R1 Zero recipe for reasoning tasks
-- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
-- [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of **DeepSeek R1 Zero** recipe for reasoning tasks
+- [PRIME](https://github.com/PRIME-RL/PRIME): Process reinforcement through implicit rewards
+- [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning **agent** training framework
+- [Logic-RL](https://github.com/Unakar/Logic-RL): a reproduction of DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- [SkyThought](https://github.com/NovaSky-AI/SkyThought): RL training for Sky-T1-7B by NovaSky AI team.
 - [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
-- [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
-- [Easy-R1](https://github.com/hiyouga/EasyR1): Multi-Modality RL
+- [critic-rl](https://github.com/HKUNLP/critic-rl): LLM critics for code generation
+- [Easy-R1](https://github.com/hiyouga/EasyR1): **Multi-modal** RL training framework
+- [self-rewarding-reasoning-LLM](https://arxiv.org/pdf/2502.19613): self-rewarding and correction with **generative reward models**
+- [Search-R1](https://github.com/PeterGriffinJin/Search-R1): RL with reasoning and **searching (tool-call)** interleaved LLMs
+- [Code-R1](https://github.com/ganler/code-r1): Reproducing R1 for **Code** with Reliable Rewards
+- [DQO](https://arxiv.org/abs/2410.09302): Enhancing multi-Step reasoning abilities of language models through direct Q-function optimization
+- [FIRE](https://arxiv.org/abs/2410.21236): Flaming-hot initiation with regular execution sampling for large language models
+- [ReSearch](https://github.com/Agent-RL/ReSearch): Learning to **Re**ason with **Search** for LLMs via Reinforcement Learning
+- [DeepRetrieval](https://github.com/pat-jj/DeepRetrieval): Let LLMs learn to **search** and **retrieve** desirable docs with RL
+- [cognitive-behaviors](https://github.com/kanishkg/cognitive-behaviors): Cognitive Behaviors that Enable Self-Improving Reasoners, or, Four Habits of Highly Effective STaRs
 
 ## Contribution Guide
-Contributions from the community are welcome!
+Contributions from the community are welcome! Please checkout our [roadmap](https://github.com/volcengine/verl/issues/22) and [release plan](https://github.com/volcengine/verl/issues/354).
 
 ### Code formatting
 We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat you code locally, make sure you installed **latest** `yapf`

@@ -15,6 +15,7 @@
 import os
 import logging
 import torch
+import numpy as np
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -23,6 +24,7 @@ from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl import DataProto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
+from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
 
@@ -73,6 +75,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = 'hf' if self.full_params else 'dtensor'
+
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:
@@ -126,17 +129,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
+        tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group(),
-                                                dim=0)
+            group = vllm_ps.get_tensor_model_parallel_group()
         else:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=vllm_ps.get_tensor_model_parallel_world_size(),
-                                                group=vllm_ps.get_tensor_model_parallel_group().device_group,
-                                                dim=0)
+            group = vllm_ps.get_tensor_model_parallel_group().device_group
 
+        all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

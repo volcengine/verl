@@ -28,9 +28,12 @@ rollout:
   load_format: dummy_dtensor
   tensor_model_parallel_size: 1
   max_num_batched_tokens: 8192
+  max_model_len: null
   max_num_seqs: 1024
   log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
   log_prob_micro_batch_size_per_gpu: 8
+  # for fire vllm rollout
+  use_fire_sampling: False # enable FIRE https://arxiv.org/abs/2410.21236
   # for hf rollout
   do_sample: True
   disable_log_stats: True

@@ -53,6 +53,7 @@ def fit(self):
 
     # we start from step 1
     self.global_steps += 1
+    last_val_metrics = None
 
     for epoch in range(self.config.trainer.total_epochs):
         for batch_dict in self.train_dataloader:
@@ -63,6 +64,7 @@ def fit(self):
 
             # pop those keys for generation
             gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+            is_last_step = self.global_steps >= self.total_training_steps
 
             with _timer('step', timing_raw):
                 # generate a batch
@@ -168,13 +170,15 @@ def fit(self):
 
                 # validate
                 if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                    self.global_steps % self.config.trainer.test_freq == 0:
+                        (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
                     with _timer('testing', timing_raw):
                         val_metrics: dict = self._validate()
+                        if is_last_step:
+                            last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and \
-                        self.global_steps % self.config.trainer.save_freq == 0:
+                if self.config.trainer.save_freq > 0 and (is_last_step or \
+                        self.global_steps % self.config.trainer.save_freq == 0):
                     with _timer('save_checkpoint', timing_raw):
                         self._save_checkpoint()
 
@@ -185,13 +189,8 @@ def fit(self):
             # TODO: make a canonical logger that supports various backend
             logger.log(data=metrics, step=self.global_steps)
 
-            self.global_steps += 1
-
             if self.global_steps >= self.total_training_steps:
-
-                # perform validation after training
-                if self.val_reward_fn is not None:
-                    val_metrics = self._validate()
-                    pprint(f'Final validation metrics: {val_metrics}')
-                    logger.log(data=val_metrics, step=self.global_steps)
+                pprint(f'Final validation metrics: {last_val_metrics}')
                 return
+
+            self.global_steps += 1
