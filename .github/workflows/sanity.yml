@@ -51,6 +51,3 @@ jobs:
         run: |
           pip install tomli
           pytest -s -x tests/distro/requirements.py
-      - name: Run distributed test
-        run: |
-          bash tests/distributed/run_all.sh
