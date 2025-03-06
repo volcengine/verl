@@ -22,6 +22,7 @@ jobs:
   test:
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
+    timeout-minutes: 5 # Increase this timeout value as needed
     env:
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:

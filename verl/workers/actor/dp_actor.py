@@ -30,7 +30,7 @@ from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
-from verl.utils.device import get_device_name
+from verl.utils.device import get_device_name, is_npu_available
 
 from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -266,10 +266,11 @@ class DataParallelPPOActor(BasePPOActor):
                 self.actor_optimizer.zero_grad()
 
                 for data in micro_batches:
+                    # Support all hardwares
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(self.device), **data.non_tensor_batch}
+                        data = {**data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device()), **data.non_tensor_batch}
                     else:
-                        data = data.to(self.device)  # actor device is cpu when using offload
+                        data = data.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())  # actor device is cpu when using offload
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']

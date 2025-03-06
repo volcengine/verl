@@ -30,7 +30,7 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-from verl.utils.device import get_device_name
+from verl.utils.device import get_device_name, is_npu_available
 
 from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -200,10 +200,11 @@ class DataParallelPPOCritic(BasePPOCritic):
                 self.critic_optimizer.zero_grad()
 
                 for data in micro_batches:
+                    #Support all devices
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(self.device), **data.non_tensor_batch}
+                        data = {**data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device()), **data.non_tensor_batch}
                     else:
-                        data = data.to(self.device)  # critic device is cpu when using offload
+                        data = data.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())  # critic device is cpu when using offload
                     input_ids = data['input_ids']
                     responses = data['responses']
                     attention_mask = data['attention_mask']
