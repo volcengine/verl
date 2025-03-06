@@ -1,3 +1,8 @@
+# TODO(haoran): check prompt template
+# TODO(haoran): time control; loss_mask
+# TODO(haoran): check reason for loading weight
+# TODO(haoran): tackle obs
+# TODO(haoran): tackle connection rest
 import asyncio
 import os
 import time
@@ -38,6 +43,10 @@ async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=
             else:
                 obs_metrics[k] += v
         turn += 1
+    
+    if sid: # for swedev postprocessing
+        call_postprocess_api(sid)
+
     return {
         "ids": all_ids[:max_length],
         "loss_mask": loss_mask[:max_length],
@@ -60,7 +69,7 @@ class AsyncRollout(BaseRollout):
         # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         self.total_len = config.prompt_length + config.response_length
-        print(f"async rollout {config.gpu_memory_utilization=}")
+        # print(f"async rollout {config.gpu_memory_utilization=}")
         self.engine = sgl.Engine(
             model_path=model_path,
             # cpu_offload_gb=500,
@@ -71,9 +80,9 @@ class AsyncRollout(BaseRollout):
             enable_memory_saver=True,
             mem_fraction_static=config.gpu_memory_utilization,
         )
-        print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
+        # print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
         self.engine.release_memory_occupation()
-        print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
+        # print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
         self.is_swedev = self.config.is_swedev
@@ -95,7 +104,7 @@ class AsyncRollout(BaseRollout):
             # else:
             assert isinstance(prompt, list) and isinstance(prompt[0], int), f"not list int: {prompt=}"
             res = await self.engine.async_generate(input_ids=prompt, sampling_params=sampling_params)
-            print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
+            # print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]
             finish_reason = res["meta_info"]["finish_reason"]
             if finish_reason["type"] == "stop":
@@ -103,17 +112,17 @@ class AsyncRollout(BaseRollout):
                 if isinstance(matched, int):
                     matched = tokenizer.decode([matched])
                 text += matched
+            with open("logs/action.txt", "w") as f:
+                f.write(f'{repr(text)}\n{repr(tokenizer.encode(text))}')
             return tokenizer.encode(text)
 
         # TODO: to support more generalized scenario, logics here should be decoupled into agent env.
-        async def obs_fn(action_ids, sid=None):
-            # find <|observation|> token part
-            stop_id = action_ids[-1]
-            stop_token = tokenizer.decode([stop_id])
-            print(f"stop token: [{stop_id}] - [{stop_token}]")
-            
-            # TODO: combine get_obs logic for dr & swe
+        async def obs_fn(action_ids, sid=None):    
             if not self.is_swedev:
+                # find <|observation|> token part
+                stop_id = action_ids[-1]
+                stop_token = tokenizer.decode([stop_id])
+                print(f"stop token: [{stop_id}] - [{stop_token}]")
                 # only finish with <|observation|> token can be multi-turn
                 if not stop_token.strip() == '<|observation|>':
                     return {"done": True, "ids": [], "observations_times": 0}
@@ -126,8 +135,6 @@ class AsyncRollout(BaseRollout):
                 # new feature, for kilt_browser, we currently use translator
                 payload = {"content": text, "translate": True}
                 try:
-                    # api_response = requests.post(url, json=payload)
-                    # return api_response.json()
                     async with httpx.AsyncClient() as client:
                         response = await client.post(url, json=payload)
                         ret = response.json()
@@ -152,6 +159,10 @@ class AsyncRollout(BaseRollout):
                     obs = result["content"]
                 except:
                     obs = "Error"
+                torch.distributed.get_rank() == 0 and print(f'Action for rank {torch.distributed.get_rank()=}, sid {sid}: {repr(action)}, obs: {repr(obs)}')
+                with open("logs/obs.txt", "w") as f:
+                    f.write(f'{repr(obs)}\n{repr(tokenizer.encode(obs))}')
+
                 return {"done": False, "ids": tokenizer.encode(obs), "observation_times": 1}
 
         input_ids: torch.Tensor = prompts.batch["input_ids"]

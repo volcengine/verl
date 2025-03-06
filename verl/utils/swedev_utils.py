@@ -36,6 +36,18 @@ def call_observation_api(sid, text: str):
         print(f"Observation - API call failed: {e}")
         return None    
 
+def call_postprocess_api(sid: str):
+    url = get_api(type="postprocess")
+    if type(sid) == torch.Tensor:
+        sid = sid.item()
+    payload = {"sid": sid}
+    try:
+        api_response = requests.post(url, json=payload)
+        return api_response.json()
+    except Exception as e:
+        print(f"Postprocess - API call failed: {e}")
+        return None
+
 def calc_reward(reward_json):
     # patch_is_None
     # patch_exists
