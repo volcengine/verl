@@ -1,6 +1,7 @@
 set -x
 
 # 获取命令行参数
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 ENGINE=${1:-sglang}  # 默认为 sglang
 TIME=${2:-$(date +"%Y-%m-%d-%H-%M")}  # 如果没有提供第二个参数，则使用当前时间
 
