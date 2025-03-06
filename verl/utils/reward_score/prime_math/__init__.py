@@ -22,7 +22,7 @@ import re
 import sympy
 from pylatexenc import latex2text
 from sympy.parsing import sympy_parser
-
+import os
 from . import math_normalize
 from .grader import math_equal
 
@@ -34,6 +34,23 @@ BAD_SUBSTRINGS = ["^{", "^("]
 BAD_REGEXES = ["\^[0-9]+\^", "\^[0-9][0-9]+"]
 TUPLE_CHARS = "()[]"
 
+def timeout(timeout_seconds: int = 8):
+    if os.name == "posix":
+        import signal
+        def decorator(func):
+            def handler(signum, frame):
+                raise TimeoutError("Operation timed out!")
+            def wrapper(*args, **kwargs):
+                old_handler = signal.getsignal(signal.SIGALRM)
+                signal.signal(signal.SIGALRM, handler)
+                signal.alarm(timeout_seconds)
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, old_handler)
+            return wrapper
+        return decorator
 
 def _sympy_parse(expr: str):
     """Parses an expression with sympy."""
@@ -208,7 +225,7 @@ def should_allow_eval(expr: str):
 
     return True
 
-
+@timeout(timeout_seconds=10)
 def are_equal_under_sympy(ground_truth_normalized: str, given_normalized: str):
     are_equal = False
     try:
