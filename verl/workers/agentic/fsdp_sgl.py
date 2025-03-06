@@ -84,6 +84,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         tensor_list = [(k, v.full_tensor() if isinstance(v, DTensor) else v) for k, v in st.items()]
         param_count = sum([v.numel() for k, v in tensor_list])
         print(f"param count: {param_count}")
+        torch.cuda.synchronize()
         self.inference_engine.update_weights_from_tensor(tensor_list)
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
