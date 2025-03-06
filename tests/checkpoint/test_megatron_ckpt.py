@@ -117,7 +117,7 @@ def check_result(origin_path, megatron_path, input_text):
     tokenizer = AutoTokenizer.from_pretrained(origin_path)
 
     inputs = tokenizer(input_text, return_tensors="pt").to('cuda')
-    origin_outputs = origin_model.generate(**inputs, max_new_tokens=8)
+    origin_outputs = origin_model.generate(**inputs, max_new_tokens=8, do_sample=False)
     origin_text = tokenizer.decode(origin_outputs[0], skip_special_tokens=True)
     print(f"origin_text: {origin_text}")
 
@@ -126,7 +126,7 @@ def check_result(origin_path, megatron_path, input_text):
         torch_dtype=torch_dtype,
     ).eval()
     megatron_model = megatron_model.to('cuda')
-    megatron_outputs = megatron_model.generate(**inputs, max_new_tokens=8)
+    megatron_outputs = megatron_model.generate(**inputs, max_new_tokens=8, do_sample=False)
     megatron_text = tokenizer.decode(megatron_outputs[0], skip_special_tokens=True)
     print(f"megatron_text: {megatron_text}")
 
