@@ -661,7 +661,11 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
+    def _build_rm_model(self,
+                        model_path,
+                        megatron_config: ModelParallelConfig,
+                        override_model_config,
+                        rm_tokenizer=None):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron_utils import get_model
@@ -758,6 +762,7 @@ class RewardModelWorker(MegatronWorker):
             model_path=self.config.model.path,
             megatron_config=megatron_config,
             override_model_config=override_model_config,
+            rm_tokenizer=rm_tokenizer,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
