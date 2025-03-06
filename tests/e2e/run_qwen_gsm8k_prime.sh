@@ -21,7 +21,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=4 \
@@ -29,7 +29,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     algorithm.adv_estimator=rloo \
     reward_model.model.path=HuggingFaceTB/SmolLM-135M-Instruct \
-    reward_model.micro_batch_size=16 \
+    reward_model.micro_batch_size=128 \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \
     reward_model.model.optim.lr=1e-6 \

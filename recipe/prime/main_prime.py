@@ -42,11 +42,12 @@ def main(config):
 def run_prime(config, compute_score=None):
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {
-            'TOKENIZERS_PARALLELISM': 'true',
-            'NCCL_DEBUG': 'WARN'
-        }},
-                 _system_config={'num_heartbeats_timeout': 200})
+        ray.init(
+            runtime_env={'env_vars': {
+                'TOKENIZERS_PARALLELISM': 'true',
+                'NCCL_DEBUG': 'WARN'
+            }},
+        )
 
     ray.get(main_task.remote(config, compute_score))
 
