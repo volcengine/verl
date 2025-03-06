@@ -336,6 +336,19 @@ def compute_timing_metrics(batch, timing_raw):
     }
 
 
+def compute_throughout_metrics(batch, timing_raw, n_gpus):
+    total_num_tokens = sum(batch.meta_info['global_token_num'])
+    time = timing_raw["step"]
+    # estimated_flops, promised_flops = flops_function.estimate_flops(num_tokens, time)
+    # f'Actual TFLOPs/s/GPU​': estimated_flops/(n_gpus),
+    # f'Theoretical TFLOPs/s/GPU​': promised_flops,
+    return {
+        f'total_num_tokens': total_num_tokens,
+        f'time_per_step': time,
+        f'Tokens/Sec/GPU': total_num_tokens / (time * n_gpus),
+    }
+
+
 @contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
     with Timer(name=name, logger=None) as timer:
@@ -996,6 +1009,11 @@ class RayPPOTrainer(object):
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+
+                config = self.config
+                n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+                # Implement actual tflpo and theoretical tflpo
+                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
