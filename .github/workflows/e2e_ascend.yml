@@ -47,6 +47,12 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
-      - name: Run test
+      - name: Prepare gsm8k dataset
         run: |
-          lscpu
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen05_gsm8k_grpo_npu.sh
+          rm -rf $HOME/ckpts/*

@@ -357,7 +357,8 @@ class RayPPOTrainer(object):
                  ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
                  processor=None,
                  reward_fn=None,
-                 val_reward_fn=None):
+                 val_reward_fn=None,
+                 device_name=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -378,6 +379,7 @@ class RayPPOTrainer(object):
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
+        self.device_name = device_name
 
         # define KL control
         if self.use_reference_policy:
@@ -723,7 +725,9 @@ class RayPPOTrainer(object):
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
+            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel],
+                                          config=self.config.reward_model,
+                                          device_name=self.device_name)
             self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
 
         # initialize WorkerGroup
@@ -734,7 +738,9 @@ class RayPPOTrainer(object):
         self.wg_dicts = []
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
+            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool,
+                                                ray_cls_with_init=worker_dict_cls,
+                                                device_name=self.device_name)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
