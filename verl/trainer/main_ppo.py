@@ -48,6 +48,11 @@ def main_task(config, compute_score=None):
     from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer(local_path)
 
+    # Adjust LR based on batch size
+    base_lr = config.actor_rollout_ref.actor.optim.lr
+    batchsize = config.actor_rollout_ref.actor.ppo_mini_batch_size
+    config.actor_rollout_ref.actor.optim.lr = base_lr * batchsize / 1024
+
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy

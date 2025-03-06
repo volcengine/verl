@@ -104,7 +104,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            swap_space=64,
+            swap_space=90,
             # quantization="fp8",
             # cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,

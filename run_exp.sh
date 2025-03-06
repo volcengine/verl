@@ -1,5 +1,8 @@
 git config --global credential.helper cache
 
+echo "AMLT_JOB_NAME=$AMLT_JOB_NAME"
+export RUN_NAME=$AMLT_JOB_NAME
+
 # login to huggingface and wandb
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 wandb login $WANDB_TOKEN
@@ -8,8 +11,8 @@ CMD="python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/mnt/data/data/phi_math/train.parquet \
     data.val_files=/mnt/data/data/phi_math/test.parquet \
-    data.train_batch_size=1024 \
-    data.val_batch_size=256 \
+    data.train_batch_size=$((NODES*8)) \
+    data.val_batch_size=$((NODES*4)) \
     data.max_prompt_length=512 \
     data.max_response_length=$((MAX_RESPONSE_LENGTH-512)) \
     reward_model.reward_manager=prime \
@@ -40,8 +43,8 @@ CMD="python -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.val_generations_to_log_to_wandb=90 \
-    trainer.project_name='grpo_math_v8' \
-    trainer.experiment_name='grpo_math_v8' \
+    trainer.project_name="reasoning" \
+    trainer.experiment_name=$RUN_NAME \
     trainer.n_gpus_per_node=$((GPUS)) \
     trainer.nnodes=$((NODES)) \
     trainer.save_freq=50 \

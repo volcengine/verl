@@ -64,16 +64,28 @@ async def parallel_compute_score_async(evaluation_func, completions, references,
                     print('shut down failed: ' + str(kill_err))
             raise
 
+    metrics = {}
     # Process results
     for result, completion, reference, task in zip(results, completions, references, tasks):
         if isinstance(result, Exception) or result is None:
             # Handle failed or timed-out tasks
             scores.append(0.0)
-        elif isinstance(result[0], (int, float, bool)):
-            scores.append(float(result[0]))
+            metric = {}
         else:
-            scores.append(float(result[0][0]))
-    return scores
+            print(result)
+            result, metric = result[0]
+            if isinstance(result, (int, float, bool)):
+                scores.append(float(result))
+            else:
+                scores.append(float(result[0]))
+
+        for k in metric.keys():
+            if k in metrics.keys():
+                metrics[k].append(metric[k])
+            else:
+                metrics[k] = []
+
+    return scores, metrics
 
 
 class PrimeRewardManager:
@@ -116,7 +128,7 @@ class PrimeRewardManager:
 
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
-            scores = asyncio.run(
+            scores, metrics = asyncio.run(
                 parallel_compute_score_async(self.compute_score,
                                              sequences_str,
                                              ground_truth,
@@ -128,6 +140,10 @@ class PrimeRewardManager:
             scores = [-1. for _ in range(len(sequences_str))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
+
+            import traceback
+            traceback.print_exc()
+
             scores = [-1. for _ in range(len(sequences_str))]
 
         for i in range(len(data)):
@@ -141,4 +157,4 @@ class PrimeRewardManager:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str[0])
 
-        return reward_tensor
+        return reward_tensor, metrics

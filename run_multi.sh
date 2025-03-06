@@ -11,11 +11,10 @@ echo "MASTER_PORT=$MASTER_PORT"
 echo "AMLT_OUTPUT_DIR=$AMLT_OUTPUT_DIR"
 
 # Set run variables
-export RUN_NAME=grpo_math_v8_dist
 export RUN_N=16
 export MAX_RESPONSE_LENGTH=16384
 export PPO_MAX_TOKEN_LENGTH=32768
-export BATCH_SIZE=1024
+export BATCH_SIZE=$((NODES*8))
 export LR=1e-6
 export TENSOR_PARALLEL_SIZE=2
 export FP8_ADAM=true

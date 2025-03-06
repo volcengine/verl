@@ -613,7 +613,7 @@ class RayPPOTrainer(object):
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
+            reward_tensor, reward_metrics = self.val_reward_fn(test_batch)
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -862,7 +862,7 @@ class RayPPOTrainer(object):
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor, _ = self.reward_fn(batch)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
                             batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
@@ -912,7 +912,13 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
+                        reward_tensor, reward_metrics = self.reward_fn(batch)
+                        
+                        reward_metrics = {
+                            f"verifier/{k}": np.mean(v) for k, v in reward_metrics.items()
+                        }
+                        metrics.update(reward_metrics)
+
                         batch.batch['token_level_scores'] = reward_tensor
 
                         # compute rewards. apply_kl_penalty if available

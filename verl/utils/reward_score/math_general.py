@@ -178,7 +178,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
     
     # if there are more than one think tags, return -1 to prevent reward hacking of regex
     if solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1:
-        return -1.
+        return -1., {"acc_reward": 0., "repetition_penalty_score": 0., "soft_format_reward": 0., "xml_reward": 0.}
 
     # strict_format_reward = strict_format_reward_func([solution_str])[0]
     soft_format_reward = soft_format_reward_func([solution_str])[0]
@@ -194,7 +194,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
-        return compute_acc_reward(solution_str, ground_truth)
+        return compute_acc_reward(solution_str, ground_truth), {}
 
     if "</think>" not in solution_str: # If the completion does not contain the think tag, return 0 to encourage the model to use the think tag and prevent reward hacking.
         acc_reward = 0.
@@ -208,13 +208,13 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         # Remove the think tag from the completion only for training
         solution_str = solution_str.split("</think>")[-1]
 
-        acc_reward = compute_acc_reward(solution_str, ground_truth)
+        acc_reward_raw = compute_acc_reward(solution_str, ground_truth)
 
-        if acc_reward>0.5:
+        if acc_reward_raw>0.5:
             # If the completion is CORRECT, use the correct min/max values.
             min_value = min_value_correct
             max_value = max_value_correct
-            min_response_length = 8192
+            min_response_length = 4096*3
             progress = min(1, max(max_response_length - response_length, 0) / (max_response_length - min_response_length))
         else:
             # Swap min/max for incorrect answers
@@ -232,9 +232,17 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         acc_reward = min_value + progress * (max_value - min_value)
 
 
+    metric = {
+        "acc_reward_raw": acc_reward_raw,
+        "acc_reward_scaled": acc_reward,
+        "repetition_penalty_score": repetition_penalty_score,
+        "soft_format_reward": soft_format_reward,
+        "xml_reward": xml_reward,
+    }
+
     weights = [2., 0.25, 0.5, 0.25]
 
-    return sum([r*w for r, w in zip([acc_reward, repetition_penalty_score, soft_format_reward, xml_reward], weights)]) / sum(weights)
+    return sum([r*w for r, w in zip([acc_reward, repetition_penalty_score, soft_format_reward, xml_reward], weights)]) / sum(weights), metric
 
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
