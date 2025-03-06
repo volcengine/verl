@@ -35,7 +35,7 @@ def is_vllm_available():
         import vllm
         from importlib.metadata import version
         # workaround vllm version check
-        return True if version("vllm") in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') else False
+        return True if version("vllm") in ('0.3.1', '0.4.2', '0.5.4', '0.6.3', "0.7.3") else False
 
     except ImportError:
         return False
