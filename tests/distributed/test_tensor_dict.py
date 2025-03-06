@@ -8,6 +8,7 @@ import torch
 import torch.distributed
 import numpy as np
 
+
 def test_all_gather_data_proto():
     device_mesh = torch.distributed.device_mesh.init_device_mesh('cuda', mesh_shape=[2, 2], mesh_dim_names=['dp', 'tp'])
 
@@ -37,8 +38,6 @@ def test_all_gather_data_proto():
     torch.testing.assert_close(data.batch['obs'], expected_obs, atol=0, rtol=0)
     assert (data.non_tensor_batch['labels'] == expected_labels).all()
     assert data.meta_info == {'info': 'test_info'}
-        
-
 
 
 if __name__ == '__main__':
