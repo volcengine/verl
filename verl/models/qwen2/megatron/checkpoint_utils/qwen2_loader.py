@@ -53,7 +53,7 @@ def load_state_dict_to_megatron_qwen2(state_dict, wrapped_models, config, params
     """
     import megatron
     from megatron.core import mpu
-    from megatron.utils import print_rank_0, unwrap_model
+    from megatron.training.utils import print_rank_0, unwrap_model
     from megatron.core.transformer.module import Float16Module
     from megatron.core import DistributedDataParallel as LocalDDP
     from torch.nn.parallel import DistributedDataParallel as torchDDP

@@ -51,17 +51,20 @@ Step 2: Download Model
 
 There're three ways to prepare the model checkpoints for post-training:
 
-- Download the required models from hugging face
+- Download the required models from huggingface or modelscope
 
 .. code:: bash
 
    huggingface-cli download deepseek-ai/deepseek-math-7b-instruct --local-dir ~/models/deepseek-math-7b-instruct --local-dir-use-symlinks False
+   # or
+   modelscope download --model deepseek-ai/deepseek-math-7b-instruct --local_dir ~/models/deepseek-math-7b-instruct
 
 - Already store your store model in the local directory or HDFS path.
 - Also, you can directly use the model name in huggingface (e.g.,
   deepseek-ai/deepseek-math-7b-instruct) in
   ``actor_rollout_ref.model.path`` and ``critic.model.path`` field in
-  the run script.
+  the run script. You can also download models from modelscope by setting environmental variable ``VERL_USE_MODELSCOPE=True``.
+  See examples/ppo_trainer/run_deepseek7b_llm_modelscope.sh for example.
 
 Noted that users should prepare checkpoints for actor, critic and reward
 model.

@@ -10,7 +10,7 @@ Requirements
 verl supports various backends. Currently, the following configurations are available:
 
 - **FSDP** and **Megatron-LM** (optional) for training.
-- **vLLM** adn **TGI** for rollout generation, **SGLang** support coming soon.
+- **vLLM** and **TGI** for rollout generation, **SGLang** support coming soon.
 
 Training backends
 ------------------

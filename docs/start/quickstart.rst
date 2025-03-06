@@ -78,6 +78,7 @@ Now let's run PPO training with the dataset and model above. [2]_
 
 
 Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on your dataset and model names or paths.
+You may set ``VERL_USE_MODELSCOPE=True`` to download models from modelscope instead of huggingface.
 
 .. code-block:: bash
 

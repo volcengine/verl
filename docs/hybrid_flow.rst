@@ -15,7 +15,7 @@ We use dataflow to represent RL systems. [4]_.
 DataFlow
 ~~~~~~~~~~~~~~~~~~~~
 
-Dataflow is an abstraction of computations. Neural Netowork training is a typical dataflow. It can be represented by computational graph. 
+Dataflow is an abstraction of computations. Neural Network training is a typical dataflow. It can be represented by computational graph. 
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/dataflow.jpeg?raw=true
    :alt: The dataflow graph from CS231n 2024 lecture 4
@@ -94,7 +94,7 @@ Code: https://github.com/volcengine/verl/blob/main/verl/trainer/main_ppo.py
 In this file, we define a remote function `main_task` that serves as the controller (driver) process as shown in the above figure. We also define a ``RewardManager``, where users can customize their reward function based on the data source in the dataset. Note that `RewardManager` should return the final token-level reward that is optimized by RL algorithms. Note that users can combine model-based rewards and rule-based rewards.
 The ``main_task`` constructs a RayPPOTrainer instance and launch the fit. Note that ``main_task`` **runs as a single process**.
 
-We highly recommend that the ``main_task`` is NOT schduled on the head of the ray cluster because ``main_task`` will consume a lot of memory but the head usually contains very few resources.
+We highly recommend that the ``main_task`` is NOT scheduled on the head of the ray cluster because ``main_task`` will consume a lot of memory but the head usually contains very few resources.
 
 Ray trainer
 ~~~~~~~~~~~~~~~~~~~~

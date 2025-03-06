@@ -7,3 +7,6 @@ sphinx-markdown-tables
 
 # crate-docs-theme
 sphinx-rtd-theme
+
+# pin tokenizers version to avoid env_logger version req
+tokenizers==0.19.1
