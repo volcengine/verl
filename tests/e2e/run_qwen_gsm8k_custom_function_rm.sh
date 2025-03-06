@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e -x
-FILE="my_reward_function.py"
+FILE="$(pwd)/my_reward_function.py"
 rm -rf $FILE
 cat <<EOF > "$FILE"
 def my_reward_function(data_source, solution_str, ground_truth, extra_info=None):
@@ -9,7 +9,8 @@ def my_reward_function(data_source, solution_str, ground_truth, extra_info=None)
 EOF
 
 
-OUTPUT_FILE="output_custom_reward.txt"
+OUTPUT_FILE="$(pwd)/output_custom_reward.txt"
+FUNCTION_NAME="my_reward_function"
 rm -rf $OUTPUT_FILE
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -41,8 +42,8 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.kl_ctrl.kl_coef=0.001 \
-    custom_reward_function.path=my_reward.py\
-    custom_reward_function.name=my_reward_function\
+    custom_reward_function.path=$FILE\
+    custom_reward_function.name=$FUNCTION_NAME\
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_example_gsm8k' \
