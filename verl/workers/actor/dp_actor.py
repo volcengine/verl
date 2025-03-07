@@ -260,7 +260,7 @@ class DataParallelPPOActor(BasePPOActor):
                     self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                     # split batch into micro_batches
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-
+                print(f'micro batch shape: {micro_batches.shape}')
                 self.actor_optimizer.zero_grad()
 
                 for data in micro_batches:
@@ -317,6 +317,7 @@ class DataParallelPPOActor(BasePPOActor):
                         'actor/pg_loss': pg_loss.detach().item(),
                         'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                         'actor/ppo_kl': ppo_kl.detach().item(),
+                        'actor/input_numel': data.detach().item().numel(),
                     }
                     append_to_dict(metrics, data)
 
