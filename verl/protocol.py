@@ -644,3 +644,21 @@ class DataProtoFuture:
         if self.dispatch_fn is not None:
             output = self.dispatch_fn(output)  # split in batch dim, select using dp
         return output
+
+
+from verl.utils.torch_functional import allgather_dict_tensors
+import torch.distributed
+
+
+def all_gather_data_proto(data: DataProto, process_group):
+    # Note that this is an inplace operator just like torch.distributed.all_gather
+    group_size = torch.distributed.get_world_size(group=process_group)
+    assert isinstance(data, DataProto)
+    prev_device = data.batch.device
+    data.batch = data.batch.cuda(device=torch.cuda.current_device())
+    data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
+    data.batch = data.batch.to(prev_device)
+    # all gather non_tensor_batch
+    all_non_tensor_batch = [None for _ in range(group_size)]
+    torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=process_group)
+    data.non_tensor_batch = {k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch}

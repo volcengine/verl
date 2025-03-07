@@ -108,7 +108,12 @@ class _VocabParallelEntropy(torch.autograd.Function):
         normalized_sum_exp_logits = normalized_exp_logits.sum(dim=-1, keepdim=True)
         dist.all_reduce(normalized_sum_exp_logits, group=mpu.get_tensor_model_parallel_group())
         softmax_logits = normalized_exp_logits / normalized_sum_exp_logits
-        sum_softmax_times_logits = (softmax_logits * vocab_parallel_logits).sum(dim=-1, keepdim=True)
+        # This consume too much VRAM, causing OOM, try optimize
+        # sum_softmax_times_logits = (softmax_logits * vocab_parallel_logits).sum(dim=-1, keepdim=True)
+        original_shape = softmax_logits.shape
+        sum_softmax_times_logits = torch.bmm(softmax_logits.view(-1, 1, original_shape[-1]),
+                                             vocab_parallel_logits.view(-1, original_shape[-1],
+                                                                        1)).view(original_shape[:-1] + (1,))
         dist.all_reduce(sum_softmax_times_logits, group=mpu.get_tensor_model_parallel_group())
         entropy = logits_max + normalized_sum_exp_logits.log() - sum_softmax_times_logits
         ctx.save_for_backward(vocab_parallel_logits, softmax_logits, sum_softmax_times_logits)
