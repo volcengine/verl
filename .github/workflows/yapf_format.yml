@@ -18,6 +18,11 @@ on:
       - "**/*.py"
       - .github/workflows/yapf_format.yml
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 # Declare permissions just read content.
 permissions: 
   contents: read
