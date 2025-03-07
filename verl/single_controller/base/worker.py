@@ -18,6 +18,7 @@ import os
 import socket
 from dataclasses import dataclass
 from .decorator import register, Dispatch, Execute
+from verl.utils.device import is_npu_available
 
 
 @dataclass
@@ -126,7 +127,8 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        device_name = torch.npu.get_device_name() if is_npu_available else torch.cuda.get_device_name()
+        if "AMD" in device_name:
             os.environ['CUDA_VISIBLE_DEVICES'] = os.environ.get('ROCR_VISIBLE_DEVICES')
             os.environ['LOCAL_RANK'] = os.environ.get('RAY_LOCAL_RANK')
         ###

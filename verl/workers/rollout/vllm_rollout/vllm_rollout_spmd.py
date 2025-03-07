@@ -39,7 +39,7 @@ from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
 from verl.third_party.vllm import vllm_version
-from verl.utils.device import is_cuda_available
+from verl.utils.device import is_cuda_available, is_npu_available
 
 # TODO
 # 1. support pp in vllm
@@ -100,7 +100,7 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True if is_cuda_available else False,
+            enable_sleep_mode=False if is_npu_available else True,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
@@ -112,7 +112,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            enable_prefix_caching=True,
+            enable_prefix_caching=False if is_npu_available else True,
         )
 
         # Offload vllm model to reduce peak memory usage
