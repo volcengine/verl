@@ -240,7 +240,7 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     print("sequence_score")
     print(sequence_score)
 
-    print("observations_times")
+    # print("observations_times")
 
     with open("logs/uid.txt", "a") as f:
         f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
@@ -284,8 +284,8 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             torch.mean(binary_sequence_score).detach().item(),
         'search/passrate':
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
-        'search/observation_times':
-            torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        # 'search/observation_times':
+        #     torch.mean(batch.batch['observations_times'].float()).detach().item(),
         'search/failed_times':
             torch.mean(batch.batch['failed_times'].float()).detach().item(),
         'search/length_overlong_ratio':
