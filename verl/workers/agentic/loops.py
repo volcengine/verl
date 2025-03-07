@@ -31,29 +31,33 @@ async def ids_agent_loop(
     done = False
     obs_metrics = {}
     start = await start_fn(index)
-    all_ids = start.pop("prompt_ids")
+    # TODO(haoran): pad here!
+    prompt_ids = start.pop("prompt_ids")
+    all_ids = list(prompt_ids)
     sid = start.pop("sid")
-    loss_mask = [0] * len(all_ids)
     collect_metrics(start, obs_metrics)
     turn = 0
+    response_loss_mask = []
     while not done and len(all_ids) < max_length and turn < max_turns:
         action = await gen_fn(all_ids)
         all_ids += action
-        loss_mask += [1] * len(action)
+        response_loss_mask += [1] * len(action)
         if len(all_ids) >= max_length:
             print(f"Too long... {len(all_ids)}, {max_length}")
             break
         obs = await obs_fn(action, sid)
         obs_ids = obs.pop("ids")
         all_ids += obs_ids
-        loss_mask += [0] * len(obs_ids)
+        response_loss_mask += [0] * len(obs_ids)
         done = obs.pop("done")
         collect_metrics(obs, obs_metrics)
         turn += 1
     collect_metrics(await end_fn(sid, done) or {}, obs_metrics)
     return {
-        "ids": all_ids[:max_length],
-        "loss_mask": loss_mask[:max_length],
+        # TODO(haoran): return prompt_ids here
+        "prompts": prompt_ids, 
+        "responses": all_ids[len(prompt_ids):max_length],
+        "response_loss_mask": response_loss_mask,
         "obs_metrics": obs_metrics,
     }
 

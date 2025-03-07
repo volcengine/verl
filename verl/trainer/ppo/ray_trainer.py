@@ -279,23 +279,23 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     binary_sequence_score = torch.where(sequence_score == -1, torch.tensor(0.0), sequence_score)
     metrics = {
         # metric that search concern
-        # TODO: find a more general way to deal with these
-        'search/pass@1':
-            torch.mean(binary_sequence_score).detach().item(),
-        'search/passrate':
-            sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
-        # 'search/observation_times':
-        #     torch.mean(batch.batch['observations_times'].float()).detach().item(),
-        'search/failed_times':
-            torch.mean(batch.batch['failed_times'].float()).detach().item(),
-        'search/length_overlong_ratio':
-            length_overlong_ratio,
-        'search/turn_overlong_ratio':
-            turn_overlong_ratio,
-        'search/overlong_ratio':
-            overlong_ratio,
-        'search/penalty_minus_1_ratio':
-            torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
+        # # TODO: find a more general way to deal with these
+        # 'search/pass@1':
+        #     torch.mean(binary_sequence_score).detach().item(),
+        # 'search/passrate':
+        #     sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
+        # # 'search/observation_times':
+        # #     torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        # 'search/failed_times':
+        #     torch.mean(batch.batch['failed_times'].float()).detach().item(),
+        # 'search/length_overlong_ratio':
+        #     length_overlong_ratio,
+        # 'search/turn_overlong_ratio':
+        #     turn_overlong_ratio,
+        # 'search/overlong_ratio':
+        #     overlong_ratio,
+        # 'search/penalty_minus_1_ratio':
+        #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
@@ -955,7 +955,9 @@ class RayPPOTrainer(object):
                 batch_keys = ['input_ids', 'attention_mask', 'position_ids']
                 if self.task_type == "swedev": # TODO(haoran): pass arg list here
                     batch_keys.append('instance_id')
-                gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
+                    gen_batch = batch.pop(batch_keys=batch_keys)
+                else: # TODO(haoran): hard encoding for dr
+                    gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
 
                 with _timer('step', timing_raw):
                     # generate a batch

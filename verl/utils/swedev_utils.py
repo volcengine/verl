@@ -18,18 +18,17 @@ def is_stop(response):
     is_finish = "<function=finish>" in response
     return is_finish
 
-async def initialize_runtime(idx, instance_id):
+async def initialize_runtime(instance_id):
     url = get_api(type="start")
     payload = {"instance_hash": instance_id}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, timeout=600) as response:
                 result = await response.json()
-                await asyncio.sleep(5)
-                return idx, result
+                return result
     except Exception as e:
         print(f"Initializing - API call failed: {e}")
-        return idx, None
+        return None
     
 async def call_observation_api(sid, text: str):
     if isinstance(sid, torch.Tensor):

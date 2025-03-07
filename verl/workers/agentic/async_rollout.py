@@ -1,9 +1,6 @@
 # TODO(haoran): stuck in the loop
-# TODO(haoran): response 
 # TODO(haoran): time control; loss_mask
 # TODO(haoran): check reason for loading weight
-# TODO(haoran): tackle obs
-# TODO(haoran): tackle connection rest
 import asyncio
 import os
 import time
@@ -21,12 +18,27 @@ from verl.workers.rollout.base import BaseRollout
 from .loops import *
 from .tasks import *
 
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
+def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
-    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
-    token_ids = prompt_token_ids[non_pad_index:].tolist()
+    non_pad_index = torch.nonzero(token_ids != pad_token_id, as_tuple=False)[0][0]
+    token_ids = token_ids[non_pad_index:].tolist()
     return token_ids
+
+def _post_process_outputs(pad_token_id, token_ids, max_length, padding_side='right', device=None):
+    current_length = len(token_ids)
+    if current_length >= max_length:
+        padded_tokens = token_ids[:max_length]
+    else:
+        pad_size = max_length - current_length
+        if padding_side == 'right':
+            padded_tokens = token_ids + [pad_token_id] * pad_size
+        else:
+            padded_tokens = [pad_token_id] * pad_size + token_ids    
+    padded_tokens = torch.tensor(padded_tokens)
+    if device:
+        padded_tokens.to(device)
+    return padded_tokens
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig):
@@ -175,12 +187,15 @@ class AsyncRollout(BaseRollout):
 
         async def swedev_start(index):
             try:
-                result = await asyncio.to_thread(initialize_runtime, index, prompts.batch['instance_id'][index // n].item())
+                result = await initialize_runtime(prompts.batch['instance_id'][index // n].item())
+                print(result)
                 return {
+                    "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]),
                     "sid": result["sid"],
-                    "sids": [result["sid"]], # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
+                    "sids": int(result["sid"]), # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
                 }
             except Exception as e:
+                # TODO: return true for handle api instead of raising an error
                 print(f"Error processing instance: {e}")
                 # in original logic, mismatched sids count and instance_ids count will cause error eventually, better raise now
                 raise
@@ -209,35 +224,48 @@ class AsyncRollout(BaseRollout):
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
-        max_len = self.total_len
+        max_len, prompt_len, response_len = self.total_len, self.config.prompt_length, self.config.response_length
+        prompts = torch.zeros((len(results), prompt_len), dtype=torch.long, device=device)
+        responses = torch.zeros((len(results), response_len), dtype=torch.long, device=device)
         all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
         loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
         attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
         obs_metrics = {}
 
         for i, r in enumerate(results):
-            length = len(r["ids"])
-            assert len(r["loss_mask"]) == length, f"{len(r['loss_mask'])=} != {length=}"
-            all_ids[i, :length] = torch.tensor(r["ids"], device=device)
-            loss_mask[i, :length] = torch.tensor(r["loss_mask"], device=device)
-            attn_mask[i, :length] = 1
+            prompts[i] = _post_process_outputs(tokenizer.pad_token_id, r["prompts"], 
+                                    prompt_len, padding_side="left", device=device
+                        )
+            responses[i] = _post_process_outputs(tokenizer.pad_token_id, r["responses"], 
+                                    response_len, padding_side="right", device=device
+                            )
+            all_ids[i] = torch.cat([prompts[i], responses[i]], dim=0)
+            loss_mask[i] = torch.cat([
+                _post_process_outputs(tokenizer.pad_token_id, [], prompt_len, padding_side="left", device=device),
+                _post_process_outputs(tokenizer.pad_token_id, r["response_loss_mask"], 
+                            response_len, padding_side="right", device=device
+                )
+            ], dim=0)
+            attn_mask[i] = (all_ids[i] != tokenizer.pad_token_id).int()
 
-            # collect obs metrics
             for k, v in r["obs_metrics"].items():
                 if k not in obs_metrics:
                     obs_metrics[k] = []
                 obs_metrics[k].append(v)
 
         batch_size = len(results)
-        position_ids = torch.arange(max_len, device=device).unsqueeze(0).repeat(batch_size, 1)
+        position_ids = torch.zeros_like(attn_mask, device=device)
+        for i in range(batch_size):
+            position_ids[i, :] = torch.cumsum(attn_mask[i, :], dim=0) - 1
+            position_ids[i, attn_mask[i, :] == 0] = 0  # it's fine because all the valid tokens a continuous
 
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
 
         # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" & dr "rm_score" placement problem
         batch = TensorDict({
-            "prompts": torch.zeros((batch_size, 0), dtype=torch.long, device=device),
-            "responses": all_ids,
+            "prompts": prompts,
+            "responses": responses,
             "input_ids": all_ids,
             "loss_mask": loss_mask,
             "attention_mask": attn_mask,

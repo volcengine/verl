@@ -92,7 +92,7 @@ class RLHFDataset(Dataset):
         self.task_type = task_type
         if self.task_type != 'default':
             self.preprocess_dataset = PREPROCESS_DATASET[self.task_type]
-            self.prompt_generatoe = PROMPT_GENERATOR[self.task_type]
+            self.prompt_generator = PROMPT_GENERATOR[self.task_type]
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -147,7 +147,7 @@ class RLHFDataset(Dataset):
         if self.task_type == 'default':
             chat = row_dict.pop(self.prompt_key)
         else:
-            chat = self.get_prompt(row_dict)
+            chat = self.prompt_generator(row_dict)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
