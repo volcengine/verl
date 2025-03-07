@@ -21,6 +21,10 @@ Data
      train_batch_size: 1024
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     shuffle: True
+     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
+     truncation: error
+     image_key: images
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
   file. The program will read all files into memory, so it can't be too
@@ -45,10 +49,16 @@ Data
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
 - ``data.return_raw_chat``:
+- ``data.shuffle``: Whether to shuffle the data in the dataloader.
+- ``data.filter_overlong_prompts``: Default don't filter. You can filter for small-scale dataset. 
+  For large-scale dataset, filtering overlong prompts could be timeconsuming. 
+  You should disable this and set ``truncation='left``
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
-  throwing the error.
+  throwing the error. You can also set ``left`` and ``right``.
+- ``data.image_key``: The field in the multi-modal dataset where the image is
+  located. Default is 'images'.
 
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

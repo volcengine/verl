@@ -24,6 +24,7 @@ from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl import DataProto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
+from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
 
@@ -134,14 +135,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
 
-        prev_device = data.batch.device
-        data.batch = data.batch.cuda(device=torch.cuda.current_device())
-        data.batch = allgather_dict_tensors(data.batch.contiguous(), size=tp_size, group=group, dim=0)
-        data.batch = data.batch.to(prev_device)
-        # all gather non_tensor_batch
-        all_non_tensor_batch = [None for _ in range(tp_size)]
-        torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
-        data.non_tensor_batch = {k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch}
+        all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

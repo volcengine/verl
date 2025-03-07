@@ -14,6 +14,8 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.train_batch_size=1024 \
     data.max_prompt_length=1024 \
     data.max_response_length=512 \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
     actor_rollout_ref.model.path=deepseek-ai/deepseek-coder-6.7b-instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \

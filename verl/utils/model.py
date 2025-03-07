@@ -197,7 +197,7 @@ def compute_position_id_with_mask(mask):
 
 def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     """
-    Normalize the pp vpp params into a complete named parameters. 
+    Normalize the pp vpp params into a complete named parameters.
     This is useful when gather parameters from pp ranks and passed to a model without pp
 
     params: List[List[Dict[str, param]]]
@@ -296,18 +296,21 @@ def load_megatron_model_weights(config,
         local_model_path = config.model.path
 
     # TODO: to find a better way to load mistral7b-rm lm_head
-    if 'mistral7b-rm' in config.model.path:
-        model = MistralForSequenceClassification.from_pretrained(local_model_path)  # use score head instead of lm_head
-        state_dict = model.state_dict()
-        state_dict['lm_head.weight'] = state_dict['score.weight']
-        state_dict['model.embed_tokens.weight'] = state_dict[
-            'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
-        is_value_model = True
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-        model = AutoModelForCausalLM.from_pretrained(local_model_path)
-        state_dict = model.state_dict()
+    from verl.utils.fsdp_utils import get_init_weight_context_manager
+    init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
+    with init_context(), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if 'mistral7b-rm' in config.model.path:
+            model = MistralForSequenceClassification.from_pretrained(
+                local_model_path)  # use score head instead of lm_head
+            state_dict = model.state_dict()
+            state_dict['lm_head.weight'] = state_dict['score.weight']
+            state_dict['model.embed_tokens.weight'] = state_dict[
+                'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
+            is_value_model = True
+        else:
+            model = AutoModelForCausalLM.from_pretrained(local_model_path)
+            state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
     print(f'before weight loader: architectures = {architectures}...')
@@ -318,7 +321,9 @@ def load_megatron_model_weights(config,
                       wrapped_models=parallel_model,
                       config=model.config,
                       params_dtype=params_dtype,
-                      is_value_model=is_value_model)
+                      is_value_model=is_value_model,
+                      tie_word_embeddings=model_config.tie_word_embeddings)
+    return model.config
 
 
 # pad input_ids_rmpad, cu_seqlens and max_seqlen_in_batch to be divisible by tp

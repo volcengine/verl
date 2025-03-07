@@ -25,6 +25,7 @@ from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
 
+import ray
 import numpy as np
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
@@ -89,9 +90,38 @@ class ResourcePoolManager:
                                             name_prefix=resource_pool_name)
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
+        self._check_resource_available()
+
     def get_resource_pool(self, role: Role) -> RayResourcePool:
         """Get the resource pool of the worker_cls"""
         return self.resource_pool_dict[self.mapping[role]]
+
+    def _check_resource_available(self):
+        """Check if the resource pool can be satisfied in this ray cluster."""
+        node_available_resources = ray.state.available_resources_per_node()
+        node_available_gpus = {node: node_info.get('GPU', 0) for node, node_info in node_available_resources.items()}
+
+        # check total required gpus can be satisfied
+        total_available_gpus = sum(node_available_gpus.values())
+        total_required_gpus = sum(
+            [num_gpus for process_on_nodes in self.resource_pool_spec.values() for num_gpus in process_on_nodes])
+        if total_available_gpus < total_required_gpus:
+            raise ValueError(
+                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}")
+
+        # check each resource pool can be satisfied, O(#resource_pools * #nodes)
+        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
+            num_gpus, num_nodes = process_on_nodes[0], len(process_on_nodes)
+            for node, available_gpus in node_available_gpus.items():
+                if available_gpus >= num_gpus:
+                    node_available_gpus[node] -= num_gpus
+                    num_nodes -= 1
+                    if num_nodes == 0:
+                        break
+            if num_nodes > 0:
+                raise ValueError(
+                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this ray cluster"
+                )
 
 
 import torch
@@ -784,7 +814,7 @@ class RayPPOTrainer(object):
 
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
-            NotImplementedError('load from hdfs is not implemented yet')
+            raise NotImplementedError('load from hdfs is not implemented yet')
         else:
             checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
             if not os.path.isabs(checkpoint_folder):
@@ -878,6 +908,7 @@ class RayPPOTrainer(object):
 
         # we start from step 1
         self.global_steps += 1
+        last_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -897,6 +928,8 @@ class RayPPOTrainer(object):
                         batch_keys=['input_ids', 'attention_mask', 'position_ids'],
                         non_tensor_batch_keys=['raw_prompt_ids'],
                     )
+
+                is_last_step = self.global_steps >= self.total_training_steps
 
                 with _timer('step', timing_raw):
                     # generate a batch
@@ -997,13 +1030,15 @@ class RayPPOTrainer(object):
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                        self.global_steps % self.config.trainer.test_freq == 0:
+                        (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
+                            if is_last_step:
+                                last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and \
-                            self.global_steps % self.config.trainer.save_freq == 0:
+                    if self.config.trainer.save_freq > 0 and ( is_last_step or \
+                            self.global_steps % self.config.trainer.save_freq == 0):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
@@ -1019,17 +1054,8 @@ class RayPPOTrainer(object):
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
-                self.global_steps += 1
-
-                if self.global_steps >= self.total_training_steps:
-
-                    # perform validation after training
-                    if self.val_reward_fn is not None:
-                        val_metrics = self._validate()
-                        pprint(f'Final validation metrics: {val_metrics}')
-                        logger.log(data=val_metrics, step=self.global_steps)
-                    if self.config.trainer.save_freq > 0 and \
-                            (self.global_steps - 1) % self.config.trainer.save_freq != 0:
-                        with _timer('save_checkpoint', timing_raw):
-                            self._save_checkpoint()
+                if is_last_step:
+                    pprint(f'Final validation metrics: {last_val_metrics}')
                     return
+
+                self.global_steps += 1
