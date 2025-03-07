@@ -98,8 +98,6 @@ class AsyncRollout(BaseRollout):
         n = self.config.n
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(n, dim=0)
-        position_ids = prompts.batch["position_ids"].repeat_interleave(n, dim=0)
-        attn_mask = prompts.batch["attention_mask"].repeat_interleave(n, dim=0)
 
         async def dr_start(index):
             return _pre_process_inputs(tokenizer.pad_token_id, input_ids[index])
@@ -141,32 +139,19 @@ class AsyncRollout(BaseRollout):
 
         # make batch
         max_len = self.total_len
-        # all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
-        responses = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
-        resp_loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
-        resp_attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
+        loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
 
         for i, r in enumerate(results):
-            # all_ids[i, :len(r["ids"])] = torch.tensor(r["ids"], device=device)
-            prompt_len = len(idx_list[i])
-            gen_ids = torch.tensor(r["ids"][prompt_len:], device=device)
-            resp_len = len(gen_ids)
-            responses[i, :resp_len] = gen_ids
-            print(f'After prompt len: {prompt_len}, {len(r["loss_mask"])}')
-            resp_loss_mask[i, :len(r["loss_mask"]) - prompt_len] = torch.tensor(r["loss_mask"][prompt_len:], device=device)
-            resp_attn_mask[i, :resp_len] = 1
+            length = len(r["ids"])
+            assert len(r["loss_mask"]) == length, f"{len(r['loss_mask'])=} != {length=}"
+            all_ids[i, :length] = torch.tensor(r["ids"], device=device)
+            loss_mask[i, :length] = torch.tensor(r["loss_mask"], device=device)
+            attn_mask[i, :length] = 1
 
         batch_size = len(results)
-        response_length = responses.size(1)
-        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
-
-        response_position_ids = position_ids[:, -1:] + delta_position_id
-        position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-
-        concat_ids = torch.cat([input_ids, responses], dim=1)
-        concat_loss_mask = torch.cat([torch.zeros_like(input_ids), resp_loss_mask], dim=1)
-        concat_attn_mask = torch.cat([attn_mask, resp_attn_mask], dim=1)
+        position_ids = torch.arange(max_len, device=device).unsqueeze(0).repeat(batch_size, 1)
 
         # collect obs metrics
         obs_metrics = {}
@@ -179,12 +164,12 @@ class AsyncRollout(BaseRollout):
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
 
         # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" placement problem
+        # TODO: dr reward acquisition will be dead after "prompts" is removed, move it to end_fn in the future
         batch = TensorDict({
-            "prompts": input_ids,
-            "responses": responses,
-            "input_ids": concat_ids,
-            "loss_mask": concat_loss_mask,
-            "attention_mask": concat_attn_mask,
+            "responses": all_ids,
+            "input_ids": all_ids,
+            "loss_mask": loss_mask,
+            "attention_mask": attn_mask,
             "position_ids": position_ids,
             **obs_metrics,
         }, batch_size=batch_size)
