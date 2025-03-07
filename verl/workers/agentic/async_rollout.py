@@ -99,8 +99,73 @@ class AsyncRollout(BaseRollout):
         input_ids: torch.Tensor = prompts.batch["input_ids"]
         input_ids = input_ids.repeat_interleave(n, dim=0)
 
+        # TODO: this is just a temporary approach for dr getting reward. should be moved to a backend.
+        dr_storage_sid2seq = {}
+
         async def dr_start(index):
-            return _pre_process_inputs(tokenizer.pad_token_id, input_ids[index])
+            dr_storage_sid2seq[index] = []
+            return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
+
+        async def dr_obs(action_ids, sid, tokenizer, **_):
+            # find <|observation|> token part
+            dr_storage_sid2seq[sid].extend(action_ids)
+            stop_id = action_ids[-1]
+            stop_token = tokenizer.decode([stop_id])
+            print(f"stop token: [{stop_id}] - [{stop_token}]")
+
+            # only finish with <|observation|> token can be multi-turn
+            if not stop_token.strip() == '<|observation|>':
+                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0}
+            action = tokenizer.decode(action_ids, skip_special_tokens=False)
+            text = action.split("<|observation|>")[0].strip()
+
+            # call api part
+            url = "http://172.16.65.43:8888/observation_kilt/"
+            payload = {"content": text, "translate": True}
+            failed = 0
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, json=payload)
+                    ret = response.json()
+            except Exception as e:
+                print(f"API call failed: {e}")
+                ret = [{"content": "API call failed"}]
+                failed = 1
+
+            # combine part
+            obv_combined = ['\n' + obv['content'].strip() for obv in ret]
+            obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
+            ret_ids = tokenizer.encode(obs_text)
+            dr_storage_sid2seq[sid].extend(ret_ids)
+            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
+
+        async def dr_end(sid, _):
+            # currently for dr sid == index
+            data_item = prompts[sid // n]
+            from verl.utils.reward_score import _default_compute_score
+            prompt_ids = data_item.batch['input_ids']
+            prompt_length = prompt_ids.shape[-1]
+            assert len(data_item.batch['attention_mask']) == prompt_length, f"{len(data_item.batch['attention_mask'])=} != {prompt_length=}"
+            valid_prompt_length = data_item.batch['attention_mask'].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+            sequences = dr_storage_sid2seq[sid]
+            sequences_str = tokenizer.decode(sequences)
+            prompt_str = tokenizer.decode(valid_prompt_ids)
+            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            data_source = data_item.non_tensor_batch['data_source']
+            extra_info = data_item.non_tensor_batch.get('extra_info', None)
+            score = await asyncio.to_thread(_default_compute_score,
+                data_source=data_source,
+                solution_str=sequences_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+                question=prompt_str,
+                tokenizer=tokenizer,
+            )
+            return {
+                "rm_final_scores": score,
+            }
 
         async def swedev_start(index):
             try:
@@ -118,7 +183,7 @@ class AsyncRollout(BaseRollout):
         # TODO: maybe in init is better, but some functions are local
         # TODO: partial is not the best way to pass arguments
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
-            "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dummy),
+            "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dr_end),
             "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
             "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url="todo"), gen_chat, partial(openai_chat_obs, url="todo"), partial(openai_chat_end, url="todo")),
         }[self.task_type]
@@ -142,6 +207,7 @@ class AsyncRollout(BaseRollout):
         all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
         loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
         attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        obs_metrics = {}
 
         for i, r in enumerate(results):
             length = len(r["ids"])
@@ -150,22 +216,21 @@ class AsyncRollout(BaseRollout):
             loss_mask[i, :length] = torch.tensor(r["loss_mask"], device=device)
             attn_mask[i, :length] = 1
 
-        batch_size = len(results)
-        position_ids = torch.arange(max_len, device=device).unsqueeze(0).repeat(batch_size, 1)
-
-        # collect obs metrics
-        obs_metrics = {}
-        for r in results:
+            # collect obs metrics
             for k, v in r["obs_metrics"].items():
                 if k not in obs_metrics:
                     obs_metrics[k] = []
                 obs_metrics[k].append(v)
+
+        batch_size = len(results)
+        position_ids = torch.arange(max_len, device=device).unsqueeze(0).repeat(batch_size, 1)
+
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
 
-        # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" placement problem
-        # TODO: dr reward acquisition will be dead after "prompts" is removed, move it to end_fn in the future
+        # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" & dr "rm_score" placement problem
         batch = TensorDict({
+            "prompts": torch.zeros((batch_size, 0), dtype=torch.long, device=device),
             "responses": all_ids,
             "input_ids": all_ids,
             "loss_mask": loss_mask,
