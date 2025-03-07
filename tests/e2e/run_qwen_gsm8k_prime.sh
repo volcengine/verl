@@ -7,7 +7,7 @@ python3 -m recipe.prime.main_prime \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=32 \
     data.max_prompt_length=512 \
-    data.max_response_length=512 \
+    data.max_response_length=10 \
     data.filter_accuracy=True \
     data.accuracy_lower_bound=0.2 \
     data.accuracy_upper_bound=0.8 \
@@ -29,7 +29,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     algorithm.adv_estimator=rloo \
     reward_model.model.path=HuggingFaceTB/SmolLM-135M-Instruct \
-    reward_model.micro_batch_size=128 \
+    reward_model.micro_batch_size_per_gpu=1 \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \
     reward_model.model.optim.lr=1e-6 \
