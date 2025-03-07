@@ -32,6 +32,7 @@ from transformers.models.qwen2.modeling_qwen2 import CausalLMOutputWithPast
 
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
+from verl.utils.megatron_utils import TransformerConfig, convert_config
 from .layers import ParallelQwen2DecoderLayer, ParallelQwen2RMSNorm, ParallelQwen2DecoderLayerRmPad
 """
 TODO: 
@@ -79,12 +80,13 @@ class ParallelQwen2Model(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         embedding_kwargs = tp_utils.get_default_kwargs_for_parallel_embedding()
         if megatron_config is not None:
             assert embedding_kwargs.get('config', False), 'must have ModelParallelConfig'
-            tp_utils.update_kwargs_with_config(embedding_kwargs, self.megatron_config)
+            tp_utils.update_kwargs_with_config(embedding_kwargs, megatron_config)
         self.embed_tokens = tensor_parallel.VocabParallelEmbedding(num_embeddings=config.vocab_size,
                                                                    embedding_dim=config.hidden_size,
                                                                    **embedding_kwargs)
@@ -156,6 +158,7 @@ class ParallelQwen2ForCausalLM(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.model = ParallelQwen2Model(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
 
@@ -222,6 +225,7 @@ class ParallelQwen2ModelRmPad(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         embedding_kwargs = tp_utils.get_default_kwargs_for_parallel_embedding()
@@ -280,19 +284,19 @@ class ParallelQwen2ForCausalLMRmPad(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         super().__init__()
-        self.config = config
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
         self.model = ParallelQwen2ModelRmPad(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
-        self._init_head()
+        self._init_head(config)
 
-    def _init_head(self):
+    def _init_head(self, config: Qwen2Config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=self.config.hidden_size,
-                                                            output_size=self.config.vocab_size,
+        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=config.hidden_size,
+                                                            output_size=config.vocab_size,
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
@@ -365,12 +369,12 @@ class ParallelQwen2ForCausalLMRmPad(nn.Module):
 
 class ParallelQwen2ForValueRmPad(ParallelQwen2ForCausalLMRmPad):
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = nn.Linear(in_features=self.config.hidden_size, out_features=1, bias=False)
+        self.lm_head = nn.Linear(in_features=config.hidden_size, out_features=1, bias=False)
         # lm_head is effectively the same as sequence parallel
         sp_utils.mark_parameter_as_sequence_parallel(self.lm_head.weight)
 
@@ -409,6 +413,7 @@ class ParallelQwen2ModelRmPadPP(nn.Module):
 
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
@@ -516,7 +521,7 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, pre_process, post_process,
                  share_embeddings_and_output_weights):
         super().__init__()
-        self.config = config
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
         self.model = ParallelQwen2ModelRmPadPP(config,
                                                megatron_config=megatron_config,
@@ -527,7 +532,7 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
         self.pre_process = pre_process
         self.post_process = post_process
         if post_process:
-            self._init_head()
+            self._init_head(config)
         if pre_process or post_process:
             self.setup_embeddings_and_output_layer()
 
@@ -542,13 +547,13 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
         assert len(input_tensor) == 1
         self.model.set_input_tensor(input_tensor[0])
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=self.config.hidden_size,
-                                                            output_size=self.config.vocab_size,
+        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=config.hidden_size,
+                                                            output_size=config.vocab_size,
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
@@ -679,12 +684,12 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
 
 class ParallelQwen2ForValueRmPadPP(ParallelQwen2ForCausalLMRmPadPP):
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = nn.Linear(in_features=self.config.hidden_size, out_features=1, bias=False)
+        self.lm_head = nn.Linear(in_features=config.hidden_size, out_features=1, bias=False)
         # lm_head is effectively the same as sequence parallel
         sp_utils.mark_parameter_as_sequence_parallel(self.lm_head.weight)
 

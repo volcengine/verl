@@ -38,7 +38,7 @@ actor_rollout_ref:
     megatron:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
-      num_layers_per_virtual_pipeline_stage: null # vpp will hang. need debug.
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       sequence_parallel: True
       seed: 1
     load_weight: True
@@ -46,7 +46,7 @@ actor_rollout_ref:
     megatron:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
-      num_layers_per_virtual_pipeline_stage: null # vpp will hang. need debug.
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       sequence_parallel: True
       seed: 1
     load_weight: True
@@ -101,7 +101,7 @@ critic:
   megatron:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
-    num_layers_per_virtual_pipeline_stage: null # vpp will hang. need debug.
+    virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     sequence_parallel: True
     seed: 1
   load_weight: True
@@ -122,7 +122,7 @@ reward_model:
   megatron:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
-    num_layers_per_virtual_pipeline_stage: null # vpp will hang. need debug.
+    virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     sequence_parallel: True
     seed: 1
   model:

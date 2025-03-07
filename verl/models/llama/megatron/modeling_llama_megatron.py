@@ -25,6 +25,7 @@ import torch
 import torch.utils.checkpoint
 from megatron.core import tensor_parallel
 from megatron.core import ModelParallelConfig
+
 from torch import nn
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.llama.configuration_llama import LlamaConfig
@@ -32,6 +33,7 @@ from transformers.models.llama.modeling_llama import CausalLMOutputWithPast
 
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
+from verl.utils.megatron_utils import TransformerConfig, convert_config
 from .layers import ParallelLlamaDecoderLayer, ParallelLlamaRMSNorm, ParallelLlamaDecoderLayerRmPad
 """
 TODO: 
@@ -79,6 +81,7 @@ class ParallelLlamaModel(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         embedding_kwargs = tp_utils.get_default_kwargs_for_parallel_embedding()
@@ -156,6 +159,7 @@ class ParallelLlamaForCausalLM(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.model = ParallelLlamaModel(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
 
@@ -222,6 +226,7 @@ class ParallelLlamaModelRmPad(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         embedding_kwargs = tp_utils.get_default_kwargs_for_parallel_embedding()
@@ -280,19 +285,19 @@ class ParallelLlamaForCausalLMRmPad(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
         super().__init__()
-        self.config = config
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
         self.model = ParallelLlamaModelRmPad(config, megatron_config=megatron_config)
         self.vocab_size = config.vocab_size
-        self._init_head()
+        self._init_head(config)
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=self.config.hidden_size,
-                                                            output_size=self.config.vocab_size,
+        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=config.hidden_size,
+                                                            output_size=config.vocab_size,
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
@@ -365,12 +370,12 @@ class ParallelLlamaForCausalLMRmPad(nn.Module):
 
 class ParallelLlamaForValueRmPad(ParallelLlamaForCausalLMRmPad):
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = nn.Linear(in_features=self.config.hidden_size, out_features=1, bias=False)
+        self.lm_head = nn.Linear(in_features=config.hidden_size, out_features=1, bias=False)
         # lm_head is effectively the same as sequence parallel
         sp_utils.mark_parameter_as_sequence_parallel(self.lm_head.weight)
 
@@ -409,6 +414,7 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process):
         super().__init__()
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
@@ -516,7 +522,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process,
                  share_embeddings_and_output_weights):
         super().__init__()
-        self.config = config
+        self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
         self.model = ParallelLlamaModelRmPadPP(config,
                                                megatron_config=megatron_config,
@@ -527,7 +533,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         self.pre_process = pre_process
         self.post_process = post_process
         if post_process:
-            self._init_head()
+            self._init_head(config)
 
     def set_input_tensor(self, input_tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -540,13 +546,13 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         assert len(input_tensor) == 1
         self.model.set_input_tensor(input_tensor[0])
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=self.config.hidden_size,
-                                                            output_size=self.config.vocab_size,
+        self.lm_head = tensor_parallel.ColumnParallelLinear(input_size=config.hidden_size,
+                                                            output_size=config.vocab_size,
                                                             bias=False,
                                                             gather_output=False,
                                                             skip_bias_add=False,
@@ -626,12 +632,12 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
 class ParallelLlamaForValueRmPadPP(ParallelLlamaForCausalLMRmPadPP):
 
-    def _init_head(self):
+    def _init_head(self, config):
         column_kwargs = tp_utils.get_default_kwargs_for_column_parallel_linear()
         if self.megatron_config is not None:
             assert column_kwargs.get('config', False), 'must have ModelParallelConfig'
             tp_utils.update_kwargs_with_config(column_kwargs, self.megatron_config)
-        self.lm_head = nn.Linear(in_features=self.config.hidden_size, out_features=1, bias=False)
+        self.lm_head = nn.Linear(in_features=config.hidden_size, out_features=1, bias=False)
         # lm_head is effectively the same as sequence parallel
         sp_utils.mark_parameter_as_sequence_parallel(self.lm_head.weight)
 

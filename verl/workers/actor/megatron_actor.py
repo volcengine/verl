@@ -27,7 +27,6 @@ from typing import Iterable, Dict
 import torch
 from torch import nn
 import torch.distributed
-# from megatron import get_args
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
@@ -116,7 +115,6 @@ class MegatronPPOActor(BasePPOActor):
         self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
-        # self.megatron_args = get_args()
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.actor_optimizer_config = actor_optimizer_config
@@ -134,6 +132,7 @@ class MegatronPPOActor(BasePPOActor):
         })
 
         config = get_model_config(self.actor_module[0])
+        print(config)
         config.finalize_model_grads_func = finalize_model_grads
 
     def _validate_config(self, config) -> None:
