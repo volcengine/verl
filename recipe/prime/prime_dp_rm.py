@@ -161,26 +161,16 @@ class DataParallelPRIMERewardModel:
                     lastgaelam = delta + lam * lastgaelam
                     r[:, t] = lastgaelam
 
-            step_ends = []
+            token_level_score = torch.zeros_like(q)
 
             if self.config.prime_granularity == 'token':
                 for i in range(micro_batch['input_ids'].shape[0]):
-                    step_ends.append(list(range(max_positions[i])))
+                    token_level_score[i, :max_positions[i] - 1] = r[i, :max_positions[i] - 1]
             elif self.config.prime_granularity == 'whole':
                 for i in range(micro_batch['input_ids'].shape[0]):
-                    step_ends.append([max_positions[i] - 1])
+                    token_level_score[i, max_positions[i] - 1] = r[i, :max_positions[i]]
             else:
                 raise NotImplementedError
-
-            token_level_score = torch.zeros_like(q)
-
-            for i, step_end in enumerate(step_ends):
-                for j in range(len(step_end)):
-                    step_range = [
-                        min(step_end[j - 1] + 1, num_actions - 1) if j > 0 else 0,
-                        min(num_actions - 1, step_end[j])
-                    ]
-                    token_level_score[i, step_range[1]] = r[i, step_range[0]:step_range[1] + 1].sum()
 
         return token_level_score, q
 
