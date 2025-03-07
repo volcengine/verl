@@ -33,6 +33,18 @@ def is_megatron_core_available():
 def is_vllm_available():
     try:
         import vllm
+        from importlib.metadata import version
+        # workaround vllm version check
+        return True if version("vllm") in ('0.3.1', '0.4.2', '0.5.4', '0.6.3', "0.7.3") else False
+
+    except ImportError:
+        return False
+
+
+@cache
+def is_sglang_available():
+    try:
+        import sglang
         return True
     except ImportError:
         return False
