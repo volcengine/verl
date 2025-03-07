@@ -68,22 +68,22 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtype='bf16'):
+def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
         wrapped_models (list of megatron.core.distributed.DistributedDataParallel):
             The local DDP wrapped megatron modules.
-        dtype (str or None):
-            The data type of state_dict. if None, the data type of the original parameters
-            is used.
-        gpt_model_key: key to access model
+        config (str or None):
+            HF config for model
+        dtype: model params type
+        is_value_model: if model is value model
+        tie_word_embeddings: tie_word_embeddings, not used in llama, only to keep same interface with qwen2
     Returns:
         state_dict (dict):
             The merged state_dict in rank 0, and an empty dictionary in other ranks.
     """
     start_time = time.time()
-    args = megatron.get_args()
 
     def _get_gpt_model(model):
         return model
@@ -152,7 +152,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
         if weight is None:
             weight = torch.empty(
                 tensor_shape,
-                dtype=args.params_dtype,
+                dtype=dtype,
                 device=torch.cuda.current_device(),
                 requires_grad=False,
             )
@@ -185,7 +185,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
@@ -229,7 +229,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
@@ -282,7 +282,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
