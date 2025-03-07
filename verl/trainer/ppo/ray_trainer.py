@@ -961,7 +961,8 @@ class RayPPOTrainer(object):
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
-                    self._balance_batch(batch, metrics=metrics)
+                    if self.config.trainer.balance_batch:
+                        self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()

@@ -76,7 +76,10 @@ class FIREvLLMRollout(vLLMRollout):
             kwargs_0['max_tokens'] = 1
             if 'top_k' not in kwargs_0 or kwargs_0['top_k'] <= 0:
                 kwargs_0['top_k'] = 16
-            kwargs['max_tokens'] -= 1
+            self.sampling_params.max_tokens = config.response_length - 1
+            for k in config.keys():
+                if hasattr(SamplingParams(), str(k)):
+                    kwargs_0[k] = config.get(k)
             self.sampling_params_0 = SamplingParams(**kwargs_0)
 
     @contextmanager
@@ -166,11 +169,11 @@ class FIREvLLMRollout(vLLMRollout):
                     use_tqdm=False)
 
             response = torch.cat([output_0[0], output[0]], dim=1).to(idx.device)  # (bs, response_length)
-            log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
+            # log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+            # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
