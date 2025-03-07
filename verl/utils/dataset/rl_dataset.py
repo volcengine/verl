@@ -23,7 +23,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.swedev_utils import *
+# from verl.utils.swedev_utils import *
 from verl.utils.agent_utils import *
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
@@ -89,15 +89,16 @@ class RLHFDataset(Dataset):
         self.chat_template_func = chat_template_func
         self.truncation = truncation
 
+        self.task_type = task_type
+        if self.task_type != 'default':
+            self.preprocess_dataset = PREPROCESS_DATASET[self.task_type]
+            self.prompt_generatoe = PROMPT_GENERATOR[self.task_type]
+
         # whether to store the dataset in state_dict()
         # default not store
         self.serialize_dataset = False
         self._download()
         self._read_files_and_tokenize()
-
-        self.task_type = task_type
-        if self.task_type != 'default':
-            self.get_prompt = PROMPT_GENERATOR[self.task_type]
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_local_path_from_hdfs
@@ -123,13 +124,7 @@ class RLHFDataset(Dataset):
                 tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
                                                                 axis=1)]
         else:
-            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-                tokenizer.apply_chat_template(
-                    self.get_prompt(doc),
-                    add_generation_prompt=True)
-                ) <= self.max_prompt_length, axis=1)
-            ]
-            self.dataframe['instance_id'] = self.dataframe['instance_id'].apply(string_to_hash_tensor)
+            self.dataframe = self.preprocess_dataset(self.dataframe, self.tokenizer, self.max_prompt_length)
         print(f'filter dataset len: {len(self.dataframe)}')
 
     def resume_dataset_state(self):

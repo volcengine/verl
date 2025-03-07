@@ -9,15 +9,15 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 export WANDB_PROJECT=test_verl
 export EXP_NAME=$(basename "$0" .sh)
 
-DATASET_PREFIX=/workspace/haoran-cloud/verl-deep-research/datasets
+DATASET_PREFIX=/workspace/haoran-cloud/open-verl/datasets
 TRAIN_FILE=$DATASET_PREFIX/debug.parquet
 TEST_FILE=$DATASET_PREFIX/debug.parquet
 
 MODEL_PATH=/workspace/haoran/models/Qwen2.5-Coder-7B-Instruct-SWE-0203-1e-5_bs64_3_32k
-SAVE_PATH=/workspace/haoran-cloud/verl-deep-research/test
+SAVE_PATH=/workspace/haoran-cloud/open-verl/test
 
 python3 -m verl.trainer.main_ppo \
-    --config-path=/workspace/haoran-cloud/verl-deep-research/verl/trainer/config \
+    --config-path=/workspace/haoran-cloud/open-verl/verl/trainer/config \
     --config-name='ppo_trainer_agent' \
     algorithm.adv_estimator=reinforce_plus_plus \
     algorithm.kl_ctrl.kl_coef=0.001 \

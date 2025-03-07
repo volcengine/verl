@@ -18,6 +18,16 @@ def swedev_prompt_generator(row):
         })}
     ]
 
+def swedev_preprocess_dataset(dataframe, tokenizer=None, max_prompt_length=1024):
+    dataframe = dataframe[dataframe.apply(lambda doc: len(
+        tokenizer.apply_chat_template(
+            swedev_prompt_generator(doc),
+            add_generation_prompt=True)
+        ) <= max_prompt_length, axis=1)
+    ]
+    dataframe['instance_id'] = dataframe['instance_id'].apply(string_to_hash_tensor)
+    return dataframe
+
 def clear_suffix(text):
     text = text.replace('<|im_end|>\n<|im_start|>user\n', '')
     text = text.replace('<|im_end|>\n<|im_start|>assistant\n', '')

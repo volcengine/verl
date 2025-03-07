@@ -53,17 +53,11 @@ class AsyncRollout(BaseRollout):
         self.config = config
         self.task_type = config.task_type
         self.sampling_params = dict(config.sampling_params)
-        if not self.is_swedev:
-            self.sampling_params.update({
-                # "max_new_tokens": 512,
-                "skip_special_tokens": False,
-                "stop": ["<|user|>", "<|observation|>", "<|im_end|>"],
-            })
-        else:
-            self.sampling_params.update({
-                "skip_special_tokens": False,
-            })
-            
+        self.sampling_params.update({
+            # "max_new_tokens": 512,
+            "skip_special_tokens": False,
+            # "stop": ["<|user|>", "<|observation|>", "<|im_end|>"], # TODO: specific for dr
+        })
         self.event_loop = asyncio.get_event_loop()
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
