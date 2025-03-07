@@ -1,3 +1,4 @@
+# TODO(haoran): stuck in the loop
 # TODO(haoran): response 
 # TODO(haoran): time control; loss_mask
 # TODO(haoran): check reason for loading weight
@@ -194,7 +195,7 @@ class AsyncRollout(BaseRollout):
                     obs = f"API call failed: {e}"
                     result = {"content": obs}
                     
-                print(f'Obs: {result.keys() if result else "No result"}')
+                print(f'Action: {action}\n===\nObs: {repr(result) if result else "No result"}')
                 obs_ids = tokenizer.encode(obs) 
                 if len(obs_ids) > 0 and obs_ids[-1] == 151643: # <|endoftext|>
                     obs_ids = obs_ids[:-1]
