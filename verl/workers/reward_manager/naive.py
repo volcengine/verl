@@ -35,6 +35,16 @@ class NaiveRewardManager:
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
+        if "rm_final_scores" in data.batch.keys():
+            for i in range(len(data)):
+                item = data.batch[i]
+                prompt_ids = item['prompts']
+                prompt_length = prompt_ids.shape[-1]
+                valid_response_length = item['attention_mask'][prompt_length:].sum()
+                reward_tensor[i, valid_response_length - 1] = item['rm_final_scores']
+            return reward_tensor
+
+
         already_print_data_sources = {}
 
         # for i in range(len(data)):

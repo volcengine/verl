@@ -955,7 +955,7 @@ class RayPPOTrainer(object):
                 batch_keys = ['input_ids', 'attention_mask', 'position_ids']
                 if self.is_swedev:
                     batch_keys.append('instance_id')
-                gen_batch = batch.pop(batch_keys=batch_keys)
+                gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
 
                 with _timer('step', timing_raw):
                     # generate a batch

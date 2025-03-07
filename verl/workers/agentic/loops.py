@@ -50,7 +50,7 @@ async def ids_agent_loop(
         done = obs.pop("done")
         collect_metrics(obs, obs_metrics)
         turn += 1
-    await end_fn(sid, done)
+    collect_metrics(await end_fn(sid, done) or {}, obs_metrics)
     return {
         "ids": all_ids[:max_length],
         "loss_mask": loss_mask[:max_length],
