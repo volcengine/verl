@@ -20,30 +20,23 @@ import time
 from typing import Optional
 import torch.distributed as dist
 
-import megatron
-from megatron import get_args
 from megatron.core import mpu
 from megatron.core.transformer.module import Float16Module
 from megatron.core.distributed import DistributedDataParallel as LocalDDP
 
-from megatron.training.utils import print_rank_0, unwrap_model
+from verl.utils.megatron_utils import print_rank_0, unwrap_model
 
 
 def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0):
     """given TP,DP,PP rank to get the global rank."""
 
-    args = get_args()
     tp_size = mpu.get_tensor_model_parallel_world_size()
     dp_size = mpu.get_data_parallel_world_size()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     assert (tp_size * dp_size * pp_size == torch.distributed.get_world_size()
            ), f"{tp_size} x {dp_size} x {pp_size} != {torch.distributed.get_world_size()}"
-    if args.switch_dp_and_pp_grouping:
-        # TP-PP-DP grouping
-        return (dp_rank * pp_size + pp_rank) * tp_size + tp_rank
-    else:
-        # TP-DP-PP grouping
-        return (pp_rank * dp_size + dp_rank) * tp_size + tp_rank
+    # We only support TP-DP-PP grouping, for correctness when resharding
+    return (pp_rank * dp_size + dp_rank) * tp_size + tp_rank
 
 
 def _megatron_calc_layer_map(config):
@@ -53,13 +46,11 @@ def _megatron_calc_layer_map(config):
             mapping from the global layer index to
             a tuple of (pp_rank, virtual_pp_rank, layer_idx inside model)
     """
-    import megatron
     from megatron.core import mpu
 
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
 
-    args = megatron.get_args()
     layer_map = dict()
     num_layers_per_model = config.num_hidden_layers // pp_size // virtual_pp_size
     assert num_layers_per_model * pp_size * virtual_pp_size == config.num_hidden_layers
