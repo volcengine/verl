@@ -33,8 +33,8 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['hotpotqa', 'hotpotQA']:
         from . import hotpotqa
         res = hotpotqa.compute_score(
-            solution_str=solution_str, 
-            ground_truth=ground_truth, 
+            solution_str=solution_str,
+            ground_truth=ground_truth,
             question=question,
             # extractor_urls=["http://172.18.75.153:8000/v1"],
             # checker_urls=["http://172.18.75.109:8000/v1"],
@@ -43,7 +43,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
             tokenizer=tokenizer
         )
         # lurui: must return a float
-        print("judgement by hotpotqa: ", res)
+        print(f"judgement by hotpotqa: {res}")
         if isinstance(res, float):
             return float(res)
         else:

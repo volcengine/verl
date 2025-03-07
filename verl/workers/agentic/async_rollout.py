@@ -9,51 +9,21 @@ import os
 import time
 import asyncio
 import httpx
+from functools import partial
 import sglang as sgl
-import torch
 import torch.distributed
 from omegaconf import DictConfig
-from tensordict import TensorDict
-from verl.utils.swedev_utils import *
+from sglang.srt.openai_api.adapter import v1_chat_generate_request, v1_chat_generate_response
+from sglang.srt.openai_api.protocol import ChatCompletionRequest
+
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
-import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=None):
-    done = False
-    all_ids = prompt_ids
-    loss_mask = [0] * len(all_ids)
-    obs_metrics = {}
-    turn = 0
-    while not done and len(all_ids) < max_length and turn < max_turns:
-        action = await gen_fn(all_ids)
-        all_ids += action
-        loss_mask += [1] * len(action)
-        if len(all_ids) >= max_length:
-            print(f"Too long... {len(all_ids)}, {max_length}")
-            break
-        obs = await obs_fn(action, sid)
-        obs_ids = obs.pop("ids")
-        all_ids += obs_ids
-        loss_mask += [0] * len(obs_ids)
-        done = obs.pop("done")
-        for k, v in obs.items():
-            if k not in obs_metrics:
-                obs_metrics[k] = v
-            else:
-                obs_metrics[k] += v
-        turn += 1
-        await asyncio.sleep(3)
+from verl.workers.agentic.async_rollout import AsyncRollout
+from verl.utils.swedev_utils import *
 
-    if sid: # for swedev postprocessing
-        await call_postprocess_api(sid)
-
-    return {
-        "ids": all_ids[:max_length],
-        "loss_mask": loss_mask[:max_length],
-        **obs_metrics,
-    }
+from verl.workers.agentic.loops import *
+from verl.workers.agentic.tasks import *
 
 
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
@@ -71,7 +41,7 @@ class AsyncRollout(BaseRollout):
         # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         self.total_len = config.prompt_length + config.response_length
-        # print(f"async rollout {config.gpu_memory_utilization=}")
+        print(f"async rollout {config.gpu_memory_utilization=}")
         self.engine = sgl.Engine(
             model_path=model_path,
             # cpu_offload_gb=500,
@@ -82,12 +52,12 @@ class AsyncRollout(BaseRollout):
             enable_memory_saver=True,
             mem_fraction_static=config.gpu_memory_utilization,
         )
-        # print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
+        print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
         self.engine.release_memory_occupation()
-        # print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
+        print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         torch.distributed.barrier()
         self.config = config
-        self.is_swedev = self.config.is_swedev
+        self.task_type = config.task_type
         self.sampling_params = dict(config.sampling_params)
         if not self.is_swedev:
             self.sampling_params.update({
@@ -100,158 +70,90 @@ class AsyncRollout(BaseRollout):
                 "skip_special_tokens": False,
             })
             
+        self.event_loop = asyncio.get_event_loop()
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         sampling_params = self.sampling_params.copy()
         sampling_params.update(kwargs)
         tokenizer = self.engine.tokenizer_manager.tokenizer
 
-        async def gen_fn(prompt):
-            # if isinstance(prompt, str):
-            #     text = await self.engine.async_generate(prompt=prompt, sampling_params=sampling_params)
-            # else:
+        async def gen_id(prompt):
             assert isinstance(prompt, list) and isinstance(prompt[0], int), f"not list int: {prompt=}"
             res = await self.engine.async_generate(input_ids=prompt, sampling_params=sampling_params)
-            # torch.distributed.get_rank() == 0 and print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
+            if torch.distributed.get_rank() == 0:
+                print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]
-            if not self.is_swedev:
-                finish_reason = res["meta_info"]["finish_reason"]
-                if finish_reason["type"] == "stop":
-                    matched = finish_reason["matched"]
-                    if isinstance(matched, int):
-                        matched = tokenizer.decode([matched])
-                    text += matched
-                action_ids = tokenizer.encode(text)
-            else:
-                action_ids = tokenizer.encode(text)
-                if action_ids[-1] == 151645:
-                    action_ids = action_ids[:-1]
-                action_ids += get_generation_tokens(role="user")
-            # with open("logs/action.txt", "w") as f:
-            #     f.write(f'{repr(text)}\n{repr(tokenizer.encode(text))}')
-            return action_ids
+            finish_reason = res["meta_info"]["finish_reason"]
+            if finish_reason["type"] == "stop":
+                matched = finish_reason["matched"]
+                if isinstance(matched, int):
+                    matched = tokenizer.decode([matched])
+                text += matched
+            return tokenizer.encode(text)
 
-        # TODO: to support more generalized scenario, logics here should be decoupled into agent env.
-        async def obs_fn(action_ids, sid=None):    
-            if not self.is_swedev:
-                # find <|observation|> token part
-                stop_id = action_ids[-1]
-                stop_token = tokenizer.decode([stop_id])
-                print(f"stop token: [{stop_id}] - [{stop_token}]")
-                # only finish with <|observation|> token can be multi-turn
-                if not stop_token.strip() == '<|observation|>':
-                    return {"done": True, "ids": [], "observations_times": 0}
-                action = tokenizer.decode(action_ids, skip_special_tokens=False)
-                text = action.split("<|observation|>")[0].strip()
+        async def gen_chat(request):
+            tokenizer_manager = self.engine.tokenizer_manager
+            all_requests = [ChatCompletionRequest(**request)]
+            adapted_request, request = v1_chat_generate_request(all_requests, tokenizer_manager)
+            try:
+                ret = await tokenizer_manager.generate_request(adapted_request).__anext__()
+            except ValueError as e:
+                print(f"Error generating chat: {e}")
+                raise
+            if not isinstance(ret, list):
+                ret = [ret]
 
-                # call api part
-                url = "http://172.16.65.43:8888/observation_kilt/"
-                # payload = {"content": text}
-                # new feature, for kilt_browser, we currently use translator
-                payload = {"content": text, "translate": True}
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.post(url, json=payload)
-                        ret = response.json()
-                except Exception as e:
-                    print(f"API call failed: {e}")
-                    ret = [{"content": "API call failed"}]
-                # combine part
-                obv_combined = ['\n' + obv['content'].strip() for obv in ret]
-                obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-                return {"done": False, "ids": tokenizer.encode(obs_text), "observations_times": 1}                
-            else: # for swe-dev
-                action = tokenizer.decode(action_ids, skip_special_tokens=False)
-                action = clear_suffix(action)
-                if is_stop(action):
-                    return {"done": True, "ids": [], "observation_times": 1}
-                
-                sid_value = None
-                if sid is not None:
-                    if isinstance(sid, torch.Tensor):
-                        sid_value = sid.item()
-                    else:
-                        sid_value = sid
-                        
-                url = get_api(type="action")
-                headers = {"Content-Type": "application/json"}
-                payload = {
-                    "sid": sid_value,
-                    "content": action,
-                }
+            message = v1_chat_generate_response(
+                request,
+                ret,
+                cache_report=tokenizer_manager.server_args.enable_cache_report,
+                tool_call_parser=tokenizer_manager.server_args.tool_call_parser,
+                to_file=True,
+            )[0]["body"]["choices"]["message"]
 
-                try:
-                    async with httpx.AsyncClient() as client:
-                        ret = await client.post(url, json=payload, headers=headers, timeout=120)
-                        ret.raise_for_status()
-                        result = ret.json()
-                        if "content" in result:
-                            obs = result["content"]
-                        else:
-                            print(f"Warning: No content in response: {result}")
-                            obs = "Error: No content in response"
-                except Exception as e:
-                    print(f"Observation - API call failed: {e}")
-                    obs = f"API call failed: {e}"
-                    result = {"content": obs}
-                    
-                print(f'Action: {action}\n===\nObs: {repr(result) if result else "No result"}')
-                obs_ids = tokenizer.encode(obs) 
-                if len(obs_ids) > 0 and obs_ids[-1] == 151643: # <|endoftext|>
-                    obs_ids = obs_ids[:-1]
-                obs_ids = obs_ids + get_generation_tokens("assistant")
-                
-                with open("logs/obs.txt", "w") as f:
-                    f.write(f'{repr(obs)}\n{repr(obs_ids)}')
-                    
-                return {"done": False, "ids": obs_ids, "observation_times": 1}
+            return message
 
+        n = self.config.n
         input_ids: torch.Tensor = prompts.batch["input_ids"]
-        input_ids = input_ids.repeat_interleave(self.config.n, dim=0)
-        instance_ids = None
-        if self.is_swedev:
-            instance_ids = prompts.batch['instance_id']
-            instance_ids = instance_ids.repeat_interleave(self.config.n, dim=0)
-        sids = [None] * len(input_ids)
-        position_ids = prompts.batch["position_ids"].repeat_interleave(self.config.n, dim=0)
-        attn_mask = prompts.batch["attention_mask"].repeat_interleave(self.config.n, dim=0)
-        idx_list = [_pre_process_inputs(tokenizer.pad_token_id, input_ids[i]) for i in range(len(input_ids))]
-        
-        if self.is_swedev:
-            tasks = [initialize_runtime(idx, instance_id.item()) for idx, instance_id in enumerate(instance_ids)]
-            loop = asyncio.get_event_loop()
-            results = loop.run_until_complete(asyncio.gather(*tasks))
-            for result in results:
-                try:
-                    result_idx, result_data = result
-                    if result_data:
-                        sids[result_idx] = int(result_data["sid"])
-                except Exception as e:
-                    print(f"Error processing instance: {e}")
-                    traceback.print_exc()        
-        # if self.is_swedev:
-        #     tasks = [initialize_runtime(idx, instance_id.item()) for idx, instance_id in enumerate(instance_ids)]            
-        #     results = await asyncio.gather(*tasks, return_exceptions=True)
-        #     for result in results:
-        #         if isinstance(result, Exception):
-        #             print(f"Error processing instance: {result}")
-        #             traceback.print_exc()
-        #         else:
-        #             result_idx, result_data = result
-        #             if result_data:
-        #                 sids[result_idx] = int(result_data["sid"])
+        input_ids = input_ids.repeat_interleave(n, dim=0)
+        position_ids = prompts.batch["position_ids"].repeat_interleave(n, dim=0)
+        attn_mask = prompts.batch["attention_mask"].repeat_interleave(n, dim=0)
 
+        async def dr_start(index):
+            return _pre_process_inputs(tokenizer.pad_token_id, input_ids[i])
+
+        async def swedev_start(index):
+            try:
+                result = await asyncio.to_thread(initialize_runtime, index, prompts.batch['instance_id'][index // n].item())
+                return {
+                    "sid": result["sid"],
+                    "sids": [result["sid"]], # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
+                }
+            except Exception as e:
+                print(f"Error processing instance: {e}")
+                # in original logic, mismatched sids count and instance_ids count will cause error eventually, better raise now
+                raise
+
+        # choose function set
+        # TODO: maybe in init is better, but some functions are local
+        # TODO: partial is not the best way to pass arguments
+        loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
+            "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dummy),
+            "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
+            "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url="todo"), gen_chat, partial(openai_chat_obs, url="todo"), partial(openai_chat_end, url="todo")),
+        }[self.task_type]
+
+        # starting rollout
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [ids_agent_loop(
-            prompt_ids=list(prompt),
-            gen_fn=gen_fn,
-            obs_fn=obs_fn, 
+            prompt_ids=list(range(len(input_ids))),
+            gen_fn=gen_id,
+            obs_fn=partial(obs_fn, tokenizer=tokenizer),
             max_turns=self.config.max_turns,
             max_length=self.total_len,
-            sid=sid) for (prompt, sid) in zip(idx_list, sids)]
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(asyncio.gather(*tasks))
+        )]
+        results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
         max_len = self.total_len
@@ -285,14 +187,14 @@ class AsyncRollout(BaseRollout):
         # collect obs metrics
         obs_metrics = {}
         for r in results:
-            for k, v in r.items():
-                if k not in ["ids", "loss_mask"]:
-                    if k not in obs_metrics:
-                        obs_metrics[k] = []
-                    obs_metrics[k].append(v)
-        # print(f"{obs_metrics=}")
+            for k, v in r["obs_metrics"].items():
+                if k not in obs_metrics:
+                    obs_metrics[k] = []
+                obs_metrics[k].append(v)
+        print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
-        sids = [sid if sid != None else 0 for sid in sids]
+
+        # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" placement problem
         batch = TensorDict({
             "prompts": input_ids,
             "responses": responses,
@@ -300,7 +202,6 @@ class AsyncRollout(BaseRollout):
             "loss_mask": concat_loss_mask,
             "attention_mask": concat_attn_mask,
             "position_ids": position_ids,
-            "sids": torch.tensor(sids, dtype=torch.int64, device=input_ids.device),
             **obs_metrics,
         }, batch_size=batch_size)
 

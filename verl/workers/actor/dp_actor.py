@@ -57,7 +57,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Returns: 
+        Returns:
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
@@ -69,6 +69,7 @@ class DataParallelPPOActor(BasePPOActor):
             position_ids = micro_batch['position_ids']
 
             if self.use_remove_padding:
+                print(f"using remove padding, before {input_ids.shape=} {attention_mask.sum(dim=-1)=}")
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
                                                            attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
@@ -91,6 +92,7 @@ class DataParallelPPOActor(BasePPOActor):
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
+                print(f"rmpad before forward {input_ids_rmpad.shape=} {position_ids_rmpad.shape=}")
                 output = self.actor_module(input_ids=input_ids_rmpad,
                                            attention_mask=None,
                                            position_ids=position_ids_rmpad,
@@ -178,6 +180,7 @@ class DataParallelPPOActor(BasePPOActor):
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
         batch = data.select(batch_keys=select_keys).batch
 
+        print(f"inside dp actor, {use_dynamic_bsz=}")
         if use_dynamic_bsz:
             # split using dynamic bsz
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
@@ -235,7 +238,7 @@ class DataParallelPPOActor(BasePPOActor):
                 responses = data['responses']
                 response_length = responses.size(1)
                 attention_mask = data['attention_mask']
-                
+
                 # assert self.config.get('multi_turn') == True
                 if self.config.get('multi_turn', False):
                     # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
@@ -283,10 +286,10 @@ class DataParallelPPOActor(BasePPOActor):
                     loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                 else:
                     loss = policy_loss / self.gradient_accumulation
-                
+
                 # lurui: check whether the loss is valid, if -inf, somewhere must be wrong
                 print("loss: ", loss)
-                
+
                 loss.backward()
 
                 data = {

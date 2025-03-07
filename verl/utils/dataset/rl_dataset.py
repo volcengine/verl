@@ -168,14 +168,13 @@ class RLHFDataset(Dataset):
                                                                          truncation=self.truncation)
 
         position_ids = compute_position_id_with_mask(attention_mask)
-            
+
         row_dict['input_ids'] = input_ids[0]
         row_dict['attention_mask'] = attention_mask[0]
         row_dict['position_ids'] = position_ids[0]
 
-        with open("logs/input_ids.txt", "w") as f:
-            f.write(repr(input_ids[0].tolist()))
-            
+        # print(f"Row {len(row_dict['input_ids'])}")
+
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict['raw_prompt'] = chat.tolist()
