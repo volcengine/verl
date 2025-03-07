@@ -45,7 +45,7 @@ jobs:
       - name: Run sanity test
         run: |
           pytest -s -x tests/sanity
-      - name: Run untility test
+      - name: Run utility test
         run: |
           pytest -s -x tests/utility
       - name: Run license test
