@@ -21,14 +21,12 @@ from verl.workers.rollout.base import BaseRollout
 from .loops import *
 from .tasks import *
 
-
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
-
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig):
@@ -73,9 +71,9 @@ class AsyncRollout(BaseRollout):
         sampling_params.update(kwargs)
         tokenizer = self.engine.tokenizer_manager.tokenizer
 
-        async def gen_id(prompt):
-            assert isinstance(prompt, list) and isinstance(prompt[0], int), f"not list int: {prompt=}"
-            res = await self.engine.async_generate(input_ids=prompt, sampling_params=sampling_params)
+        async def gen_id(input_ids):
+            assert isinstance(input_ids, list) and isinstance(input_ids[0], int), f"not list int: {input_ids=}"
+            res = await self.engine.async_generate(input_ids=input_ids, sampling_params=sampling_params)
             if torch.distributed.get_rank() == 0:
                 print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]

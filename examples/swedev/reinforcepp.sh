@@ -28,6 +28,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=10000 \
     data.max_response_length=20000 \
     data.shuffle=False \
+    +data.task_type=swedev \
     +data.is_swedev=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -49,6 +50,7 @@ python3 -m verl.trainer.main_ppo \
     +actor_rollout_ref.rollout.sampling_params.temperature=0.9 \
     +actor_rollout_ref.rollout.sampling_params.top_p=0.9 \
     +actor_rollout_ref.rollout.sampling_params.max_new_tokens=1024 \
+    +actor_rollout_ref.rollout.task_type=swedev \
     actor_rollout_ref.rollout.n=2 \
     +actor_rollout_ref.rollout.is_swedev=True \
     actor_rollout_ref.rollout.multi_turn=True \

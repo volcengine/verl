@@ -24,6 +24,7 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.swedev_utils import *
+from verl.utils.agent_utils import *
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
 
@@ -70,12 +71,11 @@ class RLHFDataset(Dataset):
                  chat_template_func=None,
                  return_raw_chat=False,
                  truncation='error',
-                 is_swedev=False,
+                 task_type='default',
                 ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
-        self.is_swedev = is_swedev
         self.parquet_files = copy.deepcopy(parquet_files)
         self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
         self.cache_dir = os.path.expanduser(cache_dir)
@@ -95,6 +95,10 @@ class RLHFDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
+        self.task_type = task_type
+        if self.task_type != 'default':
+            self.get_prompt = PROMPT_GENERATOR[self.task_type]
+
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_local_path_from_hdfs
         parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
@@ -113,23 +117,17 @@ class RLHFDataset(Dataset):
 
         # filter out too long prompts
         tokenizer = self.tokenizer
-        prompt_key = self.prompt_key
-        if not self.is_swedev:
+        if self.task_type == 'default':
+            prompt_key = self.prompt_key
             self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
                 tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
                                                                 axis=1)]
         else:
-            print(f'max prompt len: {self.max_prompt_length}')
             self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-                tokenizer.apply_chat_template([
-                        {"role": "system", "content": get_system_prompt()},
-                        {"role": "user", "content": get_instruction({
-                            "version": doc["version"],
-                            "repo": doc["repo"],
-                            "problem_statement": doc["problem_statement"],
-                        })}
-                    ],
-                    add_generation_prompt=True)) <= self.max_prompt_length, axis=1)
+                tokenizer.apply_chat_template(
+                    self.get_prompt(doc),
+                    add_generation_prompt=True)
+                ) <= self.max_prompt_length, axis=1)
             ]
             self.dataframe['instance_id'] = self.dataframe['instance_id'].apply(string_to_hash_tensor)
         print(f'filter dataset len: {len(self.dataframe)}')
@@ -151,13 +149,10 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict = self.dataframe.iloc[item].to_dict()
-        if self.is_swedev:
-            chat = [
-                {"role": "system", "content": get_system_prompt()},
-                {"role": "user", "content": get_instruction(row_dict)}
-            ]
-        else:
+        if self.task_type == 'default':
             chat = row_dict.pop(self.prompt_key)
+        else:
+            chat = self.get_prompt(row_dict)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
