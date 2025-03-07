@@ -102,7 +102,7 @@ class AsyncRollout(BaseRollout):
         attn_mask = prompts.batch["attention_mask"].repeat_interleave(n, dim=0)
 
         async def dr_start(index):
-            return _pre_process_inputs(tokenizer.pad_token_id, input_ids[i])
+            return _pre_process_inputs(tokenizer.pad_token_id, input_ids[index])
 
         async def swedev_start(index):
             try:
@@ -128,13 +128,15 @@ class AsyncRollout(BaseRollout):
         # starting rollout
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
-        tasks = [ids_agent_loop(
-            prompt_ids=list(range(len(input_ids))),
-            gen_fn=gen_id,
-            obs_fn=partial(obs_fn, tokenizer=tokenizer),
+        tasks = [loop_fn(
+            index=i,
+            start_fn=start_fn,
+            gen_fn=gen_fn,
+            obs_fn=obs_fn,
+            end_fn=end_fn,
             max_turns=self.config.max_turns,
             max_length=self.total_len,
-        )]
+        ) for i in list(range(len(input_ids)))]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
