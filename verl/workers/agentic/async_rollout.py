@@ -9,10 +9,9 @@ from sglang.srt.openai_api.adapter import v1_chat_generate_request, v1_chat_gene
 from sglang.srt.openai_api.protocol import ChatCompletionRequest
 
 from verl import DataProto
-from verl.utils.swedev_utils import *
 from verl.workers.rollout.base import BaseRollout
-from .loops import ids_agent_loop, openai_chat_agent_loop
-from .tasks import dr_obs, swe_dev_obs, openai_chat_obs
+from .loops import *
+from .tasks import *
 
 
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
@@ -118,10 +117,12 @@ class AsyncRollout(BaseRollout):
                 raise
 
         # choose function set
-        loop_fn, start_fn, gen_fn, obs_fn = {
-            "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer)),
-            "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer)),
-            "gen_chat": (openai_chat_agent_loop, swedev_start, gen_chat, partial(openai_chat_obs, url="todo")),
+        # TODO: maybe in init is better, but some functions are local
+        # TODO: partial is not the best way to pass arguments
+        loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
+            "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dummy),
+            "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
+            "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url="todo"), gen_chat, partial(openai_chat_obs, url="todo"), partial(openai_chat_end, url="todo")),
         }[self.task_type]
 
         # starting rollout

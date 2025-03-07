@@ -7,6 +7,7 @@ SessionIdType = int
 StarFnType = Callable[[int], Awaitable[dict]]
 GenFnType = Callable[[Any], Awaitable]
 ObsFnType = Callable[[Any, SessionIdType], Awaitable[dict]]
+EndFnType = Callable[[int, bool], Awaitable]
 
 
 def collect_metrics(src, tgt):
@@ -22,6 +23,7 @@ async def ids_agent_loop(
     start_fn: StarFnType,
     gen_fn: GenFnType,
     obs_fn: ObsFnType,
+    end_fn: EndFnType,
     max_turns: int,
     max_length: int,
     **_
@@ -48,6 +50,7 @@ async def ids_agent_loop(
         done = obs.pop("done")
         collect_metrics(obs, obs_metrics)
         turn += 1
+    await end_fn(sid, done)
     return {
         "ids": all_ids[:max_length],
         "loss_mask": loss_mask[:max_length],
@@ -60,11 +63,13 @@ async def openai_chat_agent_loop(
     start_fn: StarFnType,
     gen_fn: GenFnType,
     obs_fn: ObsFnType,
+    end_fn: EndFnType,
     max_turns: int,
     max_length: int,
     tokenizer: PreTrainedTokenizerBase,
     **_
 ) -> dict:
+    done = False
     reward = 0
     obs_metrics = {}
 
@@ -85,6 +90,8 @@ async def openai_chat_agent_loop(
         collect_metrics(obs, obs_metrics)
         if done:
             break
+
+    await end_fn(sid, done)
 
     # make ids and loss mask
     if re.search(r"\{\%-?\s*generation\s*-?\%\}", tokenizer.chat_template):
