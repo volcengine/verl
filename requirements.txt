@@ -13,7 +13,7 @@ pyarrow>=15.0.0
 pybind11
 pylatexenc
 ray[data,train,tune,serve]
-tensordict<0.6
+tensordict<0.8
 torchdata
 transformers
 vllm<=0.6.3
