@@ -9,8 +9,9 @@ gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
 math_train_path=$HOME/data/math/train.parquet
 math_test_path=$HOME/data/math/test.parquet
-train_files="['$gsm8k_train_path', '$math_train_path']"
-test_files="['$gsm8k_test_path', '$math_test_path']"
+
+train_files="['$gsm8k_train_path']"
+test_files="['$gsm8k_test_path']"
 
 
 python3 -m verl.trainer.main_ppo \
@@ -28,7 +29,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
     actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24000 \

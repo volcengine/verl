@@ -153,9 +153,9 @@ class SGLangRollout(BaseRollout):
             device_mesh_cpu=device_mesh_cpu["tp"],
             base_gpu_id=src_rank,
             gpu_id_step=1,
-            log_level="INFO",
-            log_requests=True,
-            log_requests_level=2,
+            # log_level="INFO",
+            # log_requests=True,
+            # log_requests_level=2,
             max_running_requests=1,
         )
 
