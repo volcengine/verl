@@ -138,6 +138,10 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
 
+custom_reward_function:
+  path: null
+  name: compute_score
+
 algorithm:
   gamma: 1.0
   lam: 1.0
