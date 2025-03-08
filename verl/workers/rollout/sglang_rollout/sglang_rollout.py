@@ -19,7 +19,7 @@ from omegaconf import DictConfig
 from tensordict import TensorDict
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length, pad_2d_list_to_length
 from sglang.srt.entrypoints.verl_engine import VerlEngine
 from torch.distributed.device_mesh import init_device_mesh
 from sglang.srt.sampling.sampling_params import SamplingParams
@@ -165,12 +165,14 @@ class SGLangRollout(BaseRollout):
         kwargs = dict(
             n=1,
             max_new_tokens=config.response_length,
+            presence_penalty = 0.0,
+            frequency_penalty = 0.0,
+            repetition_penalty = 1.0
         )
         # supporting adding any sampling params from the config file
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
-        kwargs["repetition_penalty"] = 1.0
         print(f"kwargs: {kwargs}")
         self.sampling_params = kwargs
 
@@ -213,14 +215,27 @@ class SGLangRollout(BaseRollout):
 
         do_sample = prompts.meta_info.get("do_sample", True)
         if not do_sample:
-            kwargs = {
-                "best_of": 1,
-                "top_p": 1.0,
-                "top_k": -1,
-                "min_p": 0.0,
-                "temperature": 0,
-                "n": 1,  # if greedy, only 1 response
-            }
+            # kwargs = {
+            #     'top_p': 1.0,
+            #     'top_k': -1,
+            #     'min_p': 0.0,
+            #     'temperature': 0,
+            #     'n': 1  # if greedy, only 1 response
+            # }
+            kwargs = dict(
+                n=1,
+                presence_penalty=0.0, 
+                frequency_penalty=0.0,
+                repetition_penalty=1.0,
+                temperature=0,
+                top_p=1,
+                top_k=-1,
+                ignore_eos=False,
+                min_new_tokens=0,
+                max_new_tokens=4096,
+                skip_special_tokens=True,
+                spaces_between_special_tokens=True,
+            )
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             print(f"{self.sampling_params=}")
@@ -232,18 +247,13 @@ class SGLangRollout(BaseRollout):
             )
 
         out = _post_process_outputs(self.tokenizer, output)
-        # print(out)
+
         response = out[0].to(idx.device)
         log_probs = out[1].to(idx.device)
 
         if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(
-                response, self.config.response_length, self.pad_token_id
-            )
-            log_probs = pad_sequence_to_length(
-                log_probs, self.config.response_length, self.pad_token_id
-            )
-
+            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
