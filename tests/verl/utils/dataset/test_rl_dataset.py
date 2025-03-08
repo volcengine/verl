@@ -14,7 +14,6 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 
 def get_gsm8k_data():
@@ -25,6 +24,13 @@ def get_gsm8k_data():
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
+def get_geo3k_data():
+    url = "https://github.com/NIL-zhuang/verl_data/blob/main/geo3k/test.parquet"
+    local_folder = os.path.expanduser("~/verl-data/geo3k/")
+    local_path = os.path.join(local_folder, "test.parquet")
+    os.makedirs(local_folder, exist_ok=True)
+
+    return local_path
 
 def test_rl_dataset():
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -39,6 +45,51 @@ def test_rl_dataset():
 
     from verl import DataProto
 
+    tensors = {}
+    non_tensors = {}
+
+    for key, val in a.items():
+        if isinstance(val, torch.Tensor):
+            tensors[key] = val
+        else:
+            non_tensors[key] = val
+
+    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+
+    data = dataset[0]['input_ids']
+    output = tokenizer.batch_decode([data])[0]
+    print(f'type: type{output}')
+    print(f'\n\noutput: {output}')
+
+def test_multimodal_rl_dataset():
+    """
+    Avoid multimodal data that passes length filtering with <image> placeholder
+    But fails on dataloader when expanding visual tokens
+
+    original dataset len: 601
+    filter dataset len: 601
+    > NotImplementedError: sequence_length=501 is larger than max_length=256
+    """
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+    from verl.utils import hf_tokenizer, hf_processor
+    from verl import DataProto
+
+    tokenizer_path = 'Qwen/Qwen2.5-VL-3B-Instruct'
+    tokenizer = hf_tokenizer(tokenizer_path)
+    processor = hf_processor(tokenizer_path)
+    local_path = get_geo3k_data()
+    dataset = RLHFDataset(
+        parquet_files=[local_path],
+        tokenizer=tokenizer,
+        processor=processor,
+        prompt_key='prompt',
+        image_key='images',
+        max_prompt_length=500,
+        filter_prompts=True,
+        filter_overlong_prompts=True,
+    )
+    dataloader = DataLoader(dataset=dataset, batch_size=16, collate_fn=collate_fn)
+    a = next(iter(dataloader))
     tensors = {}
     non_tensors = {}
 
