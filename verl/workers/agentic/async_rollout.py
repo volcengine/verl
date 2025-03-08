@@ -1,12 +1,9 @@
 # TODO(haoran): stuck in the loop
 # TODO(haoran): time control; loss_mask
 # TODO(haoran): check reason for loading weight
-import asyncio
 import os
-import time
-import asyncio
-import httpx
 from functools import partial
+
 import sglang as sgl
 import torch.distributed
 from omegaconf import DictConfig
@@ -18,27 +15,13 @@ from verl.workers.rollout.base import BaseRollout
 from .loops import *
 from .tasks import *
 
+
 def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = token_ids[non_pad_index:].tolist()
     return token_ids
-
-def _post_process_outputs(pad_token_id, token_ids, max_length, padding_side='right', device=None):
-    current_length = len(token_ids)
-    if current_length >= max_length:
-        padded_tokens = token_ids[:max_length]
-    else:
-        pad_size = max_length - current_length
-        if padding_side == 'right':
-            padded_tokens = token_ids + [pad_token_id] * pad_size
-        else:
-            padded_tokens = [pad_token_id] * pad_size + token_ids    
-    padded_tokens = torch.tensor(padded_tokens)
-    if device:
-        padded_tokens.to(device)
-    return padded_tokens
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig):
@@ -66,9 +49,7 @@ class AsyncRollout(BaseRollout):
         self.task_type = config.task_type
         self.sampling_params = dict(config.sampling_params)
         self.sampling_params.update({
-            # "max_new_tokens": 512,
             "skip_special_tokens": False,
-            # "stop": ["<|user|>", "<|observation|>", "<|im_end|>"], # TODO: specific for dr
         })
         self.event_loop = asyncio.get_event_loop()
 
@@ -224,36 +205,27 @@ class AsyncRollout(BaseRollout):
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
+        batch_size = len(results)
+        pad = tokenizer.pad_token_id
         max_len, prompt_len, response_len = self.total_len, self.config.prompt_length, self.config.response_length
-        prompts = torch.zeros((len(results), prompt_len), dtype=torch.long, device=device)
-        responses = torch.zeros((len(results), response_len), dtype=torch.long, device=device)
-        all_ids = torch.zeros((len(results), max_len), dtype=torch.long, device=device)
-        loss_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
-        attn_mask = torch.zeros((len(results), max_len), dtype=torch.int, device=device)
+        prompts_ids = torch.full((batch_size, prompt_len), pad, dtype=torch.long, device=device)
+        responses = torch.full((batch_size, response_len), pad, dtype=torch.long, device=device)
+        loss_mask = torch.zeros((batch_size, max_len), dtype=torch.int, device=device)
         obs_metrics = {}
 
         for i, r in enumerate(results):
-            prompts[i] = _post_process_outputs(tokenizer.pad_token_id, r["prompts"], 
-                                    prompt_len, padding_side="left", device=device
-                        )
-            responses[i] = _post_process_outputs(tokenizer.pad_token_id, r["responses"], 
-                                    response_len, padding_side="right", device=device
-                            )
-            all_ids[i] = torch.cat([prompts[i], responses[i]], dim=0)
-            loss_mask[i] = torch.cat([
-                _post_process_outputs(tokenizer.pad_token_id, [], prompt_len, padding_side="left", device=device),
-                _post_process_outputs(tokenizer.pad_token_id, r["response_loss_mask"], 
-                            response_len, padding_side="right", device=device
-                )
-            ], dim=0)
-            attn_mask[i] = (all_ids[i] != tokenizer.pad_token_id).int()
+            prompts_ids[i, -len(r["prompts"]):] = torch.tensor(r["prompts"], device=device)
+            length = min(len(r["responses"]), response_len)
+            responses[i, :length] = torch.tensor(r["responses"], device=device)
+            loss_mask[i, prompt_len: prompt_len + length] = torch.tensor(r["response_loss_mask"], device=device)
 
             for k, v in r["obs_metrics"].items():
                 if k not in obs_metrics:
                     obs_metrics[k] = []
                 obs_metrics[k].append(v)
 
-        batch_size = len(results)
+        all_ids = torch.cat([prompts_ids, responses], dim=1)
+        attn_mask = (all_ids != tokenizer.pad_token_id).int()
         position_ids = torch.zeros_like(attn_mask, device=device)
         for i in range(batch_size):
             position_ids[i, :] = torch.cumsum(attn_mask[i, :], dim=0) - 1
@@ -264,7 +236,7 @@ class AsyncRollout(BaseRollout):
 
         # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" & dr "rm_score" placement problem
         batch = TensorDict({
-            "prompts": prompts,
+            "prompts": prompts_ids,
             "responses": responses,
             "input_ids": all_ids,
             "loss_mask": loss_mask,

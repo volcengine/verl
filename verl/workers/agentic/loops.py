@@ -31,7 +31,7 @@ async def ids_agent_loop(
     done = False
     obs_metrics = {}
     start = await start_fn(index)
-    # TODO(haoran): pad here!
+    # TODO(haoran): pad here! （hanchen: padding prompt_ids may cause wrong generation...)
     prompt_ids = start.pop("prompt_ids")
     all_ids = list(prompt_ids)
     sid = start.pop("sid")
@@ -54,9 +54,8 @@ async def ids_agent_loop(
         turn += 1
     collect_metrics(await end_fn(sid, done) or {}, obs_metrics)
     return {
-        # TODO(haoran): return prompt_ids here
-        "prompts": prompt_ids, 
-        "responses": all_ids[len(prompt_ids):max_length],
+        "prompts": prompt_ids,
+        "responses": all_ids[len(prompt_ids): max_length],
         "response_loss_mask": response_loss_mask,
         "obs_metrics": obs_metrics,
     }
