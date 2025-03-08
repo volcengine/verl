@@ -216,8 +216,8 @@ class AsyncRollout(BaseRollout):
         for i, r in enumerate(results):
             prompts_ids[i, -len(r["prompts"]):] = torch.tensor(r["prompts"], device=device)
             length = min(len(r["responses"]), response_len)
-            responses[i, :length] = torch.tensor(r["responses"], device=device)
-            loss_mask[i, prompt_len: prompt_len + length] = torch.tensor(r["response_loss_mask"], device=device)
+            responses[i, :length] = torch.tensor(r["responses"][:length], device=device)
+            loss_mask[i, prompt_len: prompt_len + length] = torch.tensor(r["response_loss_mask"][:length], device=device)
 
             for k, v in r["obs_metrics"].items():
                 if k not in obs_metrics:
