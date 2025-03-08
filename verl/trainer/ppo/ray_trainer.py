@@ -548,6 +548,19 @@ class RayPPOTrainer(object):
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch['responses']
+            import pickle
+            with open('test_output_gen_batch.pkl', 'wb') as f:
+                pickle.dump(test_output_gen_batch, f)
+            with open('output_ids.pkl', 'wb') as f:
+                pickle.dump(output_ids, f)
+            with open('prompts.pkl', 'wb') as f:
+                pickle.dump(test_output_gen_batch.batch['prompts'], f)
+            with open('responses.pkl', 'wb') as f:
+                pickle.dump(test_output_gen_batch.batch['responses'], f)
+            for i in range(len(output_ids)):
+                print(test_output_gen_batch.batch['prompts'][i])
+                print(test_output_gen_batch.batch['responses'][i])
+            exit()
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
