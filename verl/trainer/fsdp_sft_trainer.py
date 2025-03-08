@@ -204,7 +204,8 @@ class FSDPSFTTrainer(object):
             apply_monkey_patch(config, verbose=True)
 
         # This may be very large
-        init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context():
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
