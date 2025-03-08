@@ -90,3 +90,7 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_liger_kernel.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using customized reward function
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_custom_function_rm.sh
