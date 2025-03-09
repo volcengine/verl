@@ -53,4 +53,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=5 \
     trainer.test_freq=5 \
+    trainer.default_local_dir=~/.ckpt \
     trainer.total_epochs=15 ${@:3} >> log/${ENGINE}-${TIME}.log 2>&1
