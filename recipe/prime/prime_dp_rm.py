@@ -230,7 +230,7 @@ class DataParallelPRIMERewardModel:
             rm_scores = rm_scores[revert_indices]
 
         return rm_scores, q.detach(), {
-            'reward_model/reward': rm_scores.sum(dim=-1).mean.item(),
+            'reward_model/reward': rm_scores.sum(dim=-1).mean().item(),
             'reward_model/raw_reward': q.sum(dim=-1).mean().item()
         }
 
@@ -311,7 +311,7 @@ class DataParallelPRIMERewardModel:
         rm_scores = self.prime_norm(rm_scores)
 
         metrics.update({
-            'reward_model/reward': rm_scores.sum(dim=-1).mean.item(),
+            'reward_model/reward': rm_scores.sum(dim=-1).mean().item(),
             'reward_model/raw_reward': q.sum(dim=-1).mean().item()
         })
 
