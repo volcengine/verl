@@ -163,7 +163,8 @@ class RLHFDataset(Dataset):
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 
-        if self.image_key in row_dict:  # expand image token
+        is_multi_modal = self.image_key in row_dict
+        if is_multi_modal:  # expand image token
             raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
             row_dict['multi_modal_data'] = {'image': [process_image(image) for image in row_dict.pop(self.image_key)]}
             image_inputs = self.processor.image_processor(row_dict['multi_modal_data']['image'], return_tensors='pt')
@@ -194,7 +195,7 @@ class RLHFDataset(Dataset):
                                                                          left_pad=True,
                                                                          truncation=self.truncation)
 
-        if self.image_key in row_dict:
+        if is_multi_modal:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = get_rope_index(
