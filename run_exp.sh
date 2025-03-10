@@ -9,8 +9,8 @@ wandb login $WANDB_TOKEN
 
 CMD="python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/data/data/phi_math/train.parquet \
-    data.val_files=/mnt/data/data/phi_math/test.parquet \
+    data.train_files=/mnt/data/data/phi_math_tool/train.parquet \
+    data.val_files=/mnt/data/data/phi_math_tool/test.parquet \
     data.train_batch_size=$((NODES*8)) \
     data.val_batch_size=$((NODES*4)) \
     data.max_prompt_length=512 \

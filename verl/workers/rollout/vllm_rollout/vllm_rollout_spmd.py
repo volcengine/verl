@@ -34,7 +34,7 @@ from torch import nn
 import time
 
 from verl import DataProto
-from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
+from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
@@ -160,9 +160,7 @@ class vLLMRollout(BaseRollout):
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
         else:
-            print("waking up engine")
             self.inference_engine.wake_up()
-            print("engine is woken up")
 
         idx = prompts.batch['input_ids']  # (bs, prompt_length)
         # left-padded attention_mask
@@ -246,8 +244,250 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
         else:
             time_now = time.time()
-            print("waiting for engine to sleep {}".format(time_now))
+            # print("waiting for engine to sleep {}".format(time_now))
             self.inference_engine.sleep(level=1)
-            print("engine is sleeping {}".format(time_now))
+            # print("engine is sleeping {}".format(time_now))
+
+        return DataProto(batch=batch)
+
+
+class vLLMRolloutWithSelf(vLLMRollout):
+    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+        super().__init__(actor_module, config, tokenizer, model_hf_config, **kwargs)
+        self.tokenizer = tokenizer
+
+    def extract_tool_content_from_string(self, text: str, tag: str = "tool") -> str:
+        try:
+            start_tag = '<'+ tag + '>'
+            end_tag = '</'+ tag + '>'
+            assert text.strip().endswith(end_tag)
+            end_pos = text.rindex(end_tag)
+            start_pos = text.rindex(start_tag, 0, end_pos)
+            return text[start_pos + len(start_tag):end_pos].strip()
+        except ValueError:
+            # print(f"extract_search_content failed: {text}")
+            return ""
+
+    def extract_tool_content_from_ids(self, list, start_id, end_id):
+        # assert that the list ends with end_id
+        assert list[-1] == end_id
+
+        # find the last start_id
+        start_pos = list.rindex(start_id)
+        
+        if start_pos == -1:
+            return None
+        
+        return list[start_pos+1:-1]
+
+
+    def get_result_mask(self, response_id: torch.Tensor, result_start_token: int, result_end_token: int, dtype=torch.int64) -> torch.Tensor:
+        batch_size, seq_len = response_id.shape
+        mask = torch.ones_like(response_id, dtype=dtype)
+        
+        # 找到所有<result>和</result>的位置
+        start_positions = (response_id == result_start_token).nonzero()
+        end_positions = (response_id == result_end_token).nonzero()
+        
+        # 对每个batch处理
+        for i in range(batch_size):
+            batch_starts = start_positions[start_positions[:, 0] == i, 1]
+            batch_ends = end_positions[end_positions[:, 0] == i, 1]
+            
+            # 确保start和end数量相等
+            min_pairs = min(len(batch_starts), len(batch_ends))
+            assert len(batch_starts) - len(batch_ends) <= 1
+            if len(batch_starts) > len(batch_ends):
+                batch_ends = torch.cat((batch_ends, torch.tensor([seq_len - 1], device=response_id.device)))
+            for j in range(len(batch_starts)):
+                start_idx = batch_starts[j]
+                end_idx = batch_ends[j]
+                if start_idx < end_idx:
+                    # 将<result>和</result>之间的内容mask为0
+                    mask[i, start_idx:end_idx+1] = 0
+        
+        return mask
+    
+    def remove_tagged_block(self, response, start_id, end_id) -> torch.Tensor:
+
+        start_position = response.index(start_id)
+        end_position = response.index(end_id)
+
+        if start_position == -1 or end_position == -1:
+            return response
+        
+        return response[:start_position] + response[end_position+1:]
+
+
+    @torch.no_grad()
+    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+        # rebuild vllm cache engine
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
+            self.inference_engine.init_cache_engine()
+        else:
+            self.inference_engine.wake_up()
+
+        idx = prompts.batch['input_ids']  # (bs, prompt_length)
+        # left-padded attention_mask
+        attention_mask = prompts.batch['attention_mask']
+        position_ids = prompts.batch['position_ids']
+
+        # used to construct attention_mask
+        eos_token_id = prompts.meta_info['eos_token_id']
+
+        batch_size = idx.size(0)
+
+        idx_list = []
+        # parse idx from torch.Tensor to List[List[str]]
+        for i in range(batch_size):
+            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+
+        do_sample = prompts.meta_info.get('do_sample', True)
+        if not do_sample:
+            kwargs = {
+                'best_of': 1,
+                'top_p': 1.0,
+                # 'top_k': -1,
+                # 'min_p': 0.0,
+                'temperature': 0.6,
+                'n': 1  # if greedy, only 1 response
+            }
+
+        with self.update_sampling_params(**kwargs):
+            from tqdm import tqdm
+            outer_iterator = tqdm(idx_list) if not do_sample else idx_list
+            
+            result_mask_list = []
+            output_ids_list = []
+            for input_ids in outer_iterator:
+                for _ in range(self.sampling_params.n):
+                    curr_max_tokens = self.sampling_params.max_tokens
+                    curr_input_ids = input_ids.copy()
+                    curr_result_mask = []
+                    while curr_max_tokens > 0:
+                        with self.update_sampling_params(n=1, stop_token_ids=[self.tokenizer.end_of_tool_query_token_id], max_tokens=curr_max_tokens):
+                            output = self.inference_engine.generate(
+                                prompts=None,  # because we have already convert it to prompt token id
+                                sampling_params=self.sampling_params,
+                                prompt_token_ids=curr_input_ids,
+                                use_tqdm=False)
+
+                        curr_output_ids = output[0].token_ids
+                        # if curr_output_ids[-1] == self.tokenizer.eos_token_id:
+                        #     curr_input_ids += curr_output_ids
+                        #     curr_max_tokens -= len(curr_output_ids)
+                        #     curr_result_mask.extend([1] * len(curr_output_ids))
+                        #     break
+                        # else:
+                        if curr_output_ids[-1] == self.tokenizer.end_of_tool_query_token_id:
+                            tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tokenizer.begin_of_tool_query_token_id, self.tokenizer.end_of_tool_query_token_id)
+                            with self.update_sampling_params(n=1, max_tokens=curr_max_tokens):
+                                tool_output = self.inference_engine.generate(
+                                    prompts=None,  # because we have already convert it to prompt token id
+                                    sampling_params=self.sampling_params,
+                                    prompt_token_ids=tool_content,
+                                    use_tqdm=False)
+                            tool_output_ids = tool_output[0].token_ids
+                            tool_output_ids = self.remove_tagged_block(tool_output_ids, self.tokenizer.begin_of_think_token_id, self.tokenizer.end_of_think_token_id)
+
+
+                            curr_result_mask.extend([1] * len(curr_output_ids))
+                            prefix_len = len(curr_output_ids)
+                            # update curr_output_ids with search result
+                            curr_output_ids = curr_output_ids + self.tokenizer.begin_of_tool_response_token_id + tool_output_ids + self.tokenizer.end_of_tool_response_token_id
+                            curr_result_mask.extend([0] * (len(curr_output_ids) - prefix_len))
+
+                            curr_output_ids = curr_output_ids[:curr_max_tokens]
+                            curr_result_mask = curr_result_mask[:curr_max_tokens]
+                            
+                            # prepare for continue thinking
+                            curr_input_ids += curr_output_ids
+                            curr_max_tokens -= len(curr_output_ids)
+
+                        else:
+                            curr_input_ids += curr_output_ids
+                            curr_max_tokens -= len(curr_output_ids)
+                            curr_result_mask.extend([1] * len(curr_output_ids))
+                            break
+
+                    output_ids_list.append(curr_input_ids[len(input_ids):])
+                    result_mask_list.append(curr_result_mask)
+        
+        # # users can customize different sampling_params at different run
+        # with self.update_sampling_params(**kwargs):
+        #     output = self.inference_engine.generate(
+        #         prompts=None,  # because we have already convert it to prompt token id
+        #         sampling_params=self.sampling_params,
+        #         prompt_token_ids=idx_list,
+        #         use_tqdm=False)
+
+        # TODO(sgm): disable logprob when recompute_log_prob is enable
+        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+        # response = output[0].to(idx.device)
+        # log_probs = output[1].to(idx.device)
+
+        # if response.shape[1] < self.config.response_length:
+        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+        #     log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+
+        # response_list = []
+        # result_mask_list_padded = []
+        # for output_ids, result_mask in zip(output_ids_list, result_mask_list):
+        #     response = torch.tensor(output_ids, device=idx.device)
+        #     result_mask = torch.tensor(result_mask, device=idx.device)
+        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+        #     result_mask = pad_sequence_to_length(result_mask, self.config.response_length, 1)
+        #     response_list.append(response)
+        #     result_mask_list_padded.append(result_mask)
+        # response = torch.stack(response_list, dim=0)
+        # result_mask = torch.stack(result_mask_list_padded, dim=0)
+
+        response = pad_2d_list_to_length(output_ids_list, self.pad_token_id,
+                                         max_length=self.config.response_length).to(idx.device)
+
+        if self.config.n > 1 and do_sample:
+            idx = idx.repeat_interleave(self.config.n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
+            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
+            batch_size = batch_size * self.config.n
+        seq = torch.cat([idx, response], dim=-1)
+
+        response_length = response.size(1)
+        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+
+        # TODO(sgm): fix position_ids on right_pad
+        # prompt: left pad + response: right pad
+        # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
+        # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
+        response_position_ids = position_ids[:, -1:] + delta_position_id
+        position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
+        
+        # result_mask = torch.cat((torch.zeros_like(attention_mask), result_mask), dim=-1)
+        
+        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
+        
+        # all the tp ranks should contain the same data here. data in all ranks are valid
+        batch = TensorDict(
+            {
+                'prompts': idx,
+                'responses': response,
+                'input_ids': seq,  # here input_ids become the whole sentences
+                # 'old_log_probs': log_probs, # we will recompute old log prob with actor
+                'attention_mask': attention_mask,
+                # 'result_mask': result_mask,
+                'position_ids': position_ids
+            },
+            batch_size=batch_size)
+
+        # free vllm cache engine
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3') and self.config.free_cache_engine:
+            self.inference_engine.free_cache_engine()
+        else:
+            # time_now = time.time()
+            # print("waiting for engine to sleep {}".format(time_now))
+            self.inference_engine.sleep(level=1)
+            # print("engine is sleeping {}".format(time_now))
 
         return DataProto(batch=batch)
