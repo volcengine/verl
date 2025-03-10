@@ -319,6 +319,18 @@ Reward Model
   if ``naive``. If all verification functions are multiprocessing-safe, the reward
   manager can be set to ``prime`` for parallel verification.
 
+Customized Reward Function
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+  
+   custom_reward_function:
+     path: null
+     name: compute_score
+
+- ``custom_reward_function.path``: The path to the file containing your customized reward function. If not specified, pre-implemented reward functions will be used.
+- ``custom_reward_function.name`` (Optional) : The name of the reward function within the specified file. Default is 'compute_score'.
+
 Algorithm
 ~~~~~~~~~
 
