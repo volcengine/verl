@@ -93,7 +93,7 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, 
             other_Q[i] = Q_chosen.mean() * beta
         else:
             other_Q[i] = 0
-    dpo_loss = -torch.log(torch.sigmoid(cur_Q - other_Q)) * (acc > 0).float()
+    dpo_loss = -torch.log(torch.sigmoid((cur_Q - other_Q) * ((acc > 0).float() * 2 - 1)))
     return dpo_loss
 
 
