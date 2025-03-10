@@ -300,7 +300,7 @@ class DataParallelPRIMERewardModel:
                                                           acc_bc=data['acc_bc'],
                                                           eos_mask=eos_mask,
                                                           beta=beta,
-                                                          bon_mode='acc')
+                                                          bon_mode='bon_acc')
                 elif self.config.model.loss_type == 'bon_rm':
                     dpo_loss = compute_detach_dpo_loss_rm(q,
                                                           acc,
@@ -308,7 +308,7 @@ class DataParallelPRIMERewardModel:
                                                           acc_bc=data['acc_bc'],
                                                           eos_mask=eos_mask,
                                                           beta=beta,
-                                                          bon_mode='rm')
+                                                          bon_mode='bon_rm')
                 else:
                     raise NotImplementedError
 

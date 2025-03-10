@@ -89,9 +89,9 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, 
     other_Q = torch.zeros_like(cur_Q)
     for i in range(token_level_scores.shape[0]):
         if acc[i] > 0:
-            Q_chosen = Q_bc[acc_bc < acc[i]]
+            Q_chosen = Q_bc[i][acc_bc[i] < acc[i]]
         else:
-            Q_chosen = Q_bc[acc_bc > acc[i]]
+            Q_chosen = Q_bc[i][acc_bc[i] > acc[i]]
         if len(Q_chosen) > 0:
             other_Q[i] = Q_chosen.mean() * beta
         else:
@@ -101,10 +101,13 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, 
         dpo_loss = dpo_loss.mean()
     else:
         weight = torch.zeros_like(dpo_loss)
+        n_samples = acc_bc.shape[1]
         if bon_mode == 'bon_rm':
-            pass
+            for i in range(token_level_scores.shape[0]):
+                weight[i] = n_samples * torch.pow((Q_bc[i] * beta <= cur_Q[i]).float().mean(), n_samples - 1)
         elif bon_mode == 'bon_acc':
-            pass
+            for i in range(token_level_scores.shape[0]):
+                weight[i] = n_samples * torch.pow((acc_bc[i] <= acc[i]).float().mean(), n_samples - 1)
         else:
             raise NotImplementedError
         dpo_loss = (dpo_loss * weight).sum()

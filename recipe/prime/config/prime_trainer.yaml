@@ -14,6 +14,7 @@ data:
   accuracy_upper_bound: 0.8
   oversample_factor: 4.0 # Sample more responses than the batch size. prompts satisfying the filter will be prioritized.
   filter_truncate: True
+  truncation: right
 
 actor_rollout_ref:
   hybrid_engine: True
