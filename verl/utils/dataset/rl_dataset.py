@@ -182,11 +182,12 @@ class RLHFDataset(Dataset):
         if self.filter_overlong_prompts:
             from tqdm.auto import tqdm
 
-            tqdm.pandas(desc='Filtering overlong prompts')
-            preprocessed = self.dataframe.progress_apply(lambda x: self._preprocess_fn(x), axis=1)
+            tqdm.pandas(desc="Filtering overlong prompts", mininterval=2.0)
             self.dataframe = self.dataframe[
-                preprocessed.apply(
-                    lambda doc: len(self.tokenizer.tokenize(doc['prompt_with_chat_template'])) <= self.max_prompt_length
+                self.dataframe.progress_apply(
+                    lambda x: len(self.tokenizer.tokenize(self._preprocess_fn(x)["prompt_with_chat_template"]))
+                    <= self.max_prompt_length,
+                    axis=1,
                 )
             ]
             print(f'filter dataset len: {len(self.dataframe)}')
