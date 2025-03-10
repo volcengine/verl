@@ -38,7 +38,7 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from codetiming import Timer
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
-from .prime_core_algos import compute_dpo_accuracy
+from .prime_core_algos import compute_dpo_accuracy, compute_dpo_abs_accuracy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -123,7 +123,7 @@ class PRIMERewardModelWorker(Worker):
             from verl.models.transformers.monkey_patch import apply_monkey_patch
             apply_monkey_patch(reward_model_config, verbose=True)
 
-        init_context = get_init_weight_context_manager()
+        init_context = get_init_weight_context_manager(use_meta_tensor=not reward_model_config.tie_word_embeddings)
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(reward_model_config, 'classifier_dropout', 0.)
@@ -263,17 +263,19 @@ class PRIMERewardModelWorker(Worker):
         # perform forward computation
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
-            rm_scores, metrics = self.rm.compute_rm_score(data=data)
+            rm_scores, q, metrics = self.rm.compute_rm_score(data=data)
 
             prompt_length = data.batch['prompts'].shape[-1]
             eos_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
             dpo_acc = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc'] = dpo_acc.detach().item()
+            metrics['reward_model/dpo_acc_abs'] = dpo_acc_abs.detach().item()
 
-            output = DataProto.from_dict(tensors={'rm_scores': rm_scores}, meta_info={'metrics': metrics})
+            output = DataProto.from_dict(tensors={'rm_scores': rm_scores, 'q': q}, meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
 
         output = output.to('cpu')

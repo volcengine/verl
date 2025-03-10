@@ -427,6 +427,9 @@ class RayPRIMETrainer(RayPPOTrainer):
                                     metrics.update(reward_output_metrics)
 
                                 reward_output = self.rm_wg.compute_rm_score(batch)
+                            elif update_style == 'reverse': # run forward to calculate statistics, then update reward model
+                                reward_output = self.rm_wg.compute_rm_score(batch)
+                                reward_output = self.rm_wg.update_rm(batch)
                             else:
                                 raise NotImplementedError
                             batch = batch.union(reward_output)

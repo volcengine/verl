@@ -222,7 +222,7 @@ class DataParallelPRIMERewardModel:
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             rm_scores = rm_scores[revert_indices]
 
-        return rm_scores, {}
+        return rm_scores, q.detach(), {}
 
     def update_rm(self, data: DataProto):
         # make sure we are in training mode
