@@ -81,7 +81,10 @@ def compute_ce_dpo_loss_rm(token_level_scores, acc, eos_mask, beta):
     return cur_dpo_loss
 
 
-def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, beta):
+def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, beta, bon_mode='none'):
+    # we always assume that the BoN size equals n_samples
+    # mode1: use acc as rm
+    # mode2: use Q as rm
     cur_Q = (token_level_scores * eos_mask).sum(dim=1) * beta
     other_Q = torch.zeros_like(cur_Q)
     for i in range(token_level_scores.shape[0]):
@@ -94,6 +97,18 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, 
         else:
             other_Q[i] = 0
     dpo_loss = -torch.log(torch.sigmoid((cur_Q - other_Q) * ((acc > 0).float() * 2 - 1)))
+    if bon_mode == 'none':
+        dpo_loss = dpo_loss.mean()
+    else:
+        weight = torch.zeros_like(dpo_loss)
+        if bon_mode == 'bon_rm':
+            pass
+        elif bon_mode == 'bon_acc':
+            pass
+        else:
+            raise NotImplementedError
+        dpo_loss = (dpo_loss * weight).sum()
+
     return dpo_loss
 
 

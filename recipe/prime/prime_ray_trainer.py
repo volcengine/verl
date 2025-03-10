@@ -431,10 +431,16 @@ class RayPRIMETrainer(RayPPOTrainer):
                             elif update_style == 'reverse':  # run forward to calculate statistics, then update reward model
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                                 # broadcast q and acc tensor to each result
-                                batch.batch['Q_bc'] = reward_output['q'].sum(dim=-1).view(
-                                    -1, n_samples).unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, n_samples)
-                                batch.batch['acc_bc'] = batch.batch['acc'].view(-1, n_samples).unsqueeze(1).expand(
-                                    -1, n_samples, -1).reshape(-1, n_samples)
+                                bc_td = DataProto.from_dict(
+                                    tensors={
+                                        'Q_bc':
+                                            reward_output.batch['q'].sum(dim=-1).view(-1, n_samples).unsqueeze(
+                                                1).expand(-1, n_samples, -1).reshape(-1, n_samples),
+                                        'acc_bc':
+                                            batch.batch['acc'].view(-1, n_samples).unsqueeze(1).expand(
+                                                -1, n_samples, -1).reshape(-1, n_samples)
+                                    })
+                                batch = batch.union(bc_td)
                                 reward_output = self.rm_wg.update_rm(batch)
                             else:
                                 raise NotImplementedError

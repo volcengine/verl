@@ -292,9 +292,23 @@ class DataParallelPRIMERewardModel:
                                                           acc_bc=data['acc_bc'],
                                                           eos_mask=eos_mask,
                                                           beta=beta)
-                elif self.config.model.loss_type == 'bon':
+                elif self.config.model.loss_type == 'bon_acc':
                     # change the original distribution of each sample to BoN distribution, then update reward model
-                    pass
+                    dpo_loss = compute_detach_dpo_loss_rm(q,
+                                                          acc,
+                                                          Q_bc=data['Q_bc'],
+                                                          acc_bc=data['acc_bc'],
+                                                          eos_mask=eos_mask,
+                                                          beta=beta,
+                                                          bon_mode='acc')
+                elif self.config.model.loss_type == 'bon_rm':
+                    dpo_loss = compute_detach_dpo_loss_rm(q,
+                                                          acc,
+                                                          Q_bc=data['Q_bc'],
+                                                          acc_bc=data['acc_bc'],
+                                                          eos_mask=eos_mask,
+                                                          beta=beta,
+                                                          bon_mode='rm')
                 else:
                     raise NotImplementedError
 
