@@ -121,15 +121,13 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def postprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
         global_rank = self.device_mesh.get_rank()
+        tp_rank = self.device_mesh["infer_tp"].get_local_rank()
         tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         src_rank = global_rank // tp_size * tp_size
         broadcast_dict_tensor(data.batch,
                               src=src_rank,
                               group=self.device_mesh["infer_tp"].get_group())
-        dp_rank = self.device_mesh["dp"].get_local_rank()
-
         if tp_size > 1:
-            # TODO: shall we build a micro_dp group for vllm when integrating with vLLM?
             local_prompts = data.chunk(chunks=tp_size)
-            data = local_prompts[dp_rank % tp_size]
+            data = local_prompts[tp_rank]
         return data
