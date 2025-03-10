@@ -312,6 +312,10 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/search_times':
+            torch.mean(batch.batch['search_times'].float()).detach().item(),
+        'search/click_times':
+            torch.mean(batch.batch['click_times'].float()).detach().item(),
         'search/failed_times':
             torch.mean(batch.batch['failed_times'].float()).detach().item(),
         'search/length_overlong_ratio':

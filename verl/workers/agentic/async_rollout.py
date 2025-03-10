@@ -201,10 +201,12 @@ class AsyncRollout(BaseRollout):
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
+            
+            action_details = {"search_times": 0, "click_times": 0}
 
             # only finish with <|observation|> token can be multi-turn
             if not stop_token.strip() == '<|observation|>':
-                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0}
+                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0, **action_details}
             action = tokenizer.decode(action_ids, skip_special_tokens=False)
             text = action.split("<|observation|>")[0].strip()
 
@@ -216,7 +218,11 @@ class AsyncRollout(BaseRollout):
                 try:
                     browser_return = await asyncio.to_thread(broswer_to_interact, text)
                     observation = browser_return["observation"]
+                    reason = browser_return["reason"].lower()
+                    
                     if observation:
+                        action_details['search_times'] += int('search' in reason)
+                        action_details['click_times'] += int('click' in reason)
                         break
                     else:
                         print(f"Retry {i+1} for empty observation")
@@ -235,7 +241,7 @@ class AsyncRollout(BaseRollout):
             
             ret_ids = tokenizer.encode(obs_text)
             dr_storage_sid2seq[sid].extend(ret_ids)
-            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
+            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
 
         async def dr_end(sid, _):
             # currently for dr sid == index

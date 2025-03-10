@@ -1,7 +1,6 @@
 #!/bin/bash
 
 while true; do
-  # 使用 allrun 获取各节点的 GPU 状态
   allrun bash -c '
     # 定义 12 种明显区分的颜色（选自 256 色码）：
     # 196：鲜红
