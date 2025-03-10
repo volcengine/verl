@@ -208,11 +208,14 @@ class DataParallelPRIMERewardModel:
             micro_batches = batch.split(micro_batch_size)
 
         rm_scores_lst = []
+        q_lst = []
         for micro_batch in micro_batches:
             with torch.no_grad():
                 rm_score, q = self._forward_micro_batch(micro_batch, prompt_length)
             rm_scores_lst.append(rm_score)
+            q_lst.append(q)
         rm_scores = torch.concat(rm_scores_lst, dim=0)
+        q = torch.concat(q_lst, dim=0)
 
         rm_scores = self.prime_norm(rm_scores)
 
