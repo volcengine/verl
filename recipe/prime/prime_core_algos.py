@@ -105,6 +105,6 @@ def compute_dpo_accuracy(token_level_scores, acc, eos_mask, n_samples):
 
     return torch.cat(dpo_acc, dim=0).mean()
 
-def compute_dpo_abs_accuracy(token_level_scores, acc, eos_mask, n_samples):
-    return (torch.sign((token_level_scores*eos_mask).sum(dim=-1)) == torch.sign(acc*2-1)).float().mean()
 
+def compute_dpo_abs_accuracy(token_level_scores, acc, eos_mask, n_samples):
+    return (torch.sign((token_level_scores * eos_mask).sum(dim=-1)) == torch.sign(acc * 2 - 1)).float().mean()
