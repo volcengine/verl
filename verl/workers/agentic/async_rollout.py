@@ -126,11 +126,34 @@ class AsyncRollout(BaseRollout):
         input_ids = input_ids.repeat_interleave(n, dim=0)
 
         # TODO: this is just a temporary approach for dr getting reward. should be moved to a backend.
+        # only last action saved
         dr_storage_sid2seq = {}
+        dr_storage_sid2browser = {}
 
         async def dr_start(index):
             index = index % len(input_ids)
             dr_storage_sid2seq[index] = []
+            return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
+        
+        async def dr_browser_start(index):
+            from browser import KiltBrowser
+            
+            # in Shannon, openvpn must be used to access the browser
+            # broswer_url = "172.18.73.157:8000"
+            # single_browser = KiltBrowser(
+            #     user_prompt="",
+            #     es_search_url=f"http://{broswer_url}/kilt_search",
+            #     knowledge_service_url=f"http://{broswer_url}/kilt_open"
+            # )
+            
+            # in Kruskal, the browser is directly accessible
+            single_browser = KiltBrowser(
+                user_prompt="",
+                es_search_url=f"http://10.50.60.34:9200/kilt/_search",
+                knowledge_service_url=f"http://172.18.193.64:8001/documents",
+            )
+            dr_storage_sid2seq[index] = []
+            dr_storage_sid2browser[index] = single_browser
             return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
 
         async def dr_obs(action_ids, sid, tokenizer, **_):
@@ -169,10 +192,49 @@ class AsyncRollout(BaseRollout):
             obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
             ret_ids = tokenizer.encode(obs_text)
             dr_storage_sid2seq[sid].extend(ret_ids)
+            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
+        
+        async def dr_browser_obs(action_ids, sid, tokenizer, **_):
+            # dr_storage_sid2seq[sid].extend(action_ids)
+            # only use the last action_ids
+            dr_storage_sid2seq[sid] = action_ids
+            stop_id = action_ids[-1]
+            stop_token = tokenizer.decode([stop_id])
+            print(f"stop token: [{stop_id}] - [{stop_token}]")
 
-            if torch.distributed.get_rank() == 0:
-                print(f"nodedup {torch.distributed.get_rank()=} dr_obs: {obs_text=}")
+            # only finish with <|observation|> token can be multi-turn
+            if not stop_token.strip() == '<|observation|>':
+                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0}
+            action = tokenizer.decode(action_ids, skip_special_tokens=False)
+            text = action.split("<|observation|>")[0].strip()
 
+            broswer_to_interact = dr_storage_sid2browser[sid]
+            
+            failed = 0
+            max_retries = 3
+            for i in range(max_retries):
+                try:
+                    browser_return = await asyncio.to_thread(broswer_to_interact, text)
+                    observation = browser_return["observation"]
+                    if observation:
+                        break
+                    else:
+                        print(f"Retry {i+1} for empty observation")
+                        await asyncio.sleep(1 + 2 * i)
+                        continue
+                except Exception as e:
+                    import time
+                    print(f"API call failed: {e}")
+                    await asyncio.sleep(1 + 2 * i)
+            else:
+                observation = ""
+                failed = 1
+
+            refined_observation = "<observation>\n" + observation + "\n</observation>"
+            obs_text = f"\n{refined_observation}<|assistant|>\n"
+            
+            ret_ids = tokenizer.encode(obs_text)
+            dr_storage_sid2seq[sid].extend(ret_ids)
             return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
 
         async def dr_end(sid, _):
@@ -226,6 +288,7 @@ class AsyncRollout(BaseRollout):
         url = "http://60.165.239.101:5002/api"
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
             "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dr_end),
+            "dr_browser": (ids_agent_loop, dr_browser_start, gen_id, partial(dr_browser_obs, tokenizer=tokenizer), dr_end),
             "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
             "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url=url), gen_chat, partial(openai_chat_obs, url=url), partial(openai_chat_end, url=url)),
         }[self.task_type]
@@ -240,7 +303,9 @@ class AsyncRollout(BaseRollout):
             obs_fn=obs_fn,
             end_fn=end_fn,
             max_turns=self.config.max_turns,
-            max_length=self.total_len,
+            # max_length=self.total_len,
+            # fix by lurui: consider some special token
+            max_length=self.total_len - 50,
             tokenizer=tokenizer,
         ) for i in list(range(len(input_ids)))]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
@@ -286,6 +351,10 @@ class AsyncRollout(BaseRollout):
             **obs_metrics,
         }, batch_size=batch_size)
 
-        # torch.save(batch, f"batches/batch_{time.time()}.pt")
+        import time
+        import os
+        print(f"Current working directory: {os.getcwd()}")
+        
+        # torch.save(batch, f"/workspace/lurui-yun/deep_research/verl/batches/batch_{time.time()}.pt")
 
         return DataProto(batch=batch)

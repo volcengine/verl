@@ -268,9 +268,9 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
 
     # print("observations_times")
 
-    with open("logs/uid.txt", "a") as f:
-        f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
-        f.write(str(batch.non_tensor_batch['uid']) + "\n")
+    # with open("logs/uid.txt", "a") as f:
+    #     f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
+    #     f.write(str(batch.non_tensor_batch['uid']) + "\n")
 
     from collections import defaultdict
 
@@ -320,8 +320,8 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             turn_overlong_ratio,
         'search/overlong_ratio':
             overlong_ratio,
-        'search/penalty_minus_1_ratio':
-            torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
+        # 'search/penalty_minus_1_ratio':
+        #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
