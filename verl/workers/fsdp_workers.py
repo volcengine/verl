@@ -49,9 +49,6 @@ def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
     else:
-        raise ValueError(
-            'HSDP is not supported yet because it produces incorrect results for now. Please set fsdp_size=-1')
-        assert world_size % fsdp_size == 0
         device_mesh = init_device_mesh('cuda',
                                        mesh_shape=(world_size // fsdp_size, fsdp_size),
                                        mesh_dim_names=['ddp', 'fsdp'])
@@ -117,10 +114,10 @@ class ActorRolloutRefWorker(Worker):
         # normalize config
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
+            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.size() // self.ulysses_sequence_parallel_size)
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
-                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
+                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.size() //
                                                             self.ulysses_sequence_parallel_size)
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
                 assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0, \
@@ -130,12 +127,12 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
-            self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+            self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.size() //
                                                                self.ulysses_sequence_parallel_size)
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
         if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
-            self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+            self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.size() //
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
@@ -195,7 +192,8 @@ class ActorRolloutRefWorker(Worker):
             print(f'Model config after override: {actor_model_config}')
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -687,7 +685,7 @@ class CriticWorker(Worker):
             from verl.models.transformers.monkey_patch import apply_monkey_patch
             apply_monkey_patch(critic_model_config, verbose=True)
 
-        init_context = get_init_weight_context_manager()
+        init_context = get_init_weight_context_manager(True, mesh=self.device_mesh)
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
@@ -946,7 +944,8 @@ class RewardModelWorker(Worker):
             apply_monkey_patch(model_config, verbose=True)
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
