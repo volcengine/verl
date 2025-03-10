@@ -429,6 +429,8 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                             elif update_style == 'reverse':  # run forward to calculate statistics, then update reward model
                                 reward_output = self.rm_wg.compute_rm_score(batch)
+                                # only add q tensor to reward_output, as we only need this in the first pass
+                                batch.batch['q'] = reward_output['q']
                                 reward_output = self.rm_wg.update_rm(batch)
                             else:
                                 raise NotImplementedError

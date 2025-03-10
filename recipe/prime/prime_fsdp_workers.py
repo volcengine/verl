@@ -308,8 +308,10 @@ class PRIMERewardModelWorker(Worker):
             acc = data.batch['acc']
 
             dpo_acc_before = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc_before'] = dpo_acc_before.detach().item()
+            metrics['reward_model/dpo_acc_abs_before'] = dpo_acc_abs.detach().item()
 
             output = DataProto.from_dict(tensors={'rm_scores': rm_scores}, meta_info={'metrics': metrics})
             output = self.ulysses_sharding_manager.postprocess_data(data=output)

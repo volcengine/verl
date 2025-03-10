@@ -136,6 +136,10 @@ class DataParallelPRIMERewardModel:
         ref_log_labels.to(rm_log_labels.dtype)
         q = rm_log_labels[:, -num_actions:] - ref_log_labels[:, -num_actions:]  # this is actually diff of q
 
+        # trim unnecessary logprobs here
+        for i in range(micro_batch['input_ids'].shape[0]):
+            q[i, max_positions[i]:] = 0
+
         # reward computation does not need gradient. only q needs
         with torch.no_grad():
 
@@ -225,7 +229,10 @@ class DataParallelPRIMERewardModel:
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             rm_scores = rm_scores[revert_indices]
 
-        return rm_scores, q.detach(), {}
+        return rm_scores, q.detach(), {
+            'reward_model/reward': rm_scores.sum(dim=-1).mean.item(),
+            'reward_model/raw_reward': q.sum(dim=-1).mean().item()
+        }
 
     def update_rm(self, data: DataProto):
         # make sure we are in training mode
@@ -241,6 +248,7 @@ class DataParallelPRIMERewardModel:
         dataloader = batch.split(self.config.mini_batch_size)
 
         rm_scores_lst = []
+        q_lst = []
 
         for batch_idx, data in enumerate(dataloader):
             # split batch into micro_batches
@@ -267,9 +275,16 @@ class DataParallelPRIMERewardModel:
                 rm_score, q = self._forward_micro_batch(data, prompt_length)
 
                 rm_scores_lst.append(rm_score)
+                q_lst.append(q.detach())
 
                 if self.config.model.loss_type == 'ce':
                     dpo_loss = compute_ce_dpo_loss_rm(q, acc, eos_mask=eos_mask, beta=beta)
+                elif self.config.model.loss_type == 'dpo':
+                    # the implementation of dpo is actually detached, which means we have to know the average value of w/l reward before the update.
+                    pass
+                elif self.config.model.loss_type == 'bon':
+                    # change the original distribution of each sample to BoN distribution, then update reward model
+                    pass
                 else:
                     raise NotImplementedError
 
@@ -291,7 +306,13 @@ class DataParallelPRIMERewardModel:
         self.reward_optimizer.zero_grad()
 
         rm_scores = torch.cat(rm_scores_lst, dim=0)
+        q = torch.concat(q_lst, dim=0)
 
         rm_scores = self.prime_norm(rm_scores)
+
+        metrics.update({
+            'reward_model/reward': rm_scores.sum(dim=-1).mean.item(),
+            'reward_model/raw_reward': q.sum(dim=-1).mean().item()
+        })
 
         return rm_scores, metrics
