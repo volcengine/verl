@@ -1,0 +1,1 @@
+watch -n 0.5 'curl -s "http://10.50.60.34:9200/kilt/_stats/search" | jq ".indices.kilt.total.search.query_current" | jq .'

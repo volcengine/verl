@@ -7,6 +7,10 @@ export WANDB_API_KEY=218cc9a2633c3b2303ca4dbc44397b10fa3e9115
 export RAY_DEDUP_LOGS_ALLOW_REGEX="nodedup"
 export VERL_PPO_LOGGING_LEVEL="INFO"
 
+WANDB_PROJECT=research_rl
+EXP_NAME=$(basename "$0" .sh)
+SAVE_PATH=/workspace/ckpt/lurui_verl/ckpt/$WANDB_PROJECT/$EXP_NAME
+
 CONFIG_ARGS="
     --config-path=$(pwd)/configs \
     --config-name=qwen14b_sft_async \
@@ -31,6 +35,8 @@ ACTOR_ROLLOUT_REF_ARGS="
 TRAINER_ARGS="
     trainer.n_gpus_per_node=$MLP_GPU \
     trainer.nnodes=$MLP_WORKER_NUM \
+    trainer.experiment_name=$EXP_NAME \
+    trainer.default_local_dir=$SAVE_PATH \
 "
 
 python3 -m verl.trainer.main_ppo \
