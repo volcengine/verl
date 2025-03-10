@@ -41,9 +41,9 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
     cpu_init_weights = lambda: torch.device('cpu')
     if use_meta_tensor:
         if mesh is None:
-            init_context = init_empty_weights if mesh.get_coordinate()[-1] != 0 else cpu_init_weights
-        else:
             init_context = init_empty_weights if torch.distributed.get_rank() != 0 else cpu_init_weights
+        else:
+            init_context = init_empty_weights if mesh.get_coordinate()[-1] != 0 else cpu_init_weights
     else:
         init_context = cpu_init_weights
     return init_context
