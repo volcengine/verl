@@ -81,6 +81,22 @@ def compute_ce_dpo_loss_rm(token_level_scores, acc, eos_mask, beta):
     return cur_dpo_loss
 
 
+def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, beta):
+    cur_Q = (token_level_scores * eos_mask).sum(dim=1) * beta
+    other_Q = torch.zeros_like(cur_Q)
+    for i in range(token_level_scores.shape[0]):
+        if acc[i] > 0:
+            Q_chosen = Q_bc[acc_bc < acc[i]]
+        else:
+            Q_chosen = Q_bc[acc_bc > acc[i]]
+        if len(Q_chosen) > 0:
+            other_Q[i] = Q_chosen.mean() * beta
+        else:
+            other_Q[i] = 0
+    dpo_loss = -torch.log(torch.sigmoid(cur_Q - other_Q)) * (acc > 0).float()
+    return dpo_loss
+
+
 def compute_dpo_accuracy(token_level_scores, acc, eos_mask, n_samples):
     dpo_acc = []
     for start_id in range(0, token_level_scores.shape[0], n_samples):

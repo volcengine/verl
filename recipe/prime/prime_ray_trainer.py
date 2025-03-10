@@ -400,6 +400,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
                     batch = self.filter_and_downsample(scores, batch)
                     batch.meta_info['n'] = self.config.actor_rollout_ref.rollout.n
+                    n_samples = self.config.actor_rollout_ref.rollout.n
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
@@ -429,8 +430,11 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 reward_output = self.rm_wg.compute_rm_score(batch)
                             elif update_style == 'reverse':  # run forward to calculate statistics, then update reward model
                                 reward_output = self.rm_wg.compute_rm_score(batch)
-                                # only add q tensor to reward_output, as we only need this in the first pass
-                                batch.batch['q'] = reward_output['q']
+                                # broadcast q and acc tensor to each result
+                                batch.batch['Q_bc'] = reward_output['q'].sum(dim=-1).view(
+                                    -1, n_samples).unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, n_samples)
+                                batch.batch['acc_bc'] = batch.batch['acc'].view(-1, n_samples).unsqueeze(1).expand(
+                                    -1, n_samples, -1).reshape(-1, n_samples)
                                 reward_output = self.rm_wg.update_rm(batch)
                             else:
                                 raise NotImplementedError

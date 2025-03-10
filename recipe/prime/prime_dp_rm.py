@@ -23,7 +23,7 @@ from torch import nn, optim
 
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from .prime_core_algos import compute_ce_dpo_loss_rm
+from .prime_core_algos import compute_ce_dpo_loss_rm, compute_detach_dpo_loss_rm
 from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
@@ -242,6 +242,11 @@ class DataParallelPRIMERewardModel:
         beta = self.config.model.get('beta_train', 0.05)
 
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'acc', 'prompts']
+
+        for key in ['Q_bc', 'acc_bc']:
+            if key in data.batch.keys():
+                select_keys.append(key)
+
         batch = data.select(batch_keys=select_keys).batch
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
@@ -281,7 +286,12 @@ class DataParallelPRIMERewardModel:
                     dpo_loss = compute_ce_dpo_loss_rm(q, acc, eos_mask=eos_mask, beta=beta)
                 elif self.config.model.loss_type == 'dpo':
                     # the implementation of dpo is actually detached, which means we have to know the average value of w/l reward before the update.
-                    pass
+                    dpo_loss = compute_detach_dpo_loss_rm(q,
+                                                          acc,
+                                                          Q_bc=data['Q_bc'],
+                                                          acc_bc=data['acc_bc'],
+                                                          eos_mask=eos_mask,
+                                                          beta=beta)
                 elif self.config.model.loss_type == 'bon':
                     # change the original distribution of each sample to BoN distribution, then update reward model
                     pass
