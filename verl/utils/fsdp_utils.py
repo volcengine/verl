@@ -19,6 +19,7 @@ import math
 import itertools
 import os
 from contextlib import contextmanager
+from torch.distributed import DeviceMesh
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
@@ -35,11 +36,14 @@ def init_fn(x: torch.nn.Module):
     return x
 
 
-def get_init_weight_context_manager(use_meta_tensor=True):
+def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = None):
     from accelerate import init_empty_weights
     cpu_init_weights = lambda: torch.device('cpu')
     if use_meta_tensor:
-        init_context = init_empty_weights if torch.distributed.get_rank() != 0 else cpu_init_weights
+        if mesh is None:
+            init_context = init_empty_weights if torch.distributed.get_rank() != 0 else cpu_init_weights
+        else:
+            init_context = init_empty_weights if mesh.get_coordinate()[-1] != 0 else cpu_init_weights
     else:
         init_context = cpu_init_weights
     return init_context
