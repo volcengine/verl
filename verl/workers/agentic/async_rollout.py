@@ -122,13 +122,17 @@ class AsyncRollout(BaseRollout):
             url = "http://172.16.65.43:8888/observation_kilt/"
             payload = {"content": text, "translate": True}
             failed = 0
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=payload)
-                    ret = response.json()
-            except Exception as e:
-                print(f"API call failed: {e}")
-                ret = [{"content": "API call failed"}]
+            for i in range(5):
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(url, json=payload)
+                        ret = response.json()
+                        break
+                except Exception as e:
+                    print(f"API call failed: {e}")
+                    await asyncio.sleep(1 + i)
+            else:
+                ret = [{"content": "API call failed, you may try again."}]
                 failed = 1
 
             # combine part
@@ -136,6 +140,10 @@ class AsyncRollout(BaseRollout):
             obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
             ret_ids = tokenizer.encode(obs_text)
             dr_storage_sid2seq[sid].extend(ret_ids)
+
+            if torch.distributed.get_rank() == 0:
+                print(f"nodedup {torch.distributed.get_rank()=} dr_obs: {obs_text=}")
+
             return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
 
         async def dr_end(sid, _):
