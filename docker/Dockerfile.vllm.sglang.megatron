@@ -113,3 +113,12 @@ RUN pip config unset global.index-url && \
 
     RUN apt-get update && \
     apt-get install -y aria2 libfreeimage3 libfreeimage-dev zlib1g
+
+RUN aria2c --always-resume=true --max-tries=99999 https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_3/nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb && \
+apt-get update && apt-get install -y libxcb-cursor0 && \
+dpkg -i ./nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb && \
+rm -rf /usr/local/cuda/bin/nsys && \
+ln -s /opt/nvidia/nsight-systems/2025.3.1/target-linux-x64/nsys  /usr/local/cuda/bin/nsys && \
+rm -rf /usr/local/cuda/bin/nsys-ui && \
+ln -s /opt/nvidia/nsight-systems/2025.3.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
+rm nsight-systems-2025.3.1_2025.3.1.90-1_amd64.deb

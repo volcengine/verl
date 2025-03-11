@@ -96,7 +96,7 @@ actor_rollout_ref:
 
   # common configs for the model
   model:
-  
+
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
 
@@ -105,32 +105,32 @@ actor_rollout_ref:
 
     # Additional Python packages to register huggingface models/tokenizers.
     external_lib: null
-    
+
     # Used to override model's original configurations, mainly dropout
     override_config: {}
-    
+
     # Enable gradient checkpointing for actor
     enable_gradient_checkpointing: true
-    
+
     # Enable activation offloading for actor
     enable_activation_offload: false
-    
+
     # Whether to remove padding tokens in inputs during training
     use_remove_padding: false
-    
+
     # Set to positive value to enable LoRA (e.g., 32)
     lora_rank: 0
-    
+
     # LoRA scaling factor
     lora_alpha: 16
-    
-    # Target modules to apply LoRA. Options: "all-linear" or 
+
+    # Target modules to apply LoRA. Options: "all-linear" or
     # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
     target_modules: all-linear
-    
+
     # Whether to use Liger for linear layer fusion
     use_liger: false
-    
+
     # Whether to use custom fused kernels (e.g., FlashAttention, fused MLP)
     use_fused_kernels: false
 
@@ -139,71 +139,80 @@ actor_rollout_ref:
 
       # Implementation backend for fused kernels. Options: "triton" or "torch".
       impl_backend: torch
-    
+
     # Whether to enable loading a remote code model
     trust_remote_code: false
 
   # actor configs
   actor:
-  
+
     # fsdp, fsdp2 or megatron. fsdp backend used here.
     strategy: fsdp
-    
+
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 256
-    
+
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    profile_discrete: False
+
+    # Whether to profile all ranks.
+    profile_ranks_all: False
+
+    # The ranks that will be profiled.
+    profile_ranks: null # [0,1]
+
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
-    
+
     # Local per-GPU micro batch size
     ppo_micro_batch_size_per_gpu: null
-    
+
     # Whether to automatically adjust batch size at runtime
     use_dynamic_bsz: false
-    
+
     # Max tokens per GPU in one PPO batch; affects gradient accumulation
     # Typically it should be: n * ${data.max_prompt_length} + ${data.max_response_length}
     ppo_max_token_len_per_gpu: 16384
-    
+
     # Gradient clipping for actor updates
     grad_clip: 1.0
-    
+
     # PPO clip ratio
     clip_ratio: 0.2
-    
+
     # Lower bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_low: 0.2
-    
+
     # Upper bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_high: 0.2
-    
+
     # Constant C in Dual-clip PPO; clips when advantage < -C
     clip_ratio_c: 3.0
-    
+
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
     loss_agg_mode: token-mean
-    
+
     # Entropy regularization coefficient in PPO loss
     entropy_coeff: 0
-    
+
     # Whether to use KL loss instead of KL reward penalty. True for GRPO
     use_kl_loss: false
-    
+
     # Whether to use torch.compile()
     use_torch_compile: true
-    
+
     # KL loss coefficient when use_kl_loss is enabled. For GRPO
     kl_loss_coef: 0.001
-    
+
     # Type of KL divergence loss. Options: "kl"(k1), "abs", "mse"(k2), "low_var_kl"(k3), "full"
     kl_loss_type: low_var_kl
-    
+
     # Number of PPO epochs per batch
     ppo_epochs: 1
-    
+
     # Shuffle training data across PPO epochs
     shuffle: false
-    
+
     # Sequence parallelism size for Ulysses-style model parallelism
     ulysses_sequence_parallel_size: 1
 
@@ -215,7 +224,7 @@ actor_rollout_ref:
 
     # checkpoint configs
     checkpoint:
-    
+
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
       save_contents: ['model', 'optimizer', 'extra']
@@ -225,28 +234,28 @@ actor_rollout_ref:
 
     # optimizer configs
     optim:
-    
+
       # Learning rate
       lr: 1e-6
-      
+
       # Warmup steps; negative value delegates to lr_warmup_steps_ratio
       lr_warmup_steps: -1
-      
+
       # Warmup steps ratio (used if lr_warmup_steps is negative)
       lr_warmup_steps_ratio: 0.0
-      
+
       # Minimum LR ratio for cosine schedule
       min_lr_ratio: 0.0
-      
+
       # Number of cosine cycles in LR schedule
       num_cycles: 0.5
-      
+
       # LR warmup style: "constant" or "cosine"
       warmup_style: constant
-      
+
       # Total training steps (must be overridden at runtime)
       total_training_steps: -1
-      
+
       # Weight decay
       weight_decay: 0.01
 
@@ -255,22 +264,22 @@ actor_rollout_ref:
 
       # policy for wrapping the model
       wrap_policy:
-      
+
         # Minimum number of parameters to trigger wrapping a layer with FSDP
         min_num_params: 0
-        
+
       # Whether to offload model parameters to CPU (trades speed for memory)
       param_offload: false
-      
+
       # Whether to offload optimizer state to CPU
       optimizer_offload: false
-      
+
       # Only for FSDP2: offload param/grad/optimizer during train
       offload_policy: false
-      
+
       # Only for FSDP2: Reshard after forward pass to reduce memory footprint
       reshard_after_forward: true
-      
+
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
@@ -286,6 +295,9 @@ actor_rollout_ref:
     strategy: fsdp
 
     # config for FSDP strategy
+    profile_discrete: False
+    profile_ranks: null # [0,1]
+    profile_ranks_all: False
     fsdp_config:
 
       # whether to offload parameters in FSDP
@@ -339,6 +351,15 @@ actor_rollout_ref:
     # sync: LLM, async: AsyncLLM
     mode: sync
 
+    # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
+    profile_discrete: False
+
+    # Whether to profile all ranks.
+    profile_ranks_all: False
+
+    # The ranks that will be profiled.
+    profile_ranks: null # [0,1]
+
     # Sampling temperature for rollout.
     temperature: 1.0
 
@@ -353,7 +374,7 @@ actor_rollout_ref:
 
     # typically the same as data max prompt length
     prompt_length: ${data.max_prompt_length}
-    
+
     # typically the same as data max response length
     response_length: ${data.max_response_length}
 
@@ -420,7 +441,7 @@ actor_rollout_ref:
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
 
-      # for vllm 
+      # for vllm
       vllm:
 
         # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
@@ -486,6 +507,15 @@ critic:
 
   # fsdp or fsdp2 strategy used for critic model training
   strategy: fsdp
+
+  # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
+  profile_discrete: False
+
+  # Whether to profile all ranks.
+  profile_ranks_all: False
+
+  # The ranks that will be profiled.
+  profile_ranks: null # [0,1]
 
   # optimizer configs
   optim:
@@ -638,6 +668,15 @@ reward_model:
 
   # FSDP strategy: "fsdp" or "fsdp2"
   strategy: fsdp
+
+  # Profile discrete, True for each task has its own database, False for all tasks in one training step share one database.
+  profile_discrete: False
+
+  # Whether to profile all ranks.
+  profile_ranks_all: False
+
+  # The ranks that will be profiled.
+  profile_ranks: null # [0,1]
 
   # model config for reward scoring
   model:
@@ -792,6 +831,9 @@ trainer:
 
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
+
+  # The steps that will be profiled. null means no profiling.
+  profile_steps: null #[1, 2, 5]
 
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples

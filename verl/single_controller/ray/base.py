@@ -269,6 +269,7 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
         self.sub_cls_name = ""
         self.device_name = device_name
+        self.profile_steps: List[int] = kwargs.get("profile_steps", None)
 
         if worker_names is not None and (not self.fused_worker_used):
             assert self._is_init_with_detached_workers
@@ -353,7 +354,22 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                ray_cls_with_init.update_options({"runtime_env": {"env_vars": env_vars}, "name": name})
+                if self.profile_steps:
+                    ray_cls_with_init.update_options({
+                        'runtime_env': {'env_vars': env_vars,
+                                    "nsight":
+                                       {
+                                        #"t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+                                        "t": "cuda,nvtx,cublas",
+                                        "cuda-memory-usage": "true",
+                                        "cuda-graph-trace": "graph",
+                                        "capture-range": "cudaProfilerApi",
+                                        "capture-range-end": f"repeat-shutdown:{6*len(self.profile_steps)}",
+                                        "kill": "none"}
+                                    },
+                        'name': name})
+                else:
+                    ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, "name": name})
 
                 if detached:
                     ray_cls_with_init.update_options({"lifetime": "detached"})
@@ -410,6 +426,7 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles=None,
         ray_cls_with_init=None,
+        **kwargs,
     ):
         """Create a worker group from existing detached workers.
 
@@ -421,7 +438,7 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             A new RayWorkerGroup instance
         """
-        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles)
+        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles, **kwargs)
         return worker_group
 
     def spawn(self, prefix_set):
@@ -452,6 +469,7 @@ class RayWorkerGroup(WorkerGroup):
                 worker_names=self._worker_names,
                 worker_handles=self._workers,
                 ray_cls_with_init=self.ray_cls_with_init,
+                profile_steps=self.profile_steps,
             )
 
             _rebind_actor_methods(new_worker_group, prefix)
@@ -617,7 +635,7 @@ class RayWorkerGroup(WorkerGroup):
 
 
 """
-Utilities that enables creating workers inside the same ray.Actor, 
+Utilities that enables creating workers inside the same ray.Actor,
 with code written in separate ray.Actors.
 """
 
