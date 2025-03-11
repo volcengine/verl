@@ -201,7 +201,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         return compute_acc_reward(solution_str, ground_truth), {}
 
     if "</think>" not in solution_str: # If the completion does not contain the think tag, return 0 to encourage the model to use the think tag and prevent reward hacking.
-        acc_reward = 0.
+        acc_reward = -1.
     else:
         min_value_wrong = -1.0
         max_value_wrong = -0.7
@@ -224,7 +224,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
             # Swap min/max for incorrect answers
             min_value = max_value_wrong
             max_value = min_value_wrong
-            min_response_length = 1024
+            min_response_length = 2048
             progress = min(1, max(max_response_length - response_length - min_response_length, 0) / (max_response_length - min_response_length))
         # Apply cosine scaling based on length
 
