@@ -41,17 +41,10 @@ def main(config):
     run_generation(config)
 
 def run_generation(config) -> None:
-    runtime_env = {
-        'env_vars': {
-            'TOKENIZERS_PARALLELISM': 'true',
-            'NCCL_DEBUG': 'WARN',
-            'CUDA_VISIBLE_DEVICES': '0,1,2,3,4,5,6,7'
-        }
-    }
 
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env=runtime_env)
+        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
 
     ray.get(main_task.remote(config))
 
