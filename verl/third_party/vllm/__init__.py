@@ -59,6 +59,7 @@ elif vs.parse(package_version) >= vs.parse('0.6.6.post2.dev252+g8027a724'):
     from vllm import LLM
     from vllm.distributed import parallel_state
     from .vllm_spmd.dtensor_weight_loaders import load_dtensor_weights
+    from .vllm_spmd.hf_weight_loaders import load_hf_weights
 else:
     raise ValueError(
         f'vllm version {package_version} not supported. Currently supported versions are 0.3.1, 0.4.2, 0.5.4, 0.6.3 and 0.7.0+'
