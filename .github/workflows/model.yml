@@ -6,21 +6,26 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/model.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/model.yml
 
-
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   model_rmpad:
     runs-on: [self-hosted, l20-1]
+    timeout-minutes: 5 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -48,3 +53,25 @@ jobs:
         run: |
           pip3 install hf_transfer
           torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
+        run: |
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
+        run: |
+          pip3 install transformers==4.48.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.47.0
+        run: |
+          pip3 install transformers==4.47.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.46.0
+        run: |
+          pip3 install transformers==4.46.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.45.0
+        run: |
+          pip3 install transformers==4.45.0
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Run distributed test
+        run: |
+          bash tests/distributed/run_all.sh

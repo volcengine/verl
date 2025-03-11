@@ -23,6 +23,9 @@ from verl.third_party.vllm import LLM
 
 from vllm import SamplingParams
 
+import time
+import torch.distributed as dist
+
 
 def main():
     assert torch.cuda.is_available(), 'CUDA must be present to run FSDP vLLM example'
@@ -32,8 +35,8 @@ def main():
     local_cache_path = os.path.expanduser(local_cache_path)
     hdfs_path = 'Qwen/Qwen2-7B-Instruct'
 
-    from verl.utils.fs import copy_local_path_from_hdfs
-    local_model_path = copy_local_path_from_hdfs(src=hdfs_path, cache_dir=local_cache_path)
+    from verl.utils.fs import copy_to_local
+    local_model_path = copy_to_local(src=hdfs_path, cache_dir=local_cache_path)
     tokenizer = AutoTokenizer.from_pretrained(local_model_path, trust_remote_code=True)
     actor_model_config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=True)
     with torch.device("cuda"):
@@ -112,10 +115,25 @@ def main():
               enforce_eager=True,
               dtype='bfloat16',
               load_format='dummy_dtensor',
-              gpu_memory_utilization=0.1,
+              gpu_memory_utilization=0.8,
               trust_remote_code=True)
 
+    # Warmup iterations
+    for _ in range(10):
+        torch.cuda.synchronize()
+        llm.sync_model_weights(actor_weights=state_dict, load_format='dtensor')
+        torch.cuda.synchronize()
+        dist.barrier()
+
+    start_time = time.time()
     llm.sync_model_weights(actor_weights=state_dict, load_format='dtensor')
+    torch.cuda.synchronize()
+    dist.barrier()
+    end_time = time.time()
+
+    # Calculate elapsed time
+    elapsed_time = end_time - start_time
+    print(f"Time taken: {elapsed_time:.6f} seconds")
 
     input_ids = input_ids.cuda()
     attention_mask = attention_mask.cuda()

@@ -6,22 +6,33 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/e2e_digit_completion.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
+      - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_digit_completion.yml
       - "tests/e2e/*.sh"
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   e2e_digit_completion:
     runs-on: [self-hosted, l20-0]
+    timeout-minutes: 10 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}

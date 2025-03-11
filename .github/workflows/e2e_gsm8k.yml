@@ -6,22 +6,33 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/e2e_gsm8k.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
+      - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k.yml
       - "tests/e2e/*.sh"
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   e2e_gsm8k:
     runs-on: [self-hosted, l20-1]
+    timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -37,7 +48,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer
-          pip3 install -e .[test]
+          pip3 install -e .[test,gpu]
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -46,6 +57,11 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_function_rm.sh
+      - name: Running gsm8k e2e without rmpad using function rm and load ckpt from previous step
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_function_rm_no_rmpad.sh
+          rm -rf ~/ckpt/*
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (GRPO)
         run: |
           ray stop --force
@@ -54,10 +70,6 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_function_rm_remax.sh
-      - name: Running gsm8k e2e without rmpad using function rm and load ckpt from previous step
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm_no_rmpad.sh
       - name: Running gsm8k e2e with rmpad using model rm
         run: |
           ray stop --force
@@ -78,3 +90,8 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_model_rm_liger_kernel.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using customized reward function
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_custom_function_rm.sh
+

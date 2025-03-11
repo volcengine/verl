@@ -6,7 +6,6 @@ python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=1024 \
-    data.val_batch_size=1312 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.return_raw_chat=True \
@@ -18,9 +17,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
+    actor_rollout_ref.actor.fsdp_config.fsdp_size=4 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
@@ -35,9 +33,8 @@ python3 -m verl.trainer.main_ppo \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.model.fsdp_config.param_offload=False \
-    critic.model.fsdp_config.grad_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
-    critic.model.fsdp_config.fsdp_size=-1 \
+    critic.model.fsdp_config.fsdp_size=4 \
     reward_model.enable=True \
     reward_model.ulysses_sequence_parallel_size=2 \
     reward_model.model.path=Qwen/Qwen2.5-0.5B\

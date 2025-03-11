@@ -78,6 +78,7 @@ Now let's run PPO training with the dataset and model above. [2]_
 
 
 Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.path`` and ``critic.model.path`` based on your dataset and model names or paths.
+You may set ``VERL_USE_MODELSCOPE=True`` to download models from modelscope instead of huggingface.
 
 .. code-block:: bash
 
@@ -85,7 +86,6 @@ Set the ``data.train_files`` ,\ ``data.val_files``, ``actor_rollout_ref.model.pa
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=256 \
-    data.val_batch_size=1312 \
     data.max_prompt_length=512 \
     data.max_response_length=256 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \

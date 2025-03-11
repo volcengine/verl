@@ -6,19 +6,31 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   sanity:
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # Increase this timeout value as needed
     strategy:
       matrix:
         python-version: ["3.10"]
@@ -34,9 +46,13 @@ jobs:
       - name: Run sanity test
         run: |
           pytest -s -x tests/sanity
-      - name: Run untility test
+      - name: Run utility test
         run: |
           pytest -s -x tests/utility
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .
+      - name: Run dependency test
+        run: |
+          pip install tomli
+          pytest -s -x tests/distro/requirements.py

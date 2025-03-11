@@ -6,19 +6,31 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sandbox.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/sandbox.yml
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
 jobs:
   sandbox:
     runs-on: [self-hosted, l20-0]
+    timeout-minutes: 3 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -34,7 +46,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer
-          pip3 install -e .[test]
+          pip3 install -e .[test,prime]
           pip3 install vllm==0.5.4
       - name: Running sandbox tests on 8 L20 GPUs
         run: |

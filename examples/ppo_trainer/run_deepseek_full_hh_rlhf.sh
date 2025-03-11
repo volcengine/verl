@@ -7,9 +7,10 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=512 \
-    data.val_batch_size=128 \
     data.max_prompt_length=128 \
     data.max_response_length=128 \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
     actor_rollout_ref.model.path=deepseek-ai/deepseek-llm-7b-chat \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \

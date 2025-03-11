@@ -1,0 +1,55 @@
+name: e2e_ascend
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.2.x
+    paths:
+      - "**/*.py"
+      - .github/workflows/e2e_ascend.yml
+  pull_request:
+    branches:
+      - main
+      - v0.2.x
+    paths:
+      - "**/*.py"
+      - .github/workflows/e2e_ascend.yml
+
+permissions:
+  contents: read
+  
+jobs:
+  test:
+    name: verl Ascend test (self-host)
+    runs-on: [self-hosted, npu-0]
+    timeout-minutes: 5 # Increase this timeout value as needed
+    env:
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
+      volumes:
+        - /usr/local/dcmi:/usr/local/dcmi
+        - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
+        - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
+        # Use self-host cache speed up pip and model download
+        # - /home/action/actions-runner/_work/cache:/github/home/.cache/
+      options: >-
+        --device /dev/davinci0
+        --device /dev/davinci_manager
+        --device /dev/devmm_svm
+        --device /dev/hisi_hdc
+        --privileged
+        --network "host"
+    steps:
+      - name: Check npu and CANN info
+        run: |
+          cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
+          npu-smi info
+      - name: Checkout volcengine/verl repo
+        uses: actions/checkout@v4
+      - name: Run test
+        run: |
+          lscpu

@@ -46,6 +46,26 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
     return func
 
 
+def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
+    """
+    Sort the placement groups by node ip, all bundles in a single placement group should be on the same node.
+
+    FSDPCheckpointManager saves sharded model states and optimizer states in local storage, which requires RANK
+    to be consistent across nodes when resume from checkpoint.
+
+    With this function, if there's only one resource pool and there's no node change, RANK should be consistent
+    across nodes in multiple ray jobs, even if the whole ray cluster is restarted.
+    """
+    node_ip = {node["NodeID"]: node["NodeManagerAddress"] for node in ray.nodes()}
+    pg_ip = {}
+    for pg in pgs:
+        specs = ray._private.state.state.placement_group_table(pg.id)
+        # all bunles should be on the same node
+        node_id = specs["bundles_to_node_id"][0]
+        pg_ip[pg.id] = node_ip[node_id]
+    return sorted(pgs, key=lambda pg: pg_ip[pg.id])
+
+
 class RayResourcePool(ResourcePool):
 
     def __init__(self,
@@ -224,8 +244,8 @@ class RayWorkerGroup(WorkerGroup):
         num_gpus = 1 / resource_pool.max_collocate_count
 
         rank = -1
-        for pg_idx, local_world_size in enumerate(resource_pool.store):
-            pg = pgs[pg_idx]
+        local_world_size = resource_pool.store[0]
+        for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
             assert local_world_size <= pg.bundle_count, \
                 f"when generating for {self.name_prefix}, for the "
             for local_rank in range(local_world_size):
@@ -333,8 +353,8 @@ class RayWorkerGroup(WorkerGroup):
         return ray.get(self.execute_all_async(method_name, *args, **kwargs))
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
-        # 这里我们假设，如果 args 和 kwargs 里面所有的参数都是 list，且所有的 list 长度都与 len(self._workers) 一致的话，我们会把
-        # list 中的每一个分别发到对应的 worker 上去
+        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers),
+        # we'll distribute each element in these lists to the corresponding worker
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
