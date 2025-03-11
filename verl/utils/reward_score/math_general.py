@@ -233,7 +233,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         # acc_reward = min_value + 0.5 * (max_value - min_value) * (1.0 + cosine)
         
         # linear reward
-        acc_reward = min_value + progress * (max_value - min_value)
+        acc_reward = min_value + (1-progress) * (max_value - min_value)
 
 
     metric = {
