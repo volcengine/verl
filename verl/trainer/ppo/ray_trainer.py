@@ -522,26 +522,27 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                       tokenizer=self.tokenizer,
-                                       prompt_key=self.config.data.prompt_key,
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       filter_prompts=True,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
-        self.val_dataloader = StatefulDataLoader(
-            dataset=self.val_dataset,
-            # Validation datasets are sent to inference engines as a whole batch,
-            # which will schedule the memory themselves.
-            batch_size=len(self.val_dataset),
-            shuffle=False,
-            drop_last=False,
-            collate_fn=collate_fn)
-
         assert len(self.train_dataloader) >= 1
-        assert len(
-            self.val_dataloader
-        ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
+
+        if self.val_reward_fn is not None:
+            self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+                                        tokenizer=self.tokenizer,
+                                        prompt_key=self.config.data.prompt_key,
+                                        max_prompt_length=self.config.data.max_prompt_length,
+                                        filter_prompts=True,
+                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                        truncation='error')
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                # Validation datasets are sent to inference engines as a whole batch,
+                # which will schedule the memory themselves.
+                batch_size=len(self.val_dataset),
+                shuffle=False,
+                drop_last=False,
+                collate_fn=collate_fn)
+            assert len(
+                self.val_dataloader
+            ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
 
         print(f'Size of train dataloader: {len(self.train_dataloader)}')
 
