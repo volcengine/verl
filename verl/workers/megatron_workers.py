@@ -30,6 +30,7 @@ from omegaconf import DictConfig
 
 from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.worker import Worker
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
@@ -79,7 +80,17 @@ class ActorRolloutRefWorker(MegatronWorker):
     """
 
     def __init__(self, config: DictConfig, role: str):
-        super().__init__()
+        self.profile_discrete = (config.actor.get("profile_discrete", False)
+                            or config.rollout.get("profile_discrete", False)
+                            or config.ref.get("profile_discrete", False))
+        profile_ranks_all = (config.actor.get("profile_ranks_all", False)
+                            or config.rollout.get("profile_ranks_all", False)
+                            or config.ref.get("profile_ranks_all", False))
+        profile_ranks = ([] if config.actor.profile_ranks is None else config.actor.profile_ranks
+                        ) + ([] if config.rollout.profile_ranks is None else config.rollout.profile_ranks
+                        ) + ([] if config.ref.profile_ranks is None else config.ref.profile_ranks)
+
+        super().__init__(profile_discrete=self.profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -142,6 +153,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             else:
                 assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
+
+        self.profile_actor = self._is_actor and (self.config.actor.profile_ranks is not None)
+        self.profile_rollout = self._is_rollout and (self.config.rollout.profile_ranks is not None)
+        self.profile_ref = self._is_ref and (self.config.ref.profile_ranks is not None)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -415,6 +430,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="update_actor", logger=logger)
+    @Worker.profile_annotate(color="red")
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -455,6 +471,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
+    @Worker.profile_annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
         if self._is_offload_param:
@@ -502,6 +519,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
+    @Worker.profile_annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         assert self._is_ref
         if self._ref_is_offload_param:
@@ -524,6 +542,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
+    @Worker.profile_annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -612,8 +631,12 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
 class CriticWorker(MegatronWorker):
     def __init__(self, config):
-        super().__init__()
+        profile_discrete = config.get("profile_discrete", False)
+        profile_ranks = config.profile_ranks
+        profile_ranks_all = config.get("profile_ranks_all", False)
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
+        self.profile_critic = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -756,6 +779,7 @@ class CriticWorker(MegatronWorker):
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="cyan")
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -772,6 +796,7 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="pink")
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
 
@@ -826,8 +851,12 @@ class RewardModelWorker(MegatronWorker):
     """
 
     def __init__(self, config):
-        super().__init__()
+        profile_discrete = config.get("profile_discrete", False)
+        profile_ranks = config.profile_ranks
+        profile_ranks_all = config.get("profile_ranks_all", False)
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
+        self.profile_reward = self.config.profile_ranks is not None
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -951,6 +980,7 @@ class RewardModelWorker(MegatronWorker):
     # TODO: reward model use itself tokenizer instead of sft tokenizer
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu

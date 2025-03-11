@@ -118,11 +118,13 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     Yields:
         None: This is a context manager that yields control back to the code block.
     """
+    mark_range = mark_start_range(message=name, color=color)
     with Timer(name=name, logger=None) as timer:
         yield
     if name not in timing_raw:
         timing_raw[name] = 0
     timing_raw[name] += timer.last
+    mark_end_range(mark_range)
 
 
 def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
