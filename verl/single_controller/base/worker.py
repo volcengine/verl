@@ -18,14 +18,19 @@ the class for Worker
 import os
 import socket
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
 import ray
 
+<<<<<<< HEAD
 from verl.utils.device import get_torch_device
 
+=======
+import torch
+>>>>>>> 6375792 (add Nvidia Nsight support to verl, manual is)
 from .decorator import Dispatch, Execute, register
-
+from verl.utils.debug import mark_start_range, mark_end_range
+import functools
 
 @dataclass
 class DistRankInfo:
@@ -83,6 +88,7 @@ class Worker(WorkerHelper):
     """
 
     fused_worker_attr_name = "fused_worker_dict"
+    profile = False
 
     def __new__(cls, *args, **kwargs):
         """Create a new Worker instance with proper initialization based on environment settings."""
@@ -137,7 +143,7 @@ class Worker(WorkerHelper):
         """The keys of the environment variables that are used to configure the Worker."""
         return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
 
-    def __init__(self, cuda_visible_devices=None) -> None:
+    def __init__(self, cuda_visible_devices=None, profile_discrete=False, profile_ranks=None, profile_ranks_all=False) -> None:
         """Initialize the worker with environment settings and device configuration.
 
         Args:
@@ -174,6 +180,9 @@ class Worker(WorkerHelper):
         self._configure_with_store(store=store)
 
         self.fused_worker_dict = {}
+        self.profile = False
+        self.profile_discrete = profile_discrete
+        self.profile_this_rank = (self._rank in profile_ranks if profile_ranks is not None else False) or profile_ranks_all
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
@@ -185,6 +194,10 @@ class Worker(WorkerHelper):
         return self.fused_worker_dict.get(worker_name, None)
 
     def _setup_env_cuda_visible_devices(self):
+<<<<<<< HEAD
+=======
+        import torch
+>>>>>>> 6375792 (add Nvidia Nsight support to verl, manual is)
         from verl.utils.ray_utils import ray_noset_visible_devices
 
         is_ray_noset_visible_devices = ray_noset_visible_devices()
@@ -295,3 +308,40 @@ class Worker(WorkerHelper):
         """
         result = func(*args, **kwargs)
         return result
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def start_profile(self):
+        if self.profile_this_rank:
+            self.profile = True
+            if not self.profile_discrete:
+                torch.cuda.profiler.start()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def stop_profile(self):
+        if self.profile_this_rank:
+            self.profile = False
+            if not self.profile_discrete:
+                torch.cuda.profiler.stop()
+
+    @staticmethod
+    def profile_annotate(message=None, color=None, domain=None, category=None):
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(self, *args, **kwargs):
+                profile_name = message or func.__name__
+
+                if self.profile:
+                    if self.profile_discrete:
+                        torch.cuda.profiler.start()
+                    mark_range = mark_start_range(message=profile_name, color=color)
+
+                result = func(self, *args, **kwargs)
+
+                if self.profile:
+                    mark_end_range(mark_range)
+                    if self.profile_discrete:
+                        torch.cuda.profiler.stop()
+
+                return result
+            return wrapper
+        return decorator

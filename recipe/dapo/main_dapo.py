@@ -15,6 +15,8 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import os
+import socket
 import hydra
 import ray
 
@@ -36,7 +38,17 @@ def run_ppo(config) -> None:
             num_cpus=config.ray_init.num_cpus,
         )
 
-    runner = TaskRunner.remote()
+    if config.trainer.profile_steps:
+        runner = TaskRunner.options(runtime_env={"nsight": {
+            "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+            "cuda-memory-usage": "true",
+            "cuda-graph-trace": "graph",
+            #"capture-range": "nvtx",
+            #"capture-range-end": "stop",
+            #"nvtx-capture": "main_task",
+            "kill": "none"}}).remote()
+    else:
+        runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
 
 
@@ -49,6 +61,8 @@ class TaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
+
+        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
