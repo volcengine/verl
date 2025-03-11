@@ -252,9 +252,15 @@ class vLLMRollout(BaseRollout):
 
 
 class vLLMRolloutWithSelf(vLLMRollout):
-    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
-        super().__init__(actor_module, config, tokenizer, model_hf_config, **kwargs)
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+        super().__init__(model_path, config, tokenizer, model_hf_config, **kwargs)
         self.tokenizer = tokenizer
+
+        query_start = "<|im_start|>user<|im_sep|>"
+        query_end = "<|im_end|><|im_start|>assistant<|im_sep|>"
+
+        self.query_start_id_list = tokenizer.encode(query_start, add_special_tokens=False)
+        self.query_end_id_list = tokenizer.encode(query_end, add_special_tokens=False)
 
     def extract_tool_content_from_string(self, text: str, tag: str = "tool") -> str:
         try:
@@ -372,7 +378,7 @@ class vLLMRolloutWithSelf(vLLMRollout):
                                 prompt_token_ids=curr_input_ids,
                                 use_tqdm=False)
 
-                        curr_output_ids = output[0].token_ids
+                        curr_output_ids = output.outputs[0].token_ids
                         # if curr_output_ids[-1] == self.tokenizer.eos_token_id:
                         #     curr_input_ids += curr_output_ids
                         #     curr_max_tokens -= len(curr_output_ids)
@@ -381,15 +387,18 @@ class vLLMRolloutWithSelf(vLLMRollout):
                         # else:
                         if curr_output_ids[-1] == self.tokenizer.end_of_tool_query_token_id:
                             tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tokenizer.begin_of_tool_query_token_id, self.tokenizer.end_of_tool_query_token_id)
+                            tool_query = self.query_start_id_list + tool_content + self.query_end_id_list
                             with self.update_sampling_params(n=1, max_tokens=curr_max_tokens):
                                 tool_output = self.inference_engine.generate(
                                     prompts=None,  # because we have already convert it to prompt token id
                                     sampling_params=self.sampling_params,
-                                    prompt_token_ids=tool_content,
+                                    prompt_token_ids=tool_query,
                                     use_tqdm=False)
-                            tool_output_ids = tool_output[0].token_ids
+                            tool_output_ids = tool_output.outputs[0].token_ids
+                            tool_output_ids = tool_output_ids[len(tool_query):]
                             tool_output_ids = self.remove_tagged_block(tool_output_ids, self.tokenizer.begin_of_think_token_id, self.tokenizer.end_of_think_token_id)
-
+                            if tool_output_ids[-1] == self.tokenizer.eos_token_id:
+                                tool_output_ids = tool_output_ids[:-1]
 
                             curr_result_mask.extend([1] * len(curr_output_ids))
                             prefix_len = len(curr_output_ids)
