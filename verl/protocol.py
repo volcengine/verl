@@ -195,6 +195,15 @@ class DataProto:
             return 0
 
     def __getitem__(self, item):
+        if isinstance(item, slice):
+            if self.batch is not None:
+                tensor_data = self.batch[item]
+            else:
+                tensor_data = None
+
+            non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
+            return DataProto(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
+
         tensor_data = self.batch[item]
         non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
         return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
