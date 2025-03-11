@@ -177,7 +177,11 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         solution_str = solution_str.split("<|im_start|>assistant<|im_sep|>")[1]
     
     # if there are more than one think tags, return -1 to prevent reward hacking of regex
-    if solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1:
+    invalid_think = solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1
+    incomplete = "<|im_end|>" not in solution_str
+    no_think = "<think>" not in solution_str or "</think>" not in solution_str
+
+    if invalid_think or incomplete or no_think:
         return -1., {"acc_reward": 0., "repetition_penalty_score": 0., "soft_format_reward": 0., "xml_reward": 0.}
 
     # strict_format_reward = strict_format_reward_func([solution_str])[0]
