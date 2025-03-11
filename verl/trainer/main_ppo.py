@@ -15,8 +15,14 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+<<<<<<< HEAD
+=======
+import os
+>>>>>>> fedeee1... remove redundant dependencies
 import hydra
 import ray
+import socket
+from omegaconf import OmegaConf
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
@@ -34,8 +40,17 @@ def run_ppo(config) -> None:
             runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
             num_cpus=config.ray_init.num_cpus,
         )
-
-    runner = TaskRunner.remote()
+    if OmegaConf.select(config.trainer, "profile_steps") is not None and len(OmegaConf.select(config.trainer, "profile_steps")) > 0:
+        runner = TaskRunner.options(runtime_env={"nsight": {
+            "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+            "cuda-memory-usage": "true",
+            "cuda-graph-trace": "graph",
+            #"capture-range": "nvtx",
+            #"capture-range-end": "stop",
+            #"nvtx-capture": "main_task",
+            "kill": "none"}}).remote()
+    else:
+        runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
     # create a timeline trace file to analyze the performance
     timeline_json_file = config.ray_init.get("timeline_json_file", None)
@@ -52,6 +67,8 @@ class TaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
+
+        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
