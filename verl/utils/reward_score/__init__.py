@@ -33,6 +33,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['hiyouga/geometry3k']:
         from . import geo3k
         res = geo3k.compute_score(solution_str, ground_truth)
+    elif data_source in ['setwise-r1']:
+        from . import setwise_r1
+        res = setwise_r1.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
 
