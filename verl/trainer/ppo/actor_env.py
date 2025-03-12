@@ -19,7 +19,9 @@ import uuid
 import numpy as np
 from copy import deepcopy
 
+
 class ActorEnvironment:
+
     def __init__(self, config, actor_rollout_wg, reward_fn):
         self.config = config
         self.actor_rollout_wg = actor_rollout_wg
@@ -48,8 +50,7 @@ class ActorEnvironment:
 
                 del gen_baseline_batch, gen_baseline_output
 
-        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                    dtype=object)
+        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
         # repeat to align with repeated responses in rollout
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         batch = batch.union(gen_batch_output)
