@@ -22,6 +22,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy, Nod
 from ray.experimental.state.api import get_actor
 
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
+from verl.protocol import DataProto, _padding_size_key
 
 __all__ = ['Worker']
 
@@ -37,10 +38,17 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
 
     def func(*args, **kwargs):
         args, kwargs = dispatch_fn(self, *args, **kwargs)
+        padding_count = kwargs.pop(_padding_size_key, 0)
         output = execute_fn(method_name, *args, **kwargs)
         if blocking:
             output = ray.get(output)
         output = collect_fn(self, output)
+        if padding_count > 0:
+            if isinstance(output, DataProto):
+                indices = [i for i in range(len(output))][:-padding_count]
+                output = output.index_select(indices)
+            elif isinstance(output, list):
+                output = output[:-padding_count]
         return output
 
     return func
