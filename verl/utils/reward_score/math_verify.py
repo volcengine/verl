@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from math_verify.metric import math_metric
 from math_verify.parser import LatexExtractionConfig, ExprExtractionConfig
 
