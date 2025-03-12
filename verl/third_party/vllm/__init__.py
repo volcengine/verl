@@ -52,14 +52,12 @@ elif package_version == '0.6.3+rocm624':
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine
     from .vllm_v_0_6_3 import parallel_state
-elif vs.parse(package_version) >= vs.parse('0.6.6.post2.dev252+g8027a724'):
+elif vs.parse(package_version) >= vs.parse('0.7.0'):
     # From 0.6.6.post2 on, vllm supports SPMD inference
     # See https://github.com/vllm-project/vllm/pull/12071
 
     from vllm import LLM
     from vllm.distributed import parallel_state
-    from .vllm_spmd.dtensor_weight_loaders import load_dtensor_weights
-    from .vllm_spmd.hf_weight_loaders import load_hf_weights
 else:
     raise ValueError(
         f'vllm version {package_version} not supported. Currently supported versions are 0.3.1, 0.4.2, 0.5.4, 0.6.3 and 0.7.0+'
