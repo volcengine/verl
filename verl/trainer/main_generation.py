@@ -40,6 +40,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, Ra
 def main(config):
     run_generation(config)
 
+
 def run_generation(config) -> None:
 
     if not ray.is_initialized():
@@ -47,6 +48,7 @@ def run_generation(config) -> None:
         ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
 
     ray.get(main_task.remote(config))
+
 
 @ray.remote(num_cpus=1)
 def main_task(config):
@@ -80,7 +82,7 @@ def main_task(config):
     # real_batch_size = data.batch['input_ids'].shape[0]
     config_batch_size = config.data.batch_size
     dispatch_dp_size = wg.world_size
-    num_batch = - (-total_samples // config_batch_size)
+    num_batch = -(-total_samples // config_batch_size)
     output_lst = [[] for _ in range(config.data.n_samples)]
 
     for batch_idx in range(num_batch):
