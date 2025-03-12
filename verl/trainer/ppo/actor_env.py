@@ -18,7 +18,6 @@ This is the default ActorEnvironment that performs the rollout and actor update.
 import uuid
 import numpy as np
 from copy import deepcopy
-from .ray_trainer import _timer, reduce_metrics, AdvantageEstimator
 
 class ActorEnvironment:
     def __init__(self, config, actor_rollout_wg, reward_fn):
@@ -27,6 +26,8 @@ class ActorEnvironment:
         self.reward_fn = reward_fn
 
     def step(self, timing_raw, gen_batch):
+        from verl.trainer.ppo.ray_trainer import _timer, AdvantageEstimator
+
         # generate a batch
         with _timer('gen', timing_raw):
             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
@@ -54,6 +55,8 @@ class ActorEnvironment:
         batch = batch.union(gen_batch_output)
 
     def update(self, timing_raw, batch, metrics):
+        from verl.trainer.ppo.ray_trainer import _timer, reduce_metrics
+
         with _timer('update_actor', timing_raw):
             actor_output = self.actor_rollout_wg.update_actor(batch)
         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
