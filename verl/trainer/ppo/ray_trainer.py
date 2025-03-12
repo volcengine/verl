@@ -504,6 +504,7 @@ class RayPPOTrainer(object):
         #    ppo_mini_batch_size is divisible by ppo_micro_batch_size
         #    ppo_micro_batch_size * sequence_parallel_size >= n_gpus
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
+            assert config.actor_rollout_ref.train_batch_size % config.actor_rollout_ref.actor.ppo_mini_batch_size == 0
             sp_size = config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1)
             if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
                 assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
