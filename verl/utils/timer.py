@@ -1,10 +1,20 @@
 import time
 import sys
 
+def convert_to_seconds(time_string):
+    # Split the string into components
+    days, hours, minutes, seconds = map(int, time_string.split(':'))
+
+    # Calculate total seconds
+    total_seconds = days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+    return total_seconds
+
+
 class TimeoutChecker:
-    def __init__(self, initial_interval_hours=4, backoff_minutes=15):
+    def __init__(self, timeout: str = '00:03:45:00'):
         super().__init__()
-        self.last_save_time = initial_interval_hours * 3600 - backoff_minutes * 60
+        self.last_save_time = convert_to_seconds(timeout)
         self.start_time = time.time()
         self.last_saved = False
 
