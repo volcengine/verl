@@ -341,7 +341,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
             local_path = copy_local_path_from_hdfs(self.config.model.path)
             # print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
-            rollout = AsyncRollout(model_path=local_path, config=self.config.rollout)
+            rollout = AsyncRollout(model_path=local_path, config=self.config.rollout, device_mesh=rollout_device_mesh)
             rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
                                                               inference_engine=rollout.engine,
                                                               model_config=self.actor_model_config,

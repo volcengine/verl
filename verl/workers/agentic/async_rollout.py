@@ -9,6 +9,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from sglang.srt.openai_api.adapter import v1_chat_generate_request, v1_chat_generate_response
 from sglang.srt.openai_api.protocol import ChatCompletionRequest
+from torch.distributed import DeviceMesh
 
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
@@ -24,26 +25,37 @@ def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
     return token_ids
 
 class AsyncRollout(BaseRollout):
-    def __init__(self, model_path, config: DictConfig):
+    def __init__(self, model_path, config: DictConfig, device_mesh: DeviceMesh):
         super().__init__()
         torch.distributed.barrier()
         # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
+        # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        self.tp_rank = device_mesh.get_local_rank(1)
+        print(f"in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}")
+        cuda_visible_devices = os.environ.pop("CUDA_VISIBLE_DEVICES")
         self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
-        self.engine = sgl.Engine(
-            model_path=model_path,
-            # cpu_offload_gb=500,
-            port=40000,
-            dtype=config.dtype,
-            max_total_tokens=self.total_len,
-            max_prefill_tokens=self.total_len,
-            enable_memory_saver=True,
-            mem_fraction_static=config.gpu_memory_utilization,
-        )
-        print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
-        self.engine.release_memory_occupation()
-        print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
+        torch.distributed.barrier()
+        # print(f"nodedup in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}")
+        if self.tp_rank == 0:
+            self.engine = sgl.Engine(
+                model_path=model_path,
+                port=40000,
+                dtype=config.dtype,
+                max_total_tokens=self.total_len,
+                max_prefill_tokens=self.total_len,
+                # enable_memory_saver=True,
+                mem_fraction_static=config.gpu_memory_utilization,
+                tp_size=device_mesh.size(1),
+                base_gpu_id=device_mesh.get_rank(),
+            )
+            print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
+            self.engine.release_memory_occupation()
+            print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
+        else:
+            self.engine = None
+        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
         torch.distributed.barrier()
         self.config = config
         self.task_type = config.task_type
@@ -53,7 +65,11 @@ class AsyncRollout(BaseRollout):
         })
         self.event_loop = asyncio.get_event_loop()
 
-    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+    def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto | None:
+        print(f"nodedup in generate seq {torch.distributed.get_rank()=} {self.tp_rank=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
+        if self.tp_rank != 0:
+            return None
+
         sampling_params = self.sampling_params.copy()
         sampling_params.update(kwargs)
         tokenizer = self.engine.tokenizer_manager.tokenizer
