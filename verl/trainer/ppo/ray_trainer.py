@@ -934,7 +934,7 @@ class RayPPOTrainer(object):
 
                 with _timer('step', timing_raw):
                     # generate a batch with actor
-                    self.actor_environment.step(timing_raw, gen_batch)
+                    batch = self.actor_environment.step(timing_raw, gen_batch)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -1000,7 +1000,7 @@ class RayPPOTrainer(object):
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
-                        self.actor_environment.update(timing_raw, batch, metrics)
+                        actor_output = self.actor_environment.update(timing_raw, batch, metrics)
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
