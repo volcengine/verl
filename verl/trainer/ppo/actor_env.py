@@ -54,6 +54,8 @@ class ActorEnvironment:
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         batch = batch.union(gen_batch_output)
 
+        return batch
+
     def update(self, timing_raw, batch, metrics):
         from verl.trainer.ppo.ray_trainer import _timer, reduce_metrics
 
@@ -61,3 +63,5 @@ class ActorEnvironment:
             actor_output = self.actor_rollout_wg.update_actor(batch)
         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
         metrics.update(actor_output_metrics)
+
+        return actor_output
