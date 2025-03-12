@@ -454,7 +454,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache()
+
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -532,8 +532,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -843,7 +841,7 @@ class CriticWorker(Worker):
             offload_fsdp_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache()
+
         output = output.to('cpu')
         return output
 
