@@ -63,7 +63,7 @@ class FlopsCounter:
 
     def __init__(self, config: PretrainedConfig):
         if not config.model_type in VALID_CONFIG_TYPE:
-            print(f"Only support config type of {VALID_CONFIG_TYPE}, but got {self.config.model_type}. "
+            print(f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. "
                   f"MFU will always be zero.")
 
         self.estimate_func = {
