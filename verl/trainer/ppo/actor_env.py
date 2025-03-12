@@ -21,13 +21,26 @@ from copy import deepcopy
 
 
 class ActorEnvironment:
-
     def __init__(self, config, actor_rollout_wg, reward_fn):
         self.config = config
         self.actor_rollout_wg = actor_rollout_wg
         self.reward_fn = reward_fn
 
     def step(self, batch, gen_batch, timing_raw):
+        """Performs a rollout step to generate sequences and compute rewards.
+        
+        Generates sequences using the actor model, computes rewards, and prepares training data.
+        For REMAX advantage estimation, additionally generates baseline trajectories without
+        sampling to compute baseline rewards. Handles batching and adds unique identifiers.
+        
+        Args:
+            batch: Input batch containing initial data for rollout
+            gen_batch: Configuration batch for sequence generation
+            timing_raw: Dictionary to store timing metrics
+            
+        Returns:
+            Batch: Enriched batch containing generated sequences, rewards, and metadata
+        """
         from verl.trainer.ppo.ray_trainer import _timer, AdvantageEstimator
 
         # generate a batch
@@ -58,6 +71,19 @@ class ActorEnvironment:
         return batch
 
     def update(self, timing_raw, batch, metrics):
+        """Updates the actor model using collected rollout data.
+        
+        Executes the actor network update based on the provided batch of experiences.
+        Merges training metrics from the update process into the provided metrics dictionary.
+        
+        Args:
+            timing_raw: Dictionary to store timing metrics
+            batch: Training data batch containing experiences from rollout
+            metrics: Dictionary to accumulate training metrics
+            
+        Returns:
+            actor_output: Output from actor update containing updated model and metrics
+        """
         from verl.trainer.ppo.ray_trainer import _timer, reduce_metrics
 
         with _timer('update_actor', timing_raw):
