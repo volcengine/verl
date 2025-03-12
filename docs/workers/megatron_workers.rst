@@ -196,6 +196,6 @@ additional initialization for the Optimizer.
 Context Parallel
 ----------------
 
-Currently we can only use LaMMA and Qwen models implemented in verl, and context parallel is not supported by far.
+Currently we can only use LLaMa and Qwen models implemented in verl, and context parallel is not supported by far.
 
 We are working in progress to support Megatron implementation of GPTModel, with TransformerEngine support. So if the itegration goes well, we can support Ulysses, Ring and AllGather context parallel in the future.
