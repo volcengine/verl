@@ -80,16 +80,12 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:
             self.inference_engine.wake_up()
-            if load_format == 'dtensor':
-                from verl.third_party.vllm import load_dtensor_weights
-                load_dtensor_weights(
-                    params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
-            elif load_format == 'hf':
-                from verl.third_party.vllm import load_hf_weights
-                load_hf_weights(params,
-                                self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
-            else:
-                raise NotImplementedError(f'load_format {load_format} not implemented')
+            world_size = torch.distributed.get_world_size()
+            model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            loaded_params = model.load_weights(
+                ((name, param.full_tensor() if world_size != 1 else param) for name, param in params.items()))
+            logger.info(f"vLLM load wegiths, loaded_params: {len(loaded_params)}")
+
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
