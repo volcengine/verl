@@ -106,7 +106,10 @@ def main_task(config):
         real_batch_size = data.batch['input_ids'].shape[0]
         if real_batch_size % dispatch_dp_size != 0:
             dummy_data_size = dispatch_dp_size - real_batch_size % dispatch_dp_size
-            dummy_data = data[:dummy_data_size]
+            if dummy_data_size <= real_batch_size:
+                dummy_data = data[:dummy_data_size]
+            else:
+                dummy_data = data.repeat(-(-dummy_data_size // real_batch_size))[:dummy_data_size]
             data = DataProto.concat([data, dummy_data])
             print(
                 f'real_batch_size {real_batch_size} is not divisible by dispatch_dp_size {dispatch_dp_size}, add {dummy_data_size} dummy data'
