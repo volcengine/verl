@@ -25,7 +25,7 @@ class ActorEnvironment:
         self.actor_rollout_wg = actor_rollout_wg
         self.reward_fn = reward_fn
 
-    def step(self, timing_raw, gen_batch):
+    def step(self, batch, gen_batch, timing_raw):
         from verl.trainer.ppo.ray_trainer import _timer, AdvantageEstimator
 
         # generate a batch

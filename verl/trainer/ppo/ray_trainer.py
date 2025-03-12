@@ -401,7 +401,7 @@ class RayPPOTrainer(object):
                  processor=None,
                  reward_fn=None,
                  val_reward_fn=None,
-                 actor_environment: ActorEnvironment = ActorEnvironment):
+                 actor_environment=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -776,6 +776,16 @@ class RayPPOTrainer(object):
         self.actor_rollout_wg = all_wg['actor_rollout']
         self.actor_rollout_wg.init_model()
 
+        # initialize actor environment
+        if self.actor_environment is None:
+            self.actor_environment = ActorEnvironment
+
+        self.actor_environment = self.actor_environment(
+            self.config,
+            self.actor_rollout_wg,
+            self.reward_fn,
+        )
+
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
@@ -934,7 +944,7 @@ class RayPPOTrainer(object):
 
                 with _timer('step', timing_raw):
                     # generate a batch with actor
-                    batch = self.actor_environment.step(timing_raw, gen_batch)
+                    batch = self.actor_environment.step(batch, gen_batch, timing_raw)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
