@@ -96,9 +96,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad,
-                                                                                                 position_ids_rmpad,
-                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None,
                                                                                 self.ulysses_sequence_parallel_size)
 
@@ -267,9 +266,14 @@ class DataParallelPPOActor(BasePPOActor):
                 for data in micro_batches:
                     # Support all hardwares
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device()), **data.non_tensor_batch}
+                        data = {
+                            **data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device(
+                                            )),
+                            **data.non_tensor_batch
+                        }
                     else:
-                        data = data.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())  # actor device is cpu when using offload
+                        data = data.to(torch.npu.current_device() if is_npu_available else
+                                       torch.cuda.current_device())  # actor device is cpu when using offload
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']

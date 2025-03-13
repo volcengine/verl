@@ -100,8 +100,9 @@ class ResourcePoolManager:
         """Check if the resource pool can be satisfied in this ray cluster."""
         node_available_resources = ray.state.available_resources_per_node()
         node_available_gpus = {
-            node: node_info.get('NPU', 0) if 'NPU' in node_info else node_info.get('GPU', 0) for
-            node, node_info in node_available_resources.items()}
+            node: node_info.get('NPU', 0) if 'NPU' in node_info else node_info.get('GPU', 0)
+            for node, node_info in node_available_resources.items()
+        }
 
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())
@@ -314,13 +315,13 @@ def compute_data_metrics(batch, use_critic=True):
         'critic/returns/min':
             torch.min(valid_returns).detach().item(),
         **({
-               # values
-               'critic/values/mean': torch.mean(valid_values).detach().item(),
-               'critic/values/max': torch.max(valid_values).detach().item(),
-               'critic/values/min': torch.min(valid_values).detach().item(),
-               # vf explained var
-               'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
-           } if use_critic else {}),
+            # values
+            'critic/values/mean': torch.mean(valid_values).detach().item(),
+            'critic/values/max': torch.max(valid_values).detach().item(),
+            'critic/values/min': torch.min(valid_values).detach().item(),
+            # vf explained var
+            'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
+        } if use_critic else {}),
 
         # response length
         'response_length/mean':
@@ -362,8 +363,7 @@ def compute_timing_metrics(batch, timing_raw):
             f'timing_s/{name}': value for name, value in timing_raw.items()
         },
         **{
-            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in
-            set(num_tokens_of_section.keys(
+            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys(
             )) & set(timing_raw.keys())
         },
     }
@@ -446,8 +446,8 @@ class RayPPOTrainer(object):
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
         elif self.config.algorithm.adv_estimator in [
-            AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
-            AdvantageEstimator.RLOO
+                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+                AdvantageEstimator.RLOO
         ]:
             self.use_critic = False
         else:
@@ -537,6 +537,11 @@ class RayPPOTrainer(object):
             print(
                 f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
             )
+
+        # check eval config
+        if config.actor_rollout_ref.rollout.val_kwargs.do_sample:
+            assert config.actor_rollout_ref.rollout.temperature > 0, \
+                "validation gen temperature should be greater than 0 when enabling do_sample"
 
         print("[validate_config] All configuration checks passed successfully!")
 
@@ -666,9 +671,10 @@ class RayPPOTrainer(object):
                 'eos_token_id': self.tokenizer.eos_token_id,
                 'pad_token_id': self.tokenizer.pad_token_id,
                 'recompute_log_prob': False,
-                'do_sample': False,
+                'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 'validate': True,
             }
+            print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
             # pad to be divisible by dp_size
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
@@ -747,7 +753,8 @@ class RayPPOTrainer(object):
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model,
+            rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel],
+                                          config=self.config.reward_model,
                                           device_name=self.device_name)
             self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
 
@@ -759,7 +766,8 @@ class RayPPOTrainer(object):
         self.wg_dicts = []
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls,
+            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool,
+                                                ray_cls_with_init=worker_dict_cls,
                                                 device_name=self.device_name)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)

@@ -206,12 +206,12 @@ class ActorRolloutRefWorker(Worker):
             else:
                 actor_module_class = AutoModelForCausalLM
 
-            actor_module = actor_module_class.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                torch_dtype=torch_dtype,
-                                                                config=actor_model_config,
-                                                                attn_implementation='flash_attention_2'
-                                                                if is_cuda_available else 'sdpa',
-                                                                trust_remote_code=trust_remote_code)
+            actor_module = actor_module_class.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                torch_dtype=torch_dtype,
+                config=actor_model_config,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
@@ -415,8 +415,6 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -426,7 +424,9 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
+            load_fsdp_optimizer(
+                optimizer=self.actor_optimizer,
+                device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
 
         # Support all hardwares
         data.batch = data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
@@ -472,7 +472,8 @@ class ActorRolloutRefWorker(Worker):
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         # Support all hardwares
-        prompts.batch = prompts.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
+        prompts.batch = prompts.batch.to(
+            torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
         meta_info = {
             'eos_token_id':
                 self.generation_config.eos_token_id
@@ -502,7 +503,6 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -565,7 +565,6 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -695,12 +694,12 @@ class CriticWorker(Worker):
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
             setattr(critic_model_config, 'hidden_dropout', '0')
-            critic_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            torch_dtype=torch_dtype,
-                                                                            config=critic_model_config,
-                                                                            attn_implementation='flash_attention_2'
-                                                                            if is_cuda_available else 'sdpa',
-                                                                            trust_remote_code=trust_remote_code)
+            critic_module = AutoModelForTokenClassification.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                torch_dtype=torch_dtype,
+                config=critic_model_config,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -789,8 +788,6 @@ class CriticWorker(Worker):
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
 
@@ -822,7 +819,9 @@ class CriticWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
-            load_fsdp_optimizer(optimizer=self.critic_optimizer, device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
+            load_fsdp_optimizer(
+                optimizer=self.critic_optimizer,
+                device_id=torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -956,12 +955,12 @@ class RewardModelWorker(Worker):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(model_config, 'classifier_dropout', 0.)
-            reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                                            config=model_config,
-                                                                            torch_dtype=torch.bfloat16,
-                                                                            attn_implementation='flash_attention_2'
-                                                                            if is_cuda_available else 'sdpa',
-                                                                            trust_remote_code=trust_remote_code)
+            reward_module = AutoModelForTokenClassification.from_pretrained(
+                pretrained_model_name_or_path=local_path,
+                config=model_config,
+                torch_dtype=torch.bfloat16,
+                attn_implementation='flash_attention_2' if is_cuda_available else 'sdpa',
+                trust_remote_code=trust_remote_code)
             reward_module.to(torch.bfloat16)
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
@@ -987,7 +986,6 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from verl.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1125,7 +1123,8 @@ class RewardModelWorker(Worker):
             rm_data = self._switch_chat_template(data)
 
         # Support all hardwares
-        rm_data.batch = rm_data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
+        rm_data.batch = rm_data.batch.to(
+            torch.npu.current_device() if is_npu_available else torch.cuda.current_device())
 
         # perform forward computation
         with self.ulysses_sharding_manager:
@@ -1160,5 +1159,4 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.npu.empty_cache() if is_npu_available else torch.cuda.empty_cache()
         return output
