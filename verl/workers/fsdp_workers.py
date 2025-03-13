@@ -115,6 +115,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.size() // self.ulysses_sequence_parallel_size)
+            assert self.config.actor.ppo_mini_batch_size > 0, f'ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than 0 after normalization'
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (self.device_mesh.size() //
@@ -454,7 +455,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache()
+
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -532,8 +533,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -843,7 +842,7 @@ class CriticWorker(Worker):
             offload_fsdp_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache()
+
         output = output.to('cpu')
         return output
 

@@ -25,7 +25,7 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-Image and tag: ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3``. See files under ``docker/`` for NGC-based image or if you want to build your own.
+Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6``. See files under ``docker/`` for NGC-based image or if you want to build your own.
 
 1. Launch the desired Docker image:
 
@@ -42,27 +42,36 @@ Image and tag: ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`
     git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
     # or install from pypi via `pip3 install verl`
 
+.. note::
+    
+    The Docker image is built with the following configurations:
 
-3. Setup Megatron (optional)
+    - **PyTorch**: 2.4.0+cu124
+    - **CUDA**: 12.4
+    - **Megatron-LM**: core_r0.11.0
+    - **vLLM**: 0.6.3
+    - **Ray**: 2.10.0
+    - **TransformerEngine**: 2.0.0+754d2a0
 
-If you want to enable training with Megatron, Megatron code must be added to PYTHONPATH:
+    Now verl has been **compatible to Megatron-LM core_r0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM core_r0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM, like this docker image.
+    
+    If you must use Megatron-LM **core_r0.4.0**, please refer to the old docker image version ``verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3`` in the `Docker Hub Repo: verlai/verl <https://hub.docker.com/r/verlai/verl/tags>`_, and apply the patches in the ``verl/patches`` folder.
 
-.. code:: bash
+    .. code-block:: bash
 
-    cd ..
-    git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
-    cp verl/patches/megatron_v4.patch Megatron-LM/
-    cd Megatron-LM && git apply megatron_v4.patch
-    pip3 install -e .
-    export PYTHONPATH=$PYTHONPATH:$(pwd)
+        cd ..
+        git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+        cp verl/patches/megatron_v4.patch Megatron-LM/
+        cd Megatron-LM && git apply megatron_v4.patch
+        pip3 install -e .
+        export PYTHONPATH=$PYTHONPATH:$(pwd)
+    
+    Or refer to patched Megatron-LM **core_r0.4.0**:
 
+    .. code-block:: bash
 
-You can also get the Megatron code after verl's patch via
-
-.. code:: bash
-
-    git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
-    export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
+        git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
+        export PYTHONPATH=$PYTHONPATH:$(pwd)/Megatron-LM
 
 Install from custom environment
 ---------------------------------
@@ -97,18 +106,12 @@ Megatron is optional. It's dependencies can be setup as below:
        git+https://github.com/NVIDIA/apex
 
    # transformer engine
-   pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@v1.7
+   pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@stable
 
    # megatron core v0.4.0: clone and apply the patch
    # You can also get the patched Megatron code patch via
    # git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
    cd ..
-   git clone -b core_v0.4.0 https://github.com/NVIDIA/Megatron-LM.git
+   git clone -b core_v0.11.0 https://github.com/NVIDIA/Megatron-LM.git
    cd Megatron-LM
-   cp ../verl/patches/megatron_v4.patch .
-   git apply megatron_v4.patch
    pip3 install -e .
-   export PYTHONPATH=$PYTHONPATH:$(pwd)
-
-
-.. [1] Megatron v0.4 is supported with verl's patches to fix issues such as virtual pipeline hang. It will be soon updated with latest the version of upstream Megatron-LM without patches.
