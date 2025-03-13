@@ -451,14 +451,12 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
         else:
             assert worker_cls == cls.cls.__ray_actor_class__.__base__, \
                 'the worker class should be the same when share the same process'
-        # e.g cls["ref"] = <verl.workers.fsdp_workers.ActorClass(ActorRolloutRefWorker) object at 0x7f3868b56470>
         cls_dict[key] = cls.cls
         init_args_dict[key] = {'args': cls.args, 'kwargs': cls.kwargs}
 
     assert cls_dict.keys() == init_args_dict.keys()
 
     # TODO: create a class with customizable name
-    # cuz megatron worker is different from FSDP worker
     class WorkerDict(worker_cls):
 
         def __init__(self):

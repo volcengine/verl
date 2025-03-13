@@ -9,6 +9,7 @@ from transformers import GenerationConfig
 
 from verl.utils.torch_functional import pad_sequence_to_length
 
+
 def levenshtein(s1, s2):
     m, n = len(s1), len(s2)
     # Initialize matrix of zeros
@@ -28,6 +29,7 @@ def levenshtein(s1, s2):
                 dp[i - 1][j - 1] + cost  # Substitution
             )
     return dp[m][n]
+
 
 def are_lists_similar(a, b):
     if len(a) != len(b):
@@ -49,6 +51,7 @@ def are_lists_similar(a, b):
 
     return percentage_difference <= 10
 
+
 def initialize_global_process_group(timeout_second=36000):
     from datetime import timedelta
 
@@ -65,6 +68,7 @@ def initialize_global_process_group(timeout_second=36000):
     if torch.distributed.is_initialized():
         torch.cuda.set_device(local_rank)
     return local_rank, rank, world_size
+
 
 def test_sglang_spmd():
     assert torch.cuda.device_count() >= 2, 'At least 2 GPUs is required to run tp+dp tests.'
@@ -97,19 +101,17 @@ def test_sglang_spmd():
     actor_model = AutoModelForCausalLM.from_pretrained(local_model_path)
     actor_model.to(torch.bfloat16)
 
-    sampling_params = dict(
-        n=1,
-        temperature=0,
-        top_p=1,
-        top_k=-1,
-        max_new_tokens=max_response_length,
-        presence_penalty=0.0, 
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        skip_special_tokens=True,
-        spaces_between_special_tokens=True,
-        ignore_eos=False
-    )
+    sampling_params = dict(n=1,
+                           temperature=0,
+                           top_p=1,
+                           top_k=-1,
+                           max_new_tokens=max_response_length,
+                           presence_penalty=0.0,
+                           frequency_penalty=0.0,
+                           repetition_penalty=1.0,
+                           skip_special_tokens=True,
+                           spaces_between_special_tokens=True,
+                           ignore_eos=False)
 
     tensor_parallel_size = 4
     device_mesh_kwargs = dict(mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"])
@@ -119,15 +121,13 @@ def test_sglang_spmd():
         if k in os.environ:
             del os.environ[k]
     print('building sglang rollout engine')
-    llm = VerlEngine(
-        model_path=local_model_path,
-        dtype="bfloat16",
-        mem_fraction_static=0.5,
-        device_mesh_cpu=inference_device_mesh_cpu["tp"],
-        base_gpu_id=0,
-        gpu_id_step=1
-    )
-    
+    llm = VerlEngine(model_path=local_model_path,
+                     dtype="bfloat16",
+                     mem_fraction_static=0.5,
+                     device_mesh_cpu=inference_device_mesh_cpu["tp"],
+                     base_gpu_id=0,
+                     gpu_id_step=1)
+
     llm.release_memory_occupation()
     print("start generation")
     input_ids = input_ids.cuda()
@@ -157,11 +157,7 @@ def test_sglang_spmd():
     idx_list = []
     batch_size = input_ids.shape[0]
 
-    pad_token_id = (
-        tokenizer.pad_token_id
-        if tokenizer.pad_token_id is not None
-        else tokenizer.eos_token_id
-    )
+    pad_token_id = (tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id)
     for i in range(batch_size):
         idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
 
@@ -178,11 +174,10 @@ def test_sglang_spmd():
         f"Strings differ more than 10%:\n"
     print("Check Pass")
 
+
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor):
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
-    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][
-        0
-    ]
+    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids

@@ -35,9 +35,7 @@ if TYPE_CHECKING:
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
-    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][
-        0
-    ]
+    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
@@ -62,18 +60,10 @@ def _post_process_outputs(tokenizer, output):
     for output_token_ids, log_probs in out_map:
         batched_output_token_ids.append(output_token_ids)
         batched_logprobs.append(log_probs)
-    pad_token_id = (
-        tokenizer.pad_token_id
-        if tokenizer.pad_token_id is not None
-        else tokenizer.eos_token_id
-    )
-    batched_output_token_ids = pad_sequence(
-        batched_output_token_ids, batch_first=True, padding_value=pad_token_id
-    )
+    pad_token_id = (tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id)
+    batched_output_token_ids = pad_sequence(batched_output_token_ids, batch_first=True, padding_value=pad_token_id)
     if len(batched_logprobs) > 0:
-        batched_logprobs = pad_sequence(
-            batched_logprobs, batch_first=True, padding_value=pad_token_id
-        )
+        batched_logprobs = pad_sequence(batched_logprobs, batch_first=True, padding_value=pad_token_id)
     return batched_output_token_ids, batched_logprobs
 
 
@@ -101,18 +91,14 @@ class SGLangRollout(BaseRollout):
 
         del os.environ["CUDA_VISIBLE_DEVICES"]
         if os.environ["ENSURE_CUDA_VISIBLE_DEVICES"]:
-            os.environ["CUDA_VISIBLE_DEVICES"] = os.environ[
-                "ENSURE_CUDA_VISIBLE_DEVICES"
-            ]
+            os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["ENSURE_CUDA_VISIBLE_DEVICES"]
 
-        assert not (
-            not config.enforce_eager and config.free_cache_engine
-        ), "disable CUDA graph (enforce_eager = False) if free cache engine"
+        assert not (not config.enforce_eager and
+                    config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert (
-            tensor_parallel_size <= torch.distributed.get_world_size()
-        ), "tensor parallel size should be less than or equal to the world size"
+        assert (tensor_parallel_size <= torch.distributed.get_world_size()
+               ), "tensor parallel size should be less than or equal to the world size"
 
         if kwargs.get("train_tp", None) is not None:
             # deployed with megatron
@@ -125,10 +111,8 @@ class SGLangRollout(BaseRollout):
                 num_tp_per_train_tp=num_tp_per_train_tp,
             )
 
-        assert (
-            model_hf_config.max_position_embeddings
-            >= config.prompt_length + config.response_length
-        ), "model context length should be greater than total sequence length"
+        assert (model_hf_config.max_position_embeddings >= config.prompt_length +
+                config.response_length), "model context length should be greater than total sequence length"
 
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
@@ -165,13 +149,11 @@ class SGLangRollout(BaseRollout):
         # offload
         self.inference_engine.release_memory_occupation()
 
-        kwargs = dict(
-            n=1,
-            max_new_tokens=config.response_length,
-            presence_penalty = 0.0,
-            frequency_penalty = 0.0,
-            repetition_penalty = 1.0
-        )
+        kwargs = dict(n=1,
+                      max_new_tokens=config.response_length,
+                      presence_penalty=0.0,
+                      frequency_penalty=0.0,
+                      repetition_penalty=1.0)
         # supporting adding any sampling params from the config file
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
@@ -227,7 +209,7 @@ class SGLangRollout(BaseRollout):
             # }
             kwargs = dict(
                 n=1,
-                presence_penalty=0.0, 
+                presence_penalty=0.0,
                 frequency_penalty=0.0,
                 repetition_penalty=1.0,
                 temperature=0,
@@ -265,9 +247,7 @@ class SGLangRollout(BaseRollout):
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
-        delta_position_id = torch.arange(
-            1, response_length + 1, device=position_ids.device
-        )
+        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
 
         # TODO(sgm): fix position_ids on right_pad
@@ -276,9 +256,7 @@ class SGLangRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_eos_mask(
-            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
-        )
+        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
