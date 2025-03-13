@@ -83,6 +83,18 @@ def llama_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> 
             weight_loader(param, loaded_weight)
 
 
+def qwen2_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+    params_dict = dict(vllm_model.named_parameters())
+    for name, loaded_weight in actor_weights.items():
+        if "rotary_emb.inv_freq" in name:
+            continue
+        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
+            continue
+        param = params_dict[name]
+        weight_loader = getattr(param, "weight_loader", default_weight_loader)
+        weight_loader(param, loaded_weight)
+
+
 def llama_megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     params_mapping = [
         # (megatron core gpt model name, vllm model name)
@@ -283,6 +295,7 @@ __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__ = {
     "LlamaForCausalLM": llama_megatron_weight_loader,  # use te backend for open-source megatron
     "LLaMAForCausalLM": llama_megatron_weight_loader,
     "MistralForCausalLM": mistral_megatron_weight_loader,
+    'Qwen2ForCausalLM': qwen2_megatron_weight_loader,
 }
 
 

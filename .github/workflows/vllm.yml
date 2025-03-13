@@ -6,15 +6,22 @@ on:
   push:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
       - .github/workflows/vllm.yml
   pull_request:
     branches:
       - main
+      - v0.2.x
     paths:
       - "**/*.py"
+      - "verl/trainer/config/*.yaml"
       - .github/workflows/vllm.yml
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
 
 jobs:
   vllm:
@@ -45,3 +52,8 @@ jobs:
           pip3 install --upgrade vllm
           cd tests/rollout
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
+      - name: Run QWen 0.5B generation test
+        run: |
+          cd tests/generation
+          bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet
+          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet

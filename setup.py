@@ -35,18 +35,21 @@ install_requires = [
   'pylatexenc',
   'ray>=2.10',
   'tensordict<0.6',
+  'torchdata',
   'transformers',
-  'vllm<=0.6.3.post1',
+  'vllm<=0.6.3',
   'wandb',
 ]
 
 TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
 PRIME_REQUIRES = ['pyext']
+GEO_REQUIRES = ['mathruler']
 GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 
 extras_require = {
   'test': TEST_REQUIRES,
   'prime': PRIME_REQUIRES,
+  'geo': GEO_REQUIRES,
   'gpu': GPU_REQUIRES,
 }
 

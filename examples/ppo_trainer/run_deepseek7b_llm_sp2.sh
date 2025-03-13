@@ -4,7 +4,6 @@ python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=1024 \
-    data.val_batch_size=1312 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     actor_rollout_ref.model.path=deepseek-ai/deepseek-llm-7b-chat \

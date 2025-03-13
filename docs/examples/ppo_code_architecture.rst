@@ -159,8 +159,8 @@ whether it's a model-based RM or a function-based RM
   - Note that the pre-defined ``RewardModelWorker`` only supports models
     with the structure of huggingface
     ``AutoModelForSequenceClassification``. If it's not this model, you
-    need to define your own RewardModelWorker in `FSDP Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/fsdp_workers.py>`_ 
-    and `Megatron-LM Workers <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/workers/megatron_workers.py>`_.
+    need to define your own RewardModelWorker in `FSDP Workers <https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py>`_ 
+    and `Megatron-LM Workers <https://github.com/volcengine/verl/blob/main/verl/workers/megatron_workers.py>`_.
 
 - If it's a function-based RM, the users are required to classified the
   reward function for each datasets.

@@ -146,6 +146,8 @@ def load_fsdp_model_to_gpu(model: FSDP):
 
 @torch.no_grad()
 def offload_fsdp_optimizer(optimizer):
+    if not optimizer.state:
+        return
     for param_group in optimizer.param_groups:
         for param in param_group['params']:
             state = optimizer.state[param]
@@ -156,6 +158,8 @@ def offload_fsdp_optimizer(optimizer):
 
 @torch.no_grad()
 def load_fsdp_optimizer(optimizer, device_id):
+    if not optimizer.state:
+        return
     for param_group in optimizer.param_groups:
         for param in param_group['params']:
             state = optimizer.state[param]

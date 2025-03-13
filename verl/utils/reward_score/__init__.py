@@ -48,6 +48,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
             return float(res)
         else:
             raise NotImplementedError
+    elif data_source in ['hiyouga/geometry3k']:
+        from . import geo3k
+        res = geo3k.compute_score(solution_str, ground_truth)
     else:
         print(f"Unknown data source: {data_source}")
         raise NotImplementedError
