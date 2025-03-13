@@ -18,7 +18,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 import ray
 import hydra
-
+import nvtx
 
 def get_custom_reward_fn(config):
     import importlib.util, os
@@ -57,13 +57,26 @@ def run_ppo(config) -> None:
 
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        ray.init(runtime_env={'env_vars': {"PATH":"$PATH:/home/haoyuan/workspace/sop_yang_workspace/software/nsight/bin",'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
 
     ray.get(main_task.remote(config))
 
 
-@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+# @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+@ray.remote(
+    num_cpus=1,
+    runtime_env={
+        "nsight": {
+            "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+            "cuda-memory-usage": "true",
+            "cuda-graph-trace": "graph",
+            #"capture-range": "nvtx",
+            #"capture-range-end": "stop",
+            #"nvtx-capture": "main_task",
+            "kill": "none"}})
 def main_task(config):
+    nvtx_main_task = nvtx.start_range(message="main_task", color="blue")
+
     from verl.utils.fs import copy_to_local
     # print initial config
     from pprint import pprint
@@ -158,6 +171,7 @@ def main_task(config):
     trainer.init_workers()
     trainer.fit()
 
+    nvtx.end_range(nvtx_main_task)
 
 if __name__ == '__main__':
     main()

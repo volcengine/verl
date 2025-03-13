@@ -24,6 +24,7 @@ from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
+import nvtx
 
 import ray
 import numpy as np
@@ -708,6 +709,7 @@ class RayPPOTrainer(object):
 
         return metric_dict
 
+    @nvtx.annotate()
     def init_workers(self):
         """Init resource pool and worker group"""
         self.resource_pool_manager.create_resource_pool()
@@ -878,6 +880,7 @@ class RayPPOTrainer(object):
                                                     prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
+    @nvtx.annotate()
     def fit(self):
         """
         The training loop of PPO.
@@ -887,6 +890,7 @@ class RayPPOTrainer(object):
         from verl.utils.tracking import Tracking
         from omegaconf import OmegaConf
 
+        nvtx_start_fit = nvtx.start_range(message="start_fit", color="blue")
         logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
@@ -908,13 +912,14 @@ class RayPPOTrainer(object):
 
         # we start from step 1
         self.global_steps += 1
+        nvtx.end_range(nvtx_start_fit)
         last_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
-
+                nvtx_batch = nvtx.start_range(message="batch", color="red")
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
@@ -931,10 +936,13 @@ class RayPPOTrainer(object):
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
+                nvtx.end_range(nvtx_batch)
                 with _timer('step', timing_raw):
                     # generate a batch
+                    nvtx_gen = nvtx.start_range(message="gen", color="green")
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    nvtx.end_range(nvtx_gen)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -968,22 +976,29 @@ class RayPPOTrainer(object):
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                     # recompute old_log_probs
+                    nvtx_old_log_prob = nvtx.start_range(message="old_log_prob", color="yellow")
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
+                    nvtx.end_range(nvtx_old_log_prob)
 
+                    nvtx_ref = nvtx.start_range(message="ref", color="purple")
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer('ref', timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
+                    nvtx.end_range(nvtx_ref)
 
+                    nvtx_values = nvtx.start_range(message="values", color="orange")
                     # compute values
                     if self.use_critic:
                         with _timer('values', timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
+                    nvtx.end_range(nvtx_values)
 
+                    nvtx_compute_advantage = nvtx.start_range(message="compute_advantage", color="red")
                     with _timer('adv', timing_raw):
                         # compute scores. Support both model and function-based.
                         # We first compute the scores using reward model. Then, we call reward_fn to combine
@@ -1012,13 +1027,17 @@ class RayPPOTrainer(object):
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
+                    nvtx.end_range(nvtx_compute_advantage)
 
+                    nvtx_update_critic = nvtx.start_range(message="update_critic", color="red")
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
+                    nvtx.end_range(nvtx_update_critic)
+
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
@@ -1028,6 +1047,7 @@ class RayPPOTrainer(object):
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
+                    nvtx_testing = nvtx.start_range(message="testing", color="red")
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
                         (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
@@ -1036,11 +1056,14 @@ class RayPPOTrainer(object):
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
+                    nvtx.end_range(nvtx_testing)
 
+                    nvtx_save_checkpoint = nvtx.start_range(message="save_checkpoint", color="red")
                     if self.config.trainer.save_freq > 0 and ( is_last_step or \
                             self.global_steps % self.config.trainer.save_freq == 0):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
+                    nvtx.end_range(nvtx_save_checkpoint)
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))

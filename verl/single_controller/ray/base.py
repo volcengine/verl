@@ -270,8 +270,21 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
-                ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, 'name': name})
-
+                # ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, 'name': name})
+                ray_cls_with_init.update_options({
+                    'runtime_env': {'env_vars': env_vars,
+                                    "nsight":
+                                       {
+                                        #"t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+                                        "t": "cuda,nvtx,cublas",
+                                        # "o": "/home/haoyuan/workspace/sop_yang_workspace/rl_framework/verl"
+                                        "cuda-memory-usage": "true",
+                                        "cuda-graph-trace": "graph",
+                                        "capture-range": "cudaProfilerApi",
+                                        "capture-range-end": "repeat-shutdown:6",
+                                        "kill": "none"}
+                                    },
+                    'name': name})
                 if detached:
                     ray_cls_with_init.update_options({'lifetime': 'detached'})
 
