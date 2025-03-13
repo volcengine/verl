@@ -15,7 +15,9 @@
 import os
 import logging
 import torch
+from typing import Dict, Iterable, Union, Tuple
 import numpy as np
+from torch.distributed._tensor import DTensor
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -58,8 +60,14 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                                      state_dict_type=StateDictType.SHARDED_STATE_DICT,
                                      state_dict_config=ShardedStateDictConfig())
 
+        self.world_size = torch.distributed.get_world_size()
         self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
+        # TODO: Current impl doesn't consider FSDP with torch micro-dp
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
+            self.tp_group = vllm_ps.get_tensor_model_parallel_group()
+        else:
+            self.tp_group = vllm_ps.get_tensor_model_parallel_group().device_group
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
@@ -71,6 +79,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
         else:
             self.gen_random_states = None
+
+    def _make_weight_iterator(self, params: Dict[str, Union[torch.Tensor,
+                                                            DTensor]]) -> Iterable[Tuple[str, torch.Tensor]]:
+        for name, tensor in params.items():
+            yield name, tensor.full_tensor() if self.world_size != 1 else tensor
 
     def __enter__(self):
         # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
@@ -92,10 +105,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
         else:
             self.inference_engine.wake_up()
-            world_size = torch.distributed.get_world_size()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            loaded_params = model.load_weights(
-                ((name, param.full_tensor() if world_size != 1 else param) for name, param in params.items()))
+            loaded_params = model.load_weights(self._make_weight_iterator(params))
             logger.info(f"vLLM load wegiths, loaded_params: {len(loaded_params)}")
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
@@ -142,13 +153,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if self.tp_size == 1:
             return data
 
-        # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            group = vllm_ps.get_tensor_model_parallel_group()
-        else:
-            group = vllm_ps.get_tensor_model_parallel_group().device_group
-
-        all_gather_data_proto(data=data, process_group=group)
+        all_gather_data_proto(data=data, process_group=self.tp_group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
