@@ -70,6 +70,15 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.gen_random_states = None
 
     def __enter__(self):
+        # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
+        # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
+        # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory
+        # to speed up memory allocations.
+        #
+        # pytorch: https://pytorch.org/docs/stable/notes/cuda.html#memory-management
+        # vllm: https://github.com/vllm-project/vllm/blob/v0.7.3/vllm/device_allocator/cumem.py#L103
+        torch.cuda.empty_cache()
+
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
         params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
@@ -89,7 +98,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         del params
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
