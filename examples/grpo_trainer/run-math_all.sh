@@ -1,2 +1,0 @@
-examples/grpo_trainer/run_qwen2-7b_math.sh
-examples/grpo_trainer/run_qwen2-7b_math_megatron.sh
