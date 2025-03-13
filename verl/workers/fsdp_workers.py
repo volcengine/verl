@@ -411,8 +411,6 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -498,7 +496,6 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -561,7 +558,6 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -784,8 +780,6 @@ class CriticWorker(Worker):
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
 
@@ -981,7 +975,6 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1154,5 +1147,4 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.cuda.empty_cache()
         return output
