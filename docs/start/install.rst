@@ -22,7 +22,7 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 Install verl-SGLang from scratch
 -------------------------------------
 
-**SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, just ignore the vllm conflicts. And, SGLang support native API for RLHF, do not need to patch a single line of code.**
+**SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.**
 
 The following steps are quick installation guide for verl-SGLang.
 
