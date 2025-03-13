@@ -291,7 +291,7 @@ class MegatronPPOActor(BasePPOActor):
                                                                           cliprange=clip_ratio)
             entropy_loss = vocab_parallel_compute_entropy_loss(logits, eos_mask=response_mask)
             policy_loss = pg_loss - entropy_loss * entropy_coeff
-            
+
             metrics = {}
             if self.config.use_kl_loss:
                 ref_log_prob = data['ref_log_prob']
@@ -304,7 +304,7 @@ class MegatronPPOActor(BasePPOActor):
                 policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                 metrics['actor/kl_loss'] = kl_loss.detach().item()
                 metrics['actor/kl_coef'] = self.config.kl_loss_coef
-            
+
             # return loss and stats
             stats = {
                 'actor/entropy_loss': entropy_loss.detach().item(),
