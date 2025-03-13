@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 from sglang.srt.function_call_parser import FunctionCallParser, Function
 from sglang.srt.openai_api.protocol import Tool
 from torch.distributed import DeviceMesh
+from torch.distributed import DeviceMesh
 
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
@@ -26,6 +27,7 @@ def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig, device_mesh: DeviceMesh):
+
         super().__init__()
         torch.distributed.barrier()
         # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
