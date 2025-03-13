@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
 math_train_path=$HOME/data/math/train.parquet
@@ -17,6 +19,7 @@ python3 -m recipe.prime.main_prime \
     data.val_batch_size=6312 \
     data.max_prompt_length=1024 \
     data.max_response_length=3072 \
+    data.filter_overlong_prompts=True \
     data.filter_accuracy=True \
     data.accuracy_lower_bound=0.2 \
     data.accuracy_upper_bound=0.8 \

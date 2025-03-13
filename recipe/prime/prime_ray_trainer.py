@@ -183,7 +183,8 @@ class RayPRIMETrainer(RayPPOTrainer):
                                          max_prompt_length=self.config.data.max_prompt_length,
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error')
+                                         truncation='error',
+                                         filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False))
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -205,7 +206,8 @@ class RayPRIMETrainer(RayPPOTrainer):
                                        max_prompt_length=self.config.data.max_prompt_length,
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
+                                       truncation='error',
+                                       filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False))
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
