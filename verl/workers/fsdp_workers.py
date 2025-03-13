@@ -115,6 +115,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.size() // self.ulysses_sequence_parallel_size)
+            assert self.config.actor.ppo_mini_batch_size > 0, f'ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than 0 after normalization'
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (self.device_mesh.size() //
@@ -410,8 +411,6 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -454,7 +453,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache()
+
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -497,7 +496,6 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -532,8 +530,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -562,7 +558,6 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -785,8 +780,6 @@ class CriticWorker(Worker):
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
 
@@ -843,7 +836,7 @@ class CriticWorker(Worker):
             offload_fsdp_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache()
+
         output = output.to('cpu')
         return output
 
@@ -982,7 +975,6 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1155,5 +1147,4 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.cuda.empty_cache()
         return output
