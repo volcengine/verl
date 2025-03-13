@@ -19,16 +19,12 @@ from verl.utils.import_utils import (
 )
 
 from .base import BaseShardingManager
-from .fsdp.fsdp_ulysses import FSDPUlyssesShardingManager
+from .fsdp_ulysses import FSDPUlyssesShardingManager
 
 AllGatherPPModel = None
 
 if is_megatron_core_available() and is_vllm_available():
-    from .megatron.megatron_ppmodel import AllGatherPPModel
-    from .megatron.megatron_vllm import MegatronVLLMShardingManager
-elif is_megatron_core_available() and is_sglang_available():
-    from .megatron.megatron_ppmodel import AllGatherPPModel
-    from .megatron.megatron_sglang import MegatronSGLangShardingManager
+    from .megatron_vllm import AllGatherPPModel, MegatronVLLMShardingManager
 elif AllGatherPPModel is not None:
     pass
 else:
@@ -36,7 +32,7 @@ else:
     MegatronVLLMShardingManager = None
 
 if is_vllm_available():
-    from .fsdp.fsdp_vllm import FSDPVLLMShardingManager
+    from .fsdp_vllm import FSDPVLLMShardingManager
 else:
     FSDPVLLMShardingManager = None
 
