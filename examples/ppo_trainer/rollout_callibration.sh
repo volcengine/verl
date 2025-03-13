@@ -1,9 +1,7 @@
 set -x
-
-# 获取命令行参数
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-ENGINE=${1:-sglang}  # 默认为 sglang
-TIME=${2:-$(date +"%Y-%m-%d-%H-%M")}  # 如果没有提供第二个参数，则使用当前时间
+ENGINE=${1:-sglang}
+TIME=${2:-$(date +"%Y-%m-%d-%H-%M")}
 
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
@@ -31,7 +29,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24000 \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
