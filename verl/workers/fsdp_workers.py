@@ -17,7 +17,6 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
-import random
 import warnings
 
 import torch
@@ -38,9 +37,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.workers.agentic.async_rollout import AsyncRollout
 
 from codetiming import Timer
 
@@ -345,7 +342,7 @@ class ActorRolloutRefWorker(Worker):
         elif self.config.rollout.name == "async":
             from verl.workers.agentic.async_rollout import AsyncRollout
             from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
-            local_path = copy_local_path_from_hdfs(self.config.model.path)
+            local_path = copy_to_local(self.config.model.path)
             # print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
             rollout = AsyncRollout(model_path=local_path, config=self.config.rollout, device_mesh=rollout_device_mesh)
             rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,

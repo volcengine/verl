@@ -270,27 +270,30 @@ class DataParallelPPOActor(BasePPOActor):
                 for data in micro_batches:
                     if isinstance(data, DataProto):
                         data = {**data.batch.cuda(), **data.non_tensor_batch}
-                    else:data = data.cuda()  # actor device is cpu when using offload
-                responses = data['responses']
-                response_length = responses.size(1)
-                attention_mask = data['attention_mask']
+                    else:
+                        data = data.cuda()  # actor device is cpu when using offload
+                    responses = data['responses']
+                    response_length = responses.size(1)
+                    attention_mask = data['attention_mask']
 
-                # assert self.config.get('multi_turn') == True
-                if self.config.get('multi_turn', False):
-                    # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
-                    loss_mask = data['loss_mask']
-                    response_mask = loss_mask[:, -response_length:]
-                else:
-                    # only align single-turn
-                    response_mask = attention_mask[:, -response_length:]
-                old_log_prob = data['old_log_probs']
-                advantages = data['advantages']
+                    # assert self.config.get('multi_turn') == True
+                    if self.config.get('multi_turn', False):
+                        # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
+                        loss_mask = data['loss_mask']
+                        response_mask = loss_mask[:, -response_length:]
+                    else:
+                        # only align single-turn
+                        response_mask = attention_mask[:, -response_length:]
+                    old_log_prob = data['old_log_probs']
+                    advantages = data['advantages']
 
                     clip_ratio = self.config.clip_ratio
                     entropy_coeff = self.config.entropy_coeff
 
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
+
+                    print(f"inside dp actor {loss_mask.shape=} {response_mask.shape=} {response_length=} {responses.shape=} {old_log_prob.shape=} {log_prob.shape=}")
 
                     pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                                   log_prob=log_prob,
@@ -310,23 +313,23 @@ class DataParallelPPOActor(BasePPOActor):
                                                     ref_logprob=ref_log_prob,
                                                     kl_penalty=self.config.kl_loss_type)
                         print("kld.shape", kld.shape)
-                    print("response_mask.shape", response_mask.shape)
-                    kl_loss = masked_mean(kld, response_mask)
+                        print("response_mask.shape", response_mask.shape)
+                        kl_loss = masked_mean(kld, response_mask)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics['actor/kl_loss'] = kl_loss.detach().item()
                         metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
-                if self.config.use_dynamic_bsz:
-                    # relative to the dynamic bsz
-                    loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
-                else:
-                    loss = policy_loss / self.gradient_accumulation
+                    if self.config.use_dynamic_bsz:
+                        # relative to the dynamic bsz
+                        loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
+                    else:
+                        loss = policy_loss / self.gradient_accumulation
 
-                # lurui: check whether the loss is valid, if -inf, somewhere must be wrong
-                print("loss: ", loss)
+                    # lurui: check whether the loss is valid, if -inf, somewhere must be wrong
+                    print("loss: ", loss)
 
-                loss.backward()
+                    loss.backward()
 
                     data = {
                         'actor/entropy_loss': entropy_loss.detach().item(),
