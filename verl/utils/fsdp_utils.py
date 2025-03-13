@@ -112,7 +112,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
 
 
 @torch.no_grad()
-def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
+def offload_fsdp_model_to_cpu(model: FSDP):
     assert isinstance(model, FSDP)
     # lazy init FSDP model
     _lazy_init(model, model)
@@ -128,8 +128,6 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
         assert id(flat_param._local_shard) != id(flat_param.data)
-    if empty_cache:
-        torch.cuda.empty_cache()
 
 
 @torch.no_grad()
