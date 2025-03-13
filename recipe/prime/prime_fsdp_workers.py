@@ -247,8 +247,6 @@ class PRIMERewardModelWorker(Worker):
                                                         lr_scheduler=self.reward_lr_scheduler,
                                                         tokenizer=self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
         data = data.to('cuda')
@@ -321,7 +319,6 @@ class PRIMERewardModelWorker(Worker):
             offload_fsdp_model_to_cpu(self.ref_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.reward_optimizer)
-        torch.cuda.empty_cache()
         output = output.to('cpu')
         return output
 
