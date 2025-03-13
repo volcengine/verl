@@ -138,3 +138,10 @@ def merge_checkpoint(local_dir: str, hf_upload_path: str):
             repo_id=hf_upload_path,
             repo_type="model"
         )
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt_path', type=str, required=True)
+    args = parser.parse_args()
+    merge_checkpoint(args.ckpt_path, None)
