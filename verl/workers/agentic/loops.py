@@ -78,18 +78,20 @@ async def openai_chat_agent_loop(
 
     # start
     start = await start_fn(index)
-    history = start.pop("history")
+    print("start", start)
+    history = start.pop("messages")
+    tools = start.pop("tools")
     sid = start.pop("sid")
     collect_metrics(start, obs_metrics)
 
     # interact
     # TODO: maybe keep track of tokens here, can provide early stopping feature
     for turn in range(max_turns):
-        message = await gen_fn(history)
+        message = await gen_fn({"messages": history, "tools": tools})
         history.append(message)
         obs = await obs_fn(message, sid)
         history += obs.pop("messages")
-        done = obs.pop("done")
+        done = obs.pop("finish")
         collect_metrics(obs, obs_metrics)
         if done:
             break
@@ -125,42 +127,3 @@ async def openai_chat_agent_loop(
         "reward": reward,
         "obs_metrics": obs_metrics,
     }
-
-
-# import traceback
-# from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# async def ids_agent_loop(prompt_ids, gen_fn, obs_fn, max_turns, max_length, sid=None):
-#     done = False
-#     all_ids = prompt_ids
-#     loss_mask = [0] * len(all_ids)
-#     obs_metrics = {}
-#     turn = 0
-#     while not done and len(all_ids) < max_length and turn < max_turns:
-#         action = await gen_fn(all_ids)
-#         all_ids += action
-#         loss_mask += [1] * len(action)
-#         if len(all_ids) >= max_length:
-#             print(f"Too long... {len(all_ids)}, {max_length}")
-#             break
-#         obs = await obs_fn(action, sid)
-#         obs_ids = obs.pop("ids")
-#         all_ids += obs_ids
-#         loss_mask += [0] * len(obs_ids)
-#         done = obs.pop("done")
-#         for k, v in obs.items():
-#             if k not in obs_metrics:
-#                 obs_metrics[k] = v
-#             else:
-#                 obs_metrics[k] += v
-#         turn += 1
-#         await asyncio.sleep(3)
-
-#     if sid: # for swedev postprocessing
-#         await call_postprocess_api(sid)
-
-#     return {
-#         "ids": all_ids[:max_length],
-#         "loss_mask": loss_mask[:max_length],
-#         **obs_metrics,
-#     }

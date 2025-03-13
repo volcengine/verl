@@ -7,6 +7,8 @@ from functools import partial
 import sglang as sgl
 import torch.distributed
 from omegaconf import DictConfig
+from sglang.srt.function_call_parser import FunctionCallParser, Function
+from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.openai_api.adapter import v1_chat_generate_request, v1_chat_generate_response
 from sglang.srt.openai_api.protocol import ChatCompletionRequest
 from torch.distributed import DeviceMesh
@@ -89,24 +91,33 @@ class AsyncRollout(BaseRollout):
             return tokenizer.encode(text)
 
         async def gen_chat(request):
-            tokenizer_manager = self.engine.tokenizer_manager
-            all_requests = [ChatCompletionRequest(**request)]
-            adapted_request, request = v1_chat_generate_request(all_requests, tokenizer_manager)
+            tools = request.get("tools", [])
+            if torch.distributed.get_rank() == 0:
+                print(f"generating request: {request}")
+            ids = tokenizer.apply_chat_template(request["messages"], tools=tools, tokenize=True)
             try:
-                ret = await tokenizer_manager.generate_request(adapted_request).__anext__()
+                ret = await self.engine.async_generate(input_ids=ids, sampling_params=sampling_params)
             except ValueError as e:
                 print(f"Error generating chat: {e}")
                 raise
-            if not isinstance(ret, list):
-                ret = [ret]
 
-            message = v1_chat_generate_response(
-                request,
-                ret,
-                cache_report=tokenizer_manager.server_args.enable_cache_report,
-                tool_call_parser=tokenizer_manager.server_args.tool_call_parser,
-                to_file=True,
-            )[0]["body"]["choices"]["message"]
+            message = {
+                "role": "assistant",
+            }
+
+            if tools:
+                parser = FunctionCallParser(tools=[Tool.model_validate(tool) for tool in tools], tool_call_parser="qwen25")
+                normal_text, info_list = parser.parse_non_stream(ret["text"])
+                message["content"] = normal_text
+                message["tool_calls"] = [{
+                    "id": str(info.tool_index),
+                    "function": {
+                        "name": info.name,
+                        "arguments": info.parameters,
+                    }
+                } for info in info_list]
+            else:
+                message["content"] = ret["text"]
 
             return message
 
@@ -118,11 +129,13 @@ class AsyncRollout(BaseRollout):
         dr_storage_sid2seq = {}
 
         async def dr_start(index):
+            index = index % len(input_ids)
             dr_storage_sid2seq[index] = []
             return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
 
         async def dr_obs(action_ids, sid, tokenizer, **_):
             # find <|observation|> token part
+            sid = sid % len(input_ids)
             dr_storage_sid2seq[sid].extend(action_ids)
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
@@ -164,6 +177,8 @@ class AsyncRollout(BaseRollout):
 
         async def dr_end(sid, _):
             # currently for dr sid == index
+            sid = sid % len(input_ids)
+            print(f"nodedup {sid=} {len(prompts)=} {n=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
             data_item = prompts[sid // n]
             from verl.utils.reward_score import _default_compute_score
             prompt_ids = data_item.batch['input_ids']
@@ -208,23 +223,25 @@ class AsyncRollout(BaseRollout):
         # choose function set
         # TODO: maybe in init is better, but some functions are local
         # TODO: partial is not the best way to pass arguments
+        url = "http://60.165.239.101:5002/api"
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
             "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dr_end),
             "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
-            "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url="todo"), gen_chat, partial(openai_chat_obs, url="todo"), partial(openai_chat_end, url="todo")),
+            "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url=url), gen_chat, partial(openai_chat_obs, url=url), partial(openai_chat_end, url=url)),
         }[self.task_type]
 
         # starting rollout
         device = input_ids.device
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [loop_fn(
-            index=i,
+            index=torch.distributed.get_rank() * len(input_ids) + i,
             start_fn=start_fn,
             gen_fn=gen_fn,
             obs_fn=obs_fn,
             end_fn=end_fn,
             max_turns=self.config.max_turns,
             max_length=self.total_len,
+            tokenizer=tokenizer,
         ) for i in list(range(len(input_ids)))]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
