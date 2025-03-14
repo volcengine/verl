@@ -236,15 +236,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
 
     def _build_rollout(self):
-        rollout_name = self.config.rollout.name
-        if rollout_name in ('vllm', 'sglang'):
+        if self.config.rollout.name == 'vllm':
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            from verl.workers.sharding_manager import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
-            if rollout_name == 'vllm':
-                from verl.workers.rollout.vllm_rollout import vLLMRollout as Rollout
-                from verl.workers.sharding_manager import MegatronVLLMShardingManager as MegatronShardingManager
-            elif rollout_name == 'sglang':
-                from verl.workers.rollout.sglang_rollout import SGLangRollout as Rollout
-                from verl.workers.sharding_manager import MegatronSGLangShardingManager as MegatronShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
@@ -275,10 +270,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After building vllm rollout', logger=logger)
 
             # perform weight resharding between actor and rollout
-            sharding_manager = MegatronShardingManager(module=self.hybrid_engine,
-                                                       inference_engine=rollout.inference_engine,
-                                                       model_config=self.actor_model_config,
-                                                       layer_name_mapping=layer_name_mapping)
+            sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
+                                                           inference_engine=rollout.inference_engine,
+                                                           model_config=self.actor_model_config,
+                                                           layer_name_mapping=layer_name_mapping)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
             NotImplementedError('Only vllmRollout is supported with Megatron now')
