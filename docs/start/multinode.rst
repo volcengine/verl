@@ -1,6 +1,10 @@
 Multinode Training
 ==================
 
+.. _wuxibin89: https://github.com/wuxibin89
+
+Author: `Xibin Wu <https://github.com/wuxibin89>`_
+
 Manual
 ------
 
@@ -11,21 +15,21 @@ Set up multinode ray cluster
 - GCS address: ``ray start --address=<address>``, where worker node should connect to.
 - Dashboard address: ``<address>:8265``, where you should submit job to the cluster.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/head.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/head.png?raw=true
 
 2. Start worker node with ``ray start --address=<address>`` you get above.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/worker.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/worker.png?raw=true
 
 3. Now you should see the cluster have 2 nodes with ``ray status``.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/status.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/status.png?raw=true
 
 4. Additionally, you can access dashboard in the browser with the address you get above. 
 
 *Firewall rules maybe need configure to access the dashboard, if there's any trouble, please contact your network administrator.*
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/overview.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/overview.png?raw=true
 
 Submit job to ray cluster
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -42,7 +46,7 @@ Submit job to ray cluster
         trainer.nnodes=2 \
         ...
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/submit.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/submit.png?raw=true
 
 2. Then you can check the job status with the following commands:
 
@@ -55,8 +59,8 @@ Submit job to ray cluster
 
 4. We strongly recommend you to view job detail from dashboard in multinode training, because it provide more structure way to view the job information.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/job.png?raw=true
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/job_detail.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job_detail.png?raw=true
 
 
 Slurm
@@ -79,7 +83,7 @@ Legacy Ray Debugger
 
 2. Set up breakpoint in your code, and submit job to cluster. Then run ``ray debug`` to wait breakpoint:
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/legacy.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/legacy.png?raw=true
 
 Ray Distributed Debugger VSCode Extension
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -88,8 +92,8 @@ Ray Distributed Debugger VSCode Extension
 
 *NOTE: Don't forget remove RAY_DEBUG=legacy and --ray-debugger-external in ray start*
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/debugger.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/debugger.png?raw=true
 
 2. Set up breakpoint in your code, and submit job to cluster. Then the extension will show the breakpoint information.
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/breakpoint.png?raw=true
+.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/breakpoint.png?raw=true
