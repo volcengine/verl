@@ -155,6 +155,9 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
+    ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
+    batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
@@ -172,8 +175,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
-        overlap_p2p_comm=True,
-        batch_p2p_comm=False,
+        overlap_p2p_comm=overlap_p2p_comm,
+        batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
         params_dtype=dt,
         sequence_parallel=True,
