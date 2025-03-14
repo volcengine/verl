@@ -317,27 +317,27 @@ class ActorRolloutRefWorker(Worker):
             local_path = copy_to_local(self.config.model.path)
             if vllm_mode == 'customized':
                 rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
-                                        config=self.config.rollout,
-                                        tokenizer=self.tokenizer,
-                                        model_hf_config=self.actor_model_config)
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config)
             elif vllm_mode == 'spmd':
                 rollout = vLLMRollout(model_path=local_path,
-                                        config=self.config.rollout,
-                                        tokenizer=self.tokenizer,
-                                        model_hf_config=self.actor_model_config,
-                                        device_mesh=rollout_device_mesh)
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config,
+                                      device_mesh=rollout_device_mesh)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
-                                                        inference_engine=rollout.inference_engine,
-                                                        model_config=self.actor_model_config,
-                                                        full_params='hf' in self.config.rollout.load_format,
-                                                        device_mesh=rollout_device_mesh)
+                                                               inference_engine=rollout.inference_engine,
+                                                               model_config=self.actor_model_config,
+                                                               full_params='hf' in self.config.rollout.load_format,
+                                                               device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
-            
+
         elif rollout_name == 'sglang':
             from verl.workers.rollout.sglang_rollout import SGLangRollout
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
@@ -356,10 +356,10 @@ class ActorRolloutRefWorker(Worker):
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPSGLangShardingManager(module=self.actor_module_fsdp,
-                                                        inference_engine=rollout.inference_engine,
-                                                        model_config=self.actor_model_config,
-                                                        full_params='hf' in self.config.rollout.load_format,
-                                                        device_mesh=rollout_device_mesh)
+                                                                 inference_engine=rollout.inference_engine,
+                                                                 model_config=self.actor_model_config,
+                                                                 full_params='hf' in self.config.rollout.load_format,
+                                                                 device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
