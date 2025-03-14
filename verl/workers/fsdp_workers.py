@@ -422,9 +422,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
-        # Support all hardwares
-        data.batch = data.batch.to(torch.cuda.current_device())
-
         log_gpu_memory_usage('Before update policy', logger=logger)
 
         with self.ulysses_sharding_manager:
@@ -465,8 +462,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        # Support all hardwares
-        prompts.batch = prompts.batch.to(torch.cuda.current_device())
         meta_info = {
             'eos_token_id':
                 self.generation_config.eos_token_id
