@@ -92,8 +92,8 @@ PYTHONUNBUFFERED=1 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
     trainer.logger=['console'] \
     +trainer.val_before_train=False \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=4 \
-    trainer.nnodes=1 \
+    trainer.n_gpus_per_node="${SLURM_GPUS_PER_NODE}" \
+    trainer.nnodes="${SLURM_NNODES}" \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
     trainer.total_epochs=15 2>&1 | tee verl_demo_slurm.log
