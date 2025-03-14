@@ -32,6 +32,7 @@ verl is fast with:
 
    start/install
    start/quickstart
+   start/multinode
 
 .. toctree::
    :maxdepth: 4
