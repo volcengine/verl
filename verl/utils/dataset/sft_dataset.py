@@ -147,7 +147,7 @@ class SFTDataset(Dataset):
         elif sequence_length > self.max_length:
             if self.truncation == 'left':
                 # actually, left truncation may not be reasonable
-                tokens_to_remove = sequence_length - max_length
+                truncated_prompt_length = sequence_length - max_length
                 prompt_length = max(0, prompt_length - tokens_to_remove)
                 input_ids = input_ids[-self.max_length:]
                 attention_mask = attention_mask[-self.max_length:]
