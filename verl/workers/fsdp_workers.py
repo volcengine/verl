@@ -277,8 +277,10 @@ class ActorRolloutRefWorker(Worker):
                                           weight_decay=optim_config.get('weight_decay', 1e-2))
 
             total_steps = optim_config.get('total_training_steps', 0)
-            num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)
-            num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+            num_warmup_steps = int(optim_config.get('lr_warmup_steps', -1))
+            if num_warmup_steps < 0:
+                num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)
+                num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
             print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
@@ -739,8 +741,10 @@ class CriticWorker(Worker):
                                        weight_decay=config.optim.get('weight_decay', 1e-2))
 
         total_steps = config.optim.get('total_training_steps', 0)
-        num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
-        num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+        num_warmup_steps = int(config.optim.get('lr_warmup_steps', -1))
+        if num_warmup_steps < 0:
+            num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
+            num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
