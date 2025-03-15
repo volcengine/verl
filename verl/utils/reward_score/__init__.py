@@ -25,6 +25,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
         from . import math_verify
         res = math_verify.compute_score(solution_str, ground_truth)
+    elif data_source == 'rule-lighteval/MATH_v2':
+        from . import math_v2
+        res = math_v2.compute_score
     elif data_source in [
             'numina_aops_forum', 'numina_synthetic_math', 'numina_amc_aime', 'numina_synthetic_amc', 'numina_cn_k12',
             'numina_olympiads'
