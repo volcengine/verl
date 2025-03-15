@@ -46,6 +46,7 @@ actor_rollout_ref:
       min_lr_ratio: null   # only useful for warmup with cosine
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
+      weight_decay: 0.01
     fsdp_config:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
@@ -109,6 +110,7 @@ critic:
     min_lr_ratio: null   # only useful for warmup with cosine
     warmup_style: constant  # select from constant/cosine
     total_training_steps: -1  # must be override by program
+    weight_decay: 0.01
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${actor_rollout_ref.model.path}
