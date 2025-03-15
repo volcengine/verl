@@ -165,7 +165,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             print(f'Model config after override: {actor_model_config}')
 
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
-        self.architecture = getattr(actor_model_config, "architecture", None)
+        print(f'actor_model_config.architectures: {actor_model_config.architectures}')
+        self.architectures = getattr(actor_model_config, "architectures", None)
 
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config
@@ -449,7 +450,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
         assert self._is_actor
         from verl.models.weight_loader_registry import get_weight_saver
-        arch = self.architecture[0]  # assume only one element in config architecture
+        arch = self.architectures[0]  # assume only one element in config architecture
         weight_saver = get_weight_saver(arch)
         state_dict = weight_saver(self.actor_module,
                                   self.hf_config,

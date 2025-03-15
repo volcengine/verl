@@ -15,6 +15,7 @@
 Using FSDPTrainer
 """
 import os
+from os.path import expanduser
 
 import hydra
 import ray
@@ -24,7 +25,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
 
 MODEL_PATH = 'Qwen/Qwen2.5-0.5B'
-DATA_PATH = 'data/gsm8k/'
+DATA_PATH = expanduser('~/data/gsm8k')
 SAVE_PATH = '/tmp/checkpoint'
 
 
@@ -154,6 +155,7 @@ def main(config):
     # download the checkpoint from hdfs
     local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
     local_path = os.path.expanduser(local_path)
+    print(f'local_path: {local_path}')
     # instantiate tokenizern
     tokenizer = AutoTokenizer.from_pretrained(local_path)
     print(f'Tokenizer vocab_size: {tokenizer.vocab_size}')
@@ -187,7 +189,6 @@ def main(config):
                             reward_fn=reward_fn,
                             val_reward_fn=reward_fn)
     trainer.init_workers()
-    print(f"actor model : {trainer.actor_rollout_wg}")
     trainer.actor_rollout_wg.save_checkpoint(SAVE_PATH)
 
 
