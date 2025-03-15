@@ -97,26 +97,34 @@ class PrimeRewardManager:
         """
         # batched scoring
         prompt_ids = data.batch['prompts']
+        prompt_length = prompt_ids.shape[-1]
+
+        valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
 
         response_ids = data.batch['responses']
-        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+        valid_response_ids = []
+        for i in range(len(data)):
+            valid_response_ids.append(response_ids[i, :valid_response_length[i]])
+
+        response_strs = self.tokenizer.batch_decode(valid_response_ids)
+
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
 
-        assert len(sequences_str) == len(ground_truth) == len(data_sources)
+        assert len(response_strs) == len(ground_truth) == len(data_sources)
         try:
             scores = asyncio.run(
                 parallel_compute_score_async(self.compute_score,
-                                             sequences_str,
+                                             response_strs,
                                              ground_truth,
                                              data_sources,
                                              num_processes=64))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
-            scores = [0. for _ in range(len(sequences_str))]
+            scores = [0. for _ in range(len(response_strs))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
-            scores = [0. for _ in range(len(sequences_str))]
+            scores = [0. for _ in range(len(response_strs))]
         data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
