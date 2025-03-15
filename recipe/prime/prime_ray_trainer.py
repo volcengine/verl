@@ -29,8 +29,8 @@ from omegaconf import OmegaConf, open_dict
 from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _compute_response_info, \
-    _timer
+from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _timer
+from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from . import prime_core_algos

@@ -18,6 +18,7 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import warnings
+import psutil
 
 import torch
 import torch.distributed
@@ -434,7 +435,11 @@ class ActorRolloutRefWorker(Worker):
             delta_time = timer.last
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics[
+                'perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics['perf/max_memory_allocated_gb'] = torch.cuda.max_memory_allocated() / (1024**3)
+            metrics['perf/max_memory_reserved_gb'] = torch.cuda.max_memory_reserved() / (1024**3)
+            metrics['perf/cpu_memory_used_gb'] = psutil.virtual_memory().used / (1024**3)
 
             self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
@@ -822,7 +827,7 @@ class CriticWorker(Worker):
 
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            metrics['perf/mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             self.critic_lr_scheduler.step()
             lr = self.critic_lr_scheduler.get_last_lr()[0]
