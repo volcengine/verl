@@ -16,7 +16,9 @@ from enum import Enum
 from functools import wraps
 from typing import Dict, List, Tuple
 from types import FunctionType
+
 from verl.protocol import DataProtoFuture
+from verl.protocol import _padding_size_key
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = 'attrs_3141562937'
@@ -42,20 +44,44 @@ class Execute(Enum):
     RANK_ZERO = 1
 
 
-def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
+def _split_args_kwargs_data_proto(chunks, *args, __padding_127xcd7=False, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
     splitted_args = []
+    splitted_kwargs = {}
+
+    data_proto_len = None
+    padding_size = None
     for arg in args:
         assert isinstance(arg, (DataProto, DataProtoFuture))
+        if isinstance(arg, DataProto) and __padding_127xcd7 and arg.is_dp_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(arg)
+                padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(arg), (f"expecting all arg share same length of {data_proto_len}, "
+                                                    f"but got {len(arg)}")
+                data_proto_len = len(arg)
+            arg.padding(padding_size=padding_size)
+
         splitted_args.append(arg.chunk(chunks=chunks))
 
-    splitted_kwargs = {}
     for key, val in kwargs.items():
         assert isinstance(val, (DataProto, DataProtoFuture))
+        if isinstance(val, DataProto) and __padding_127xcd7 and val.is_dp_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(val)
+                padding_size = chunks - (data_proto_len % chunks)
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(val), (f"expecting all arg share same length of {data_proto_len}, "
+                                                    f"but got {len(val)}")
+                data_proto_len = len(val)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
-
 
 def dispatch_one_to_all(worker_group, *args, **kwargs):
     args = tuple([arg] * worker_group.world_size for arg in args)
