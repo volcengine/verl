@@ -24,6 +24,7 @@ from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
+from tqdm import tqdm
 
 import ray
 import numpy as np
@@ -777,6 +778,7 @@ class RayPPOTrainer(object):
 
         # we start from step 1
         self.global_steps += 1
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps,desc="Training Progress")
         last_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
@@ -923,6 +925,8 @@ class RayPPOTrainer(object):
 
                 if is_last_step:
                     pprint(f'Final validation metrics: {last_val_metrics}')
+                    progress_bar.close()
                     return
-
+                
+                progress_bar.update(1)
                 self.global_steps += 1
