@@ -362,7 +362,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         delta_time = timer.last
         global_num_tokens = data.meta_info['global_token_num']
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-        metrics['mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+        metrics['perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
 
         log_gpu_memory_usage('After update policy', logger=logger)
 
@@ -645,7 +645,7 @@ class CriticWorker(MegatronWorker):
         delta_time = timer.last
         global_num_tokens = data.meta_info['global_token_num']
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-        metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+        metrics['perf/mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
         output = DataProto(batch=None, meta_info={'metrics': metrics})
         output = output.to('cpu')
         return output
