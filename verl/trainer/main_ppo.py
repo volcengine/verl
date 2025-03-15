@@ -16,6 +16,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
+import os
 import ray
 import hydra
 
@@ -55,6 +56,7 @@ def main(config):
 
 def run_ppo(config) -> None:
 
+    os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get('CUDA_VISIBLE_DEVICES', '')
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(runtime_env={

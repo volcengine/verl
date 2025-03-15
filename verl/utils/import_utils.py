@@ -38,6 +38,15 @@ def is_vllm_available():
         return False
 
 
+@cache
+def is_sglang_available():
+    try:
+        import sglang
+        return True
+    except ImportError:
+        return False
+
+
 def import_external_libs(external_libs=None):
     if external_libs is None:
         return
