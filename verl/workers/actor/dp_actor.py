@@ -322,7 +322,7 @@ class DataParallelPPOActor(BasePPOActor):
                     loss.backward()
 
                     data = {
-                        'actor/entropy_loss': entropy_loss.detach().item(),
+                        'actor/entropy': entropy_loss.detach().item(),
                         'actor/pg_loss': pg_loss.detach().item(),
                         'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                         'actor/ppo_kl': ppo_kl.detach().item(),
