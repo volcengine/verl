@@ -37,7 +37,7 @@ def last_boxed_only_string(string: str) -> Optional[str]:
     i = idx
     right_brace_idx = None
     num_left_braces_open = 0
-    
+
     while i < len(string):
         if string[i] == "{":
             num_left_braces_open += 1
@@ -254,7 +254,10 @@ def verify(solution_str: str, answer: str, strict_box_verify: bool = False,
     return corr
 
 
-def compute_score(solution_str: str, ground_truth: str, config, pause_tokens_index: Optional[list[int]] = None) -> float:
+def compute_score(solution_str: str,
+                  ground_truth: str,
+                  strict_box_verify: bool = False,
+                  pause_tokens_index: Optional[list[int]] = None) -> float:
     """Compute the reward score for a solution.
     
     Args:
@@ -268,14 +271,13 @@ def compute_score(solution_str: str, ground_truth: str, config, pause_tokens_ind
     """
     # Limit solution length for efficiency
     solution_str = solution_str[-300:]  # The longest answer in MATH-500 has 159 characters
-    
+
     # Verify the solution
-    strict_box_verify = config.reward_model.strict_box_verify
     correct = verify(solution_str, ground_truth, strict_box_verify, pause_tokens_index)
 
     reward = 1.0 if correct else -1.0
     acc = correct
-    
+
     return {
         "reward": reward,
         "acc": acc,
