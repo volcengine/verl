@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-pip install "antlr4-python3-runtime==4.11.*"
-
 project_name='puffin'
 exp_name='Qwen2.5-7B-Puffin-Test'
 
+# Ray
+export RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+export RUNTIME_ENV=${RUNTIME_ENV:-"./verl/trainer/runtime_env.yaml"}
+export NNODES=${NNODES:-4}
 # Paths
-MODEL_PATH=${MODEL_PATH:-"${HOME}/verl/models/Qwen2.5-7B"}
-CKPTS_DIR=${CKPTS_DIR:-"${HOME}/verl/ckpts/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${HOME}/verl/data/puffin_train.parquet"}
-TEST_FILE=${TEST_FILE:-"${HOME}/verl/data/puffin_test.parquet"}
+export RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+export MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-7B"}
+export CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+export TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/puffin_train.parquet"}
+export TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/puffin_test.parquet"}
 
 # Algorithm
 ## Train
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
+# TODO
+# force_append_eos=True 
 ## Validation
 val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
+
 
 # Mathematically equivalent
 use_dynamic_bsz=True
@@ -25,7 +31,9 @@ infer_micro_batch_size=null
 train_micro_batch_size=null
 offload=True
 
-python3 -m verl.trainer.main_ppo \
+ray job submit --runtime-env="${RUNTIME_ENV}" \
+    --working-dir "${PWD}" \
+    -- python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -81,7 +89,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=1 \
+    trainer.nnodes="${NNODES}" \
     +trainer.val_before_train=True \
     trainer.test_freq=2 \
     trainer.save_freq=2 \
