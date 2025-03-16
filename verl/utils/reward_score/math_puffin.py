@@ -17,9 +17,6 @@ import re
 import signal
 from typing import Optional
 
-import sympy
-from sympy.parsing.latex import parse_latex
-
 
 def last_boxed_only_string(string: str) -> Optional[str]:
     """Extract the last LaTeX boxed expression from a string.
@@ -81,45 +78,6 @@ class timeout:
 
     def __exit__(self, type, value, traceback):
         signal.alarm(0)
-
-
-def is_equiv(x1: str, x2: str) -> bool:
-    """
-    Args:
-        x1, x2: normalized LaTeX string
-    """
-    try:
-        with timeout(seconds=10):
-            try:
-                parsed_x1 = parse_latex(x1)
-                parsed_x2 = parse_latex(x2)
-            except (
-                    sympy.parsing.latex.errors.LaTeXParsingError,
-                    sympy.SympifyError,
-                    TypeError,
-            ):
-                return False
-
-            try:
-                diff = parsed_x1 - parsed_x2
-            except TypeError:
-                return False
-
-            try:
-                if sympy.simplify(diff) == 0:
-                    return True
-                else:
-                    return False
-            except ValueError:
-                return False
-
-    except TimeoutError:
-        return False
-    except ImportError as e:
-        raise
-    except Exception as e:
-        return False
-
 
 # Constants for normalization
 SUBSTITUTIONS = [
@@ -205,7 +163,7 @@ def is_correct_minerva(solution_str: str, gt: str, gt_need_extract: bool = False
     else:
         gt = normalize_final_answer(gt)
 
-    return (pred == gt or is_equiv(pred, gt)), pred
+    return (pred == gt), pred
 
 
 def is_correct_strict_box(pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None) -> tuple[int, Optional[str]]:
