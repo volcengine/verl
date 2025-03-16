@@ -27,6 +27,7 @@ def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig, device_mesh: DeviceMesh):
+    # def __init__(self, model_path, config: DictConfig):
 
         super().__init__()
         torch.distributed.barrier()

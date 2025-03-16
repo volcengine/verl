@@ -118,7 +118,11 @@ def masked_sum(values, mask, axis=None):
 
 def masked_mean(values, mask, axis=None):
     """Compute mean of tensor with a masked values."""
-    return (values * mask).sum(axis=axis) / mask.sum(axis=axis)
+    mask_sum = mask.sum(axis=axis)
+    if (mask_sum == 0).any():
+        # If mask is all zeros, return zeros with the same shape as the result would have
+        return torch.zeros_like((values * mask).sum(axis=axis))
+    return (values * mask).sum(axis=axis) / mask_sum
 
 
 def masked_var(values, mask, unbiased=True):

@@ -10,6 +10,7 @@ import torch
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.utils import init_custom_process_group
 from tensordict import TensorDict
+from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
@@ -18,6 +19,8 @@ from torch.distributed import ProcessGroup
 
 from verl import DataProto
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors, all_gather_dict_non_tensors,
+                                         broadcast_dict_non_tensor)
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors, all_gather_dict_non_tensors,
                                          broadcast_dict_non_tensor)
 from ..sharding_manager.base import BaseShardingManager
@@ -151,6 +154,7 @@ def broadcast_object_list(
             offset += obj_size
             object_list[i] = _tensor_to_object(obj_view, obj_size, group)
 
+logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'INFO'))
 
 
 class FSDPSGLShardingManager(BaseShardingManager):
@@ -341,6 +345,10 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         torch.distributed.barrier()
+        del st
+        torch.cuda.empty_cache()
+        # torch.distributed.barrier()
+        log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None and "rollout" in self.role:
@@ -351,6 +359,9 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('Before sglang offload in sharding manager', logger=logger)
         if self.device_mesh.get_local_rank(1) == 0 and "rollout" in self.role:
             self.inference_engine.release_memory_occupation()
+        self.inference_engine.release_memory_occupation()
+        # if self.device_mesh.get_local_rank(1) == 0:
+        #     self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage('After sglang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
@@ -380,6 +391,38 @@ class FSDPSGLShardingManager(BaseShardingManager):
             size=self.device_mesh.size(1),
             group=self.device_mesh.get_group(1),
         )
+        data.batch = allgather_dict_tensors(data.batch.contiguous(),
+                                            size=self.device_mesh.size(1),
+                                            group=self.device_mesh.get_group(1),
+                                            dim=0)
+        # tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
+        # tp_rank = self.device_mesh["infer_tp"].get_local_rank()
+
+        # data.batch = allgather_dict_tensors(
+        #     data.batch.contiguous(),
+        #     size=self.device_mesh.size(1),
+        #     group=self.device_mesh.get_group(1),
+        #     dim=0,
+        # )
+        # data.non_tensor_batch = all_gather_dict_non_tensors(
+        #     data.non_tensor_batch,
+        #     size=self.device_mesh.size(1),
+        #     group=self.device_mesh.get_group(1),
+        # )
+
+        # print(f"start preprocess_data {self.device_mesh.get_rank()=} {tp_size=} {tp_rank=}")
+        
+        # data.batch = allgather_dict_tensors(
+        #     data.batch.contiguous(),
+        #     size=self.device_mesh["infer_tp"].mesh.size()[0],
+        #     group=self.device_mesh["infer_tp"].get_group(),
+        #     dim=0,
+        # )
+        # data.non_tensor_batch = all_gather_dict_non_tensors(
+        #     data.non_tensor_batch,
+        #     size=self.device_mesh["infer_tp"].mesh.size()[0],
+        #     group=self.device_mesh["infer_tp"].get_group(),
+        # )
 
         return data
 
@@ -412,8 +455,10 @@ class FSDPSGLShardingManager(BaseShardingManager):
             src=src_rank,
             group=self.device_mesh.get_group(1),
         )
+
         if tp_size > 1:
             # TODO: shall we build a micro_dp group for vllm when integrating with vLLM?
             local_prompts = data.chunk(chunks=tp_size)
+            # data = local_prompts[dp_rank % tp_size]
             data = local_prompts[tp_rank]
         return data

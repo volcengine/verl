@@ -2,8 +2,6 @@ set -x
 
 # for debug
 export HYDRA_FULL_ERROR=1
-export CUDA_LAUNCH_BLOCKING=1
-
 export WANDB_API_KEY=218cc9a2633c3b2303ca4dbc44397b10fa3e9115
 export RAY_DEDUP_LOGS_ALLOW_REGEX="nodedup"
 export VERL_PPO_LOGGING_LEVEL="INFO"
@@ -11,14 +9,18 @@ export VERL_PPO_LOGGING_LEVEL="INFO"
 WANDB_PROJECT=research_rl
 EXP_NAME=$(basename "$0" .sh)
 
-MODEL_PATH=/workspace/deep_research_temp/ckpts/ds_r1_distill_qwen_14B_0310_data_epoch2_0311_train
+MODEL_PATH=/workspace/deep_research_temp/ckpts/ds_r1_distill_qwen_32B_0310_data_epoch2_0312_train
 SAVE_PATH=/workspace/ckpt/lurui_verl/ckpt/$WANDB_PROJECT/$EXP_NAME
 
 CONFIG_ARGS="
     --config-path=$(pwd)/configs \
-    --config-name=qwen14b_sft_async \
+    --config-name=qwen32b_sft_async \
 "
 
+ROLLOUT_TRACES=4
+TP=8
+
+# WARNING: skip 9k data!
 DATASET_PREFIX=/workspace/lurui-yun/deep_research/prompts/res/hotpotQA_grok_system_harder_yst_23k_0306
 WORLD_SIZE=$((MLP_WORKER_NUM * MLP_GPU))
 BATCH_SIZE=$WORLD_SIZE
@@ -35,7 +37,9 @@ DATA_ARGS="
 
 ACTOR_ROLLOUT_REF_ARGS="
     actor_rollout_ref.actor.ppo_mini_batch_size=$WORLD_SIZE \
+    actor_rollout_ref.rollout.n=$ROLLOUT_TRACES \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$BATCH_SIZE \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=$TP \
     actor_rollout_ref.model.path=$MODEL_PATH \
 "
 
