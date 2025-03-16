@@ -22,11 +22,12 @@ class NaiveRewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source') -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source', overlong_buffer_cfg = None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
+        self.overlong_buffer_cfg = overlong_buffer_cfg
 
     # TODO: Is this still necessary in algorithms other than PRIME?
     def verify(self, data):
@@ -127,9 +128,9 @@ class NaiveRewardManager:
             final_reward += reward
             
             overlong_reward = 0
-            overlong_buffer_len = self.config.custom_reward_function.overlong_buffer.len
+            overlong_buffer_len = self.overlong_buffer_cfg.len
             if overlong_buffer_len > 0:
-                overlong_penalty_factor = self.config.custom_reward_function.overlong_buffer.penalty_factor
+                overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
                 max_resp_len = self.config.data.max_response_length
                 exceed_len = valid_response_length - (max_resp_len - overlong_buffer_len)
                 if exceed_len > 0:
