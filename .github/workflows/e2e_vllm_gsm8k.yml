@@ -1,4 +1,4 @@
-name: e2e_gsm8k
+name: e2e_vllm_gsm8k
 
 on:
   # Trigger the workflow on push or pull request,
@@ -9,7 +9,7 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gsm8k.yml
+      - .github/workflows/e2e_vllm_gsm8k.yml
   pull_request:
     branches:
       - main
@@ -17,7 +17,7 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_gsm8k.yml
+      - .github/workflows/e2e_vllm_gsm8k.yml
       - "tests/e2e/*.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k:
+  e2e_vllm_gsm8k:
     runs-on: [self-hosted, l20-1]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:

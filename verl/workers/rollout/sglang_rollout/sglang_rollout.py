@@ -103,6 +103,8 @@ class SGLangRollout(BaseRollout):
         super().__init__()
         self.config = config
 
+        # TODO(linjunrong.ocss884): this substitution is left for resolving SGLang conflict with ray devices
+        # isolation, will solve in the future
         del os.environ["CUDA_VISIBLE_DEVICES"]
         if os.environ["ENSURE_CUDA_VISIBLE_DEVICES"]:
             os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["ENSURE_CUDA_VISIBLE_DEVICES"]

@@ -46,7 +46,8 @@ dependencies = [
     "tensordict<0.6",
     "torchdata",
     "transformers",
-    "vllm<=0.6.3",
+    "sglang[all]==0.4.3.post3",
+    "vllm",
     'wandb',
 ]
 
