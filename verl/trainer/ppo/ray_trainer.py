@@ -25,6 +25,7 @@ from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
 from collections import defaultdict
+from functools import partial
 
 import ray
 import numpy as np
@@ -596,14 +597,16 @@ class RayPPOTrainer(object):
                         n *= 2
                     ns.append(n_resps)
 
-                    val_pred_pairs = list(zip(var_vals, preds))
+                    data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, preds)]
                     for n in ns:
+
                         (bon_mean, bon_std), (won_mean, won_std), (maj_n_mean, maj_n_std) = bootstrap_metric(
-                            vals=val_pred_pairs,
+                            data,
                             subset_size=n,
                             reduce_fns=[
-                                lambda arr: np.max([x[0] for x in arr]), lambda arr: np.min([x[0] for x in arr]),
-                                calc_maj_val
+                                lambda arr: np.max([d["val"] for d in arr]),
+                                lambda arr: np.min([d["val"] for d in arr]),
+                                partial(calc_maj_val, vote_key="pred", val_key="val")
                             ])
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
