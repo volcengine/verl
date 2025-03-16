@@ -14,6 +14,8 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
+import os
+
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
 import ray
@@ -29,7 +31,7 @@ def run_ppo(config, compute_score=None):
     if not ray.is_initialized():
         # this is for local ray cluster
         # ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN', 'VLLM_ATTENTION_BACKEND': 'XFORMERS'}})
+        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN', 'VLLM_ATTENTION_BACKEND': 'XFORMERS', **dict(os.environ)}})
 
     main_task(config, compute_score)
 
@@ -68,7 +70,7 @@ def main_task(config, compute_score=None):
 
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
-    if config.trainer.hybrid_engine:
+    if config.trainer.get("hybrid_engine", True):
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),

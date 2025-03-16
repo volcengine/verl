@@ -355,7 +355,7 @@ class ActorRolloutRefWorker(Worker):
                 full_params='hf' in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
                 role=self.role,
-                rollout_count=self.config.rollout_count,
+                rollout_count=self.config.get("rollout_count", None),
             )
         else:
             raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")

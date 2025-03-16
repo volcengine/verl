@@ -2,12 +2,8 @@ import logging
 import os
 from typing import List, Any, Optional
 
-import torch
 from torch.distributed.distributed_c10d import _group_or_default_group, _canonicalize_group_rank, _warn_not_in_group, \
     _rank_not_in_group, _get_object_coll_device, _object_to_tensor, broadcast, _tensor_to_object
-
-print(torch.cuda.is_available())
-print(torch.cuda.device_count())
 
 import torch
 from sglang.srt.entrypoints.engine import Engine
@@ -243,7 +239,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
             print(f"state_dict dtype of {k}: {v.dtype}")
             log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
             # print(f'Weight keys: {st.keys()}')
-            tensor_list = [(k, v.full_tensor() if isinstance(v, DTensor) else v) for k, v in st.items()]
+            tensor_list = [(k, (v.full_tensor() if isinstance(v, DTensor) else v).to(torch.bfloat16)) for k, v in st.items()]
             del st
             torch.cuda.empty_cache()
             log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
