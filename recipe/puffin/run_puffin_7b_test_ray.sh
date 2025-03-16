@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 project_name='puffin'
-exp_name='Qwen2.5-7B-Puffin-Test'
+exp_name='Qwen2.5-7B-Math-Puffin-Test'
 
 # Ray
 export RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
@@ -10,7 +10,7 @@ export RUNTIME_ENV=${RUNTIME_ENV:-"./verl/trainer/runtime_env.yaml"}
 export NNODES=${NNODES:-4}
 # Paths
 export RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-export MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-7B"}
+export MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
 export CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 export TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/puffin_train.parquet"}
 export TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/puffin_test.parquet"}
