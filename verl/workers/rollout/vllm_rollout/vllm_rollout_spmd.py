@@ -32,6 +32,7 @@ import torch.distributed
 from tensordict import TensorDict
 from torch import nn
 import time
+import asyncio
 
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length, pad_sequence_to_length
@@ -104,7 +105,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            swap_space=90,
+            swap_space=80,
             # quantization="fp8",
             # cpu_offload_gb=40,
             kv_cache_dtype=config.kv_cache_dtype,
@@ -365,91 +366,75 @@ class vLLMRolloutWithSelf(vLLMRollout):
             
             result_mask_list = []
             output_ids_list = []
-            for input_ids in outer_iterator:
-                for _ in range(self.sampling_params.n):
-                    curr_max_tokens = self.sampling_params.max_tokens
-                    curr_input_ids = input_ids.copy()
-                    curr_result_mask = []
-                    while curr_max_tokens > 0:
-                        with self.update_sampling_params(n=1, stop_token_ids=[self.tokenizer.end_of_tool_query_token_id], max_tokens=curr_max_tokens):
-                            output = self.inference_engine.generate(
+
+            async def compute_result(input_ids):
+                curr_max_tokens = self.sampling_params.max_tokens
+                curr_input_ids = input_ids.copy()
+                curr_result_mask = []
+                while curr_max_tokens > 0:
+                    with self.update_sampling_params(n=1, stop_token_ids=[self.tokenizer.end_of_tool_query_token_id], max_tokens=curr_max_tokens):
+                        output = self.inference_engine.generate(
+                            prompts=None,  # because we have already convert it to prompt token id
+                            sampling_params=self.sampling_params,
+                            prompt_token_ids=curr_input_ids,
+                            use_tqdm=False)
+
+                    curr_output_ids = output[0].outputs[0].token_ids
+                    # if curr_output_ids[-1] == self.tokenizer.eos_token_id:
+                    #     curr_input_ids += curr_output_ids
+                    #     curr_max_tokens -= len(curr_output_ids)
+                    #     curr_result_mask.extend([1] * len(curr_output_ids))
+                    #     break
+                    # else:
+                    if curr_output_ids[-1] == self.tokenizer.end_of_tool_query_token_id:
+                        tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tokenizer.begin_of_tool_query_token_id, self.tokenizer.end_of_tool_query_token_id)
+                        tool_query = self.query_start_id_list + tool_content + self.query_end_id_list
+                        with self.update_sampling_params(n=1, max_tokens=curr_max_tokens):
+                            tool_output = self.inference_engine.generate(
                                 prompts=None,  # because we have already convert it to prompt token id
                                 sampling_params=self.sampling_params,
-                                prompt_token_ids=curr_input_ids,
+                                prompt_token_ids=tool_query,
                                 use_tqdm=False)
+                        tool_output_ids = tool_output[0].outputs[0].token_ids
+                        tool_output_ids = tool_output_ids[len(tool_query):]
+                        tool_output_ids = self.remove_tagged_block(tool_output_ids, self.tokenizer.begin_of_think_token_id, self.tokenizer.end_of_think_token_id)
+                        if tool_output_ids[-1] == self.tokenizer.eos_token_id:
+                            tool_output_ids = tool_output_ids[:-1]
 
-                        curr_output_ids = output.outputs[0].token_ids
-                        # if curr_output_ids[-1] == self.tokenizer.eos_token_id:
-                        #     curr_input_ids += curr_output_ids
-                        #     curr_max_tokens -= len(curr_output_ids)
-                        #     curr_result_mask.extend([1] * len(curr_output_ids))
-                        #     break
-                        # else:
-                        if curr_output_ids[-1] == self.tokenizer.end_of_tool_query_token_id:
-                            tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tokenizer.begin_of_tool_query_token_id, self.tokenizer.end_of_tool_query_token_id)
-                            tool_query = self.query_start_id_list + tool_content + self.query_end_id_list
-                            with self.update_sampling_params(n=1, max_tokens=curr_max_tokens):
-                                tool_output = self.inference_engine.generate(
-                                    prompts=None,  # because we have already convert it to prompt token id
-                                    sampling_params=self.sampling_params,
-                                    prompt_token_ids=tool_query,
-                                    use_tqdm=False)
-                            tool_output_ids = tool_output.outputs[0].token_ids
-                            tool_output_ids = tool_output_ids[len(tool_query):]
-                            tool_output_ids = self.remove_tagged_block(tool_output_ids, self.tokenizer.begin_of_think_token_id, self.tokenizer.end_of_think_token_id)
-                            if tool_output_ids[-1] == self.tokenizer.eos_token_id:
-                                tool_output_ids = tool_output_ids[:-1]
+                        curr_result_mask.extend([1] * len(curr_output_ids))
+                        prefix_len = len(curr_output_ids)
+                        # update curr_output_ids with search result
+                        curr_output_ids = curr_output_ids + self.tokenizer.begin_of_tool_response_token_id + tool_output_ids + self.tokenizer.end_of_tool_response_token_id
+                        curr_result_mask.extend([0] * (len(curr_output_ids) - prefix_len))
 
-                            curr_result_mask.extend([1] * len(curr_output_ids))
-                            prefix_len = len(curr_output_ids)
-                            # update curr_output_ids with search result
-                            curr_output_ids = curr_output_ids + self.tokenizer.begin_of_tool_response_token_id + tool_output_ids + self.tokenizer.end_of_tool_response_token_id
-                            curr_result_mask.extend([0] * (len(curr_output_ids) - prefix_len))
+                        curr_output_ids = curr_output_ids[:curr_max_tokens]
+                        curr_result_mask = curr_result_mask[:curr_max_tokens]
+                        
+                        # prepare for continue thinking
+                        curr_input_ids += curr_output_ids
+                        curr_max_tokens -= len(curr_output_ids)
 
-                            curr_output_ids = curr_output_ids[:curr_max_tokens]
-                            curr_result_mask = curr_result_mask[:curr_max_tokens]
-                            
-                            # prepare for continue thinking
-                            curr_input_ids += curr_output_ids
-                            curr_max_tokens -= len(curr_output_ids)
+                    else:
+                        curr_input_ids += curr_output_ids
+                        curr_max_tokens -= len(curr_output_ids)
+                        curr_result_mask.extend([1] * len(curr_output_ids))
+                        break
 
-                        else:
-                            curr_input_ids += curr_output_ids
-                            curr_max_tokens -= len(curr_output_ids)
-                            curr_result_mask.extend([1] * len(curr_output_ids))
-                            break
+                # output_ids_list.append(curr_input_ids[len(input_ids):])
+                # result_mask_list.append(curr_result_mask)
+                return curr_input_ids[len(input_ids):], curr_result_mask
 
-                    output_ids_list.append(curr_input_ids[len(input_ids):])
-                    result_mask_list.append(curr_result_mask)
-        
-        # # users can customize different sampling_params at different run
-        # with self.update_sampling_params(**kwargs):
-        #     output = self.inference_engine.generate(
-        #         prompts=None,  # because we have already convert it to prompt token id
-        #         sampling_params=self.sampling_params,
-        #         prompt_token_ids=idx_list,
-        #         use_tqdm=False)
-
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        # response = output[0].to(idx.device)
-        # log_probs = output[1].to(idx.device)
-
-        # if response.shape[1] < self.config.response_length:
-        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-        #     log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-
-        # response_list = []
-        # result_mask_list_padded = []
-        # for output_ids, result_mask in zip(output_ids_list, result_mask_list):
-        #     response = torch.tensor(output_ids, device=idx.device)
-        #     result_mask = torch.tensor(result_mask, device=idx.device)
-        #     response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-        #     result_mask = pad_sequence_to_length(result_mask, self.config.response_length, 1)
-        #     response_list.append(response)
-        #     result_mask_list_padded.append(result_mask)
-        # response = torch.stack(response_list, dim=0)
-        # result_mask = torch.stack(result_mask_list_padded, dim=0)
+            tasks = []
+            for input_ids in outer_iterator:
+                for _ in range(self.sampling_params.n):
+                    tasks.append(compute_result(input_ids))
+            
+            # run tasks concurrently and collect results
+            loop = asyncio.get_event_loop()
+            results = loop.run_until_complete(asyncio.gather(*tasks))
+            for output_ids, result_mask in results:
+                output_ids_list.append(output_ids)
+                result_mask_list.append(result_mask)
 
         response = pad_2d_list_to_length(output_ids_list, self.pad_token_id,
                                          max_length=self.config.response_length).to(idx.device)

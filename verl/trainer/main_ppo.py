@@ -51,7 +51,7 @@ def main_task(config, compute_score=None):
     # Adjust LR based on batch size
     base_lr = config.actor_rollout_ref.actor.optim.lr
     batchsize = config.actor_rollout_ref.actor.ppo_mini_batch_size
-    config.actor_rollout_ref.actor.optim.lr = base_lr * batchsize / 1024
+    config.actor_rollout_ref.actor.optim.lr = base_lr * batchsize / 128
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':

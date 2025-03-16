@@ -493,7 +493,7 @@ class RayPPOTrainer(object):
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
-                                         drop_last=True,
+                                         drop_last=False,
                                          collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
@@ -537,11 +537,12 @@ class RayPPOTrainer(object):
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling
-        rng = np.random.RandomState(42)
-        rng.shuffle(samples)
+        # rng = np.random.RandomState(42)
+        # rng.shuffle(samples)
 
-        # Take first N samples after shuffling
-        samples = samples[:generations_to_log]
+        if generations_to_log > 0 and len(samples) > generations_to_log:
+            # Take first N samples after shuffling
+            samples = samples[:generations_to_log]
 
         # Create column names for all samples
         columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
@@ -602,7 +603,7 @@ class RayPPOTrainer(object):
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-            print('validation generation end')
+            # print('validation generation end')
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch['responses']
@@ -622,22 +623,57 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
 
+
+        inputs_to_log, outputs_to_log, scores_to_log = [], [], []
         # evaluate test_score based on data source
         data_source_reward = {}
+        data_source_answer = {}
         for i in range(reward_tensor.shape[0]):
             data_source = data_sources[i]
+            question = sample_inputs[i]
             if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
+                data_source_reward[data_source] = {}
+                data_source_answer[data_source] = {}
+            if question not in data_source_reward[data_source]:
+                data_source_reward[data_source][question] = []
+                data_source_answer[data_source][question] = []
+
+            data_source_reward[data_source][question].append(reward_tensor[i].item())
+            data_source_answer[data_source][question].append(sample_outputs[i])
+
+        for data_source, question_to_rewards in data_source_reward.items():
+            # print(f'Validation data source: {data_source}')
+            for question, rewards in question_to_rewards.items():
+                # print(f'Question: {question}, rewards: {rewards}')
+                inputs_to_log.append(question)
+                # sampled_answer = np.random.choice(data_source_answer[data_source][question])
+                sampled_index = np.random.randint(len(data_source_answer[data_source][question]))
+                sampled_answer = data_source_answer[data_source][question][sampled_index]
+                sampled_score = rewards[sampled_index]
+                outputs_to_log.append(sampled_answer)
+                scores_to_log.append("{}, {}, {}".format(sampled_score, np.mean(rewards), np.max(rewards)))
+
+        self._maybe_log_val_generations_to_wandb(inputs=inputs_to_log, outputs=outputs_to_log, scores=scores_to_log)
 
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        for data_source, question_to_rewards in data_source_reward.items():
+            
+            # compute average reward for each question
+            rewards = []
+            for _, rewards_lst in question_to_rewards.items():
+                rewards.append(np.mean(rewards_lst))
+
+            metric_dict[f'val/{data_source}/average_of_n'] = np.mean(rewards)
+
+            # compute best reward for each question
+            rewards = []
+            for _, rewards_lst in question_to_rewards.items():
+                rewards.append(np.max(rewards_lst))
+            
+            metric_dict[f'val/{data_source}/best_of_n'] = np.mean(rewards)
 
         return metric_dict
 

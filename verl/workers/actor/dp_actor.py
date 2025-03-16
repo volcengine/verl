@@ -285,6 +285,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                 grad_norm = self._optimizer_step()
                 data = {'actor/grad_norm': grad_norm.detach().item()}
-                append_to_dict(metrics, data)
-            self.actor_optimizer.zero_grad()
+
+            append_to_dict(metrics, data)
+        self.actor_optimizer.zero_grad()
         return metrics

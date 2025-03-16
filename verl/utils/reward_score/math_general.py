@@ -8,7 +8,7 @@ from collections import Counter
 import math
 
 import os
-MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", 14000))
+MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", 14000)) - 1024
 print(f"MAX_RESPONSE_LENGTH for reward: {MAX_RESPONSE_LENGTH}")
 
 url = "https://verifier.yuewu.ml/api"
@@ -44,10 +44,6 @@ def compute_acc_reward(solution_str, ground_truth):
                     return 0.
             except Exception as e:
                 pass
-                # print("Error in compute_acc_reward:")
-                # print(string_in_last_boxed)
-                # print(e)
-                # return 0.
 
     if extracted_sol is None:
         return 0.
@@ -68,17 +64,7 @@ def compute_acc_reward(solution_str, ground_truth):
         except requests.exceptions.RequestException as e:
             time.sleep(delay)
             delay = min(delay * 2, max_delay)
-    
-    # async with aiohttp.ClientSession() as session:
-    #     while True:
-    #         try:
-    #             async with session.post(url, headers=headers, json=payload, timeout=600) as response:
-    #                 resp_json = await response.json()
-    #                 retval = resp_json['LaTeXAgreementScore']
-    #                 return retval
-    #         except Exception as e:
-    #             await asyncio.sleep(delay)
-    #             delay = min(delay * 2, max_delay)
+
 
 def compute_format_reward(solution_str):
     """Returns 0.5 if the completion is in the correct format, 0. if not."""
@@ -172,17 +158,15 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
 
     split, ground_truth = ground_truth.split("######")
 
+    print("#"*30)
+    print("solution_str\n", solution_str)
+    print("-"*30)
+    print("ground_truth\n", ground_truth)
+    print("#"*30)
+
     # Remove the prompt from the completion.
     if "<|im_start|>assistant<|im_sep|>" in solution_str:
         solution_str = solution_str.split("<|im_start|>assistant<|im_sep|>")[1]
-    
-    # if there are more than one think tags, return -1 to prevent reward hacking of regex
-    invalid_think = solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1
-    incomplete = "<|im_end|>" not in solution_str
-    no_think = "<think>" not in solution_str or "</think>" not in solution_str
-
-    if invalid_think or incomplete or no_think:
-        return -1., {"acc_reward": 0., "repetition_penalty_score": 0., "soft_format_reward": 0., "xml_reward": 0.}
 
     # strict_format_reward = strict_format_reward_func([solution_str])[0]
     soft_format_reward = soft_format_reward_func([solution_str])[0]
@@ -191,17 +175,28 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
     xml_reward = strict_xml(solution_str)
     
     # Remove the end tag from the completion.
+    incomplete = "<|im_end|>" not in solution_str
     solution_str = solution_str.replace("<|im_end|>", "").strip()
-
-    # Apply repetition penalty
-    repetition_penalty_score = compute_repetition_penalty(solution_str)
 
     # If the split is test, we can directly compare the completion with the ground truth.
     if split == "test":
         return compute_acc_reward(solution_str, ground_truth), {}
 
-    if "</think>" not in solution_str: # If the completion does not contain the think tag, return 0 to encourage the model to use the think tag and prevent reward hacking.
+
+    # if there are more than one think tags, return -1 to prevent reward hacking of regex
+    invalid_think = solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1
+    no_think = "<think>" not in solution_str or "</think>" not in solution_str
+    progress = 0.
+
+    if invalid_think or incomplete or no_think:
+        return -1., {"acc_reward_raw": 0., "acc_reward_scaled": -1., "repetition_penalty_score": 0., "soft_format_reward": 0., "xml_reward": 0., "response_length": response_length, "progress": progress}
+
+    # Apply repetition penalty
+    repetition_penalty_score = compute_repetition_penalty(solution_str)
+
+    if "</think>" not in solution_str: # If the completion does not contain the think tag, return -1 to encourage the model to use the think tag and prevent reward hacking.
         acc_reward = -1.
+        acc_reward_raw = 0.
     else:
         min_value_wrong = -1.0
         max_value_wrong = -0.7
@@ -224,17 +219,11 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
             # Swap min/max for incorrect answers
             min_value = max_value_wrong
             max_value = min_value_wrong
-            min_response_length = 2048
+            min_response_length = 4096
             progress = min(1, max(max_response_length - response_length - min_response_length, 0) / (max_response_length - min_response_length))
-        # Apply cosine scaling based on length
 
-        # cosine reward
-        # cosine = math.cos(progress * math.pi)
-        # acc_reward = min_value + 0.5 * (max_value - min_value) * (1.0 + cosine)
-        
         # linear reward
-        acc_reward = min_value + (1-progress) * (max_value - min_value)
-
+        acc_reward = min_value + progress * (max_value - min_value)
 
     metric = {
         "acc_reward_raw": acc_reward_raw,
@@ -242,6 +231,8 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         "repetition_penalty_score": repetition_penalty_score,
         "soft_format_reward": soft_format_reward,
         "xml_reward": xml_reward,
+        "response_length": response_length,
+        "progress": progress,
     }
 
     weights = [2., 0.25, 0.5, 0.25]
