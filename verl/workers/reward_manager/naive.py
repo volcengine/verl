@@ -22,11 +22,16 @@ class NaiveRewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source') -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source', max_resp_len=None, overlong_buffer_cfg = None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
+        self.overlong_buffer_cfg = overlong_buffer_cfg
+        self.max_resp_len = max_resp_len
+
+        if self.overlong_buffer_cfg is not None:
+            assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
 
     # TODO: Is this still necessary in algorithms other than PRIME?
     def verify(self, data):
@@ -116,6 +121,8 @@ class NaiveRewardManager:
                 extra_info=extra_info,
             )
 
+            final_reward = 0
+
             reward: float
             if isinstance(result, dict):
                 assert "reward" in result
@@ -123,10 +130,22 @@ class NaiveRewardManager:
             else:
                 reward = result
 
-            reward_tensor[i, valid_response_length - 1] = reward
-
             for key, value in result.items():
                 reward_extra_info[key].append(value)
+
+            final_reward += reward
+
+            overlong_buffer_len = self.overlong_buffer_cfg.len
+            if overlong_buffer_len > 0:
+                overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
+                exceed_len = valid_response_length - (self.max_resp_len - overlong_buffer_len)
+                overlong_reward = max(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
+                final_reward += overlong_reward
+                if self.overlong_buffer_cfg.log:
+                    reward_extra_info["overlong_reward"].append(overlong_reward)
+                    reward_extra_info["overlong"].append(overlong_reward < 0)
+
+            reward_tensor[i, valid_response_length - 1] = final_reward
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0

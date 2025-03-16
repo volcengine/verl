@@ -316,6 +316,10 @@ class RayPPOTrainer(object):
         # number of GPUs total
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
 
+        if not config.algorithm.filter_groups.enable:
+            assert config.data.train_batch_size == config.data.gen_batch_size, \
+                f"train_batch_size must be equal to gen_batch_size when filter_groups.enable is False, but got {config.data.train_batch_size =} and {config.data.gen_batch_size =}"
+
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
         assert real_train_batch_size % n_gpus == 0, \
@@ -424,7 +428,7 @@ class RayPPOTrainer(object):
             sampler = SequentialSampler(data_source=self.train_dataset)
 
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.train_batch_size,
+                                                   batch_size=self.config.data.gen_batch_size,
                                                    num_workers=8,
                                                    drop_last=True,
                                                    collate_fn=collate_fn,
@@ -573,17 +577,17 @@ class RayPPOTrainer(object):
             prompt = sample_inputs[sample_idx]
 
             var2vals = data_src2prompt2var2vals[data_source][prompt]
-            var2vals["reward_sum"].append(sample_scores[sample_idx])
+            var2vals["final_reward"].append(sample_scores[sample_idx])
             for metric_name, metric_vals in reward_extra_infos_dict.items():
                 var2vals[metric_name].append(metric_vals[sample_idx])
 
         data_src2prompt2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
         for data_source, prompt2var2vals in data_src2prompt2var2vals.items():
             for prompt, var2vals in prompt2var2vals.items():
-                n_resps = len(var2vals["reward_sum"])
+                n_resps = len(var2vals["final_reward"])
                 preds = var2vals["pred"]
                 for var_name, var_vals in var2vals.items():
-                    if var_name in ["pred", "reward_sum"]:
+                    if var_name in ["pred", "final_reward"]:
                         continue
                     metric = {}
 
@@ -617,7 +621,7 @@ class RayPPOTrainer(object):
         data_src2var2metric2prompt_vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         for data_source, prompt2var2metric in data_src2prompt2var2metric.items():
             for prompt, var2metric in prompt2var2metric.items():
-                for metric_name, metric in var2metric.items():
+                for var_name, metric in var2metric.items():
                     for metric_name, metric_val in metric.items():
                         data_src2var2metric2prompt_vals[data_source][var_name][metric_name].append(metric_val)
 
@@ -881,6 +885,77 @@ class RayPPOTrainer(object):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    with _timer('reward', timing_raw):
+                        # compute scores. Support both model and function-based.
+                        # We first compute the scores using reward model. Then, we call reward_fn to combine
+                        # the results from reward model and rule-based results.
+                        if self.use_rm:
+                            # we first compute reward model score
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        # we combine with rule-based rm
+                        reward_tensor = self.reward_fn(batch)
+                        batch.batch['token_level_scores'] = reward_tensor
+
+                        # compute rewards. apply_kl_penalty if available
+                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                 kl_ctrl=self.kl_ctrl,
+                                                                 kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        else:
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+
+                    if self.config.algorithm.filter_groups.enable:
+                        filter_metric_dict = {}
+
+                        uid2seq_rewards = defaultdict(list)
+                        for uid, tok_rewards in zip(batch.non_tensor_batch['uid'], batch.batch['token_level_rewards']):
+                            seq_reward = torch.sum(tok_rewards).item()
+                            uid2seq_rewards[uid].append(seq_reward)
+
+                        uid2seq_reward_std = {}
+                        for uid, seq_rewards in uid2seq_rewards.items():
+                            uid2seq_reward_std[uid] = np.std(seq_rewards)
+
+                        kept_uids = [uid for uid, std in uid2seq_reward_std.items() if std > 0]
+                        filter_metric_dict["non_uni_rew_prompt_ratio"] = len(kept_uids) / len(uid2seq_rewards)
+                        filter_metric_dict["non_uni_rew_prompt_bsz"] = len(kept_uids)
+
+                        kept_idxs = []
+
+
+                        train_prompt_bsz = len(batch.batch)
+                        fill_train_batch = self.config.algorithm.filter_groups.fill_train_batch
+                        if len(kept_uids) > train_prompt_bsz or not fill_train_batch:
+                            kept_uids = kept_uids[:train_prompt_bsz]
+                        else:
+                            for uid in uid2seq_reward_std.keys():
+                                if uid not in kept_uids:
+                                    kept_uids.append(uid)
+                                if len(kept_uids) == train_prompt_bsz:
+                                    break
+
+                        for idx, uid in enumerate(batch.non_tensor_batch['uid']):
+                            if uid in kept_uids:
+                                kept_idxs.append(idx)
+                        filter_metric_dict["non_uni_rew_traj_bsz"] = len(kept_idxs)
+
+                        world_size = self.actor_rollout_wg.world_size
+                        kept_idxs = kept_idxs[:len(kept_idxs) // world_size * world_size]
+                        if self.config.algorithm.filter_groups.drop_last_mini_batch:
+                            train_traj_mini_bsz = self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+                            if len(kept_idxs) > train_traj_mini_bsz:
+                                kept_idxs = kept_idxs[:len(kept_idxs) // train_traj_mini_bsz * train_traj_mini_bsz]
+                            else:
+                                print(f'[WARNING] {len(kept_idxs)=} < {train_traj_mini_bsz=}')
+
+                        filter_metric_dict["final_traj_ratio"] = len(kept_idxs) / len(batch.batch)
+                        filter_metric_dict["final_traj_bsz"] = len(kept_idxs)
+
+                        batch = batch.sel_idxs(kept_idxs)
+
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
@@ -908,27 +983,6 @@ class RayPPOTrainer(object):
                             batch = batch.union(values)
 
                     with _timer('adv', timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
-
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                            batch, kl_metrics = apply_kl_penalty(batch,
-                                                                 kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
-                        else:
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
