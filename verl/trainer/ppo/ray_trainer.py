@@ -24,7 +24,9 @@ from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
+from collections import defaultdict
 
+import pandas as pd
 import ray
 import numpy as np
 from codetiming import Timer
@@ -494,8 +496,8 @@ class RayPPOTrainer(object):
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
-        reward_tensor_lst = []
         data_source_lst = []
+        extra_infos_dict: dict[str, list] = defaultdict(list)
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -511,6 +513,7 @@ class RayPPOTrainer(object):
 
             # Store original inputs
             input_ids = test_batch.batch['input_ids']
+            # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
 
@@ -549,33 +552,66 @@ class RayPPOTrainer(object):
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
+            result = self.val_reward_fn(test_batch, return_dict=True)
+            reward_tensor = result["reward_tensor"]
+            extra_info = result["extra_info"]
+            for key, lst in extra_info.items():
+                extra_infos_dict[key].extend(lst)
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
-            reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
 
-        # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
+        sample_df = pd.DataFrame(
+            {
+                "data_source": data_sources,
+                "prompt": sample_inputs,
+                "response": sample_outputs,
+                "sum_reward": sample_scores,
+                **extra_infos_dict,
+            }
+        )
 
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
 
-        return metric_dict
+        # Calculate metrics for each data source
+        # First, identify all numeric columns that might be metrics
+        num_cols = [col for col in extra_infos_dict.keys()
+                          if isinstance(extra_infos_dict[col][0], (int, float, bool, np.number))]
+
+
+        # Group by data_source and calculate statistics
+        prompt_stats = sample_df.groupby(["data_source", "prompt"]).agg({
+            **{col: ["mean", "std", "min", "max"] for col in num_cols},
+            "response": "count"  # Count responses per prompt
+        })
+
+        # This creates a multi-level column index, which we can flatten
+        prompt_stats.columns = [f"{col}_{stat}" for col, stat in prompt_stats.columns]
+        prompt_stats = prompt_stats.reset_index()
+
+        # Calculate metrics for each data source
+        for data_source in sample_df["data_source"].unique():
+            # Get stats for this data source
+            source_stats: pd.DataFrame = prompt_stats[prompt_stats["data_source"] == data_source]
+
+            # Calculate mean of prompt means for each column
+            for stat_col in prompt_stats.columns:
+                # Assert each prompt has the same number of responses
+                uniq_resp_cnts = source_stats["response_count"].unique()
+                assert len(uniq_resp_cnts) == 1, f"Each prompt must have the same number of responses, but got {uniq_resp_cnts}"
+                resp_cnt = uniq_resp_cnts[0]
+                # Mean of means for this column across all prompts in this data source
+                metric_dict[f"{data_source}/{stat_col}@{resp_cnt}"] = source_stats[stat_col].mean()
+
+        val_metric_dict = {f"val/{key}": value for key, value in metric_dict.items()}
+        return val_metric_dict
 
     def init_workers(self):
         """Init resource pool and worker group"""

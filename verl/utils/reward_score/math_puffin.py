@@ -272,5 +272,11 @@ def compute_score(solution_str: str, ground_truth: str, config, pause_tokens_ind
     # Verify the solution
     strict_box_verify = config.reward_model.strict_box_verify
     correct = verify(solution_str, ground_truth, strict_box_verify, pause_tokens_index)
+
+    reward = 1.0 if correct else -1.0
+    acc = correct
     
-    return 1.0 if correct else -1.0
+    return {
+        "reward": reward,
+        "acc": acc,
+    }

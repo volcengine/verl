@@ -15,6 +15,7 @@
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 import torch
+from collections import defaultdict
 
 
 class NaiveRewardManager:
@@ -27,6 +28,7 @@ class NaiveRewardManager:
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
 
+    # TODO: Is this still necessary in algorithms other than PRIME?
     def verify(self, data):
         scores = []
         for i in range(len(data)):
@@ -63,14 +65,20 @@ class NaiveRewardManager:
         data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
-            return data.batch['rm_scores']
+            if return_dict:
+                return {
+                    "reward": data.batch['rm_scores']
+                }
+            else:
+                return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        extra_info = defaultdict(list)
 
         already_print_data_sources = {}
 
@@ -98,13 +106,24 @@ class NaiveRewardManager:
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score(
+            result = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
-            reward_tensor[i, valid_response_length - 1] = score
+
+            reward: float
+            if isinstance(result, dict):
+                assert "reward" in result
+                reward = result["reward"]
+            else:
+                reward = result
+
+            reward_tensor[i, valid_response_length - 1] = reward
+
+            for key, value in result.items():
+                extra_info[key].append(value)
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -114,6 +133,13 @@ class NaiveRewardManager:
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)
                 print("[ground_truth]", ground_truth)
-                print("[score]", score)
+                for key, value in result.items():
+                    print(f"[{key}]", value)
 
-        return reward_tensor
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+                "extra_info": extra_info,
+            }
+        else:
+            return reward_tensor
