@@ -885,6 +885,77 @@ class RayPPOTrainer(object):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    with _timer('reward', timing_raw):
+                        # compute scores. Support both model and function-based.
+                        # We first compute the scores using reward model. Then, we call reward_fn to combine
+                        # the results from reward model and rule-based results.
+                        if self.use_rm:
+                            # we first compute reward model score
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        # we combine with rule-based rm
+                        reward_tensor = self.reward_fn(batch)
+                        batch.batch['token_level_scores'] = reward_tensor
+
+                        # compute rewards. apply_kl_penalty if available
+                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                 kl_ctrl=self.kl_ctrl,
+                                                                 kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        else:
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+
+                    if self.config.algorithm.filter_groups.enable:
+                        filter_metric_dict = {}
+
+                        uid2seq_rewards = defaultdict(list)
+                        for uid, tok_rewards in zip(batch.non_tensor_batch['uid'], batch.batch['token_level_rewards']):
+                            seq_reward = torch.sum(tok_rewards).item()
+                            uid2seq_rewards[uid].append(seq_reward)
+
+                        uid2seq_reward_std = {}
+                        for uid, seq_rewards in uid2seq_rewards.items():
+                            uid2seq_reward_std[uid] = np.std(seq_rewards)
+
+                        kept_uids = [uid for uid, std in uid2seq_reward_std.items() if std > 0]
+                        filter_metric_dict["non_uni_rew_prompt_ratio"] = len(kept_uids) / len(uid2seq_rewards)
+                        filter_metric_dict["non_uni_rew_prompt_bsz"] = len(kept_uids)
+
+                        kept_idxs = []
+
+
+                        train_prompt_bsz = len(batch.batch)
+                        fill_train_batch = self.config.algorithm.filter_groups.fill_train_batch
+                        if len(kept_uids) > train_prompt_bsz or not fill_train_batch:
+                            kept_uids = kept_uids[:train_prompt_bsz]
+                        else:
+                            for uid in uid2seq_reward_std.keys():
+                                if uid not in kept_uids:
+                                    kept_uids.append(uid)
+                                if len(kept_uids) == train_prompt_bsz:
+                                    break
+
+                        for idx, uid in enumerate(batch.non_tensor_batch['uid']):
+                            if uid in kept_uids:
+                                kept_idxs.append(idx)
+                        filter_metric_dict["non_uni_rew_traj_bsz"] = len(kept_idxs)
+
+                        world_size = self.actor_rollout_wg.world_size
+                        kept_idxs = kept_idxs[:len(kept_idxs) // world_size * world_size]
+                        if self.config.algorithm.filter_groups.drop_last_mini_batch:
+                            train_traj_mini_bsz = self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+                            if len(kept_idxs) > train_traj_mini_bsz:
+                                kept_idxs = kept_idxs[:len(kept_idxs) // train_traj_mini_bsz * train_traj_mini_bsz]
+                            else:
+                                print(f'[WARNING] {len(kept_idxs)=} < {train_traj_mini_bsz=}')
+
+                        filter_metric_dict["final_traj_ratio"] = len(kept_idxs) / len(batch.batch)
+                        filter_metric_dict["final_traj_bsz"] = len(kept_idxs)
+
+                        batch = batch.sel_idxs(kept_idxs)
+
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
@@ -912,27 +983,6 @@ class RayPPOTrainer(object):
                             batch = batch.union(values)
 
                     with _timer('adv', timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
-                        batch.batch['token_level_scores'] = reward_tensor
-
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                            batch, kl_metrics = apply_kl_penalty(batch,
-                                                                 kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
-                        else:
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,

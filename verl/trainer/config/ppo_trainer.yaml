@@ -182,6 +182,7 @@ algorithm:
     kl_coef: 0.001
   filter_groups:
     enable: False
+    fill_train_batch: True
     drop_last_mini_batch: True
 
 trainer:
