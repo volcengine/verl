@@ -167,6 +167,9 @@ reward_model:
 custom_reward_function:
   path: null
   name: compute_score
+  overlong_buffer:
+    len: 0
+    penalty_factor: 1.0
 
 algorithm:
   gamma: 1.0

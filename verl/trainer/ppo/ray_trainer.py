@@ -573,17 +573,17 @@ class RayPPOTrainer(object):
             prompt = sample_inputs[sample_idx]
 
             var2vals = data_src2prompt2var2vals[data_source][prompt]
-            var2vals["reward_sum"].append(sample_scores[sample_idx])
+            var2vals["final_reward"].append(sample_scores[sample_idx])
             for metric_name, metric_vals in reward_extra_infos_dict.items():
                 var2vals[metric_name].append(metric_vals[sample_idx])
 
         data_src2prompt2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
         for data_source, prompt2var2vals in data_src2prompt2var2vals.items():
             for prompt, var2vals in prompt2var2vals.items():
-                n_resps = len(var2vals["reward_sum"])
+                n_resps = len(var2vals["final_reward"])
                 preds = var2vals["pred"]
                 for var_name, var_vals in var2vals.items():
-                    if var_name in ["pred", "reward_sum"]:
+                    if var_name in ["pred", "final_reward"]:
                         continue
                     metric = {}
 

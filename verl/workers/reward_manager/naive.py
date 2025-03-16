@@ -116,17 +116,32 @@ class NaiveRewardManager:
                 extra_info=extra_info,
             )
 
+            final_reward = 0
+
             reward: float
             if isinstance(result, dict):
                 assert "reward" in result
                 reward = result["reward"]
             else:
                 reward = result
+            final_reward += reward
+            
+            overlong_reward = 0
+            overlong_buffer_len = self.config.custom_reward_function.overlong_buffer.len
+            if overlong_buffer_len > 0:
+                overlong_penalty_factor = self.config.custom_reward_function.overlong_buffer.penalty_factor
+                max_resp_len = self.config.data.max_response_length
+                exceed_len = valid_response_length - (max_resp_len - overlong_buffer_len)
+                if exceed_len > 0:
+                    overlong_reward = - overlong_penalty_factor * exceed_len
+            final_reward += overlong_reward
 
-            reward_tensor[i, valid_response_length - 1] = reward
+            reward_tensor[i, valid_response_length - 1] = final_reward
 
             for key, value in result.items():
                 reward_extra_info[key].append(value)
+            reward_extra_info["overlong_reward"].append(overlong_reward)
+            reward_extra_info["overlong"].append(overlong_reward < 0)
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
