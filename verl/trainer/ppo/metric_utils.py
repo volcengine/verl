@@ -19,6 +19,7 @@ import torch
 from typing import Any, Dict, List, Callable
 import numpy as np
 from verl import DataProto
+from collections import Counter
 
 
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
@@ -167,25 +168,33 @@ def compute_throughout_metrics(batch: DataProto, timing_raw: Dict[str, float], n
         'perf/throughput': total_num_tokens / (time * n_gpus),
     }
 
-def bootstrap_metric(metric_vals: list[float],
+def bootstrap_metric(vals: list[float],
                     subset_size: int,
                     reduce_fns: list[Callable[[np.ndarray], float]],
                     n_bootstrap: int = 1000) -> list[tuple[float, float]]:
     """
     Bootstrap the metric to get the confidence interval
     """
-    metric_vals = np.array(metric_vals)
-
-    # bootstrap_metrics = []
-    # for _ in range(n_bootstrap):
-    #     bootstrap_vals = np.random.choice(metric_vals, size=subset_size, replace=True)
-
-    #     bootstrap_metrics.append(reduce_fn(bootstrap_vals))
-    # return np.mean(bootstrap_metrics), np.std(bootstrap_metrics)
+    vals = np.array(vals)
 
     bootstrap_metric_lsts = [[] for _ in range(len(reduce_fns))]
     for _ in range(n_bootstrap):
-        bootstrap_vals = np.random.choice(metric_vals, size=subset_size, replace=True)
+        bootstrap_vals = np.random.choice(vals, size=subset_size, replace=True)
         for i, reduce_fn in enumerate(reduce_fns):
             bootstrap_metric_lsts[i].append(reduce_fn(bootstrap_vals))
     return [(np.mean(lst), np.std(lst)) for lst in bootstrap_metric_lsts]
+
+def calc_maj_val(val_key_pairs: list[tuple[float, str]]) -> float:
+    """
+    Calculate the majority voting metric
+    """
+    keys = [pair[1] for pair in val_key_pairs]
+    # TODO: use clustering method beyond string
+    key_counter = Counter(keys)
+    maj_key = key_counter.most_common(1)[0][0]
+
+    for val, key in val_key_pairs:
+        if key == maj_key:
+            return val
+    
+    raise ValueError("No majority voting metric found")

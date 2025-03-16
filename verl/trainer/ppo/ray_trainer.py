@@ -36,7 +36,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric
+from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -571,17 +571,19 @@ class RayPPOTrainer(object):
         for sample_idx, data_source in enumerate(data_sources):
             prompt = sample_inputs[sample_idx]
 
-            var2vals = {}
+            var2vals = data_src2prompt2var2vals[data_source][prompt]
             var2vals["reward_sum"].append(sample_scores[sample_idx])
             for metric_name, metric_vals in reward_extra_infos_dict.items():
                 var2vals[metric_name].append(metric_vals[sample_idx])
-            data_src2prompt2var2vals[data_source][prompt] = var2vals
 
         data_src2prompt2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
         for data_source, prompt2var2vals in data_src2prompt2var2vals.items():
             for prompt, var2vals in prompt2var2vals.items():
                 n_resps = len(var2vals["reward_sum"])
+                preds = var2vals["pred"]
                 for var_name, var_vals in var2vals.items():
+                    if var_name in ["pred", "reward_sum"]:
+                        continue
                     metric = {}
 
                     metric[f"mean@{n_resps}"] = np.mean(var_vals)
@@ -594,10 +596,18 @@ class RayPPOTrainer(object):
                         n *= 2
                     ns.append(n_resps)
 
+                    val_pred_pairs = list(zip(var_vals, preds))
                     for n in ns:
-                        (bon_mean, bon_std), (won_mean, won_std) = bootstrap_metric(var_vals, n, [np.max, np.min])
+                        (bon_mean, bon_std), (won_mean, won_std), (maj_n_mean, maj_n_std) = bootstrap_metric(
+                            vals=val_pred_pairs,
+                            subset_size=n,
+                            reduce_fns=[
+                                lambda arr: np.max([x[0] for x in arr]), lambda arr: np.min([x[0] for x in arr]),
+                                calc_maj_val
+                            ])
                         metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
                         metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+                        metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = maj_n_mean, maj_n_std
 
                     data_src2prompt2var2metric[data_source][prompt][var_name] = metric
 

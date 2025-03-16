@@ -205,12 +205,11 @@ def verify(solution_str: str, answer: str, strict_box_verify: bool = False,
         True if the solution is correct, False otherwise
     """
     if strict_box_verify:
-        corr, _ = is_correct_strict_box(solution_str, answer, pause_tokens_index)
-        return corr == 1
+        correct, pred = is_correct_strict_box(solution_str, answer, pause_tokens_index)
+        return correct == 1, pred
 
-    corr, _ = is_correct_minerva(solution_str, answer)
-    return corr
-
+    correct, pred = is_correct_minerva(solution_str, answer)
+    return correct, pred
 
 def compute_score(solution_str: str,
                   ground_truth: str,
@@ -231,7 +230,7 @@ def compute_score(solution_str: str,
     solution_str = solution_str[-300:]  # The longest answer in MATH-500 has 159 characters
 
     # Verify the solution
-    correct = verify(solution_str, ground_truth, strict_box_verify, pause_tokens_index)
+    correct, pred = verify(solution_str, ground_truth, strict_box_verify, pause_tokens_index)
 
     reward = 1.0 if correct else -1.0
     acc = correct
@@ -239,4 +238,5 @@ def compute_score(solution_str: str,
     return {
         "reward": reward,
         "acc": acc,
+        "pred": pred,
     }
