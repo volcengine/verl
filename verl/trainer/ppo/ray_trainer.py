@@ -26,7 +26,6 @@ from typing import Type, Dict
 from copy import deepcopy
 from collections import defaultdict
 
-import pandas as pd
 import ray
 import numpy as np
 from codetiming import Timer
@@ -37,7 +36,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics
+from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -568,47 +567,53 @@ class RayPPOTrainer(object):
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
-        sample_df = pd.DataFrame({
-            "data_source": data_sources,
-            "prompt": sample_inputs,
-            "response": sample_outputs,
-            "sum_reward": sample_scores,
-            **reward_extra_infos_dict,
-        })
+        data_src2prompt2var2vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for sample_idx, data_source in enumerate(data_sources):
+            prompt = sample_inputs[sample_idx]
+
+            var2vals = {}
+            var2vals["reward_sum"].append(sample_scores[sample_idx])
+            for metric_name, metric_vals in reward_extra_infos_dict.items():
+                var2vals[metric_name].append(metric_vals[sample_idx])
+            data_src2prompt2var2vals[data_source][prompt] = var2vals
+
+        data_src2prompt2var2metric = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+        for data_source, prompt2var2vals in data_src2prompt2var2vals.items():
+            for prompt, var2vals in prompt2var2vals.items():
+                n_resps = len(var2vals["reward_sum"])
+                for var_name, var_vals in var2vals.items():
+                    metric = {}
+
+                    metric[f"mean@{n_resps}"] = np.mean(var_vals)
+                    metric[f"std@{n_resps}"] = np.std(var_vals)
+
+                    ns = []
+                    n = 2
+                    while n < n_resps:
+                        ns.append(n)
+                        n *= 2
+                    ns.append(n_resps)
+
+                    for n in ns:
+                        (bon_mean, bon_std), (won_mean, won_std) = bootstrap_metric(var_vals, n, [np.max, np.min])
+                        metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
+                        metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+
+                    data_src2prompt2var2metric[data_source][prompt][var_name] = metric
+
+        data_src2var2metric2prompt_vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for data_source, prompt2var2metric in data_src2prompt2var2metric.items():
+            for prompt, var2metric in prompt2var2metric.items():
+                for metric_name, metric in var2metric.items():
+                    for metric_name, metric_val in metric.items():
+                        data_src2var2metric2prompt_vals[data_source][metric_name][metric_name].append(metric_val)
 
         metric_dict = {}
-
-        # Calculate metrics for each data source
-        # First, identify all numeric columns that might be metrics
-        num_cols = [
-            col for col in reward_extra_infos_dict.keys()
-            if isinstance(reward_extra_infos_dict[col][0], (int, float, bool, np.number))
-        ]
-
-
-        # Group by data_source and calculate statistics
-        prompt_stats = sample_df.groupby(["data_source", "prompt"]).agg({
-            **{col: ["mean", "std", "min", "max"] for col in num_cols},
-            "response": "count"  # Count responses per prompt
-        })
-
-        # This creates a multi-level column index, which we can flatten
-        prompt_stats.columns = [f"{col}_{stat}" for col, stat in prompt_stats.columns]
-        prompt_stats = prompt_stats.reset_index()
-
-        # Calculate metrics for each data source
-        for data_source in sample_df["data_source"].unique():
-            # Get stats for this data source
-            source_stats: pd.DataFrame = prompt_stats[prompt_stats["data_source"] == data_source]
-
-            # Calculate mean of prompt means for each column
-            for stat_col in prompt_stats.columns:
-                # Assert each prompt has the same number of responses
-                uniq_resp_cnts = source_stats["response_count"].unique()
-                assert len(uniq_resp_cnts) == 1, f"Each prompt must have the same number of responses, but got {uniq_resp_cnts}"
-                resp_cnt = uniq_resp_cnts[0]
-                # Mean of means for this column across all prompts in this data source
-                metric_dict[f"{data_source}/{stat_col}@{resp_cnt}"] = source_stats[stat_col].mean()
+        for data_source, var2metric2prompt_vals in data_src2var2metric2prompt_vals.items():
+            for metric_name, metric2prompt_vals in var2metric2prompt_vals.items():
+                for metric_name, prompt_vals in metric2prompt_vals.items():
+                    pfx = f"{data_source}/{metric_name}/{metric_name}"
+                    metric_dict[pfx] = np.mean(prompt_vals)
 
         val_metric_dict = {f"val/{key}": value for key, value in metric_dict.items()}
         return val_metric_dict
