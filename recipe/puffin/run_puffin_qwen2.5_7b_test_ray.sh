@@ -29,7 +29,7 @@ infer_micro_batch_size=null
 train_micro_batch_size=null
 offload=False
 
-ray job submit --runtime-env="${RUNTIME_ENV}" \
+ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${PWD}" \
     -- python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
