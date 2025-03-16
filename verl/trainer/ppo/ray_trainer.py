@@ -497,7 +497,7 @@ class RayPPOTrainer(object):
 
     def _validate(self):
         data_source_lst = []
-        extra_infos_dict: dict[str, list] = defaultdict(list)
+        reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -554,9 +554,9 @@ class RayPPOTrainer(object):
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
-            extra_info = result["extra_info"]
-            for key, lst in extra_info.items():
-                extra_infos_dict[key].extend(lst)
+            reward_extra_info = result["reward_extra_info"]
+            for key, lst in reward_extra_info.items():
+                reward_extra_infos_dict[key].extend(lst)
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -568,22 +568,22 @@ class RayPPOTrainer(object):
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
-        sample_df = pd.DataFrame(
-            {
-                "data_source": data_sources,
-                "prompt": sample_inputs,
-                "response": sample_outputs,
-                "sum_reward": sample_scores,
-                **extra_infos_dict,
-            }
-        )
+        sample_df = pd.DataFrame({
+            "data_source": data_sources,
+            "prompt": sample_inputs,
+            "response": sample_outputs,
+            "sum_reward": sample_scores,
+            **reward_extra_infos_dict,
+        })
 
         metric_dict = {}
 
         # Calculate metrics for each data source
         # First, identify all numeric columns that might be metrics
-        num_cols = [col for col in extra_infos_dict.keys()
-                          if isinstance(extra_infos_dict[col][0], (int, float, bool, np.number))]
+        num_cols = [
+            col for col in reward_extra_infos_dict.keys()
+            if isinstance(reward_extra_infos_dict[col][0], (int, float, bool, np.number))
+        ]
 
 
         # Group by data_source and calculate statistics
