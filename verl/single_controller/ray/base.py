@@ -267,7 +267,7 @@ class RayWorkerGroup(WorkerGroup):
                 match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
-                
+
                 env_vars['VLLM_ATTENTION_BACKEND'] = 'XFORMERS'
 
                 ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, 'name': name})

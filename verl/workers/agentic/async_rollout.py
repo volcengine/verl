@@ -9,8 +9,6 @@ import torch.distributed
 from omegaconf import DictConfig
 from sglang.srt.function_call_parser import FunctionCallParser, Function
 from sglang.srt.openai_api.protocol import Tool
-from sglang.srt.openai_api.adapter import v1_chat_generate_request, v1_chat_generate_response
-from sglang.srt.openai_api.protocol import ChatCompletionRequest
 from torch.distributed import DeviceMesh
 
 from verl import DataProto
@@ -34,8 +32,11 @@ class AsyncRollout(BaseRollout):
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
         self.tp_rank = device_mesh.get_local_rank(1)
-        print(f"in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}")
-        cuda_visible_devices = os.environ.pop("CUDA_VISIBLE_DEVICES")
+        cuda_visible_device = os.environ["CUDA_VISIBLE_DEVICES"]
+        visible_devices: list[str | None] = [None] * device_mesh.size(1)
+        torch.distributed.all_gather_object(visible_devices, cuda_visible_device, group=device_mesh.get_group(1))
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
+        print(f"nodedup in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}")
         self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
         torch.distributed.barrier()
@@ -47,17 +48,16 @@ class AsyncRollout(BaseRollout):
                 dtype=config.dtype,
                 max_total_tokens=self.total_len,
                 max_prefill_tokens=self.total_len,
-                # enable_memory_saver=True,
+                enable_memory_saver=config.enable_memory_saver,
                 mem_fraction_static=config.gpu_memory_utilization,
                 tp_size=device_mesh.size(1),
-                base_gpu_id=device_mesh.get_rank(),
             )
             print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
             self.engine.release_memory_occupation()
             print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         else:
             self.engine = None
-        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_device
         torch.distributed.barrier()
         self.config = config
         self.task_type = config.task_type

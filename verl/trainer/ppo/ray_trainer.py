@@ -26,6 +26,7 @@ from typing import Type, Dict
 from copy import deepcopy
 
 import numpy as np
+import ray
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 from verl import DataProto
@@ -305,22 +306,22 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
     metrics = {
         # metric that search concern
         # # TODO: find a more general way to deal with these
-        # 'search/pass@1':
-        #     torch.mean(binary_sequence_score).detach().item(),
-        # 'search/passrate':
-        #     sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
-        # # 'search/observation_times':
-        # #     torch.mean(batch.batch['observations_times'].float()).detach().item(),
-        # 'search/failed_times':
-        #     torch.mean(batch.batch['failed_times'].float()).detach().item(),
-        # 'search/length_overlong_ratio':
-        #     length_overlong_ratio,
-        # 'search/turn_overlong_ratio':
-        #     turn_overlong_ratio,
-        # 'search/overlong_ratio':
-        #     overlong_ratio,
-        # 'search/penalty_minus_1_ratio':
-        #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
+        'search/pass@1':
+            torch.mean(binary_sequence_score).detach().item(),
+        'search/passrate':
+            sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
+        'search/observation_times':
+            torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/failed_times':
+            torch.mean(batch.batch['failed_times'].float()).detach().item(),
+        'search/length_overlong_ratio':
+            length_overlong_ratio,
+        'search/turn_overlong_ratio':
+            turn_overlong_ratio,
+        'search/overlong_ratio':
+            overlong_ratio,
+        'search/penalty_minus_1_ratio':
+            torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
@@ -425,7 +426,7 @@ class RayPPOTrainer(object):
                  tokenizer,
                  role_worker_mapping: dict[Role, WorkerType],
                  resource_pool_manager: ResourcePoolManager,
-                 ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+                 ray_worker_group_cls: type[RayWorkerGroup] = RayWorkerGroup,
                  processor=None,
                  reward_fn=None,
                  val_reward_fn=None):
@@ -441,7 +442,7 @@ class RayPPOTrainer(object):
         self.val_reward_fn = val_reward_fn
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
-        assert self.hybrid_engine, 'Currently, only support hybrid engine'
+        # assert self.hybrid_engine, 'Currently, only support hybrid engine'
 
         if self.hybrid_engine:
             assert Role.ActorRollout in role_worker_mapping, f'{role_worker_mapping.keys()=}'
@@ -780,7 +781,21 @@ class RayPPOTrainer(object):
                                                      role='actor_rollout')
             self.resource_pool_to_cls[resource_pool]['actor_rollout'] = actor_rollout_cls
         else:
-            raise NotImplementedError
+            actor_pool = self.resource_pool_manager.get_resource_pool(Role.Actor)
+            actor_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.Actor],
+                config=self.config.actor_rollout_ref,
+                role='actor',
+            )
+            self.resource_pool_to_cls[actor_pool]['actor'] = actor_cls
+
+            rollout_pool = self.resource_pool_manager.get_resource_pool(Role.Rollout)
+            rollout_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.Rollout],
+                config=self.config.actor_rollout_ref,
+                role='rollout',
+            )
+            self.resource_pool_to_cls[rollout_pool]['rollout'] = rollout_cls
 
         # create critic
         if self.use_critic:
@@ -807,31 +822,69 @@ class RayPPOTrainer(object):
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
-        all_wg = {}
-        self.wg_dicts = []
-        for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-            wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
-            spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-            all_wg.update(spawn_wg)
-            # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
-            self.wg_dicts.append(wg_dict)
+        if self.hybrid_engine:
+            all_wg: dict[str, RayWorkerGroup] = {}
+            self.wg_dicts = []
+            for resource_pool, class_dict in self.resource_pool_to_cls.items():
+                worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
+                wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
+                spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
+                all_wg.update(spawn_wg)
+                # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
+                self.wg_dicts.append(wg_dict)
 
-        if self.use_critic:
-            self.critic_wg = all_wg['critic']
-            self.critic_wg.init_model()
+            if self.use_critic:
+                self.critic_wg = all_wg['critic']
+                self.critic_wg.init_model()
 
-        if self.use_reference_policy:
-            self.ref_policy_wg = all_wg['ref']
-            self.ref_policy_wg.init_model()
+            if self.use_reference_policy:
+                self.ref_policy_wg = all_wg['ref']
+                self.ref_policy_wg.init_model()
 
-        if self.use_rm:
-            self.rm_wg = all_wg['rm']
-            self.rm_wg.init_model()
+            if self.use_rm:
+                self.rm_wg = all_wg['rm']
+                self.rm_wg.init_model()
 
-        # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
-        self.actor_rollout_wg = all_wg['actor_rollout']
-        self.actor_rollout_wg.init_model()
+            # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
+            self.actor_rollout_wg = all_wg['actor_rollout']
+            self.actor_rollout_wg.init_model()
+            self.actor_wg = self.rollout_wg = self.actor_rollout_wg
+        else:
+            if self.use_critic:
+                self.critic_wg = self.ray_worker_group_cls(
+                    resource_pool=self.resource_pool_manager.get_resource_pool(Role.Critic),
+                    ray_cls_with_init=critic_cls,
+                )
+                self.critic_wg.init_model()
+
+            if self.use_reference_policy:
+                self.ref_policy_wg = self.ray_worker_group_cls(
+                    resource_pool=self.resource_pool_manager.get_resource_pool(Role.RefPolicy),
+                    ray_cls_with_init=ref_policy_cls,
+                )
+                self.ref_policy_wg.init_model()
+
+            if self.use_rm:
+                self.rm_wg = self.ray_worker_group_cls(
+                    resource_pool=self.resource_pool_manager.get_resource_pool(Role.RewardModel),
+                    ray_cls_with_init=rm_cls,
+                )
+                self.rm_wg.init_model()
+
+            self.actor_wg = self.ray_worker_group_cls(
+                resource_pool=self.resource_pool_manager.get_resource_pool(Role.Actor),
+                ray_cls_with_init=actor_cls,
+            )
+            o1 = self.actor_wg.execute_all_async("init_model")
+
+            self.rollout_wg = self.ray_worker_group_cls(
+                resource_pool=self.resource_pool_manager.get_resource_pool(Role.Rollout),
+                ray_cls_with_init=rollout_cls,
+            )
+            o2 = self.rollout_wg.execute_all_async("init_model")
+
+            ray.get(o1)
+            ray.get(o2)
 
     def _save_checkpoint(self, save_hf=False):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
@@ -842,18 +895,18 @@ class RayPPOTrainer(object):
             import verl.utils.hdfs_io as hdfs_io
 
             cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.actor_rollout_wg.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
-                state_dict = self.actor_rollout_wg.fsdp_model.state_dict()
+            with FSDP.state_dict_type(self.actor_wg.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
+                state_dict = self.actor_wg.fsdp_model.state_dict()
 
             local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
                                                   f'global_step_{self.global_steps}')
             actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
             # Save HuggingFace model on rank 0
-            if self.actor_rollout_wg.device_mesh.get_rank() == 0:
+            if self.actor_wg.device_mesh.get_rank() == 0:
                 os.makedirs(actor_local_path, exist_ok=True)
-                self.actor_rollout_wg.model.save_pretrained(actor_local_path, state_dict=state_dict)
-                self.actor_rollout_wg.tokenizer.save_pretrained(actor_local_path)
+                self.actor_wg.model.save_pretrained(actor_local_path, state_dict=state_dict)
+                self.actor_wg.tokenizer.save_pretrained(actor_local_path)
 
                 # Copy to HDFS if configured
                 if self.config.trainer.default_hdfs_dir:
@@ -870,7 +923,7 @@ class RayPPOTrainer(object):
 
             actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
-            self.actor_rollout_wg.save_checkpoint(actor_local_path,
+            self.actor_wg.save_checkpoint(actor_local_path,
                                                 actor_remote_path,
                                                 self.global_steps,
                                                 remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save)
@@ -932,7 +985,7 @@ class RayPPOTrainer(object):
         actor_path = os.path.join(global_step_folder, 'actor')
         critic_path = os.path.join(global_step_folder, 'critic')
         # load actor
-        self.actor_rollout_wg.load_checkpoint(actor_path,
+        self.actor_wg.load_checkpoint(actor_path,
                                               del_local_after_load=self.config.trainer.del_local_ckpt_after_load)
         # load critic
         if self.use_critic:
@@ -953,7 +1006,7 @@ class RayPPOTrainer(object):
         attention_mask = batch.batch['attention_mask']
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch['attention_mask'].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
-        world_size = self.actor_rollout_wg.world_size
+        world_size = self.actor_wg.world_size
         global_partition_lst = get_seqlen_balanced_partitions(global_seqlen_lst,
                                                               k_partitions=world_size,
                                                               equal_size=True)
@@ -1021,14 +1074,16 @@ class RayPPOTrainer(object):
                     # generate a batch
                     import inspect
                     with _timer('gen', timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-
+                        if self.actor_wg is not self.rollout_wg:
+                            # for syncing params
+                            self.actor_wg.execute_all_async("generate_sequences", gen_batch)
+                        gen_batch_output = self.rollout_wg.generate_sequences(gen_batch)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info['do_sample'] = False
-                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+                            gen_baseline_output = self.actor_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
                             reward_baseline_tensor = self.reward_fn(batch)
@@ -1056,7 +1111,7 @@ class RayPPOTrainer(object):
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        old_log_prob = self.actor_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:
@@ -1112,7 +1167,7 @@ class RayPPOTrainer(object):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
-                            actor_output = self.actor_rollout_wg.update_actor(batch)
+                            actor_output = self.actor_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 

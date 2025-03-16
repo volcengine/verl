@@ -295,9 +295,9 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 
-    with open("logs/core_algos_eos_mask.json", "w") as f:
-        import json
-        json.dump(eos_mask[0].tolist(), f)
+    # with open("logs/core_algos_eos_mask.json", "w") as f:
+    #     import json
+    #     json.dump(eos_mask[0].tolist(), f)
 
     pg_losses = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)

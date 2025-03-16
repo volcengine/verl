@@ -37,6 +37,7 @@ from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from codetiming import Timer
@@ -86,6 +87,8 @@ class ActorRolloutRefWorker(Worker):
         world_size = torch.distributed.get_world_size()
         # TODO(sgm): support FSDP hybrid shard for larger model
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
+
+        print(f"nodedup INIT ActorRolloutRefWorker: {role=} {torch.distributed.get_rank()=} {world_size=} {self.device_mesh=} {os.environ['CUDA_VISIBLE_DEVICES']=}")
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
@@ -345,11 +348,15 @@ class ActorRolloutRefWorker(Worker):
             local_path = copy_to_local(self.config.model.path)
             # print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
             rollout = AsyncRollout(model_path=local_path, config=self.config.rollout, device_mesh=rollout_device_mesh)
-            rollout_sharding_manager = FSDPSGLShardingManager(module=self.actor_module_fsdp,
-                                                              inference_engine=rollout.engine,
-                                                              model_config=self.actor_model_config,
-                                                              full_params='hf' in self.config.rollout.load_format,
-                                                              device_mesh=rollout_device_mesh,)
+            rollout_sharding_manager = FSDPSGLShardingManager(
+                module=self.actor_module_fsdp,
+                inference_engine=rollout.engine,
+                model_config=self.actor_model_config,
+                full_params='hf' in self.config.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+                role=self.role,
+                rollout_count=self.config.rollout_count,
+            )
         else:
             raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
         return rollout, rollout_sharding_manager
@@ -365,14 +372,9 @@ class ActorRolloutRefWorker(Worker):
 
         use_remove_padding = self.config.model.get('use_remove_padding', False)
 
-        if self._is_actor or self._is_rollout:
-            # we need the model for actor and rollout
-            if self._is_actor:
-                optim_config = self.config.actor.optim
-                fsdp_config = self.config.actor.fsdp_config
-            else:
-                optim_config = None
-                fsdp_config = OmegaConf.create()
+        if self._is_actor:
+            optim_config = self.config.actor.optim
+            fsdp_config = self.config.actor.fsdp_config
             self.actor_module_fsdp, self.actor_optimizer, self.actor_lr_scheduler, self.actor_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 fsdp_config=fsdp_config,
@@ -400,7 +402,22 @@ class ActorRolloutRefWorker(Worker):
                                               actor_optimizer=self.actor_optimizer)
 
         if self._is_rollout:
+            if not self._is_actor:
+                self.actor_module_fsdp = None
+                self.actor_optimizer = None
+                self.actor_lr_scheduler = None
+                self.actor_model_config = None
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
+        elif self._is_actor:
+            self.rollout_sharding_manager = FSDPSGLShardingManager(
+                module=self.actor_module_fsdp,
+                inference_engine=None,
+                model_config=self.actor_model_config,
+                full_params='hf' in self.config.rollout.load_format,
+                device_mesh=self.device_mesh,
+                role=self.role,
+                rollout_count=self.config.rollout_count,
+            )
 
         if self._is_ref:
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
@@ -474,20 +491,25 @@ class ActorRolloutRefWorker(Worker):
     def generate_sequences(self, prompts: DataProto):
         prompts = prompts.to('cuda')
 
+        if self._is_actor and not self._is_rollout:
+            with self.rollout_sharding_manager:
+                pass
+            return
+
         assert self._is_rollout
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         prompts.batch = prompts.batch.cuda()
-        meta_info = {
-            'eos_token_id':
-                self.generation_config.eos_token_id
-                if self.generation_config is not None else self.tokenizer.eos_token_id,
-            'pad_token_id':
-                self.generation_config.pad_token_id
-                if self.generation_config is not None else self.tokenizer.pad_token_id,
-        }
-        prompts.meta_info.update(meta_info)
+        # meta_info = {
+        #     'eos_token_id':
+        #         self.generation_config.eos_token_id
+        #         if self.generation_config is not None else self.tokenizer.eos_token_id,
+        #     'pad_token_id':
+        #         self.generation_config.pad_token_id
+        #         if self.generation_config is not None else self.tokenizer.pad_token_id,
+        # }
+        # prompts.meta_info.update(meta_info)
         with self.rollout_sharding_manager:
 
             # after parameters sync with rollout, offload actor model to CPU
