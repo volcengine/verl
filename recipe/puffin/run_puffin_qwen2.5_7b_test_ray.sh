@@ -27,7 +27,7 @@ val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 use_dynamic_bsz=True
 infer_micro_batch_size=null
 train_micro_batch_size=null
-offload=True
+offload=False
 
 ray job submit --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${PWD}" \
