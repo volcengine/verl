@@ -617,7 +617,7 @@ class RayPPOTrainer(object):
         data_src2var2metric2prompt_vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         for data_source, prompt2var2metric in data_src2prompt2var2metric.items():
             for prompt, var2metric in prompt2var2metric.items():
-                for metric_name, metric in var2metric.items():
+                for var_name, metric in var2metric.items():
                     for metric_name, metric_val in metric.items():
                         data_src2var2metric2prompt_vals[data_source][var_name][metric_name].append(metric_val)
 
