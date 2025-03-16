@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+pip install "antlr4-python3-runtime==4.11.*"
+
 project_name='puffin'
 exp_name='Qwen2.5-7B-Puffin-Test'
 
@@ -14,11 +16,8 @@ TEST_FILE=${TEST_FILE:-"${HOME}/verl/data/puffin_test.parquet"}
 ## Train
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
-# TODO
-# force_append_eos=True 
 ## Validation
 val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
-
 
 # Mathematically equivalent
 use_dynamic_bsz=True
