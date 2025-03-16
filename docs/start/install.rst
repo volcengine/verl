@@ -80,7 +80,7 @@ To manage environment, we recommend using conda:
 
 .. code:: bash
 
-   conda create -n verl python==3.9
+   conda create -n verl python==3.10
    conda activate verl
 
 For installing the latest version of verl, the best way is to clone and
