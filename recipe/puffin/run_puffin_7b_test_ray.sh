@@ -17,8 +17,8 @@ export TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/puffin_test.parquet"}
 
 # Algorithm
 ## Train
-max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 8))
+max_prompt_length=$((1024 * 1))
+max_response_length=$((1024 * 3))
 ## Validation
 val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
