@@ -48,6 +48,9 @@ class NaiveRewardManager:
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids)
             response_str = self.tokenizer.decode(valid_response_ids)
+            eos_token = self.tokenizer.eos_token
+            if response_str.endswith(eos_token):
+                response_str = response_str[:-len(eos_token)]
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
