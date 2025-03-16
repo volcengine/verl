@@ -19,8 +19,6 @@ export TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/puffin_test.parquet"}
 ## Train
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
-# TODO
-# force_append_eos=True 
 ## Validation
 val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
