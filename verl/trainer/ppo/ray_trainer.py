@@ -619,13 +619,13 @@ class RayPPOTrainer(object):
             for prompt, var2metric in prompt2var2metric.items():
                 for metric_name, metric in var2metric.items():
                     for metric_name, metric_val in metric.items():
-                        data_src2var2metric2prompt_vals[data_source][metric_name][metric_name].append(metric_val)
+                        data_src2var2metric2prompt_vals[data_source][var_name][metric_name].append(metric_val)
 
         metric_dict = {}
         for data_source, var2metric2prompt_vals in data_src2var2metric2prompt_vals.items():
-            for metric_name, metric2prompt_vals in var2metric2prompt_vals.items():
+            for var_name, metric2prompt_vals in var2metric2prompt_vals.items():
                 for metric_name, prompt_vals in metric2prompt_vals.items():
-                    pfx = f"{data_source}/{metric_name}/{metric_name}"
+                    pfx = f"{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = np.mean(prompt_vals)
 
         val_metric_dict = {f"val/{key}": value for key, value in metric_dict.items()}
