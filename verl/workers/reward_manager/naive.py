@@ -137,7 +137,7 @@ class NaiveRewardManager:
                 overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
                 exceed_len = valid_response_length - (self.max_resp_len - overlong_buffer_len)
                 if exceed_len > 0:
-                    overlong_reward = - overlong_penalty_factor * exceed_len
+                    overlong_reward = -exceed_len / overlong_buffer_len * overlong_penalty_factor
             final_reward += overlong_reward
 
             reward_tensor[i, valid_response_length - 1] = final_reward
