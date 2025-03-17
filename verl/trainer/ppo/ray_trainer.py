@@ -38,6 +38,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.timer import TimeoutChecker
+from tensordict import TensorDict
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -962,7 +963,49 @@ class RayPPOTrainer(object):
                 with _timer('step', timing_raw):
                     # generate a batch
                     with _timer('gen', timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        # NOTE: this is very hacky, but doing this to work around the prompts >= num gpus restriction
+                        #       this is supposed to just duplicate all prompts TP times since that's what
+                        #       is done anyway in fsdp_workers.generate_sequences.
+                        #       Just doing it here since it will be chunked by dp size * tp size when generate_sequences
+                        #       is called below.
+                        orig_gen_batch = gen_batch
+                        tp_size = self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                        extended_gen_batch = DataProto()
+
+                        batch_as_dict = gen_batch.batch.to_dict()
+                        original_batch_size = gen_batch.batch.batch_size[0]
+
+                        num_gpus = self.actor_rollout_wg.world_size
+                        real_dp = num_gpus // tp_size
+                        prompts_per_tp_group = original_batch_size // real_dp
+                        assert prompts_per_tp_group > 0
+
+                        output_dict = {}
+                        for key, tensor in batch_as_dict.items():
+                            duplicated_chunks = []
+
+                            for i in range(real_dp):
+                                start_idx = i * prompts_per_tp_group
+                                end_idx = start_idx + prompts_per_tp_group
+                                chunk = tensor[start_idx:end_idx]
+
+                                duplicated_chunks.extend([chunk] * tp_size)
+
+                            output_dict[key] = torch.cat(duplicated_chunks, dim=0)
+
+                        extended_gen_batch.batch = TensorDict(
+                            source=output_dict, batch_size=original_batch_size * tp_size
+                        )
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(extended_gen_batch)
+                        # double checking that there is no corruption
+                        # TODO: remove after we are confident everything works in all settings
+                        for idx in range(orig_gen_batch.batch.batch_size[0]):
+                            assert torch.allclose(
+                                orig_gen_batch.batch['input_ids'][idx],
+                                # the layout should be prompt1, prompt1, ..., prompt2, prompt2, ...
+                                gen_batch_output.batch['prompts'][idx * self.config.actor_rollout_ref.rollout.n],
+                            )
+
                     input_texts = [
                         self.tokenizer.decode(ids, skip_special_tokens=True)
                         for ids in gen_batch.batch['input_ids']
