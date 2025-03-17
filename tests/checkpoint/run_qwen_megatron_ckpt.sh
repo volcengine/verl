@@ -42,10 +42,10 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.experiment_name='qwen2_5_0b5_megatron_save' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=30 \
+    trainer.save_freq=1 \
     trainer.test_freq=1 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=30 $@
+    trainer.total_training_steps=1 $@
 
 
 python3 -m verl.trainer.main_ppo --config-path=config \
@@ -88,4 +88,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.save_freq=-1 \
     trainer.test_freq=1 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=10 $@
+    trainer.total_training_steps=1 $@
