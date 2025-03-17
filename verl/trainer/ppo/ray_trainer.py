@@ -39,6 +39,7 @@ from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_througho
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.dataset.rl_sampler import DynamicSampler
 from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -420,6 +421,8 @@ class RayPPOTrainer(object):
             sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
+
+        # TODO: config dynamic sampler
 
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
                                                    batch_size=self.config.data.train_batch_size,
@@ -929,5 +932,8 @@ class RayPPOTrainer(object):
                 if is_last_step:
                     pprint(f'Final validation metrics: {last_val_metrics}')
                     return
+
+                # TODO: update sampler
+                # self.train_dataloader.sampler.update_sampling_policy(metrics["critic/score/mean"])
 
                 self.global_steps += 1
