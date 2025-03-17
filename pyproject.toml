@@ -46,8 +46,7 @@ dependencies = [
     "tensordict<0.6",
     "torchdata",
     "transformers",
-    "sglang[all]==0.4.3.post3",
-    "vllm",
+    "vllm<=0.6.3",
     'wandb',
 ]
 
@@ -58,6 +57,7 @@ test = [
 ]
 prime = ["pyext"]
 gpu = ["liger-kernel", "flash-attn"]
+sglang = ["sglang[all]==0.4.3.post3"]
 
 # URLs
 [project.urls]
