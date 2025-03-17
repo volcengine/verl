@@ -281,6 +281,7 @@ def efficient_entropy_triton_kernel_epilogue(max_ptr, stride_max_m, stride_max_n
     global_logprobs = tl.load(global_logprobs_ptrs, mask=offs_m < num_tokens)
     global_logprobs = global_max + tl.log(global_accu) - global_logprobs
 
+    global_logprobs = -1 * global_logprobs
     if reduction == 0:
         tl.store(global_logprobs_ptrs, global_logprobs, mask=offs_m < num_tokens)
     elif reduction == 1:
@@ -493,6 +494,7 @@ def efficient_entropy_backward_kernel_general_mainloop_MN(
     else:  # mean
         d_logprobs = tl.fdiv(tl.load(d_logprobs_ptr), num_tokens.to(tl.float32))
         d_logprobs = tl.broadcast_to(d_logprobs, (BLOCK_SIZE_M,))
+    d_logprobs = -1 * d_logprobs
 
     d_scale = tl.load(d_scale_ptr + offs_am * stride_d_scale, mask=offs_am < num_tokens, other=0.0)
 
@@ -615,6 +617,7 @@ def efficient_entropy_backward_kernel_general_d_logits(
     else:  # mean
         d_logprobs = tl.fdiv(tl.load(d_logprobs_ptr), num_tokens.to(tl.float32))
         d_logprobs = tl.broadcast_to(d_logprobs, (BLOCK_SIZE_M,))
+    d_logprobs = -1 * d_logprobs
 
     d_scale = tl.load(d_scale_ptr + offs_am * stride_d_scale, mask=offs_am < num_tokens, other=0.0)
 

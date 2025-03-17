@@ -49,7 +49,8 @@ def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
     entropy = entropy_a - entropy_b
-    logprobs = torch.nn.functional.cross_entropy(logits, labels)  # [1]
+    logprobs = torch.nn.functional.cross_entropy(logits, labels, reduction="none")  # [num_tokens]
+    logprobs = torch.neg(logprobs)
     return logprobs, entropy
 
 
@@ -78,7 +79,7 @@ class TestLinearCrossEntropy:
 
     def generate_backward_inputs(self):
         g_entropy = (torch.empty((self.num_tokens,), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5))
-        g_logprobs = (torch.empty((), dtype=self.dtype, device="cuda").uniform_(-1, 1))
+        g_logprobs = (torch.empty((self.num_tokens,), dtype=self.dtype, device="cuda").uniform_(-1, 1))
         return g_entropy, g_logprobs
 
     def verify_correctness(self):
@@ -106,7 +107,7 @@ class TestLinearCrossEntropy:
             torch_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels)
+            (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, "none")
             end_event.record()
             torch.cuda.synchronize()
             kernel_forward_latency.append(start_event.elapsed_time(end_event))
@@ -182,7 +183,7 @@ class TestLinearCrossEntropy:
         hidden, weight, labels = self.generate_forward_inputs()
 
         torch.cuda.reset_peak_memory_stats()
-        (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels)
+        (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, "none")
         torch.cuda.synchronize()
         kernel_max_memory = torch.cuda.max_memory_reserved() / 1024 / 1024
         print(f"[INFO]: Kernel Forward pass peak memory: {kernel_max_memory:.2f} MB")
