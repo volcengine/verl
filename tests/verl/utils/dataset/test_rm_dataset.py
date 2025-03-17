@@ -28,7 +28,7 @@ def get_rm_data():
 
 
 def test_rm_dataset():
-    tokenizer = hf_tokenizer("facebook/opt-1.3b")
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
     local_path = get_rm_data()
     dataset = RMDataset(parquet_files=local_path, tokenizer=tokenizer, max_length=512)
     data = dataset[0]['input_ids']
