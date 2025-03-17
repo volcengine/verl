@@ -24,7 +24,7 @@ from transformers import AutoTokenizer
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
 
-MODEL_PATH = 'Qwen/Qwen2.5-0.5B'
+MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
 DATA_PATH = expanduser('~/data/gsm8k')
 SAVE_PATH = '/tmp/checkpoint'
 
@@ -32,76 +32,80 @@ SAVE_PATH = '/tmp/checkpoint'
 def make_reward_function(tokenizer, num_examine):
     return None
 
+additional_config = {}
 
-additional_config = {
-    'data': {
-        'train_files': f'{DATA_PATH}/train.parquet',
-        'val_files': f'{DATA_PATH}/test.parquet',
-        'train_batch_size': 1024,
-        'val_batch_size': 1312,
-        'max_prompt_length': 512,
-        'max_response_length': 512
-    },
-    'actor_rollout_ref': {
-        'model': {
-            'path': MODEL_PATH
+def build_additional_configs(MODEL_PATH):
+    global additional_config
+    additional_config = {
+        'data': {
+            'train_files': f'{DATA_PATH}/train.parquet',
+            'val_files': f'{DATA_PATH}/test.parquet',
+            'train_batch_size': 1024,
+            'val_batch_size': 1312,
+            'max_prompt_length': 512,
+            'max_response_length': 512
         },
-        'actor': {
-            'optim': {
-                'lr': 2e-6
+        'actor_rollout_ref': {
+            'model': {
+                'path': MODEL_PATH
             },
-            'ppo_mini_batch_size': 32,
-            'ppo_micro_batch_size_per_gpu': 1,
-            'megatron': {
+            'actor': {
+                'optim': {
+                    'lr': 2e-6
+                },
+                'ppo_mini_batch_size': 32,
+                'ppo_micro_batch_size_per_gpu': 1,
+                'megatron': {
+                    'tensor_model_parallel_size': 2,
+                    'pipeline_model_parallel_size': 4,
+                }
+            },
+            'rollout': {
+                'log_prob_micro_batch_size_per_gpu': 8,
                 'tensor_model_parallel_size': 2,
-                'pipeline_model_parallel_size': 4,
+                'name': 'vllm',
+                'gpu_memory_utilization': 0.5
+            },
+            'ref': {
+                'log_prob_micro_batch_size_per_gpu': 16,
+                'megatron': {
+                    'tensor_model_parallel_size': 2
+                }
             }
         },
-        'rollout': {
-            'log_prob_micro_batch_size_per_gpu': 8,
-            'tensor_model_parallel_size': 2,
-            'name': 'vllm',
-            'gpu_memory_utilization': 0.5
-        },
-        'ref': {
-            'log_prob_micro_batch_size_per_gpu': 16,
+        'critic': {
+            'optim': {
+                'lr': 2e-5
+            },
+            'model': {
+                'path': MODEL_PATH,
+                'enable_gradient_checkpointing': False
+            },
+            'ppo_micro_batch_size_per_gpu': 4,
             'megatron': {
                 'tensor_model_parallel_size': 2
             }
+        },
+        'algorithm': {
+            'kl_ctrl': {
+                'kl_coef': 0.001
+            },
+            'adv_estimator': 'grpo',
+        },
+        'trainer': {
+            'critic_warmup': 0,
+            'logger': ['console'],
+            'project_name': 'verl_megatron_gsm8k_examples',
+            'experiment_name': 'qwen2_5_0b5_function_rm',
+            'n_gpus_per_node': 8,
+            'nnodes': 1,
+            'save_freq': 1,
+            'test_freq': 1,
+            'total_epochs': 15,
+            'total_training_steps': 3,
         }
-    },
-    'critic': {
-        'optim': {
-            'lr': 2e-5
-        },
-        'model': {
-            'path': MODEL_PATH,
-            'enable_gradient_checkpointing': False
-        },
-        'ppo_micro_batch_size_per_gpu': 4,
-        'megatron': {
-            'tensor_model_parallel_size': 2
-        }
-    },
-    'algorithm': {
-        'kl_ctrl': {
-            'kl_coef': 0.001
-        },
-        'adv_estimator': 'grpo',
-    },
-    'trainer': {
-        'critic_warmup': 0,
-        'logger': ['console'],
-        'project_name': 'verl_megatron_gsm8k_examples',
-        'experiment_name': 'qwen2_5_0b5_function_rm',
-        'n_gpus_per_node': 8,
-        'nnodes': 1,
-        'save_freq': 1,
-        'test_freq': 1,
-        'total_epochs': 15,
-        'total_training_steps': 3,
     }
-}
+    return additional_config
 
 
 def check_result(origin_path, megatron_path, input_text):
@@ -193,5 +197,7 @@ def main(config):
 
 
 if __name__ == '__main__':
-    main()
-    check_result(MODEL_PATH, SAVE_PATH, "who are you？")
+    for MODEL_PATH in MODEL_PATHS:
+        build_additional_configs(MODEL_PATH)
+        main()
+        check_result(MODEL_PATH, SAVE_PATH, "who are you？")
