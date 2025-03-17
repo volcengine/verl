@@ -33,7 +33,9 @@ import torch
 import typing
 from . import kernels
 
+
 class LinearCrossEntropy(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx,
                 hidden: torch.Tensor,
@@ -52,19 +54,15 @@ class LinearCrossEntropy(torch.autograd.Function):
         return logprobs, entropy
 
     @staticmethod
-    def backward(ctx,
-                 dlogprobs: torch.Tensor,
-                 dentropy: torch.Tensor) -> typing.List[torch.Tensor]:
+    def backward(ctx, dlogprobs: torch.Tensor, dentropy: torch.Tensor) -> typing.List[torch.Tensor]:
         with torch.cuda.nvtx.range("LinearCrossEntropy-backward"):
             (hidden, weight, labels, _maximum, _acc) = ctx.saved_tensors
             REDUCTION = ctx.REDUCTION
 
-            d_hidden, d_weight = kernels.efficient_entropy_backward(
-                dlogprobs, dentropy,
-                hidden, weight, labels,
-                _maximum, _acc,
-                REDUCTION)
+            d_hidden, d_weight = kernels.efficient_entropy_backward(dlogprobs, dentropy, hidden, weight, labels,
+                                                                    _maximum, _acc, REDUCTION)
 
         return (d_hidden, d_weight, None, None)
+
 
 linear_cross_entropy = LinearCrossEntropy.apply

@@ -32,6 +32,4 @@
 from .linear_cross_entropy import linear_cross_entropy
 from .kernels import set_backward_method, BackwardEnum
 
-__all__ = ["linear_cross_entropy",
-           "set_backward_method",
-           "BackwardEnum"]
+__all__ = ["linear_cross_entropy", "set_backward_method", "BackwardEnum"]
