@@ -231,8 +231,8 @@ def efficient_entropy_kernel_general_mainloop(
     tl.store(global_logprobs_ptrs, _logprobs, mask=mask)
 
     # store d_scale_non_reduced
-    tl.store(d_scale_non_reduced_ptr + offs_max_n * stride_d_scale_non_reduced_n 
-             + offs_max_m * stride_d_scale_non_reduced_m,
+    tl.store(d_scale_non_reduced_ptr + offs_max_n * stride_d_scale_non_reduced_n +
+             offs_max_m * stride_d_scale_non_reduced_m,
              _scale,
              mask=(offs_max_m < num_tokens) & (offs_max_n < num_splits))
 
@@ -244,9 +244,8 @@ def efficient_entropy_triton_kernel_epilogue(max_ptr, stride_max_m, stride_max_n
                                              global_accu_ptr, stride_global_accu, entropy_b_ptr, stride_entropy_b_m,
                                              stride_entropy_b_n, global_entropy_ptr, stride_global_entropy,
                                              global_logprobs_ptr, stride_global_logprobs, global_logprobs_scalar_ptr,
-                                             reduction: int, 
-                                             d_scale_non_reduced_ptr, stride_d_scale_non_reduced_m, stride_d_scale_non_reduced_n,
-                                             d_scale_ptr, stride_d_scale,
+                                             reduction: int, d_scale_non_reduced_ptr, stride_d_scale_non_reduced_m,
+                                             stride_d_scale_non_reduced_n, d_scale_ptr, stride_d_scale,
                                              BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr):
     """
     foward epilogue
@@ -283,10 +282,10 @@ def efficient_entropy_triton_kernel_epilogue(max_ptr, stride_max_m, stride_max_n
         global_entropy_b = _coeff * global_entropy_b + tl.sum(_scale * _entropy_b, axis=1)
 
         # preprocess for backward
-        d_scale = tl.load(d_scale_non_reduced_ptr + offs_m[:, None] * stride_d_scale_non_reduced_m 
-                         + offs_n[None, :] * stride_d_scale_non_reduced_n,
-                         mask=(offs_m[:, None] < num_tokens) & (offs_n[None, :] < num_splits),
-                         other=0.0)
+        d_scale = tl.load(d_scale_non_reduced_ptr + offs_m[:, None] * stride_d_scale_non_reduced_m +
+                          offs_n[None, :] * stride_d_scale_non_reduced_n,
+                          mask=(offs_m[:, None] < num_tokens) & (offs_n[None, :] < num_splits),
+                          other=0.0)
         global_d_scale = _coeff * global_d_scale + tl.sum(_scale * d_scale, axis=1)
 
     # store
@@ -386,9 +385,10 @@ def efficient_entropy_foward(hidden: torch.Tensor,
                                                              _max.stride(0), _max.stride(1), _accu, _accu.stride(0),
                                                              _accu.stride(1), _entropy_b, _entropy_b.stride(0),
                                                              _entropy_b.stride(1), _logprobs, _logprobs.stride(0),
-                                                             logprobs,
-                                                             _d_scale_non_reduced, _d_scale_non_reduced.stride(0),
+                                                             logprobs, _d_scale_non_reduced,
+                                                             _d_scale_non_reduced.stride(0),
                                                              _d_scale_non_reduced.stride(1))
+
     # reduction on maximum and maximum_indices
     def epilogue_grid(meta):
         return (triton.cdiv(num_tokens, meta["BLOCK_SIZE_M"]),)
@@ -400,8 +400,8 @@ def efficient_entropy_foward(hidden: torch.Tensor,
                                                             _entropy_b.stride(1), entropy, entropy.stride(0), _logprobs,
                                                             _logprobs.stride(0), logprobs, REDUCTION,
                                                             _d_scale_non_reduced, _d_scale_non_reduced.stride(0),
-                                                            _d_scale_non_reduced.stride(1),
-                                                            _d_scale, _d_scale.stride(0))
+                                                            _d_scale_non_reduced.stride(1), _d_scale,
+                                                            _d_scale.stride(0))
 
     return (logprobs, entropy, maximum, acc, _d_scale)
 
