@@ -16,6 +16,8 @@ Using FSDPTrainer
 """
 import os
 from os.path import expanduser
+import torch
+import torch.multiprocessing as mp
 
 import hydra
 import ray
@@ -23,8 +25,11 @@ from transformers import AutoTokenizer
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
+from multiprocessing import Process, log_to_stderr
+import logging
 
 MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
+MODEL_PATH = ''
 DATA_PATH = expanduser('~/data/gsm8k')
 SAVE_PATH = '/tmp/checkpoint'
 
@@ -105,7 +110,6 @@ def build_additional_configs(MODEL_PATH):
             'total_training_steps': 3,
         }
     }
-    return additional_config
 
 
 def check_result(origin_path, megatron_path, input_text):
@@ -136,15 +140,16 @@ def check_result(origin_path, megatron_path, input_text):
     print(f"megatron_text: {megatron_text}")
 
     assert origin_text == megatron_text, "megatron ckpt is diff from origin ckpt"
+    print("Checkpoint save/load test passed!")
 
 
-@hydra.main(config_path='../../../verl/verl/trainer/config', config_name='ppo_megatron_trainer', version_base=None)
+@hydra.main(config_path='verl/trainer/config', config_name='ppo_megatron_trainer', version_base=None)
 def main(config):
-    ray.init()
-
     from omegaconf import OmegaConf
     from pprint import pprint
 
+    global additional_config
+    print(f'MODEL_PATH: {MODEL_PATH}, additional_config: {additional_config}')
     additional_omegaconf = OmegaConf.create(additional_config)
     config = OmegaConf.merge(config, additional_omegaconf)
 
@@ -195,9 +200,21 @@ def main(config):
     trainer.init_workers()
     trainer.actor_rollout_wg.save_checkpoint(SAVE_PATH)
 
+def run_single_model(model_path):
+    ray.init()
+    global MODEL_PATH
+    MODEL_PATH = model_path
+    build_additional_configs(model_path)
+    main()
+    check_result(model_path, SAVE_PATH, "who are you？")
+
+log_to_stderr(logging.DEBUG)
 
 if __name__ == '__main__':
-    for MODEL_PATH in MODEL_PATHS:
-        build_additional_configs(MODEL_PATH)
-        main()
-        check_result(MODEL_PATH, SAVE_PATH, "who are you？")
+    assert torch.cuda.device_count() >= 2, f'require 2 gpus to execute 2 model tests'
+    mp.set_start_method('spawn', force=True)
+    for model_path in MODEL_PATHS:
+        p = Process(target=run_single_model, args=(model_path,))
+        p.start()
+        p.join()
+        p.terminate()

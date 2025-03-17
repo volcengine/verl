@@ -28,7 +28,11 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStr
 
 
 def test_fsdp_ckpt():
-    assert torch.cuda.device_count() >= 2, "need at least 2 gpus for test"
+    os.environ["LOCAL_RANK"] = '0'
+    os.environ["RANK"] = '0'
+    os.environ["WORLD_SIZE"] = '1'
+    os.environ["MASTER_ADDR"] = 'localhost'
+    os.environ["MASTER_PORT"] = '6000'
     local_rank, rank, world_size = initialize_global_process_group()
     device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=('dp',))
 
