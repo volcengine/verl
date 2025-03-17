@@ -413,7 +413,7 @@ class RayPPOTrainer(object):
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation=self.config.data.get('truncation', 'error'),
                                          filter_overlong_prompts=self.config.data.filter_overlong_prompts)
-        assert self.train_dataset.truncation == self.config.data.get('truncation', 'error')
+        assert self.train_dataset.truncation == self.config.data.get('truncation', 'error'), f'dataset truncation must be the same as config'
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -439,7 +439,7 @@ class RayPPOTrainer(object):
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation=self.config.data.get('truncation', 'error'),
                                        filter_overlong_prompts=self.config.data.filter_overlong_prompts)
-        assert self.val_dataset.truncation == self.config.data.get('truncation', 'error')
+        assert self.val_dataset.truncation == self.config.data.get('truncation', 'error'), f'dataset truncation must be the same as config'
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
