@@ -99,6 +99,7 @@ class TestLinearCrossEntropy:
         end_event = torch.cuda.Event(enable_timing=True)
 
         for i in range(iterations):
+            print(f"[INFO]: Iteration {i} / {iterations}...", end="\r")
             hidden, weight, labels = self.generate_forward_inputs()
 
             start_event.record()
@@ -146,7 +147,7 @@ class TestLinearCrossEntropy:
         kernel_forward_latency = kernel_forward_latency[1:]
         kernel_backward_latency = kernel_backward_latency[1:]
 
-        print(f"[INFO]: Verified forward & backward correctness.")
+        print(f"\n[INFO]: Verified forward & backward correctness.")
 
         print(f"[INFO]: Forward pass: Torch implementation average time: "
               f"{sum(torch_forward_latency) / len(torch_forward_latency):.2f} ms")
@@ -206,6 +207,8 @@ class TestLinearCrossEntropy:
 
 
 if __name__ == "__main__":
+    # set_backward_method(BackwardEnum._Total_Fuse_MN)
+
     test = TestLinearCrossEntropy()
 
     test.verify_correctness()
