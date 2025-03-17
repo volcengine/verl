@@ -48,6 +48,7 @@ jobs:
           pip install hf_transfer
           pip install -e .[test]
           pip install --upgrade "ray>=2.40.0"
+          pip install cupy-cuda12x
       - name: Running dataset tests
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
