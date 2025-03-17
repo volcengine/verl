@@ -18,7 +18,7 @@ SFT dataset
 Each parquet file contains
 """
 
-from typing import List, Union
+from typing import List, Union, Literal, Iterable
 
 import pandas as pd
 
@@ -43,8 +43,8 @@ class SFTDataset(Dataset):
                  prompt_dict_keys=None,
                  response_key='response',
                  response_dict_keys=None,
-                 max_length=1024,
-                 truncation='error'):
+                 max_length: int = 1024,
+                 truncation: Literal['error', 'left', 'right'] = 'error'):
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
 
@@ -94,7 +94,7 @@ class SFTDataset(Dataset):
             except Exception:
                 print(f'self.prompts={self.prompts}')
                 raise
-        self.prompts = self.prompts.tolist()
+        self.prompts = self.prompts.squeeze().tolist()
         self.responses = self.dataframe[self.response_key]
         for key in self.response_dict_keys:
             try:
@@ -102,7 +102,7 @@ class SFTDataset(Dataset):
             except Exception:
                 print(f'self.responses={self.responses}')
                 raise
-        self.responses = self.responses.tolist()
+        self.responses = self.responses.squeeze().tolist()
 
     def __len__(self):
         return len(self.prompts)
@@ -113,8 +113,15 @@ class SFTDataset(Dataset):
         prompt = self.prompts[item]
         response = self.responses[item]
 
+        assert isinstance(response, str), f"invalid response type: {type(response)}"
+
         # apply chat template
-        prompt_chat = [{'role': 'user', 'content': prompt}]
+        if isinstance(prompt, str):
+            prompt_chat = [{'role': 'user', 'content': prompt}]
+        elif isinstance(prompt, Iterable):
+            prompt_chat = prompt
+        else:
+            raise TypeError(f"invalid prompt type: {type(prompt)}")
 
         # string
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
@@ -164,7 +171,7 @@ class SFTDataset(Dataset):
             # mask out prompt for SFT.
             loss_mask[:min(prompt_length, loss_mask.size(0)) - 1] = 0
         # mask out the last token in response
-        loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
+        # loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
 
         return {
             'input_ids': input_ids,
