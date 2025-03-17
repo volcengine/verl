@@ -562,6 +562,36 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
+    def _maybe_log_train_generations_to_wandb(self, inputs, outputs, rewards):
+        """Log a table of training samples to wandb."""
+
+        # If train_generations_to_log_to_wandb is > 0, log a table of training samples to wandb
+        # If it's 0, don't log anything
+        # If it's -1, log all samples
+        # If it's a positive number, log that many samples
+        if hasattr(self.config.trainer, 'train_generations_to_log_to_wandb'):
+            generations_to_log = self.config.trainer.train_generations_to_log_to_wandb
+        else:
+            generations_to_log = -1
+
+        if generations_to_log == 0:
+            return
+
+        import wandb
+        columns = ["step", "input", "output", "reward"]
+        if not hasattr(self, 'training_table'):
+            self.training_table = wandb.Table(columns=columns)
+
+        new_table = wandb.Table(columns=columns, data=self.training_table.data)
+        inputs = inputs[:generations_to_log]
+        outputs = outputs[:generations_to_log]
+        rewards = rewards[:generations_to_log]
+        for inp, outp, rew in zip(inputs, outputs, rewards):
+            new_table.add_data(self.global_steps, inp, outp, rew)
+
+        wandb.log({"train/generations": new_table}, step=self.global_steps)
+        self.training_table = new_table
+
     def _maybe_log_val_generations_to_wandb(self, inputs, outputs, scores):
         """Log a table of validation samples to wandb"""
 
@@ -933,6 +963,14 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    input_texts = [
+                        self.tokenizer.decode(ids, skip_special_tokens=True)
+                        for ids in gen_batch.batch['input_ids']
+                    ]
+                    output_texts = [
+                        self.tokenizer.decode(ids, skip_special_tokens=True)
+                        for ids in gen_batch_output.batch['responses']
+                    ]
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -1018,7 +1056,13 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n,
                                                   normalize=self.config.algorithm.normalize_advantage)
-
+                                                            # Get total reward per sample
+                    total_rewards = batch.batch['token_level_rewards'].sum(-1).cpu().tolist()
+                    self._maybe_log_train_generations_to_wandb(
+                            inputs=input_texts,
+                            outputs=output_texts,
+                            rewards=total_rewards
+                        )
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
