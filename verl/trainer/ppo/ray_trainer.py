@@ -950,4 +950,7 @@ class RayPPOTrainer(object):
                 # self.train_dataloader.sampler.update_sampling_policy(metrics["critic/score/mean"])
 
                 progress_bar.update(1)
+                # TODO: update sampler
+                # self.train_dataloader.sampler.update_sampling_policy(metrics["critic/score/mean"])
+
                 self.global_steps += 1
