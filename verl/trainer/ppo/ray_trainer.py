@@ -234,6 +234,7 @@ def compute_data_metrics(batch, use_critic=True):
 
     advantages = batch.batch['advantages']
     returns = batch.batch['returns']
+    correct_returns = (sequence_reward > 0) # Note: this could be different if reward is not binary
 
     max_response_length = batch.batch['responses'].shape[-1]
 
@@ -245,6 +246,8 @@ def compute_data_metrics(batch, use_critic=True):
     response_info = _compute_response_info(batch)
     prompt_length = response_info['prompt_length']
     response_length = response_info['response_length']
+    correct_response_lengths = torch.masked_select(response_length, correct_returns)
+    incorrect_response_lengths = torch.masked_select(response_length, ~correct_returns)
 
     valid_adv = torch.masked_select(advantages, response_mask)
     valid_returns = torch.masked_select(returns, response_mask)
@@ -294,12 +297,24 @@ def compute_data_metrics(batch, use_critic=True):
         } if use_critic else {}),
 
         # response length
-        'response_length/mean':
+        'response_length/all/mean':
             torch.mean(response_length).detach().item(),
-        'response_length/max':
+        'response_length/all/max':
             torch.max(response_length).detach().item(),
-        'response_length/min':
+        'response_length/all/min':
             torch.min(response_length).detach().item(),
+        'response_length/correct/mean':
+            torch.mean(correct_response_lengths).detach().item(),
+        'response_length/correct/max':
+            torch.max(correct_response_lengths).detach().item(),
+        'response_length/correct/min':
+            torch.min(correct_response_lengths).detach().item(),
+        'response_length/incorrect/mean':
+            torch.mean(incorrect_response_lengths).detach().item(),
+        'response_length/incorrect/max':
+            torch.max(incorrect_response_lengths).detach().item(),
+        'response_length/incorrect/min':
+            torch.min(incorrect_response_lengths).detach().item(),
         'response_length/clip_ratio':
             torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
         # prompt length
