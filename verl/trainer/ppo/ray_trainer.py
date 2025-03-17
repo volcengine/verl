@@ -379,7 +379,8 @@ class RayPPOTrainer(object):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
         self.timeout = TimeoutChecker(
-            timeout=config.trainer.get('timeout', '00:03:45:00') # three hours and 45 minutes
+            timeout=config.trainer.get('timeout', '00:03:45:00'), # three hours and 45 minutes
+            fit_last_save_time=True,
         )
         self.tokenizer = tokenizer
         self.config = config
@@ -965,6 +966,7 @@ class RayPPOTrainer(object):
         # we start from step 1
         self.global_steps += 1
 
+        self.timeout.start_iterations()
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
@@ -1144,6 +1146,7 @@ class RayPPOTrainer(object):
                         pprint(f'Step {self.global_steps} validation metrics: {val_metrics}')
                         metrics.update(val_metrics)
 
+                    self.timeout.mark_iteration()
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
