@@ -14,6 +14,8 @@
 # limitations under the License.
 """Pretrain utilities."""
 import importlib
+import os
+
 from packaging.version import Version
 from typing import Any, Dict
 import time
@@ -261,3 +263,9 @@ def print_rank_0(message):
             print(message, flush=True)
     else:
         print(message, flush=True)
+
+def set_checkpoint_dir(checkpoint_path):
+    # TODO support vpp
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    return os.path.join(checkpoint_path, f"pp{pp_rank}_tp{tp_rank}/")

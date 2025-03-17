@@ -49,6 +49,7 @@ actor_rollout_ref:
       sequence_parallel: True
       seed: 1
     load_weight: True
+    load_optim: True
   ref:
     megatron:
       tensor_model_parallel_size: 4
@@ -119,6 +120,7 @@ critic:
     sequence_parallel: True
     seed: 1
   load_weight: True
+  load_optim: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
