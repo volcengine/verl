@@ -163,11 +163,13 @@ class FSDPSGLShardingManager(BaseShardingManager):
         device_mesh: DeviceMesh = None,
         role: str = "actor_rollout",
         rollout_count: int = 0,
+        exchange_size: int | float | None = None,
     ):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.device_mesh = device_mesh
+        self.exchange_size = exchange_size
 
         # Full params
         self.full_params = full_params
@@ -236,48 +238,96 @@ class FSDPSGLShardingManager(BaseShardingManager):
             log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
             st = self.module.state_dict()
             k, v = next(iter(st.items()))
-            print(f"state_dict dtype of {k}: {v.dtype}")
+            device = v.device
+            print(f"state_dict dtype, device of {k}: {v.dtype=} {device=}")
             log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
             # print(f'Weight keys: {st.keys()}')
-            tensor_list = [(k, (v.full_tensor() if isinstance(v, DTensor) else v).to(torch.bfloat16)) for k, v in st.items()]
+            target_device = torch.device("cpu") if self.exchange_size else device
+            tensor_list = [
+                (k,
+                 (v.full_tensor() if isinstance(v, DTensor) else v)
+                 .to(dtype=torch.bfloat16, device=target_device)
+                 )
+                for k, v in st.items()
+            ]
             del st
             torch.cuda.empty_cache()
             log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
             param_count = sum([v.numel() for k, v in tensor_list])
             print(f"param count: {param_count}")
-        print(f"nodedup sharding manager {os.environ.get('CUDA_VISIBLE_DEVICES')=} {self.device_mesh=} {self.device_mesh.get_rank()=}")
         if "rollout" in self.role and self.device_mesh.get_local_rank(1) == 0:
             print("resuming memory occupation")
             self.inference_engine.resume_memory_occupation()
             print("resumed memory occupation")
         torch.cuda.synchronize()
-        if self.role == "actor_rollout":
-            if self.device_mesh.get_local_rank(1) == 0:
-                self.inference_engine.update_weights_from_tensor(tensor_list)
-        else:
-            if self.role == "actor":
-                if self.device_mesh.get_rank() == 0:
-                    descriptions = {k: (v.shape, v.dtype) for k, v in tensor_list}
-                    lst = [descriptions]
-                    torch.distributed.barrier(group=self.update_weight_pg)
-                    print(f"sending descriptions: {torch.distributed.get_rank()=} {self.update_weight_pg.rank()=}")
-                    broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
-                    print(f"sent descriptions completed {len(lst[0])=}")
-                    for _, v in tensor_list:
-                        torch.distributed.broadcast(v, group_src=0, group=self.update_weight_pg)
-            else:
+
+        def tensor_loader():
+            for k, v in tensor_list:
+                yield (k, v.to(device)), v.numel() * v.element_size()
+
+        loader = tensor_loader()
+        done = False
+        loop_count = 0
+
+        log_gpu_memory_usage('Before sync model weights in sharding manager', logger=logger)
+
+        while not done:
+            if "actor" in self.role:
+                count = 0
+                if self.exchange_size is None:
+                    gpu_tensor_list = tensor_list
+                    done = True
+                else:
+                    gpu_tensor_list = []
+                    for item, size in loader:
+                        gpu_tensor_list.append(item)
+                        count += size
+                        if count > self.exchange_size:
+                            break
+                    else:
+                        done = True
+                print(f"got gpu_tensor_list {self.exchange_size=} {count=} {done=}")
+
+            if self.role == "actor_rollout":
                 if self.device_mesh.get_local_rank(1) == 0:
-                    lst = [None]
-                    tensor_list = []
-                    torch.distributed.barrier(group=self.update_weight_pg)
-                    print(f"receiving descriptions: {torch.distributed.get_rank()=} {self.update_weight_pg.rank()=}")
-                    broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
-                    print(f"receiving descriptions completed {lst=}")
-                    for k, (shape, dtype) in lst[0].items():
-                        v = torch.empty(shape, dtype=dtype, device='cuda')
-                        torch.distributed.broadcast(v, group_src=0, group=self.update_weight_pg)
-                        tensor_list.append((k, v))
-                    self.inference_engine.update_weights_from_tensor(tensor_list)
+                    self.inference_engine.update_weights_from_tensor(gpu_tensor_list)
+                del gpu_tensor_list
+            else:
+                if self.role == "actor":
+                    if self.device_mesh.get_rank() == 0:
+                        descriptions = {k: (v.shape, v.dtype) for k, v in gpu_tensor_list}
+                        lst = [descriptions]
+                        torch.distributed.barrier(group=self.update_weight_pg)
+                        print(f"sending descriptions: {torch.distributed.get_rank()=} {self.update_weight_pg.rank()=}")
+                        broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
+                        print(f"sent descriptions completed {len(lst[0])=}")
+                        for _, v in gpu_tensor_list:
+                            torch.distributed.broadcast(v, group_src=0, group=self.update_weight_pg)
+                        lst = [done]
+                        broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
+                    del gpu_tensor_list
+                else:
+                    if self.device_mesh.get_local_rank(1) == 0:
+                        lst = [None]
+                        tensor_list = []
+                        torch.distributed.barrier(group=self.update_weight_pg)
+                        print(f"receiving descriptions: {torch.distributed.get_rank()=} {self.update_weight_pg.rank()=}")
+                        broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
+                        print(f"receiving descriptions completed {lst=}")
+                        for k, (shape, dtype) in lst[0].items():
+                            v = torch.empty(shape, dtype=dtype, device='cuda')
+                            torch.distributed.broadcast(v, group_src=0, group=self.update_weight_pg)
+                            tensor_list.append((k, v))
+                        self.inference_engine.update_weights_from_tensor(tensor_list)
+                        lst = [None]
+                        broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
+                        assert lst[0] is not None
+                        done = lst[0]
+                        del tensor_list, v
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            log_gpu_memory_usage(f'After loop {loop_count} {done=} in sharding manager', logger=logger)
+            loop_count += 1
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 

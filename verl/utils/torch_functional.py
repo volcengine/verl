@@ -231,11 +231,8 @@ def all_gather_dict_non_tensors(data: Dict[str, List], size, group):
     for key in sorted_keys:
         val = data[key]
         output[key] = [None for _ in range(size)]
-        print(f"nodedup all gathering {torch.distributed.get_rank()=} {key=} {val=}")
         torch.distributed.all_gather_object(output[key], val, group=group)
-        print(f"nodedup all gathering {torch.distributed.get_rank()=} {key=} {output[key]=}")
         output[key] = np.concatenate(output[key], axis=0)
-    print(f"nodedup all gathering {torch.distributed.get_rank()=} {output=}")
     return output
 
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> List[TensorDict]:
