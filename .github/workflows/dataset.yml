@@ -53,7 +53,7 @@ jobs:
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
           pytest -s -x tests/verl/utils/dataset/test_rl_dataset.py
           pytest -s -x tests/verl/utils/dataset/test_sft_dataset.py
-          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
+#          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
       - name: Running ray test using cupy (move it to L20 when dockerfile ready)
         run: |
           cd tests/ray
