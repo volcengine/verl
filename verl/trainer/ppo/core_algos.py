@@ -269,9 +269,15 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange):
+def compute_policy_loss(old_log_prob,
+                        log_prob,
+                        advantages,
+                        eos_mask,
+                        cliprange=None,
+                        cliprange_low=None,
+                        cliprange_high=None,
+                        use_token_level_loss=False):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
-
     Args:
         old_log_prob: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -283,23 +289,41 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
             shape: (bs, response_length)
         cliprange: (float)
             The clip range used in PPO. See https://arxiv.org/abs/1707.06347
-
+        cliprange_low: (float)
+            The lower clip range used in PPO.
+        cliprange_high: (float)
+            The higher clip range used in PPO.
+        use_token_level_loss: (bool)
+            Whether to use token level loss
     Returns:
         pg_loss: `a scalar torch.Tensor`
             policy gradient loss computed via PPO
         pg_clipfrac: (float)
-            a float number indicating the fraction of policy gradient loss being clipped
-
+            the fraction of policy gradient loss being clipped
+        ppo_kl: (float)
+            the estimated KL divergence between the latest updating policy and the old sampling policy
     """
+    seq_len_per_sample = torch.clamp(torch.sum(eos_mask, dim=1), min=1.0)
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 
-    pg_losses = -advantages * ratio
-    pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
+    pg_losses1 = -advantages * ratio
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+    pg_losses2 = -advantages * torch.clamp(ratio, 1 - cliprange_low,
+                                           1 + cliprange_high)  # - clip(ratio, 1-cliprange, 1+cliprange) * A
+    pg_losses = torch.maximum(pg_losses1, pg_losses2)  # max(-ratio * A, -clip(ratio, 1-cliprange, 1+cliprange) * A)
 
-    pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
+    if use_token_level_loss:
+        pg_loss = verl_F.masked_mean(pg_losses, eos_mask)
+    else:
+        pg_loss = torch.sum(pg_losses * eos_mask, dim=1) / seq_len_per_sample
+        pg_loss = torch.mean(pg_loss)
+
+    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), eos_mask)
     return pg_loss, pg_clipfrac, ppo_kl
 
 

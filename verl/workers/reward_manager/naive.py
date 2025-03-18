@@ -15,17 +15,31 @@
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 import torch
+from collections import defaultdict
 
 
 class NaiveRewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score=None) -> None:
+    def __init__(self,
+                 tokenizer,
+                 num_examine,
+                 compute_score=None,
+                 reward_fn_key='data_source',
+                 max_resp_len=None,
+                 overlong_buffer_cfg=None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
+        self.reward_fn_key = reward_fn_key
+        self.overlong_buffer_cfg = overlong_buffer_cfg
+        self.max_resp_len = max_resp_len
 
+        if self.overlong_buffer_cfg is not None:
+            assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
+
+    # TODO: Is this still necessary in algorithms other than PRIME?
     def verify(self, data):
         scores = []
         for i in range(len(data)):
@@ -48,7 +62,7 @@ class NaiveRewardManager:
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            data_source = data_item.non_tensor_batch['data_source']
+            data_source = data_item.non_tensor_batch[self.reward_fn_key]
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
@@ -62,14 +76,18 @@ class NaiveRewardManager:
         data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
-            return data.batch['rm_scores']
+            if return_dict:
+                return {"reward": data.batch['rm_scores']}
+            else:
+                return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        reward_extra_info = defaultdict(list)
 
         already_print_data_sources = {}
 
@@ -90,20 +108,46 @@ class NaiveRewardManager:
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids)
             response_str = self.tokenizer.decode(valid_response_ids)
+            eos_token = self.tokenizer.eos_token
+            if response_str.endswith(eos_token):
+                response_str = response_str[:-len(eos_token)]
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            data_source = data_item.non_tensor_batch['data_source']
+            data_source = data_item.non_tensor_batch[self.reward_fn_key]
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score(
+            result = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
-            reward_tensor[i, valid_response_length - 1] = score
+
+            reward: float
+            if isinstance(result, dict):
+                assert "reward" in result
+                reward = result["reward"]
+                # Store the information including original reward
+                for key, value in result.items():
+                    reward_extra_info[key].append(value)
+            else:
+                reward = result
+
+            final_reward = reward
+
+            if self.overlong_buffer_cfg.enable:
+                overlong_buffer_len = self.overlong_buffer_cfg.len
+                exceed_len = valid_response_length - (self.max_resp_len - overlong_buffer_len)
+                overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
+                overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
+                final_reward += overlong_reward
+                if self.overlong_buffer_cfg.log:
+                    reward_extra_info["overlong_reward"].append(overlong_reward)
+                    reward_extra_info["overlong"].append(overlong_reward < 0)
+
+            reward_tensor[i, valid_response_length - 1] = final_reward
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -113,6 +157,16 @@ class NaiveRewardManager:
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)
                 print("[ground_truth]", ground_truth)
-                print("[score]", score)
+                if isinstance(result, dict):
+                    for key, value in result.items():
+                        print(f"[{key}]", value)
+                else:
+                    print(f"[reward]", result)
 
-        return reward_tensor
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info,
+            }
+        else:
+            return reward_tensor
