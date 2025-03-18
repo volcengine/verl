@@ -137,7 +137,8 @@ class SGLangRollout(BaseRollout):
 
         # get tp_rank of this process in this tp group
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
+        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"],
+                                            device_mesh_cpu.get_group("tp"))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
 
         self.inference_engine = VerlEngine(
