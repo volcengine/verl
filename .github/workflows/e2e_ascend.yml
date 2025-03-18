@@ -18,6 +18,9 @@ on:
       - "**/*.py"
       - .github/workflows/e2e_ascend.yml
 
+permissions:
+  contents: read
+  
 jobs:
   test:
     name: verl Ascend test (self-host)

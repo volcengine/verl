@@ -21,6 +21,11 @@ on:
       - .github/workflows/e2e_gsm8k_megatron.yml
       - "tests/e2e/*.sh"
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 # Declare permissions just read content.
 permissions: 
   contents: read
@@ -28,7 +33,7 @@ permissions:
 jobs:
   e2e_gsm8k_megatron:
     runs-on: [self-hosted, l20-0]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -48,13 +53,13 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Deepseek)
+      - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
-          bash tests/e2e/run_deepseek_megatron.sh
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with Megatron (Qwen)
+          bash tests/e2e/run_deepseek_megatron_parallelism.sh
+      - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
-          bash tests/e2e/run_qwen_megatron.sh
+          bash tests/e2e/run_qwen_megatron_parallelism.sh

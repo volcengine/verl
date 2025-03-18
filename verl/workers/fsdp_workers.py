@@ -18,6 +18,7 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import warnings
+import psutil
 
 import torch
 import torch.distributed
@@ -49,9 +50,6 @@ def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
     else:
-        raise ValueError(
-            'HSDP is not supported yet because it produces incorrect results for now. Please set fsdp_size=-1')
-        assert world_size % fsdp_size == 0
         device_mesh = init_device_mesh('cuda',
                                        mesh_shape=(world_size // fsdp_size, fsdp_size),
                                        mesh_dim_names=['ddp', 'fsdp'])
@@ -80,7 +78,7 @@ class ActorRolloutRefWorker(Worker):
         self.config = config
         import torch.distributed
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="nccl")
+            torch.distributed.init_process_group()
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -117,10 +115,11 @@ class ActorRolloutRefWorker(Worker):
         # normalize config
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
+            self.config.actor.ppo_mini_batch_size //= (self.device_mesh.size() // self.ulysses_sequence_parallel_size)
+            assert self.config.actor.ppo_mini_batch_size > 0, f'ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than 0 after normalization'
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
-                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
+                self.config.actor.ppo_micro_batch_size //= (self.device_mesh.size() //
                                                             self.ulysses_sequence_parallel_size)
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
                 assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0, \
@@ -130,12 +129,12 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
-            self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+            self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.size() //
                                                                self.ulysses_sequence_parallel_size)
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
         if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
-            self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
+            self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.size() //
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
@@ -195,7 +194,8 @@ class ActorRolloutRefWorker(Worker):
             print(f'Model config after override: {actor_model_config}')
 
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -270,7 +270,7 @@ class ActorRolloutRefWorker(Worker):
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
         # TODO: add more optimizer args into config
-        if role == 'actor':
+        if role == 'actor' and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup
             actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
                                           lr=optim_config.lr,
@@ -278,8 +278,10 @@ class ActorRolloutRefWorker(Worker):
                                           weight_decay=optim_config.get('weight_decay', 1e-2))
 
             total_steps = optim_config.get('total_training_steps', 0)
-            num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)
-            num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+            num_warmup_steps = int(optim_config.get('lr_warmup_steps', -1))
+            if num_warmup_steps < 0:
+                num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)
+                num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
             print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
@@ -300,21 +302,18 @@ class ActorRolloutRefWorker(Worker):
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
         rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
-
-        if self.config.rollout.name == 'hf':
+        rollout_name = self.config.rollout.name
+        if rollout_name == 'hf':
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager import BaseShardingManager
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
-        elif self.config.rollout.name == 'vllm':
-            if self.config.rollout.use_fire_sampling:
-                from verl.workers.rollout.vllm_rollout import FIREvLLMRollout as vLLMRollout
-                from verl.workers.rollout.vllm_rollout import vllm_mode
-            else:
-                from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+
+        elif rollout_name == 'vllm':
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
-            log_gpu_memory_usage('Before building vllm rollout', logger=None)
+            log_gpu_memory_usage(f'Before building {rollout_name} rollout', logger=None)
             local_path = copy_to_local(self.config.model.path)
             if vllm_mode == 'customized':
                 rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
@@ -329,7 +328,7 @@ class ActorRolloutRefWorker(Worker):
                                       device_mesh=rollout_device_mesh)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
-            log_gpu_memory_usage('After building vllm rollout', logger=None)
+            log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
@@ -337,6 +336,30 @@ class ActorRolloutRefWorker(Worker):
                                                                model_config=self.actor_model_config,
                                                                full_params='hf' in self.config.rollout.load_format,
                                                                device_mesh=rollout_device_mesh)
+            log_gpu_memory_usage('After building sharding manager', logger=None)
+
+        elif rollout_name == 'sglang':
+            from verl.workers.rollout.sglang_rollout import SGLangRollout
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
+            # However, due to veRL's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+            log_gpu_memory_usage(f'Before building {rollout_name} rollout', logger=None)
+            rollout = SGLangRollout(actor_module=self.config.model.path,
+                                    config=self.config.rollout,
+                                    tokenizer=self.tokenizer,
+                                    model_hf_config=self.actor_model_config)
+            log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
+
+            if torch.distributed.get_world_size() == 1:
+                self.config.rollout.load_format = 'dummy_hf'
+            rollout_sharding_manager = FSDPSGLangShardingManager(module=self.actor_module_fsdp,
+                                                                 inference_engine=rollout.inference_engine,
+                                                                 model_config=self.actor_model_config,
+                                                                 full_params='hf' in self.config.rollout.load_format,
+                                                                 device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
@@ -412,8 +435,6 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer)
 
-        torch.cuda.empty_cache()
-
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -425,9 +446,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
-        # Support all hardwares
-        data.batch = data.batch.to(torch.cuda.current_device())
-
         log_gpu_memory_usage('Before update policy', logger=logger)
 
         with self.ulysses_sharding_manager:
@@ -438,7 +456,11 @@ class ActorRolloutRefWorker(Worker):
             delta_time = timer.last
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics[
+                'perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics['perf/max_memory_allocated_gb'] = torch.cuda.max_memory_allocated() / (1024**3)
+            metrics['perf/max_memory_reserved_gb'] = torch.cuda.max_memory_reserved() / (1024**3)
+            metrics['perf/cpu_memory_used_gb'] = psutil.virtual_memory().used / (1024**3)
 
             self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
@@ -456,7 +478,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
-        torch.cuda.empty_cache()
+
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -468,8 +490,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        # Support all hardwares
-        prompts.batch = prompts.batch.to(torch.cuda.current_device())
         meta_info = {
             'eos_token_id':
                 self.generation_config.eos_token_id
@@ -491,7 +511,6 @@ class ActorRolloutRefWorker(Worker):
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
-
             log_gpu_memory_usage('After rollout generation', logger=logger)
 
             output = self.rollout_sharding_manager.postprocess_data(output)
@@ -499,7 +518,6 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
 
@@ -534,8 +552,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        # clear kv cache
-        torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
         return output
 
@@ -564,7 +580,6 @@ class ActorRolloutRefWorker(Worker):
         if self.world_size > 1:
             self.ref_policy.actor_module._handle.reshard(True)
 
-        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -687,7 +702,9 @@ class CriticWorker(Worker):
             from verl.models.transformers.monkey_patch import apply_monkey_patch
             apply_monkey_patch(critic_model_config, verbose=True)
 
-        init_context = get_init_weight_context_manager()
+        init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
+
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(critic_model_config, 'classifier_dropout', 0.)
@@ -749,8 +766,10 @@ class CriticWorker(Worker):
                                        weight_decay=config.optim.get('weight_decay', 1e-2))
 
         total_steps = config.optim.get('total_training_steps', 0)
-        num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
-        num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
+        num_warmup_steps = int(config.optim.get('lr_warmup_steps', -1))
+        if num_warmup_steps < 0:
+            num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
+            num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
@@ -784,8 +803,6 @@ class CriticWorker(Worker):
             optimizer=self.critic_optimizer,
             lr_scheduler=self.critic_lr_scheduler,
             processing_class=self.processor if self.processor is not None else self.tokenizer)
-
-        torch.cuda.empty_cache()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -830,7 +847,7 @@ class CriticWorker(Worker):
 
             global_num_tokens = data.meta_info['global_token_num']
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics['mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+            metrics['perf/mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
 
             self.critic_lr_scheduler.step()
             lr = self.critic_lr_scheduler.get_last_lr()[0]
@@ -843,7 +860,7 @@ class CriticWorker(Worker):
             offload_fsdp_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
-        torch.cuda.empty_cache()
+
         output = output.to('cpu')
         return output
 
@@ -946,7 +963,8 @@ class RewardModelWorker(Worker):
             apply_monkey_patch(model_config, verbose=True)
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -981,7 +999,6 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
-        torch.cuda.empty_cache()
 
     def _forward_micro_batch(self, micro_batch):
         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
@@ -1154,5 +1171,4 @@ class RewardModelWorker(Worker):
         self.reward_module._handle.reshard(True)
 
         output = output.to('cpu')
-        torch.cuda.empty_cache()
         return output

@@ -6,15 +6,16 @@ dill
 flash-attn
 hydra-core
 liger-kernel
+math-verify[antlr4_9_3]
 numpy
 pandas
 peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
-ray[data,train,tune,serve]
+ray[default]
 tensordict<0.6
 torchdata
 transformers
-vllm<=0.6.3
+# vllm==0.6.3.post1
 wandb

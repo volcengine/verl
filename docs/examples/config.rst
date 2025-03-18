@@ -21,6 +21,10 @@ Data
      train_batch_size: 1024
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     shuffle: True
+     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
+     truncation: error
+     image_key: images
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
   file. The program will read all files into memory, so it can't be too
@@ -45,10 +49,16 @@ Data
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
 - ``data.return_raw_chat``:
+- ``data.shuffle``: Whether to shuffle the data in the dataloader.
+- ``data.filter_overlong_prompts``: Default don't filter. You can filter for small-scale dataset. 
+  For large-scale dataset, filtering overlong prompts could be timeconsuming. 
+  You should disable this and set ``truncation='left``
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
-  throwing the error.
+  throwing the error. You can also set ``left`` and ``right``.
+- ``data.image_key``: The field in the multi-modal dataset where the image is
+  located. Default is 'images'.
 
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -74,6 +84,7 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.001
       use_kl_loss: False # True for GRPO
+      use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
       ppo_epochs: 1
@@ -81,6 +92,7 @@ Actor/Rollout/Reference Policy
       ulysses_sequence_parallel_size: 1 # sp size
       optim:
         lr: 1e-6
+        lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
         min_lr_ratio: null   # only useful for warmup with cosine
         warmup_style: constant  # select from constant/cosine
@@ -165,6 +177,8 @@ Actor/Rollout/Reference Policy
   updates
 
 - ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
+
+- ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
   calculating PPO loss
@@ -308,6 +322,18 @@ Reward Model
   of computing rule-based reward and handling different reward sources. Default
   if ``naive``. If all verification functions are multiprocessing-safe, the reward
   manager can be set to ``prime`` for parallel verification.
+
+Customized Reward Function
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+  
+   custom_reward_function:
+     path: null
+     name: compute_score
+
+- ``custom_reward_function.path``: The path to the file containing your customized reward function. If not specified, pre-implemented reward functions will be used.
+- ``custom_reward_function.name`` (Optional) : The name of the reward function within the specified file. Default is 'compute_score'.
 
 Algorithm
 ~~~~~~~~~

@@ -204,7 +204,8 @@ class FSDPSFTTrainer(object):
             apply_monkey_patch(config, verbose=True)
 
         # This may be very large
-        init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings)
+        init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
 
         with init_context():
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
@@ -468,11 +469,11 @@ class FSDPSFTTrainer(object):
             for data in tqdm(self.train_dataloader,
                              total=self.steps_per_epoch,
                              desc=f"Epoch {epoch+1}/{self.config.trainer.total_epochs}"):
+                global_step += 1
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
-                global_step += 1
 
                 # for early exit validation
                 if global_step >= self.total_training_steps:

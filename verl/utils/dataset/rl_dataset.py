@@ -88,7 +88,8 @@ class RLHFDataset(Dataset):
                  cache_dir='~/.cache/verl/rlhf',
                  chat_template_func=None,
                  return_raw_chat=False,
-                 truncation='error'):
+                 truncation='error',
+                 filter_overlong_prompts=False):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
@@ -106,6 +107,7 @@ class RLHFDataset(Dataset):
         self.return_raw_chat = return_raw_chat
         self.chat_template_func = chat_template_func
         self.truncation = truncation
+        self.filter_overlong_prompts = filter_overlong_prompts
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -127,16 +129,17 @@ class RLHFDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
 
-        print(f'original dataset len: {len(self.dataframe)}')
+        print(f'dataset len: {len(self.dataframe)}')
 
         # filter out too long prompts
-        tokenizer = self.tokenizer
-        prompt_key = self.prompt_key
-        self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                             axis=1)]
+        if self.filter_overlong_prompts:
+            tokenizer = self.tokenizer
+            prompt_key = self.prompt_key
+            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
+                tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
+                                                                 axis=1)]
 
-        print(f'filter dataset len: {len(self.dataframe)}')
+            print(f'filter dataset len: {len(self.dataframe)}')
 
     def resume_dataset_state(self):
         self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
@@ -160,7 +163,8 @@ class RLHFDataset(Dataset):
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 
-        if self.image_key in row_dict:  # expand image token
+        is_multi_modal = self.image_key in row_dict
+        if is_multi_modal:  # expand image token
             raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
             row_dict['multi_modal_data'] = {'image': [process_image(image) for image in row_dict.pop(self.image_key)]}
             image_inputs = self.processor.image_processor(row_dict['multi_modal_data']['image'], return_tensors='pt')
@@ -191,7 +195,7 @@ class RLHFDataset(Dataset):
                                                                          left_pad=True,
                                                                          truncation=self.truncation)
 
-        if self.image_key in row_dict:
+        if is_multi_modal:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = get_rope_index(

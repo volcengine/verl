@@ -27,7 +27,6 @@ from typing import Iterable, Dict
 import torch
 from torch import nn
 import torch.distributed
-# from megatron import get_args
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core import parallel_state as mpu
 from megatron.core import ModelParallelConfig
@@ -46,7 +45,7 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.torch_functional import logprobs_from_logits, masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
 
 __all__ = ['MegatronPPOActor']
 
@@ -116,7 +115,6 @@ class MegatronPPOActor(BasePPOActor):
         self._validate_config(config)
         self.model_config = model_config
         self.megatron_config = megatron_config
-        # self.megatron_args = get_args()
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.actor_optimizer_config = actor_optimizer_config
@@ -134,6 +132,7 @@ class MegatronPPOActor(BasePPOActor):
         })
 
         config = get_model_config(self.actor_module[0])
+        print(config)
         config.finalize_model_grads_func = finalize_model_grads
 
     def _validate_config(self, config) -> None:
@@ -224,6 +223,8 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        if self.config.use_kl_loss:
+            select_keys.append('ref_log_prob')
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
                                   epochs=self.config.ppo_epochs,
@@ -290,6 +291,20 @@ class MegatronPPOActor(BasePPOActor):
                                                                           cliprange=clip_ratio)
             entropy_loss = vocab_parallel_compute_entropy_loss(logits, eos_mask=response_mask)
             policy_loss = pg_loss - entropy_loss * entropy_coeff
+
+            metrics = {}
+            if self.config.use_kl_loss:
+                ref_log_prob = data['ref_log_prob']
+                # compute kl loss
+                kld = core_algos.kl_penalty(logprob=log_prob,
+                                            ref_logprob=ref_log_prob,
+                                            kl_penalty=self.config.kl_loss_type)
+                kl_loss = masked_mean(kld, response_mask)
+
+                policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                metrics['actor/kl_loss'] = kl_loss.detach().item()
+                metrics['actor/kl_coef'] = self.config.kl_loss_coef
+
             # return loss and stats
             stats = {
                 'actor/entropy_loss': entropy_loss.detach().item(),
@@ -297,6 +312,7 @@ class MegatronPPOActor(BasePPOActor):
                 'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                 'actor/ppo_kl': ppo_kl.detach().item()
             }
+            append_to_dict(stats, metrics)
             return policy_loss, stats
 
         def forward_step(batch_iter, model):

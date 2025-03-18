@@ -36,7 +36,7 @@ from megatron.core.optimizer import OptimizerConfig
 
 
 def get_model_config(model):
-    return get_attr_wrapped_model(model, 'megatron_config', allow_none=False)
+    return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
 def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
@@ -103,9 +103,9 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
         model_module.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
-    config: ModelParallelConfig = get_model_config(model[0])
+    config: TransformerConfig = get_model_config(model[0])
     config.fp8 = None
-    tfconfig: TransformerConfig = convert_config(model[0].config, config)
+    tfconfig: TransformerConfig = model[0].config
     if config.fp16 or config.bf16:  # the ModelParallelConfig in GPTModel
         model = [Float16Module(config, model_module) for model_module in model]
 
@@ -155,6 +155,9 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
+    ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
+    batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
@@ -172,6 +175,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
+        overlap_p2p_comm=overlap_p2p_comm,
+        batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
         params_dtype=dt,
         sequence_parallel=True,
@@ -247,3 +252,12 @@ def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_gra
                 if load_grad and param.grad is not None:
                     param.grad = param.grad.to(device_id, non_blocking=True)
     torch.cuda.empty_cache()
+
+
+def print_rank_0(message):
+    """If distributed is initialized, print only on rank 0."""
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            print(message, flush=True)
+    else:
+        print(message, flush=True)
