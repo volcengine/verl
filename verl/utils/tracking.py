@@ -58,10 +58,9 @@ class Tracking(object):
                 swanlab.login(SWANLAB_API_KEY)  # NOTE: previous login information will be overwritten
             swanlab.init(project=project_name,
                          experiment_name=experiment_name,
-                         config={"FRAMEWORK": "veRL"},
+                         config={"FRAMEWORK": "veRL", **config},
                          logdir=SWANLAB_LOG_DIR,
                          mode=SWANLAB_MODE)
-            swanlab.config.update(config)
             self.logger["swanlab"] = swanlab
 
         if 'vemlp_wandb' in default_backend:
