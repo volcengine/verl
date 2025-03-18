@@ -401,7 +401,7 @@ class RayPPOTrainer(object):
                  processor=None,
                  reward_fn=None,
                  val_reward_fn=None,
-                 actor_environment=None):
+                 actor_environment=ActorEnvironment()):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -777,13 +777,12 @@ class RayPPOTrainer(object):
         self.actor_rollout_wg.init_model()
 
         # initialize actor environment
-        if self.actor_environment is None:
-            self.actor_environment = ActorEnvironment
-
-        self.actor_environment = self.actor_environment(
-            self.config,
-            self.actor_rollout_wg,
-            self.reward_fn,
+        self.actor_environment.post_init(
+            config=self.config,
+            actor_rollout_wg=self.actor_rollout_wg,
+            reward_fn=self.reward_fn,
+            tokenizer=self.tokenizer,
+            processor=self.processor,
         )
 
     def _save_checkpoint(self):
