@@ -56,16 +56,21 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
             processing_class = kwargs.pop("tokenizer")
 
-        super().__init__(model, optimizer, lr_scheduler, processing_class)
+        super().__init__(model)
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.processing_class = processing_class
 
-    def load_checkpoint(self, path=None, del_local_after_load=False, *args, **kwargs):
+    def load_checkpoint(self, local_path: str, hdfs_path: str, del_local_after_load=False, *args, **kwargs):
+        local, ckpt_path = self.checkpath(local_path, hdfs_path)
+        
         if path is None:
             return
 
         # every rank download its own checkpoint
-        remote_model_path = os.path.join(path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_model_path = os.path.join(ckpt_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_optim_path = os.path.join(ckpt_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_extra_state_path = os.path.join(ckpt_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
             f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
         )
@@ -103,7 +108,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
+    def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
+        local, ckpt_path = self.checkpath(local_path, hdfs_path)
+        
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -111,7 +118,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # TODO: shall we remove previous ckpt every save?
         if remove_previous_ckpt:
             self.remove_previous_save_local_path()
-        local_path = self.local_mkdir(local_path)
+        if local:
+            local_path = self.local_mkdir(local_path)
         torch.distributed.barrier()
 
         # every rank will save its own model and optim shard
@@ -134,9 +142,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     'lr_scheduler': lr_scheduler_state_dict,
                     'rng': self.get_rng_state(),
                 }
-                model_path = os.path.join(local_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
-                optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
-                extra_path = os.path.join(local_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
+                model_path = os.path.join(ckpt_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+                optim_path = os.path.join(ckpt_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+                extra_path = os.path.join(ckpt_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
 
                 print(f'[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}')
                 print(f'[rank-{self.rank}]: Saving checkpoint to {os.path.abspath(model_path)}')
@@ -149,11 +157,11 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
 
         if self.rank == 0:
-            hf_local_path = os.path.join(local_path, 'huggingface')
+            hf_local_path = os.path.join(ckpt_path, 'huggingface')
             os.makedirs(hf_local_path, exist_ok=True)
             self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
             self.processing_class.save_pretrained(hf_local_path)
 
         torch.distributed.barrier()
 
-        self.previous_save_local_path = local_path
+        self.previous_save_path = ckpt_path
