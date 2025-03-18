@@ -60,11 +60,9 @@ For a typical job like examples/ppo_trainer/run_qwen2-7b_seq_balance.sh, the rol
 Using the vLLM V1 engine can avoid instability issues and achieve additional performance improvements. To use the V1 engine, you can first uninstall the previously installed vLLM and then follow the steps below to install the newer version.
 
 ```
-git clone https://github.com/vllm-project/vllm.git
-cd vllm
-git checkout 2275784
-sed -i "903a\    data_parallel_size = world_size // pipeline_model_parallel_size // tensor_model_parallel_size" ./vllm/distributed/parallel_state.py
-VLLM_USE_PRECOMPILED=1 pip install --editable .
+export VLLM_COMMIT=46f98893dd0c30365116563ab660c360b29c276b
+pip3 install torch==2.5.1 https://wheels.vllm.ai/$VLLM_COMMIT/vllm-1.0.0.dev-cp38-abi3-manylinux1_x86_64.whl 
+pip3 install "flashinfer-python>=0.2.2,<0.2.3" -i https://flashinfer.ai/whl/cu121/torch2.5
 ```
 
 Then you can enable the V1 engine by setting `export VLLM_USE_V1=1`. In some benchmark tests, the V1 engine demonstrates a 1.5x speed improvement over the vLLM V0 engine.
