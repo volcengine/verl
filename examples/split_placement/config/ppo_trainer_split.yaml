@@ -37,6 +37,7 @@ actor_rollout_ref:
     ulysses_sequence_parallel_size: 1 # sp size
     optim:
       lr: 1e-6
+      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       min_lr_ratio: null   # only useful for warmup with cosine
       warmup_style: constant  # select from constant/cosine
