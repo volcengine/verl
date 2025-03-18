@@ -84,6 +84,7 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.001
       use_kl_loss: False # True for GRPO
+      use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
       ppo_epochs: 1
@@ -91,6 +92,7 @@ Actor/Rollout/Reference Policy
       ulysses_sequence_parallel_size: 1 # sp size
       optim:
         lr: 1e-6
+        lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
         min_lr_ratio: null   # only useful for warmup with cosine
         warmup_style: constant  # select from constant/cosine
@@ -175,6 +177,8 @@ Actor/Rollout/Reference Policy
   updates
 
 - ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
+
+- ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
   calculating PPO loss

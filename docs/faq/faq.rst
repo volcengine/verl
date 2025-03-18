@@ -44,6 +44,8 @@ manager available on your cluster or use other container runtimes (e.g. through 
 Please note that Slurm cluster setup may vary. If you encounter any issues, please refer to Ray's
 `Slurm user guide <https://docs.ray.io/en/latest/cluster/vms/user-guides/community/slurm.html>`_ for common caveats.
 
+If you changed Slurm resource specifications, please make sure to update the environment variables in the job script if necessary.
+
 Illegal memory access
 ---------------------------------
 

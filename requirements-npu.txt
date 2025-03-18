@@ -14,3 +14,4 @@ ray
 tensordict<0.6
 transformers
 wandb
+mathruler
