@@ -21,10 +21,29 @@ from copy import deepcopy
 
 
 class ActorEnvironment:
-    def __init__(self, config, actor_rollout_wg, reward_fn):
+
+    def __init__(self):
+        pass
+
+    def post_init(self, config, actor_rollout_wg, reward_fn, tokenizer, processor):
+        """A post init function that adds the essentials for the training loop
+        after initializing the ActorEnvironment class.
+
+        Args:
+            config: The veRL config.
+            actor_rollout_wg: The actor rollout worker group.
+            reward_fn: The reward function.
+            tokenizer: The tokenizer.
+            processor: The processor (multimodal).
+            
+        Returns:
+            Batch: Enriched batch containing generated sequences, rewards, and metadata
+        """
         self.config = config
         self.actor_rollout_wg = actor_rollout_wg
         self.reward_fn = reward_fn
+        self.tokenizer = tokenizer
+        self.processor = processor
 
     def step(self, batch, gen_batch, timing_raw):
         """Performs a rollout step to generate sequences and compute rewards.
