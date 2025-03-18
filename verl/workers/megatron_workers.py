@@ -188,7 +188,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
             # Initialize the 3D HybridEngine
-            hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider)
+            hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider, use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             # Fetch the model at current rank
             actor_module = hybrid_engine.this_rank_models
             actor_modules_list = []
@@ -211,7 +211,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             print(f'self.config.ref.load_weight: {self.config.ref.load_weight}')
             ref_module = get_model(model_provider_func=megatron_actor_model_provider,
                                    model_type=ModelType.encoder_or_decoder,
-                                   wrap_with_ddp=False)
+                                   wrap_with_ddp=False,
+                                   use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer)
             # ref_module = nn.ModuleList(ref_module)
 
             if self.config.ref.load_weight:  # should align with the actor:
@@ -348,6 +349,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_mananager = MegatronCheckpointManager(
+                config=self.config,
+                model_config=self.actor_model_config,
+                role='actor',
                 model=self.actor_module,
                 arch=self.architectures[0],
                 hf_config=self.hf_config,
@@ -355,7 +359,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                 model_path=self.config.model.path,
                 tokenizer=self.tokenizer,
-                optimizer=self.actor_optimizer
+                optimizer=self.actor_optimizer,
+                use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
             )
 
         torch.cuda.empty_cache()
@@ -557,7 +562,8 @@ class CriticWorker(MegatronWorker):
         # Step 3: initialize the megatron model
         critic_module = get_model(model_provider_func=megatron_critic_model_provider,
                                   model_type=ModelType.encoder_or_decoder,
-                                  wrap_with_ddp=True)
+                                  wrap_with_ddp=True,
+                                  use_distributed_optimizer=self.config.critic.megatron.use_distributed_optimizer)
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
         # critic_module = nn.ModuleList(critic_module)
@@ -613,6 +619,20 @@ class CriticWorker(MegatronWorker):
                                         critic_optimizer=self.critic_optimizer,
                                         critic_optimizer_config=critic_optimizer_config)
         self.flops_counter = FlopsCounter(self.critic_model_config)
+        self.checkpoint_mananager = MegatronCheckpointManager(
+            config=self.config,
+            model_config=self.actor_model_config,
+            role='critic',
+            model=self.actor_module,
+            arch=self.architectures[0],
+            hf_config=self.hf_config,
+            param_dtype=self.param_dtype,
+            share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+            model_path=self.config.model.path,
+            tokenizer=self.tokenizer,
+            optimizer=self.actor_optimizer,
+            use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
+        )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -637,63 +657,16 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path, **kwargs):
-        if self.config.load_optim:
-            optimizer_path = get_checkpoint_dir(checkpoint_path)
-            optim_checkpoint_name = \
-                get_distributed_optimizer_checkpoint_name(optimizer_path)
-            print(f"Loading critic optimizer from {optim_checkpoint_name}")
-            self.critic_optimizer.load_parameter_state(optim_checkpoint_name)
-
-        self.hf_config = load_megatron_model_weights(self.config,
-                                                     self.critic_model_config,
-                                                     self.critic_module,
-                                                     params_dtype=self.param_dtype,
-                                                     is_value_model=False,
-                                                     resume_path=checkpoint_path)
+    def load_checkpoint(self, checkpoint_path, del_local_after_load=True):
+        self.hf_config = self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path,
+                                                                    del_local_after_load=del_local_after_load)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, **kwargs):
-        from verl.models.weight_loader_registry import get_weight_saver
-        arch = self.architectures[0]  # assume only one element in config architecture
-        weight_saver = get_weight_saver(arch)
-        state_dict = weight_saver(self.critic_module,
-                                  self.hf_config,
-                                  dtype=self.param_dtype,
-                                  tie_word_embeddings=self.share_embeddings_and_output_weights)
-
-        if self.rank == 0:
-            print(f'Saving critic checkpoint to {checkpoint_path}')
-            os.makedirs(checkpoint_path, exist_ok=True)
-            from accelerate import init_empty_weights
-            import warnings
-            with init_empty_weights(), warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                if 'mistral7b-rm' in self.config.model.path:
-                    from transformers import MistralForSequenceClassification
-                    model = MistralForSequenceClassification.from_pretrained(
-                        self.config.model.path)  # use score head instead of lm_head
-                    state_dict['score.weight'] = state_dict['score.weight']
-                else:
-                    from transformers import AutoModelForCausalLM
-                    model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
-
-                model.save_pretrained(checkpoint_path, state_dict=state_dict)
-                self.tokenizer.save_pretrained(checkpoint_path)
-                if hdfs_path is not None:
-                    print(f'Uploading critic checkpoint to {hdfs_path}')
-                    from verl.utils import hdfs_io
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
-
-        optimizer_path = get_checkpoint_dir(checkpoint_path)
-        os.makedirs(optimizer_path, exist_ok=True)
-        optim_checkpoint_name = \
-            get_distributed_optimizer_checkpoint_name(optimizer_path)
-        self.critic_optimizer.save_parameter_state(optim_checkpoint_name)
-        if self.rank == 0:
-            print(f"saving critic optimizer state to {optim_checkpoint_name}")
-        torch.distributed.barrier()
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, remove_previous_ckpt=False):
+        self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path,
+                                                 hdfs_path=hdfs_path,
+                                                 global_step=global_steps,
+                                                 remove_previous_ckpt=remove_previous_ckpt)
 
 
 class RewardModelWorker(MegatronWorker):
@@ -778,7 +751,8 @@ class RewardModelWorker(MegatronWorker):
         # Step 3: initialize the megatron model
         reward_model = get_model(model_provider_func=megatron_rm_model_provider,
                                  model_type=ModelType.encoder_or_decoder,
-                                 wrap_with_ddp=False)
+                                 wrap_with_ddp=False,
+                                 use_distributed_optimizer=self.config.reward_model.use_distributed_optimizer)
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
         # reward_model = nn.ModuleList(reward_model)

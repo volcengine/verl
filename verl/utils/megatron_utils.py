@@ -38,7 +38,7 @@ def get_model_config(model):
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
+def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
@@ -117,7 +117,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
                 disable_bucketing=(model_chunk_idx > 0),
                 ddp_config=DistributedDataParallelConfig(
                     overlap_grad_reduce=False,
-                    use_distributed_optimizer=True,
+                    use_distributed_optimizer=use_distributed_optimizer,
                     grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
                 ))
             ddp_models.append(ddp_model)
@@ -262,12 +262,24 @@ def print_rank_0(message):
         print(message, flush=True)
 
 
-def get_checkpoint_dir(checkpoint_path):
+def get_model_checkpoint_path(checkpoint_path):
+    os.makedirs(checkpoint_path, exist_ok=True)
+    return os.path.join(checkpoint_path, "model")
+
+
+def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
+    os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
+    if not use_distributed_optimizer:
+        return os.path.join(checkpoint_path, "optim", "optim.pt")
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     tp_rank = mpu.get_tensor_model_parallel_rank()
     #TODO: support ep
-    return os.path.join(checkpoint_path, f"optim/pp{pp_rank}_tp{tp_rank}/")
+    return os.path.join(checkpoint_path, f"optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}.pt")
 
 
-def get_distributed_optimizer_checkpoint_name(model_checkpoint_name):
-    return os.path.join(os.path.dirname(model_checkpoint_name), "distrib_optim.pt")
+def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=False):
+    os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
+    if not data_parallel_random_init:
+        return os.path.join(checkpoint_path, f'rng_states', "rng_states.pt")
+    dp_rank = mpu.get_data_parallel_rank()
+    return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")

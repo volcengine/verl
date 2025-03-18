@@ -25,9 +25,8 @@ import torch.distributed
 from verl.utils.fs import copy_to_local, is_non_local
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.models.weight_loader_registry import get_weight_loader
-from verl.utils.megatron_utils import TransformerConfig
-
-from transformers import PreTrainedTokenizer, ProcessorMixin
+from verl.utils.model import load_megatron_model_weights
+from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path
 
 from .checkpoint_manager import BaseCheckpointManager
 from transformers import AutoModelForCausalLM
@@ -51,26 +50,35 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     """
 
     def __init__(self,
+                 config,
+                 model_config,
+                 role,
                  model: torch.nn.ModuleList,
                  arch: str,
-                 megatron_config: TransformerConfig,
                  hf_config,
                  param_dtype: torch.dtype,
                  share_embeddings_and_output_weights: bool,
                  model_path: str,
                  tokenizer,
                  optimizer,
+                 use_distributed_optimizer,
                  **kwargs):
 
         super().__init__(model)
         self.arch = arch
+        self.config = config
+        self.role = role
+        self.is_value_model = False
+        if self.role in ["reward", "critic"]:
+            self.is_value_model = True
+        self.model_config = model_config
         self.hf_config = hf_config
-        self.megatron_config = megatron_config
         self.param_dtype = param_dtype
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.model_path = model_path
         self.tokenizer = tokenizer
         self.optimizer = optimizer
+        self.use_distributed_optimizer = use_distributed_optimizer
         
         self.rank = torch.distributed.get_rank()
         
@@ -111,96 +119,30 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         return rng_state_list
 
 
-    def generate_state_dict(self, model, optimizer, opt_param_scheduler,
-                            rng_state, use_dist_ckpt=False, iteration=None,
-                            optim_sd_kwargs=None, rerun_state=None):
-        # Arguments, iteration, and model.
-        state_dict = {}
-        state_dict['megatron_config'] = self.megatron_config
-        state_dict['checkpoint_version'] = 3.0
-        if iteration is not None:
-            state_dict['iteration'] = iteration
-
-        if len(model) == 1:
-            state_dict['model'] = (model[0].sharded_state_dict()
-                                if use_dist_ckpt else
-                                model[0].state_dict_for_save_checkpoint())
-        else:
-            for i in range(len(model)):
-                mpu.set_virtual_pipeline_model_parallel_rank(i)
-                state_dict['model%d' % i] = (
-                    model[i].sharded_state_dict()
-                    if use_dist_ckpt else
-                    model[i].state_dict_for_save_checkpoint())
-        # Optimizer stuff.
-        if optimizer is not None and not optimizer.is_stub_optimizer:
-            state_dict['optimizer'] = (optimizer.sharded_state_dict(state_dict, **(optim_sd_kwargs or {}))
-                                    if use_dist_ckpt else
-                                    optimizer.state_dict())
-        if opt_param_scheduler is not None:
-            state_dict['opt_param_scheduler'] = \
-                opt_param_scheduler.state_dict()
-
-        # Rerun state
-        state_dict['rerun_state_machine'] = rerun_state
-
-        # RNG states.
-        state_dict["rng_state"] = rng_state
-        return state_dict
-
-    def merge_state_dict(self, state_dict, optimizer,
-                            rng_state, use_dist_ckpt=False, iteration=None,
-                            optim_sd_kwargs=None):
-        state_dict['megatron_config'] = self.megatron_config
-        state_dict['checkpoint_version'] = 3.0
-        if iteration is not None:
-            state_dict['iteration'] = iteration
-        
-        # Optimizer stuff.
-        if optimizer is not None and not optimizer.is_stub_optimizer:
-            state_dict['optimizer'] = (optimizer.sharded_state_dict(state_dict, **(optim_sd_kwargs or {}))
-                                    if use_dist_ckpt else
-                                    optimizer.state_dict())
-        
-        if rng_state is not None:
-            state_dict["rng_state"] = rng_state
-        return state_dict
-
-
-    def load_optimizer(self, state_dict, use_distributed_optimizer=False):
-        # Load state dict.
-        if self.optimizer is not None and not self.optimizer.is_stub_optimizer:
-            self.optimizer.load_state_dict(state_dict['optimizer'])
-
+    def load_optimizer(self, ckpt_path):
         # TODO: Check Optimizer format and distributed optimizer
+        optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
+        print(f"Loading actor optimizer from {optimizer_path}")
+        self.optimizer.load_parameter_state(optimizer_path)
 
 
-    def load_rng_states(self, state_dict, data_parallel_random_init=False):
-        if 'rng_state' in state_dict:
-            # access rng_state for data parallel rank
-            if data_parallel_random_init:
-                rng_state = state_dict['rng_state'][mpu.get_data_parallel_rank()]
-            else:
-                rng_state = state_dict['rng_state'][0]
-            random.setstate(rng_state['random_rng_state'])
-            np.random.set_state(rng_state['np_rng_state'])
-            torch.set_rng_state(rng_state['torch_rng_state'])
-            torch.cuda.set_rng_state(rng_state['cuda_rng_state'])
-            # Check for empty states array
-            if not rng_state['rng_tracker_states']:
-                raise KeyError
-            tensor_parallel.get_cuda_rng_tracker().set_states(
-                rng_state['rng_tracker_states'])
-        else:  # backward compatability
-            random.setstate(state_dict['random_rng_state'])
-            np.random.set_state(state_dict['np_rng_state'])
-            torch.set_rng_state(state_dict['torch_rng_state'])
-            torch.cuda.set_rng_state(state_dict['cuda_rng_state'])
-            # Check for empty states array
-            if not state_dict['rng_tracker_states']:
-                raise KeyError
-            tensor_parallel.get_cuda_rng_tracker().set_states(
-                state_dict['rng_tracker_states'])
+    def load_rng_states(self, ckpt_path, data_parallel_random_init=False):
+        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+        print(f"Loading actor rng states from {rng_state_path}")
+        rng_state = torch.load(rng_state_path)
+        # access rng_state for data parallel rank
+        if data_parallel_random_init:
+            rng_state = rng_state[mpu.get_data_parallel_rank()]
+        else:
+            rng_state = rng_state[0]
+        random.setstate(rng_state['random_rng_state'])
+        np.random.set_state(rng_state['np_rng_state'])
+        torch.set_rng_state(rng_state['torch_rng_state'])
+        torch.cuda.set_rng_state(rng_state['cuda_rng_state'])
+        # Check for empty states array
+        if not rng_state['rng_tracker_states']:
+            raise KeyError
+        tensor_parallel.get_cuda_rng_tracker().set_states(rng_state['rng_tracker_states'])
 
 
     def load_checkpoint(self, local_path: str, hdfs_path: str, del_local_after_load=False, *args, **kwargs):
@@ -209,17 +151,24 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if ckpt_path is None:
             return
 
-        model = AutoModelForCausalLM.from_pretrained(ckpt_path, torch_dtype=self.param_dtype)
-        model = model.to('cuda')
+        self.hf_config = load_megatron_model_weights(self.config,
+                                                     self.model_config,
+                                                     self.model,
+                                                     params_dtype=self.param_dtype,
+                                                     is_value_model=self.is_value_model,
+                                                     resume_path=ckpt_path)
         
-        all_ckpt_file = os.path.join(ckpt_path, 'all_ckpt.pt')
-        state_dict = torch.load(all_ckpt_file)
-        iteration = state_dict['iteration']
-        
-        self.load_optimizer(state_dict)
+        self.load_optimizer(ckpt_path)
+        self.load_rng_states(ckpt_path)
 
         if del_local_after_load:
-            pass
+            try:
+                os.remove(local_path) if is_non_local(local_path) else None
+            except Exception as e:
+                print(
+                    f'[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored'
+                )
+        return self.hf_config
 
     def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
@@ -235,19 +184,19 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             local_path = self.local_mkdir(local_path)
         torch.distributed.barrier()
 
+
+        # Save Model
         state_dict = self.weight_saver(self.model,
                                        self.hf_config,
                                        dtype=self.param_dtype,
                                        tie_word_embeddings=self.share_embeddings_and_output_weights)
-
-        state_dict = self.merge_state_dict(state_dict, self.optimizer, self.get_rng_state(), iteration=global_step)
 
         # wait for everyone to dump to local
         torch.distributed.barrier()
 
         if self.rank == 0:
             print(f'Saving actor checkpoint to {ckpt_path}')
-            os.makedirs(ckpt_path, exist_ok=True)
+            model_ckpt_path = get_model_checkpoint_path(ckpt_path)
             from accelerate import init_empty_weights
             import warnings
             with init_empty_weights(), warnings.catch_warnings():
@@ -258,20 +207,33 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                         self.config.model.path)  # use score head instead of lm_head
                     state_dict['score.weight'] = state_dict['score.weight']
                 else:
-                    from transformers import AutoModelForCausalLM
                     model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
 
-                model.save_pretrained(ckpt_path, state_dict=state_dict)
-                all_ckpt_file = os.path.join(ckpt_path, 'all_ckpt.pt')
-                torch.save(state_dict, all_ckpt_file)
-                print(f'Saved actor checkpoint to {ckpt_path}')
-                self.tokenizer.save_pretrained(ckpt_path)
+                model.save_pretrained(model_ckpt_path, state_dict=state_dict)
+                self.tokenizer.save_pretrained(model_ckpt_path)
+                print(f'Saved actor checkpoint to {model_ckpt_path}')
                 if hdfs_path is not None:
                     print(f'Uploading actor checkpoint to {hdfs_path}')
                     from verl.utils import hdfs_io
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
+        # Save Optimizer
         torch.distributed.barrier()
+        
+        optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
+        self.critic_optimizer.save_parameter_state(optimizer_path)
+        if self.rank == 0:
+            print(f"saving critic optimizer state to {optimizer_path}")
+        
+        # Save RNG States
+        torch.distributed.barrier()
+        
+        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+        rng_state = self.get_rng_state()
+        torch.save(rng_state, rng_state_path)
+        if self.rank == 0:
+            print(f"saving critic rng states to {rng_state_path}")
+        
 
         self.previous_saved_path = ckpt_path
