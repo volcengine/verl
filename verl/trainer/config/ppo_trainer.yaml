@@ -39,6 +39,7 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
+    checkpoint_contents: ['model', 'optimizer', 'extra']
     optim:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
@@ -136,6 +137,7 @@ critic:
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
   cliprange_value: 0.5
+  checkpoint_contents: ['model', 'optimizer', 'extra']
 
 reward_model:
   enable: False

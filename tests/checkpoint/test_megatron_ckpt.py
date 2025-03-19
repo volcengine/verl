@@ -25,18 +25,14 @@ from transformers import AutoTokenizer
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.megatron_utils import get_model_checkpoint_path
 from multiprocessing import Process, log_to_stderr
 import logging
 
-MODEL_PATHS = ['Qwen/Qwen2.5-0.5B']
-# MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
+MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
 MODEL_PATH = ''
 DATA_PATH = expanduser('~/data/gsm8k')
 SAVE_PATH = '/tmp/checkpoint'
-
-
-def make_reward_function(tokenizer, num_examine):
-    return None
 
 additional_config = {}
 
@@ -64,7 +60,8 @@ def build_additional_configs(MODEL_PATH):
                 'megatron': {
                     'tensor_model_parallel_size': 2,
                     'pipeline_model_parallel_size': 4,
-                }
+                },
+                'checkpoint_contents': ['model']
             },
             'rollout': {
                 'log_prob_micro_batch_size_per_gpu': 8,
@@ -90,7 +87,8 @@ def build_additional_configs(MODEL_PATH):
             'ppo_micro_batch_size_per_gpu': 4,
             'megatron': {
                 'tensor_model_parallel_size': 2
-            }
+            },
+            'checkpoint_contents': ['model']
         },
         'algorithm': {
             'kl_ctrl': {
@@ -108,10 +106,36 @@ def build_additional_configs(MODEL_PATH):
             'save_freq': 1,
             'test_freq': 1,
             'total_epochs': 15,
-            'total_training_steps': 1,
+            'total_training_steps': 1
         }
     }
 
+def get_custom_reward_fn(config):
+    import importlib.util, os
+
+    reward_fn_config = config.get("custom_reward_function") or {}
+    file_path = reward_fn_config.get("path")
+    if not file_path:
+        return None
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
+
+    spec = importlib.util.spec_from_file_location("custom_module", file_path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+
+    function_name = reward_fn_config.get("name")
+
+    if not hasattr(module, function_name):
+        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
+
+    print(f"using customized reward function '{function_name}' from '{file_path}'")
+
+    return getattr(module, function_name)
 
 def check_result(origin_path, megatron_path, input_text):
     from transformers import AutoModelForCausalLM
@@ -132,7 +156,7 @@ def check_result(origin_path, megatron_path, input_text):
     print(f"origin_text: {origin_text}")
 
     megatron_model = AutoModelForCausalLM.from_pretrained(
-        megatron_path,
+        get_model_checkpoint_path(megatron_path),
         torch_dtype=torch_dtype,
     ).eval()
     megatron_model = megatron_model.to('cuda')
@@ -170,8 +194,14 @@ def main(config):
     tokenizer = AutoTokenizer.from_pretrained(local_path)
     print(f'Tokenizer vocab_size: {tokenizer.vocab_size}')
 
+    from verl.utils import hf_tokenizer, hf_processor
+    tokenizer = hf_tokenizer(local_path)
+    processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
+
     # define worker classes
     from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+    from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+    ray_worker_group_cls = NVMegatronRayWorkerGroup
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
@@ -188,7 +218,12 @@ def main(config):
         Role.Critic: global_pool_id,
     }
 
-    reward_fn = make_reward_function(tokenizer=tokenizer, num_examine=1)
+    from verl.workers.reward_manager import NaiveRewardManager
+    reward_manager_cls = NaiveRewardManager
+        
+    compute_score = get_custom_reward_fn(config)
+    reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
+    val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
@@ -196,10 +231,11 @@ def main(config):
                             tokenizer=tokenizer,
                             role_worker_mapping=role_worker_mapping,
                             resource_pool_manager=resource_pool_manager,
+                            ray_worker_group_cls=ray_worker_group_cls,
                             reward_fn=reward_fn,
-                            val_reward_fn=reward_fn)
+                            val_reward_fn=val_reward_fn)
     trainer.init_workers()
-    trainer.fit()
+    # trainer.fit()
     trainer.actor_rollout_wg.save_checkpoint(SAVE_PATH)
 
 def run_single_model(model_path):

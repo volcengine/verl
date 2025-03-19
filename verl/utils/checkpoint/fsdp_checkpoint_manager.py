@@ -48,6 +48,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                  model: FSDP,
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
+                 checkpoint_contents: list=['model', 'optimizer', 'extra'],
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
                  **kwargs):
 
@@ -56,7 +57,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
             processing_class = kwargs.pop("tokenizer")
 
-        super().__init__(model)
+        super().__init__(model, checkpoint_contents=checkpoint_contents)
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.processing_class = processing_class

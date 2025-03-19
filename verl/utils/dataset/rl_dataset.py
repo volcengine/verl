@@ -221,12 +221,3 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
 
         return row_dict
-
-    def __getstate__(self):
-        if not self.serialize_dataset:
-            state = self.__dict__.copy()
-
-            if 'dataframe' in state:
-                del state['dataframe']
-            return state
-        return self.__dict__.copy()

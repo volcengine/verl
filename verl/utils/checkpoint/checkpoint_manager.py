@@ -38,11 +38,12 @@ class BaseCheckpointManager:
     - huggingface tokenizer and config for ckpt merge
     """
 
-    def __init__(self, model):
+    def __init__(self, model=None, checkpoint_contents: list=['model', 'optimizer', 'extra']):
         self.previous_global_step = None
         self.previous_saved_path = None
 
         self.model = model
+        self.checkpoint_contents = checkpoint_contents
 
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()

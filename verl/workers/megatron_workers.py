@@ -359,6 +359,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 tokenizer=self.tokenizer,
                 optimizer=self.actor_optimizer,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
+                checkpoint_contents=self.config.actor.checkpoint_contents
             )
 
         torch.cuda.empty_cache()
@@ -552,7 +553,7 @@ class CriticWorker(MegatronWorker):
                 megatron_config=megatron_config,
                 pre_process=pre_process,
                 post_process=post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+                share_embeddings_and_output_weights=False,
                 value=True)
             parallel_model.cuda()
             return parallel_model
@@ -625,10 +626,11 @@ class CriticWorker(MegatronWorker):
             arch=self.architectures[0],
             hf_config=self.hf_config,
             param_dtype=self.param_dtype,
-            share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+            share_embeddings_and_output_weights=False,
             tokenizer=self.tokenizer,
             optimizer=self.critic_optimizer,
-            use_distributed_optimizer=self.config.megatron.use_distributed_optimizer
+            use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
+            checkpoint_contents=self.config.checkpoint_contents
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)

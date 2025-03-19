@@ -61,9 +61,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
+                 checkpoint_contents: list=['model', 'optimizer', 'extra'],
                  **kwargs):
 
-        super().__init__(model)
+        super().__init__(model, checkpoint_contents=checkpoint_contents)
         self.arch = arch
         self.config = config
         self.role = role
@@ -149,15 +150,19 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if ckpt_path is None:
             return
 
-        self.hf_config = load_megatron_model_weights(self.config,
-                                                     self.model_config,
-                                                     self.model,
-                                                     params_dtype=self.param_dtype,
-                                                     is_value_model=self.is_value_model,
-                                                     resume_path=ckpt_path)
+        if 'model' in self.checkpoint_contents:
+            self.hf_config = load_megatron_model_weights(self.config,
+                                                        self.model_config,
+                                                        self.model,
+                                                        params_dtype=self.param_dtype,
+                                                        is_value_model=self.is_value_model,
+                                                        resume_path=ckpt_path)
         
-        self.load_optimizer(ckpt_path)
-        self.load_rng_states(ckpt_path)
+        if 'optimizer' in self.checkpoint_contents:
+            self.load_optimizer(ckpt_path)
+        
+        if 'extra' in self.checkpoint_contents:
+            self.load_rng_states(ckpt_path)
 
         if del_local_after_load:
             try:
@@ -184,54 +189,56 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
 
         # Save Model
-        state_dict = self.weight_saver(self.model,
-                                       self.hf_config,
-                                       dtype=self.param_dtype,
-                                       tie_word_embeddings=self.share_embeddings_and_output_weights)
+        if 'model' in self.checkpoint_contents:
+            state_dict = self.weight_saver(self.model,
+                                        self.hf_config,
+                                        dtype=self.param_dtype,
+                                        tie_word_embeddings=self.share_embeddings_and_output_weights)
 
-        # wait for everyone to dump to local
-        torch.distributed.barrier()
+            # wait for everyone to dump to local
+            torch.distributed.barrier()
 
-        if self.rank == 0:
-            print(f'Saving actor checkpoint to {ckpt_path}')
-            model_ckpt_path = get_model_checkpoint_path(ckpt_path)
-            from accelerate import init_empty_weights
-            import warnings
-            with init_empty_weights(), warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                if 'mistral7b-rm' in self.config.model.path:
-                    from transformers import MistralForSequenceClassification
-                    model = MistralForSequenceClassification.from_pretrained(
-                        self.config.model.path)  # use score head instead of lm_head
-                    state_dict['score.weight'] = state_dict['score.weight']
-                else:
-                    model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+            if self.rank == 0:
+                print(f'Saving actor checkpoint to {ckpt_path}')
+                model_ckpt_path = get_model_checkpoint_path(ckpt_path)
+                from accelerate import init_empty_weights
+                import warnings
+                with init_empty_weights(), warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    if 'mistral7b-rm' in self.config.model.path:
+                        from transformers import MistralForSequenceClassification
+                        model = MistralForSequenceClassification.from_pretrained(
+                            self.config.model.path)  # use score head instead of lm_head
+                        state_dict['score.weight'] = state_dict['score.weight']
+                    else:
+                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
 
-                model.save_pretrained(model_ckpt_path, state_dict=state_dict)
-                self.tokenizer.save_pretrained(model_ckpt_path)
-                print(f'Saved actor checkpoint to {model_ckpt_path}')
-                if hdfs_path is not None:
-                    print(f'Uploading actor checkpoint to {hdfs_path}')
-                    from verl.utils import hdfs_io
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                    model.save_pretrained(model_ckpt_path, state_dict=state_dict)
+                    self.tokenizer.save_pretrained(model_ckpt_path)
+                    print(f'Saved actor checkpoint to {model_ckpt_path}')
+                    if hdfs_path is not None:
+                        print(f'Uploading actor checkpoint to {hdfs_path}')
+                        from verl.utils import hdfs_io
+                        hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                        hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         # Save Optimizer
-        torch.distributed.barrier()
-        
-        optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
-        self.optimizer.save_parameter_state(optimizer_path)
-        if self.rank == 0:
-            print(f"saving critic optimizer state to {optimizer_path}")
+        if 'optimizer' in self.checkpoint_contents:
+            torch.distributed.barrier()
+            
+            optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
+            self.optimizer.save_parameter_state(optimizer_path)
+            if self.rank == 0:
+                print(f"saving critic optimizer state to {optimizer_path}")
         
         # Save RNG States
-        torch.distributed.barrier()
-        
-        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
-        rng_state = self.get_rng_state()
-        torch.save(rng_state, rng_state_path)
-        if self.rank == 0:
-            print(f"saving critic rng states to {rng_state_path}")
-        
-
+        if 'extra' in self.checkpoint_contents:
+            torch.distributed.barrier()
+            
+            rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+            rng_state = self.get_rng_state()
+            torch.save(rng_state, rng_state_path)
+            if self.rank == 0:
+                print(f"saving critic rng states to {rng_state_path}")
+    
         self.previous_saved_path = ckpt_path
