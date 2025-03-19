@@ -8,6 +8,8 @@
 # all dependencies are in the image
 # ou_2eab9efa9f778e93c07947282279738d/verl-sglang-browser
 
+wandb online
+
 hostip=$(env | grep MLP_HOST=)
 hostip=${hostip#*=}
 echo $hostip

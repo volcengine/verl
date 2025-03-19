@@ -132,6 +132,10 @@ class AsyncRollout(BaseRollout):
         # only last action saved
         dr_storage_sid2seq = {}
         dr_storage_sid2browser = {}
+        
+        # exp-feature for history unfaithful judgement
+        dr_storage_sid2_history_obs = {}
+        dr_storage_sid2_unfaith_penalty = {}
 
         async def dr_start(index):
             index = index % len(input_ids)
@@ -158,6 +162,11 @@ class AsyncRollout(BaseRollout):
             index = index % len(input_ids)
             dr_storage_sid2seq[index] = []
             dr_storage_sid2browser[index] = single_browser
+            
+            # new feature
+            dr_storage_sid2_history_obs[index] = []
+            dr_storage_sid2_unfaith_penalty[index] = []
+            
             return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
 
         async def dr_obs(action_ids, sid, tokenizer, **_):
@@ -207,10 +216,12 @@ class AsyncRollout(BaseRollout):
             stop_token = tokenizer.decode([stop_id])
             print(f"stop token: [{stop_id}] - [{stop_token}]")
             
-            action_details = {"search_times": 0, "click_times": 0}
+            action_details = {"search_times": 0, "click_times": 0, 'unfaith_penalty_times': 0}
 
             # only finish with <|observation|> token can be multi-turn
             if not stop_token.strip() == '<|observation|>':
+                if self.config.unfaith_penalty:
+                    dr_storage_sid2_unfaith_penalty[sid].extend([0] * len(action_ids))
                 return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0, **action_details}
             action = tokenizer.decode(action_ids, skip_special_tokens=False)
             text = action.split("<|observation|>")[0].strip()
@@ -230,7 +241,7 @@ class AsyncRollout(BaseRollout):
                         action_details['click_times'] += int('click' in reason)
                         break
                     else:
-                        print({"info": "Retry {i+1} for empty observation", "observation": observation, "reason": reason})
+                        print({"info": f"Retry {i + 1} for empty observation", "observation": observation, "reason": reason})
                         await asyncio.sleep(1 + 2 * i)
                         continue
                 except Exception as e:
@@ -245,7 +256,24 @@ class AsyncRollout(BaseRollout):
             obs_text = f"\n{refined_observation}<|assistant|>\n"
             
             ret_ids = tokenizer.encode(obs_text)
-            dr_storage_sid2seq[sid].extend(ret_ids)
+            
+            # new feature for unfaithful judgement
+            if self.config.unfaith_penalty:
+                from verl.utils.reward_score.unfaith_judge import is_unfaithful_judge
+                history = dr_storage_sid2_history_obs[sid]
+                judge_action = text
+                if len(history) == 0:
+                    dr_storage_sid2_unfaith_penalty[sid].extend([0] * len(action_ids) + [0] * len(ret_ids))
+                else:
+                    # is_unfaithful = is_unfaithful_judge(history, judge_action)
+                    is_unfaithful = await asyncio.to_thread(is_unfaithful_judge, history, judge_action)
+                    action_details['unfaith_penalty_times'] = int(is_unfaithful)
+                    dr_storage_sid2_unfaith_penalty[sid].extend([-int(is_unfaithful)] * len(action_ids) + [0] * len(ret_ids))
+            
+            dr_storage_sid2_history_obs[sid].append(refined_observation)
+            # import json
+            # print(json.dumps({"len(dr_storage_sid2_unfaith_penalty[sid])": len(dr_storage_sid2_unfaith_penalty[sid])}))
+            
             return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
 
         async def dr_end(sid, _):
@@ -261,6 +289,7 @@ class AsyncRollout(BaseRollout):
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
             sequences = dr_storage_sid2seq[sid]
+            print(f"in dr_end {sid=} {len(sequences)=} {len(valid_prompt_ids)=}")
             sequences_str = tokenizer.decode(sequences)
             prompt_str = tokenizer.decode(valid_prompt_ids)
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
@@ -274,9 +303,15 @@ class AsyncRollout(BaseRollout):
                 question=prompt_str,
                 tokenizer=tokenizer,
             )
-            return {
-                "rm_final_scores": score,
-            }
+            return_json = {"rm_final_scores": score}
+            if self.config.unfaith_penalty:
+                unfaith_penalty = dr_storage_sid2_unfaith_penalty[sid]
+                if len(unfaith_penalty) < self.config.response_length:
+                    unfaith_penalty += [0] * (self.config.response_length - len(unfaith_penalty))
+                else:
+                    unfaith_penalty = unfaith_penalty[:self.config.response_length]
+                return_json["unfaith_penalty"] = unfaith_penalty
+            return return_json
 
         async def swedev_start(index):
             try:

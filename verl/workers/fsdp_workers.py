@@ -303,6 +303,7 @@ class ActorRolloutRefWorker(Worker):
         infer_tp = self.config.rollout.tensor_model_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
+        # print(f"{self.world_size=} {dp=} {infer_tp=}")
         rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
 
         if self.config.rollout.name == 'hf':

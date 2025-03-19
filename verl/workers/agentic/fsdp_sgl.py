@@ -240,7 +240,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
 
     def __enter__(self):
         local_rank = self.device_mesh.get_local_rank(1)
-        local_rank = 0
+        # local_rank = 0
         if "actor" in self.role:
             start = time.time()
             log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
@@ -287,7 +287,9 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('Before sync model weights in sharding manager', logger=logger)
 
         while not done:
-            if "actor" in self.role and local_rank == 0:
+            import time
+            each_loop_start_time = time.time()
+            if "actor" in self.role:
                 count = 0
                 if self.exchange_size is None:
                     gpu_tensor_list = tensor_list
@@ -345,7 +347,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                         del tensor_list, v
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            log_gpu_memory_usage(f'After loop {loop_count} {done=} in sharding manager', logger=logger)
+            loop_consumed_time = time.time() - each_loop_start_time
+            log_gpu_memory_usage(f'After loop {loop_count} {done=} {loop_consumed_time=} in sharding manager', logger=logger)
             loop_count += 1
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
