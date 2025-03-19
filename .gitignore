@@ -121,3 +121,5 @@ logs/
 *.parquet
 batches/
 configs/
+
+scripts/rl_broswer
