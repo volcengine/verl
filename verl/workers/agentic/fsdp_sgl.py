@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from typing import List, Any, Optional
 
 from torch.distributed.distributed_c10d import _group_or_default_group, _canonicalize_group_rank, _warn_not_in_group, \
@@ -234,7 +235,9 @@ class FSDPSGLShardingManager(BaseShardingManager):
             self.gen_random_states = None
 
     def __enter__(self):
+        local_rank = self.device_mesh.get_local_rank(1)
         if "actor" in self.role:
+            start = time.time()
             log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
             st = self.module.state_dict()
             k, v = next(iter(st.items()))
@@ -243,18 +246,22 @@ class FSDPSGLShardingManager(BaseShardingManager):
             log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
             # print(f'Weight keys: {st.keys()}')
             target_device = torch.device("cpu") if self.exchange_size else device
-            tensor_list = [
-                (k,
-                 (v.full_tensor() if isinstance(v, DTensor) else v)
-                 .to(dtype=torch.bfloat16, device=target_device)
-                 )
-                for k, v in st.items()
-            ]
+            tensor_list = []
+            for k, v in st.items():
+                if isinstance(v, DTensor):
+                    v = v.full_tensor()
+                if local_rank == 0:
+                    v_bf16 = v.to(dtype=torch.bfloat16)
+                    v_target = v_bf16.to(device=target_device)
+                    tensor_list.append((k, v_target))
+                    del v_bf16
+                else:
+                    del v
             del st
             torch.cuda.empty_cache()
             log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
             param_count = sum([v.numel() for k, v in tensor_list])
-            print(f"param count: {param_count}")
+            print(f"param count: {param_count}; used {time.time() - start} seconds to prepare tensor list")
         if "rollout" in self.role and self.device_mesh.get_local_rank(1) == 0:
             print("resuming memory occupation")
             self.inference_engine.resume_memory_occupation()
@@ -272,7 +279,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('Before sync model weights in sharding manager', logger=logger)
 
         while not done:
-            if "actor" in self.role:
+            if "actor" in self.role and local_rank == 0:
                 count = 0
                 if self.exchange_size is None:
                     gpu_tensor_list = tensor_list
@@ -289,12 +296,13 @@ class FSDPSGLShardingManager(BaseShardingManager):
                 print(f"got gpu_tensor_list {self.exchange_size=} {count=} {done=}")
 
             if self.role == "actor_rollout":
-                if self.device_mesh.get_local_rank(1) == 0:
+                if local_rank == 0:
                     self.inference_engine.update_weights_from_tensor(gpu_tensor_list)
-                del gpu_tensor_list
+                    del gpu_tensor_list
             else:
                 if self.role == "actor":
                     if self.device_mesh.get_rank() == 0:
+                        assert local_rank == 0
                         descriptions = {k: (v.shape, v.dtype) for k, v in gpu_tensor_list}
                         lst = [descriptions]
                         torch.distributed.barrier(group=self.update_weight_pg)
@@ -305,7 +313,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                             torch.distributed.broadcast(v, group_src=0, group=self.update_weight_pg)
                         lst = [done]
                         broadcast_object_list(lst, group_src=0, group=self.update_weight_pg)
-                    del gpu_tensor_list
+                    if local_rank == 0:
+                        del gpu_tensor_list
                 else:
                     if self.device_mesh.get_local_rank(1) == 0:
                         lst = [None]
