@@ -270,6 +270,7 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
     architectures = getattr(config, "architectures", [])
     for arch in architectures:
         model_cls = ModelRegistry.load_model_cls(arch, value)
+        print(f'after load model cls')
         if model_cls is not None:
             return model_cls
     raise ValueError(f"Model architectures {architectures} are not supported for now. "

@@ -58,10 +58,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  hf_config,
                  param_dtype: torch.dtype,
                  share_embeddings_and_output_weights: bool,
-                 model_path: str,
                  tokenizer,
                  optimizer,
-                 use_distributed_optimizer,
+                 use_distributed_optimizer: bool,
                  **kwargs):
 
         super().__init__(model)
@@ -75,16 +74,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.hf_config = hf_config
         self.param_dtype = param_dtype
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
-        self.model_path = model_path
+        self.model_path = self.config.model.path
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.use_distributed_optimizer = use_distributed_optimizer
         
         self.rank = torch.distributed.get_rank()
         
-        arch = self.architectures[0]  # assume only one element in config architecture
-        self.weight_saver = get_weight_saver(arch)
-        self.weight_loader = get_weight_loader(arch)
+        self.weight_saver = get_weight_saver(self.arch)
+        self.weight_loader = get_weight_loader(self.arch)
 
 
     def get_rng_state(use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
@@ -145,7 +143,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         tensor_parallel.get_cuda_rng_tracker().set_states(rng_state['rng_tracker_states'])
 
 
-    def load_checkpoint(self, local_path: str, hdfs_path: str, del_local_after_load=False, *args, **kwargs):
+    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
         
         if ckpt_path is None:
@@ -170,7 +168,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 )
         return self.hf_config
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
+    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
         
         # record the previous global step
@@ -222,7 +220,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
         
         optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
-        self.critic_optimizer.save_parameter_state(optimizer_path)
+        self.optimizer.save_parameter_state(optimizer_path)
         if self.rank == 0:
             print(f"saving critic optimizer state to {optimizer_path}")
         

@@ -61,10 +61,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self.lr_scheduler = lr_scheduler
         self.processing_class = processing_class
 
-    def load_checkpoint(self, local_path: str, hdfs_path: str, del_local_after_load=False, *args, **kwargs):
+    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
         
-        if path is None:
+        if ckpt_path is None:
             return
 
         # every rank download its own checkpoint
@@ -108,7 +108,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
+    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
         
         # record the previous global step

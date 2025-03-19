@@ -36,8 +36,7 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.megatron_utils import init_model_parallel_config, get_checkpoint_dir, \
-    get_distributed_optimizer_checkpoint_name
+from verl.utils.megatron_utils import init_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
 
@@ -357,7 +356,6 @@ class ActorRolloutRefWorker(MegatronWorker):
                 hf_config=self.hf_config,
                 param_dtype=self.param_dtype,
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                model_path=self.config.model.path,
                 tokenizer=self.tokenizer,
                 optimizer=self.actor_optimizer,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
@@ -541,7 +539,7 @@ class CriticWorker(MegatronWorker):
         update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(critic_model_config, "architectures", None)
         if self.rank == 0:
-            print(f'Model config after override: {critic_model_config}')
+            print(f'Model config after override: critic_model_config {critic_model_config}')
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config
@@ -563,7 +561,7 @@ class CriticWorker(MegatronWorker):
         critic_module = get_model(model_provider_func=megatron_critic_model_provider,
                                   model_type=ModelType.encoder_or_decoder,
                                   wrap_with_ddp=True,
-                                  use_distributed_optimizer=self.config.critic.megatron.use_distributed_optimizer)
+                                  use_distributed_optimizer=self.config.megatron.use_distributed_optimizer)
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
         # critic_module = nn.ModuleList(critic_module)
@@ -621,17 +619,16 @@ class CriticWorker(MegatronWorker):
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_mananager = MegatronCheckpointManager(
             config=self.config,
-            model_config=self.actor_model_config,
+            model_config=self.critic_model_config,
             role='critic',
-            model=self.actor_module,
+            model=self.critic_module,
             arch=self.architectures[0],
             hf_config=self.hf_config,
             param_dtype=self.param_dtype,
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-            model_path=self.config.model.path,
             tokenizer=self.tokenizer,
-            optimizer=self.actor_optimizer,
-            use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
+            optimizer=self.critic_optimizer,
+            use_distributed_optimizer=self.config.megatron.use_distributed_optimizer
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -731,7 +728,7 @@ class RewardModelWorker(MegatronWorker):
         update_model_config(rm_model_config, override_config_kwargs=override_config_kwargs)
 
         if self.rank == 0:
-            print(f'Model config after override: {rm_model_config}')
+            print(f'Model config after override: rm_model_config {rm_model_config}')
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config

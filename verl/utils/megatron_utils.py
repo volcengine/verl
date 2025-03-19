@@ -47,6 +47,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
             "Interleaved schedule not supported for model with both encoder and decoder"
         model = []
         for i in range(mpu.get_virtual_pipeline_model_parallel_world_size()):
+            print(f'build vpp idx {i}')
             mpu.set_virtual_pipeline_model_parallel_rank(i)
             # Set pre_process and post_process only after virtual rank is set.
             pre_process = mpu.is_pipeline_first_stage()
@@ -54,6 +55,8 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
             this_model = model_provider_func(pre_process=pre_process, post_process=post_process)
             this_model.model_type = model_type
             model.append(this_model)
+            print(f'after vpp idx {i}')
+        print(f'finish build')
     else:
         pre_process = mpu.is_pipeline_first_stage()
         post_process = mpu.is_pipeline_last_stage()

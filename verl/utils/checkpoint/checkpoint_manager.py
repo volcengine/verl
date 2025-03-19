@@ -47,10 +47,10 @@ class BaseCheckpointManager:
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
-    def load_checkpoint(self, local_path: str, hdfs_path: str, del_local_after_load: bool, *args, **kwargs):
+    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load: bool=False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str, global_step: int, remove_previous_ckpt: bool, *args, **kwargs):
+    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt: bool=False):
         raise NotImplementedError
     
     @staticmethod

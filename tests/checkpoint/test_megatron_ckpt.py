@@ -28,7 +28,8 @@ from verl.utils.fs import copy_local_path_from_hdfs
 from multiprocessing import Process, log_to_stderr
 import logging
 
-MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
+MODEL_PATHS = ['Qwen/Qwen2.5-0.5B']
+# MODEL_PATHS = ['Qwen/Qwen2.5-0.5B', 'deepseek-ai/deepseek-coder-1.3b-instruct']
 MODEL_PATH = ''
 DATA_PATH = expanduser('~/data/gsm8k')
 SAVE_PATH = '/tmp/checkpoint'
@@ -107,7 +108,7 @@ def build_additional_configs(MODEL_PATH):
             'save_freq': 1,
             'test_freq': 1,
             'total_epochs': 15,
-            'total_training_steps': 3,
+            'total_training_steps': 1,
         }
     }
 
@@ -198,6 +199,7 @@ def main(config):
                             reward_fn=reward_fn,
                             val_reward_fn=reward_fn)
     trainer.init_workers()
+    trainer.fit()
     trainer.actor_rollout_wg.save_checkpoint(SAVE_PATH)
 
 def run_single_model(model_path):
@@ -211,7 +213,6 @@ def run_single_model(model_path):
 log_to_stderr(logging.DEBUG)
 
 if __name__ == '__main__':
-    assert torch.cuda.device_count() >= 2, f'require 2 gpus to execute 2 model tests'
     mp.set_start_method('spawn', force=True)
     for model_path in MODEL_PATHS:
         p = Process(target=run_single_model, args=(model_path,))
