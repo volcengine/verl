@@ -244,15 +244,15 @@ def all_gather_dict_non_tensors(data: Dict[str, List], size, group):
     print(f"nodedup all gathering {torch.distributed.get_rank()=} {output=}")
     return output
 
-def all_gather_dict_non_tensors(data: Dict[str, List], size, group):
-    output = {}
-    sorted_keys = sorted(data.keys())
-    for key in sorted_keys:
-        val = data[key]
-        output[key] = [None for _ in range(size)]
-        torch.distributed.all_gather_object(output[key], val, group=group)
-        output[key] = np.concatenate(output[key], axis=0)
-    return output
+# def all_gather_dict_non_tensors(data: Dict[str, List], size, group):
+#     output = {}
+#     sorted_keys = sorted(data.keys())
+#     for key in sorted_keys:
+#         val = data[key]
+#         output[key] = [None for _ in range(size)]
+#         torch.distributed.all_gather_object(output[key], val, group=group)
+#         output[key] = np.concatenate(output[key], axis=0)
+#     return output
 
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> List[TensorDict]:
     assert tensors.batch_size[0] % batch_size == 0, \

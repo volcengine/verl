@@ -240,6 +240,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
 
     def __enter__(self):
         local_rank = self.device_mesh.get_local_rank(1)
+        local_rank = 0
         if "actor" in self.role:
             start = time.time()
             log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
@@ -249,9 +250,11 @@ class FSDPSGLShardingManager(BaseShardingManager):
             print(f"state_dict dtype, device of {k}: {v.dtype=} {device=}")
             log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
             # print(f'Weight keys: {st.keys()}')
+            # tensor_list = [(k, (v.full_tensor() if isinstance(v, DTensor) else v).to(torch.bfloat16)) for k, v in st.items()]
             target_device = torch.device("cpu") if self.exchange_size else device
+            from tqdm import tqdm
             tensor_list = []
-            for k, v in st.items():
+            for k, v in tqdm(st.items()):
                 if isinstance(v, DTensor):
                     v = v.full_tensor()
                 if local_rank == 0:
@@ -273,6 +276,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         torch.cuda.synchronize()
 
         def tensor_loader():
+            # print("device: ", device)
             for k, v in tensor_list:
                 yield (k, v.to(device)), v.numel() * v.element_size()
 
@@ -300,7 +304,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                 print(f"got gpu_tensor_list {self.exchange_size=} {count=} {done=}")
 
             if self.role == "actor_rollout":
-                if local_rank == 0:
+                # if local_rank == 0:
+                if local_rank == 0 and self.inference_engine:
                     self.inference_engine.update_weights_from_tensor(gpu_tensor_list)
                     del gpu_tensor_list
             else:
@@ -320,7 +325,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                     if local_rank == 0:
                         del gpu_tensor_list
                 else:
-                    if self.device_mesh.get_local_rank(1) == 0:
+                    # if self.device_mesh.get_local_rank(1) == 0:
+                    if local_rank == 0:
                         lst = [None]
                         tensor_list = []
                         torch.distributed.barrier(group=self.update_weight_pg)
@@ -344,8 +350,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
-        torch.distributed.barrier()
-        del st
+        # del st
         torch.cuda.empty_cache()
         # torch.distributed.barrier()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
@@ -357,11 +362,10 @@ class FSDPSGLShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before sglang offload in sharding manager', logger=logger)
+
         if self.device_mesh.get_local_rank(1) == 0 and "rollout" in self.role:
             self.inference_engine.release_memory_occupation()
-        self.inference_engine.release_memory_occupation()
-        # if self.device_mesh.get_local_rank(1) == 0:
-        #     self.inference_engine.release_memory_occupation()
+
         log_gpu_memory_usage('After sglang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
@@ -391,10 +395,13 @@ class FSDPSGLShardingManager(BaseShardingManager):
             size=self.device_mesh.size(1),
             group=self.device_mesh.get_group(1),
         )
-        data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                            size=self.device_mesh.size(1),
-                                            group=self.device_mesh.get_group(1),
-                                            dim=0)
+        
+        return data
+    
+        # data.batch = allgather_dict_tensors(data.batch.contiguous(),
+        #                                     size=self.device_mesh.size(1),
+        #                                     group=self.device_mesh.get_group(1),
+        #                                     dim=0)
         # tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         # tp_rank = self.device_mesh["infer_tp"].get_local_rank()
 
@@ -423,8 +430,6 @@ class FSDPSGLShardingManager(BaseShardingManager):
         #     size=self.device_mesh["infer_tp"].mesh.size()[0],
         #     group=self.device_mesh["infer_tp"].get_group(),
         # )
-
-        return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
         tp_size = self.device_mesh.size(1)

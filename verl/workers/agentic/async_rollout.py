@@ -155,6 +155,7 @@ class AsyncRollout(BaseRollout):
                 es_search_url=f"http://10.50.60.34:9200/kilt/_search",
                 knowledge_service_url=f"http://172.18.193.64:8001/documents",
             )
+            index = index % len(input_ids)
             dr_storage_sid2seq[index] = []
             dr_storage_sid2browser[index] = single_browser
             return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
@@ -200,6 +201,7 @@ class AsyncRollout(BaseRollout):
         async def dr_browser_obs(action_ids, sid, tokenizer, **_):
             # dr_storage_sid2seq[sid].extend(action_ids)
             # only use the last action_ids
+            sid = sid % len(input_ids)
             dr_storage_sid2seq[sid] = action_ids
             stop_id = action_ids[-1]
             stop_token = tokenizer.decode([stop_id])
@@ -228,7 +230,7 @@ class AsyncRollout(BaseRollout):
                         action_details['click_times'] += int('click' in reason)
                         break
                     else:
-                        print(f"Retry {i+1} for empty observation")
+                        print({"info": "Retry {i+1} for empty observation", "observation": observation, "reason": reason})
                         await asyncio.sleep(1 + 2 * i)
                         continue
                 except Exception as e:
