@@ -446,8 +446,6 @@ def load_state_dict_to_megatron_qwen2(state_dict,
             if is_value_model:
                 if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
                     _broadcast_tensor(lm_head_weight, "lm_head.weight")
-                elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
-                    _broadcast_tensor(lm_head_weight, "reward_head.weight")
                     print_rank_0('load lm_head from value_head weight')
                 else:
                     _broadcast_tensor(None, "lm_head.weight")

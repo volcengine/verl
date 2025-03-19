@@ -192,9 +192,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Save Model
         if 'model' in self.checkpoint_contents:
+            print(f'self.model: {self.model}')
             state_dict = self.weight_saver(self.model,
                                         self.hf_config,
                                         dtype=self.param_dtype,
+                                        is_value_model=self.is_value_model,
                                         tie_word_embeddings=self.share_embeddings_and_output_weights)
 
             # wait for everyone to dump to local
