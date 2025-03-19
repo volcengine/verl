@@ -304,17 +304,17 @@ def compute_data_metrics(batch, use_critic=True):
         'response_length/all/min':
             torch.min(response_length).detach().item(),
         'response_length/correct/mean':
-            torch.mean(correct_response_lengths).detach().item(),
+            torch.mean(correct_response_lengths).detach().item() if len(correct_response_lengths) > 0 else 0,
         'response_length/correct/max':
-            torch.max(correct_response_lengths).detach().item(),
+            torch.max(correct_response_lengths).detach().item() if len(correct_response_lengths) > 0 else 0,
         'response_length/correct/min':
-            torch.min(correct_response_lengths).detach().item(),
+            torch.min(correct_response_lengths).detach().item() if len(correct_response_lengths) > 0 else 0,
         'response_length/incorrect/mean':
-            torch.mean(incorrect_response_lengths).detach().item(),
+            torch.mean(incorrect_response_lengths).detach().item() if len(incorrect_response_lengths) > 0 else 0,
         'response_length/incorrect/max':
-            torch.max(incorrect_response_lengths).detach().item(),
+            torch.max(incorrect_response_lengths).detach().item() if len(incorrect_response_lengths) > 0 else 0,
         'response_length/incorrect/min':
-            torch.min(incorrect_response_lengths).detach().item(),
+            torch.min(incorrect_response_lengths).detach().item() if len(incorrect_response_lengths) > 0 else 0,
         'response_length/clip_ratio':
             torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
         # prompt length
@@ -1013,7 +1013,7 @@ class RayPPOTrainer(object):
                         extended_gen_batch.batch = TensorDict(
                             source=output_dict, batch_size=original_batch_size * tp_size
                         )
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(extended_gen_batch)
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences_nopreprocess(extended_gen_batch)
                         # double checking that there is no corruption
                         # TODO: remove after we are confident everything works in all settings
                         for idx in range(orig_gen_batch.batch.batch_size[0]):
