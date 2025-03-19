@@ -420,8 +420,11 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
             print_rank_0("collecting lm_head...")
 
             if is_value_model:
-                _broadcast_tensor(getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
+                _broadcast_tensor(getattr(gpt_model_module.reward_head, "weight", None) if pp_rank == pp_size - 1 else None,
                                   "reward_head.weight",
+                                  src_pp_rank=pp_size - 1)
+                _broadcast_tensor(getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
+                                  "lm_head.weight",
                                   src_pp_rank=pp_size - 1)
 
             else:

@@ -86,7 +86,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.weight_loader = get_weight_loader(self.arch)
 
 
-    def get_rng_state(use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
+    def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """ collect rng state across data parallel ranks """
         rng_state = {
             'random_rng_state': random.getstate(),
@@ -125,15 +125,16 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.optimizer.load_parameter_state(optimizer_path)
 
 
-    def load_rng_states(self, ckpt_path, data_parallel_random_init=False):
+    def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
         rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
         print(f"Loading actor rng states from {rng_state_path}")
         rng_state = torch.load(rng_state_path)
         # access rng_state for data parallel rank
-        if data_parallel_random_init:
-            rng_state = rng_state[mpu.get_data_parallel_rank()]
-        else:
-            rng_state = rng_state[0]
+        if not use_dist_ckpt:
+            if data_parallel_random_init:
+                rng_state = rng_state[mpu.get_data_parallel_rank()]
+            else:
+                rng_state = rng_state[0]
         random.setstate(rng_state['random_rng_state'])
         np.random.set_state(rng_state['np_rng_state'])
         torch.set_rng_state(rng_state['torch_rng_state'])
@@ -151,12 +152,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             return
 
         if 'model' in self.checkpoint_contents:
+            model_path = get_model_checkpoint_path(ckpt_path)
             self.hf_config = load_megatron_model_weights(self.config,
                                                         self.model_config,
                                                         self.model,
                                                         params_dtype=self.param_dtype,
                                                         is_value_model=self.is_value_model,
-                                                        resume_path=ckpt_path)
+                                                        resume_path=model_path)
         
         if 'optimizer' in self.checkpoint_contents:
             self.load_optimizer(ckpt_path)

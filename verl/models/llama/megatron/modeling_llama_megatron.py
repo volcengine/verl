@@ -529,6 +529,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
                                                pre_process=pre_process,
                                                post_process=post_process)
         assert share_embeddings_and_output_weights == False, f'Llama Model not supports sharing embedding and output weights'
+        self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
         self.post_process = post_process
