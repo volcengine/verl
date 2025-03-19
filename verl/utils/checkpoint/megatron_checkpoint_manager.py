@@ -33,6 +33,8 @@ from transformers import AutoModelForCausalLM
 
 from megatron.core import mpu, tensor_parallel, dist_checkpointing
 from megatron.core.dist_checkpointing.mapping import ShardedObject
+from megatron.core.dist_checkpointing.serialization import \
+    get_default_save_sharded_strategy, get_default_load_sharded_strategy
 
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
@@ -61,6 +63,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
+                 async_save: bool=True,
                  checkpoint_contents: list=['model', 'optimizer', 'extra'],
                  **kwargs):
 
@@ -79,6 +82,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.use_distributed_optimizer = use_distributed_optimizer
+        self.async_save = async_save
         
         self.rank = torch.distributed.get_rank()
         
@@ -117,6 +121,41 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         return rng_state_list
 
+    def get_checkpoint_name(self, checkpoints_path, 
+                            pipeline_parallel=None,
+                            tensor_rank=None, pipeline_rank=None,
+                            expert_parallel=None, expert_rank=None, basename="model.pt"):
+        """Determine the directory name for this rank's checkpoint."""
+        if return_base_dir:
+            common_path = os.path.join(checkpoints_path, directory)
+            return common_path
+
+        # Use both the tensor and pipeline MP rank.
+        if pipeline_parallel is None:
+            pipeline_parallel = (mpu.get_pipeline_model_parallel_world_size() > 1)
+        if tensor_rank is None:
+            tensor_rank = mpu.get_tensor_model_parallel_rank()
+        if pipeline_rank is None:
+            pipeline_rank = mpu.get_pipeline_model_parallel_rank()
+        if expert_parallel is None:
+            expert_parallel = (mpu.get_expert_model_parallel_world_size() > 1)
+        if expert_rank is None:
+            expert_rank = mpu.get_expert_model_parallel_rank()
+
+        # Use both the tensor and pipeline MP rank. If using the distributed
+        # optimizer, then the optimizer's path must additionally include the
+        # data parallel rank.
+        if not pipeline_parallel:
+            common_path = os.path.join(checkpoints_path, directory,
+                                f'mp_rank_{tensor_rank:02d}')
+        else:
+            common_path = os.path.join(checkpoints_path, directory,
+                    f'mp_rank_{tensor_rank:02d}_{pipeline_rank:03d}')
+
+        if expert_parallel:
+            common_path = common_path + f'_{expert_rank:03d}'
+
+        return os.path.join(common_path, basename)
 
     def load_optimizer(self, ckpt_path):
         # TODO: Check Optimizer format and distributed optimizer
@@ -153,12 +192,16 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(ckpt_path)
-            self.hf_config = load_megatron_model_weights(self.config,
-                                                        self.model_config,
-                                                        self.model,
-                                                        params_dtype=self.param_dtype,
-                                                        is_value_model=self.is_value_model,
-                                                        resume_path=model_path)
+            ckpt_name = get_checkpoint_name(model_path)
+            # self.model = torch.load(os.path.join(model_path, 'model_state_dict.pt'))
+            load_strategy = get_default_load_sharded_strategy(checkpoint_name)
+            state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_name, load_strategy, strict='assume_ok_unexpected')
+            self.weight_loader(state_dict,
+                                self.model,
+                                self.config,
+                                self.param_dtype,
+                                is_value_model=self.is_value_model,
+                                tie_word_embeddings=self.tie_word_embeddings)
         
         if 'optimizer' in self.checkpoint_contents:
             self.load_optimizer(ckpt_path)
@@ -173,7 +216,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 print(
                     f'[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored'
                 )
-        return self.hf_config
 
     def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
@@ -205,26 +247,21 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 print(f'Saving actor checkpoint to {ckpt_path}')
                 model_ckpt_path = get_model_checkpoint_path(ckpt_path)
-                from accelerate import init_empty_weights
-                import warnings
-                with init_empty_weights(), warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    if 'mistral7b-rm' in self.config.model.path:
-                        from transformers import MistralForSequenceClassification
-                        model = MistralForSequenceClassification.from_pretrained(
-                            self.config.model.path)  # use score head instead of lm_head
-                        state_dict['score.weight'] = state_dict['score.weight']
-                    else:
-                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
-
-                    model.save_pretrained(model_ckpt_path, state_dict=state_dict)
-                    self.tokenizer.save_pretrained(model_ckpt_path)
-                    print(f'Saved actor checkpoint to {model_ckpt_path}')
-                    if hdfs_path is not None:
-                        print(f'Uploading actor checkpoint to {hdfs_path}')
-                        from verl.utils import hdfs_io
-                        hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                        hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                # torch.save(state_dict, os.path.join(model_path, 'model_state_dict.pt'))
+                save_strategy = get_default_save_sharded_strategy('torch')
+                ckpt_name = self.get_checkpoint_name(model_ckpt_path)
+                async_save_request = dist_checkpointing.save(state_dict, ckpt_name, save_strategy,
+                                                         async_sharded_save=self.async_save)
+                def after_saving():
+                    print(f'Finish model state_dict')
+                async_save_request.add_finalize_fn(after_saving)
+                self.tokenizer.save_pretrained(model_ckpt_path)
+                print(f'Saved actor checkpoint to {model_ckpt_path}')
+                if hdfs_path is not None:
+                    print(f'Uploading actor checkpoint to {hdfs_path}')
+                    from verl.utils import hdfs_io
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         # Save Optimizer
         if 'optimizer' in self.checkpoint_contents:

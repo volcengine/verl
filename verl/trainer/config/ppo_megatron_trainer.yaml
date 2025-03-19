@@ -34,7 +34,6 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
     shuffle: True
-    checkpoint_contents: ['model', 'optimizer', 'extra']
     optim:
       lr: 1e-6
       clip_grad: 1.0
@@ -51,6 +50,9 @@ actor_rollout_ref:
       use_distributed_optimizer: True
       seed: 1
     load_weight: True
+    checkpoint:
+      contents: ['model', 'optimizer', 'extra']
+      async_save: True
   ref:
     megatron:
       tensor_model_parallel_size: 4
@@ -133,7 +135,9 @@ critic:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
-  checkpoint_contents: ['model', 'optimizer', 'extra']
+  checkpoint:
+    contents: ['model', 'optimizer', 'extra']
+    async_save: True
 
 reward_model:
   enable: False
