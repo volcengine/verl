@@ -124,7 +124,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     def get_checkpoint_name(self, checkpoints_path, 
                             pipeline_parallel=None,
                             tensor_rank=None, pipeline_rank=None,
-                            expert_parallel=None, expert_rank=None, basename="model.pt"):
+                            expert_parallel=None, expert_rank=None, return_base_dir=True, basename="model.pt"):
         """Determine the directory name for this rank's checkpoint."""
         # Use both the tensor and pipeline MP rank.
         if pipeline_parallel is None:
@@ -151,6 +151,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         
         os.makedirs(common_path, exist_ok=True)
 
+        if return_base_dir:
+            return common_path
         return os.path.join(common_path, basename)
 
     def load_optimizer(self, ckpt_path):
@@ -188,7 +190,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(ckpt_path)
-            ckpt_name = get_checkpoint_name(model_path)
+            ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=True)
             # self.model = torch.load(os.path.join(model_path, 'model_state_dict.pt'))
             load_strategy = get_default_load_sharded_strategy(ckpt_name)
             state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_name, load_strategy, strict='assume_ok_unexpected')
@@ -244,13 +246,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 model_ckpt_path = get_model_checkpoint_path(ckpt_path)
                 # torch.save(state_dict, os.path.join(model_path, 'model_state_dict.pt'))
                 save_strategy = get_default_save_sharded_strategy()
-                ckpt_name = self.get_checkpoint_name(model_ckpt_path)
+                ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=True)
                 async_save_request = dist_checkpointing.save(state_dict, ckpt_name, save_strategy,
                                                          async_sharded_save=self.async_save)
                 def after_saving():
                     print(f'Finish model state_dict')
                 async_save_request.add_finalize_fn(after_saving)
-                self.tokenizer.save_pretrained(model_ckpt_path)
                 print(f'Saved actor checkpoint to {model_ckpt_path}')
                 if hdfs_path is not None:
                     print(f'Uploading actor checkpoint to {hdfs_path}')
