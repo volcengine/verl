@@ -34,6 +34,7 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
     shuffle: True
+    use_fused_kernels: True
     optim:
       lr: 1e-6
       clip_grad: 1.0

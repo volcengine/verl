@@ -25,9 +25,9 @@ from torch import nn
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
-    FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
+    FLASH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
 except ImportError:
-    FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
+    FLASH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
 
 
 def gather_from_labels(data, label):
@@ -49,7 +49,7 @@ def logprobs_from_logits(logits, labels):
     """
     See: https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591
     """
-    if FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE:
+    if FLASH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE:
         batch_dim = logits.shape[:-1]
         last_dim = logits.shape[-1]
         logits = logits.reshape(-1, last_dim)

@@ -30,6 +30,7 @@ from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
+from verl.utils.kernel.linear_cross_entropy import linear_cross_entropy
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -52,6 +53,7 @@ class DataParallelPPOActor(BasePPOActor):
         print(f'Actor use_remove_padding={self.use_remove_padding}')
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+        self.use_fused_kernels = config.use_fused_kernels
 
         self.compute_entropy_from_logits = (
             torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -114,13 +116,16 @@ class DataParallelPPOActor(BasePPOActor):
                                            use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
-                logits_rmpad.div_(temperature)
+                if not self.use_fused_kernels:
+                    logits_rmpad.div_(temperature)
+                    # compute entropy
+                    entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
-                # compute entropy
-                entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
-
-                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
+                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                    log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
+                else:
+                    weights = torch.eye(logits_rmpad.size(-1), device=logits_rmpad.device) / temperature
+                    log_probs, entropy_rmpad = linear_cross_entropy(logits_rmpad, weights, input_ids_rmpad_rolled)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:

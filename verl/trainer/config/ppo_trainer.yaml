@@ -39,6 +39,7 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
+    use_fused_kernels: True
     optim:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
