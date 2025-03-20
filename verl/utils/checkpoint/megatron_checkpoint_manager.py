@@ -126,10 +126,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             tensor_rank=None, pipeline_rank=None,
                             expert_parallel=None, expert_rank=None, basename="model.pt"):
         """Determine the directory name for this rank's checkpoint."""
-        if return_base_dir:
-            common_path = os.path.join(checkpoints_path, directory)
-            return common_path
-
         # Use both the tensor and pipeline MP rank.
         if pipeline_parallel is None:
             pipeline_parallel = (mpu.get_pipeline_model_parallel_world_size() > 1)
@@ -146,14 +142,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # optimizer, then the optimizer's path must additionally include the
         # data parallel rank.
         if not pipeline_parallel:
-            common_path = os.path.join(checkpoints_path, directory,
-                                f'mp_rank_{tensor_rank:02d}')
+            common_path = os.path.join(checkpoints_path, f'mp_rank_{tensor_rank:02d}')
         else:
-            common_path = os.path.join(checkpoints_path, directory,
-                    f'mp_rank_{tensor_rank:02d}_{pipeline_rank:03d}')
+            common_path = os.path.join(checkpoints_path, f'mp_rank_{tensor_rank:02d}_{pipeline_rank:03d}')
 
         if expert_parallel:
             common_path = common_path + f'_{expert_rank:03d}'
+        
+        os.makedirs(common_path, exist_ok=True)
 
         return os.path.join(common_path, basename)
 
@@ -194,7 +190,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             model_path = get_model_checkpoint_path(ckpt_path)
             ckpt_name = get_checkpoint_name(model_path)
             # self.model = torch.load(os.path.join(model_path, 'model_state_dict.pt'))
-            load_strategy = get_default_load_sharded_strategy(checkpoint_name)
+            load_strategy = get_default_load_sharded_strategy(ckpt_name)
             state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_name, load_strategy, strict='assume_ok_unexpected')
             self.weight_loader(state_dict,
                                 self.model,
@@ -234,7 +230,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # Save Model
         if 'model' in self.checkpoint_contents:
-            print(f'self.model: {self.model}')
             state_dict = self.weight_saver(self.model,
                                         self.hf_config,
                                         dtype=self.param_dtype,
@@ -248,7 +243,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 print(f'Saving actor checkpoint to {ckpt_path}')
                 model_ckpt_path = get_model_checkpoint_path(ckpt_path)
                 # torch.save(state_dict, os.path.join(model_path, 'model_state_dict.pt'))
-                save_strategy = get_default_save_sharded_strategy('torch')
+                save_strategy = get_default_save_sharded_strategy()
                 ckpt_name = self.get_checkpoint_name(model_ckpt_path)
                 async_save_request = dist_checkpointing.save(state_dict, ckpt_name, save_strategy,
                                                          async_sharded_save=self.async_save)
