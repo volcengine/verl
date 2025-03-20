@@ -242,6 +242,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         local_rank = self.device_mesh.get_local_rank(1)
         # local_rank = 0
         if "actor" in self.role:
+            import time
             start = time.time()
             log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
             st = self.module.state_dict()
@@ -327,7 +328,6 @@ class FSDPSGLShardingManager(BaseShardingManager):
                     if local_rank == 0:
                         del gpu_tensor_list
                 else:
-                    # if self.device_mesh.get_local_rank(1) == 0:
                     if local_rank == 0:
                         lst = [None]
                         tensor_list = []

@@ -242,12 +242,11 @@ class AsyncRollout(BaseRollout):
                         break
                     else:
                         print({"info": f"Retry {i + 1} for empty observation", "observation": observation, "reason": reason})
-                        await asyncio.sleep(1 + 2 * i)
+                        await asyncio.sleep(1)
                         continue
                 except Exception as e:
                     import time
                     print(f"API call failed: {e}")
-                    await asyncio.sleep(1 + 2 * i)
             else:
                 observation = ""
                 failed = 1
@@ -274,7 +273,10 @@ class AsyncRollout(BaseRollout):
             # import json
             # print(json.dumps({"len(dr_storage_sid2_unfaith_penalty[sid])": len(dr_storage_sid2_unfaith_penalty[sid])}))
             
-            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            if observation:
+                return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            else:
+                return {"done": True, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
 
         async def dr_end(sid, _):
             # currently for dr sid == index
