@@ -1,9 +1,11 @@
 <h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLM</h1>
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/volcengine/verl)](https://github.com/volcengine/verl/stargazers)
+![GitHub forks](https://img.shields.io/github/forks/volcengine/verl)
 [![Twitter](https://img.shields.io/twitter/follow/verl_project)](https://twitter.com/verl_project)
 <a href="https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA"><img src="https://img.shields.io/badge/Slack-verl-blueviolet?logo=slack&amp"></a>
 <a href="https://arxiv.org/pdf/2409.19256"><img src="https://img.shields.io/static/v1?label=EuroSys&message=Paper&color=red"></a>
+![GitHub contributors](https://img.shields.io/github/contributors/volcengine/verl)
 [![Documentation](https://img.shields.io/badge/documentation-blue)](https://verl.readthedocs.io/en/latest/)
 <a href="https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG"><img src="https://img.shields.io/badge/微信-green?logo=wechat&amp"></a>
 
