@@ -9,7 +9,7 @@ from torch.distributed.distributed_c10d import _group_or_default_group, _canonic
 import torch
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.utils import init_custom_process_group
-from tensordict import TensorDict
+# from tensordict import TensorDict
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType, FullStateDictConfig
@@ -19,8 +19,8 @@ from torch.distributed import ProcessGroup
 
 from verl import DataProto
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors, all_gather_dict_non_tensors,
-                                         broadcast_dict_non_tensor)
+# from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors, all_gather_dict_non_tensors,
+#                                          broadcast_dict_non_tensor)
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors, all_gather_dict_non_tensors,
                                          broadcast_dict_non_tensor)
 from ..sharding_manager.base import BaseShardingManager
@@ -290,6 +290,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         while not done:
             import time
             each_loop_start_time = time.time()
+            # if "actor" in self.role and local_rank == 0:
             if "actor" in self.role:
                 count = 0
                 if self.exchange_size is None:
@@ -307,8 +308,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                 print(f"got gpu_tensor_list {self.exchange_size=} {count=} {done=}")
 
             if self.role == "actor_rollout":
-                # if local_rank == 0:
-                if local_rank == 0 and self.inference_engine:
+                # if local_rank == 0 and self.inference_engine:
+                if local_rank == 0:
                     self.inference_engine.update_weights_from_tensor(gpu_tensor_list)
                     del gpu_tensor_list
             else:
@@ -328,7 +329,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                     if local_rank == 0:
                         del gpu_tensor_list
                 else:
-                    if local_rank == 0:
+                    # if local_rank == 0:
+                    if self.device_mesh.get_local_rank(1) == 0:
                         lst = [None]
                         tensor_list = []
                         torch.distributed.barrier(group=self.update_weight_pg)
@@ -354,8 +356,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
         # del st
-        torch.cuda.empty_cache()
-        # torch.distributed.barrier()
+        # torch.cuda.empty_cache()
+        torch.distributed.barrier()
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # important: need to manually set the random states of each tp to be identical.
@@ -398,7 +400,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
             size=self.device_mesh.size(1),
             group=self.device_mesh.get_group(1),
         )
-        
+
         return data
     
         # data.batch = allgather_dict_tensors(data.batch.contiguous(),
@@ -435,6 +437,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         # )
 
     def postprocess_data(self, data: DataProto) -> DataProto:
+        torch.distributed.barrier()
         tp_size = self.device_mesh.size(1)
         tp_rank = self.device_mesh.get_local_rank(1)
         src_rank = self.device_mesh.get_local_rank(0) * tp_size

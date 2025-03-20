@@ -1163,7 +1163,7 @@ class RayPPOTrainer(object):
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
                         
                         if self.config.actor_rollout_ref.get('unfaith_penalty', False):
-                            update_advantages = batch.batch['advantages'] + batch.batch['unfaith_penalty'] * 0.5
+                            update_advantages = batch.batch['advantages'] + batch.batch['unfaith_penalty'] * 0.25
                             save_log_for_penaltys = {
                                 "rm_final_scores": batch.batch['rm_final_scores'][0].item(),
                                 "unfaith_penaltys": batch.batch['unfaith_penalty'][0].tolist(),

@@ -189,9 +189,9 @@ def broadcast_dict_tensor(tensors: Union[Dict[str, torch.Tensor], TensorDict], s
     for key in tensors.sorted_keys:
         torch.distributed.broadcast(tensors[key], src=src, group=group, async_op=False)
 
-def broadcast_dict_non_tensor(data: Dict[str, List], src, group):
-    for key in data.keys():
-        torch.distributed.broadcast_object_list(data[key], src=src, group=group)
+# def broadcast_dict_non_tensor(data: Dict[str, List], src, group):
+#     for key in data.keys():
+#         torch.distributed.broadcast_object_list(data[key], src=src, group=group)
 
 def broadcast_dict_non_tensor(data: Dict[str, List], src, group):
     for key in data.keys():

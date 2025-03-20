@@ -54,6 +54,7 @@ class AsyncRollout(BaseRollout):
                 enable_memory_saver=config.enable_memory_saver,
                 mem_fraction_static=config.gpu_memory_utilization,
                 tp_size=device_mesh.size(1),
+                enable_metrics=True,
             )
             print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
             self.engine.release_memory_occupation()
@@ -273,10 +274,11 @@ class AsyncRollout(BaseRollout):
             # import json
             # print(json.dumps({"len(dr_storage_sid2_unfaith_penalty[sid])": len(dr_storage_sid2_unfaith_penalty[sid])}))
             
-            if observation:
-                return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
-            else:
-                return {"done": True, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            # if observation:
+            #     return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            # else:
+            #     return {"done": True, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
 
         async def dr_end(sid, _):
             # currently for dr sid == index
