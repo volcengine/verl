@@ -138,6 +138,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [MetaSpatial](https://github.com/PzySeere/MetaSpatial): Reinforcing 3D Spatial Reasoning in VLMs for the Metaverse
 - [DeepEnlighten](https://github.com/DolbyUUU/DeepEnlighten): Reproduce R1 with **social reasoning** tasks and analyze key findings
 - [DAPO](https://dapo-sia.github.io/): the open-sourced SOTA RL algorithm that achieves 50 points on AIME 2024 based on the Qwen2.5-32B pre-trained model
+- [OpenManus-RL](https://github.com/OpenManus/OpenManus-RL): LLM Agents RL tunning framework for multiple agent environments.
 
 ## Contribution Guide
 Contributions from the community are welcome! Please checkout our [roadmap](https://github.com/volcengine/verl/issues/22) and [release plan](https://github.com/volcengine/verl/issues/354).
