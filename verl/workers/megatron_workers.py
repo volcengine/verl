@@ -359,7 +359,6 @@ class ActorRolloutRefWorker(MegatronWorker):
                 tokenizer=self.tokenizer,
                 optimizer=self.actor_optimizer,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
-                async_save=self.config.actor.checkpoint.async_save,
                 checkpoint_contents=self.config.actor.checkpoint.contents
             )
 
@@ -631,7 +630,6 @@ class CriticWorker(MegatronWorker):
             tokenizer=self.tokenizer,
             optimizer=self.critic_optimizer,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
-            async_save=self.config.checkpoint.async_save,
             checkpoint_contents=self.config.checkpoint.contents
         )
 

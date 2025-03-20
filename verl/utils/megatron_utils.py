@@ -183,15 +183,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
         bf16=dt is torch.bfloat16)
-    if torch.distributed.get_rank() == 0:
-        print(f'tensor_parallel_size={transformer_config.tensor_model_parallel_size} \n \
-                pipeline_model_parallel_size={transformer_config.pipeline_model_parallel_size} \n \
-                virtual_pipeline_model_parallel_size={transformer_config.virtual_pipeline_model_parallel_size} \n \
-                pipeline_dtype={transformer_config.pipeline_dtype} \n \
-                params_dtype={transformer_config.params_dtype} \n \
-                sequence_parallel={transformer_config.sequence_parallel} \n \
-                variable_seq_lengths={transformer_config.variable_seq_lengths} \n \
-                masked_softmax_fusion={transformer_config.masked_softmax_fusion} \n ')
 
     return transformer_config
 

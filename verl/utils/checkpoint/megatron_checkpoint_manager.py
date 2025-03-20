@@ -31,10 +31,8 @@ from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_pa
 from .checkpoint_manager import BaseCheckpointManager
 from transformers import AutoModelForCausalLM
 
-from megatron.core import mpu, tensor_parallel, dist_checkpointing
+from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
-from megatron.core.dist_checkpointing.serialization import \
-    get_default_save_sharded_strategy, get_default_load_sharded_strategy
 
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
@@ -63,7 +61,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
-                 async_save: bool=True,
                  checkpoint_contents: list=['model', 'optimizer', 'extra'],
                  **kwargs):
 
@@ -82,7 +79,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.use_distributed_optimizer = use_distributed_optimizer
-        self.async_save = async_save
         
         self.rank = torch.distributed.get_rank()
         
@@ -190,16 +186,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(ckpt_path)
-            ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=True)
-            # self.model = torch.load(os.path.join(model_path, 'model_state_dict.pt'))
-            load_strategy = get_default_load_sharded_strategy(ckpt_name)
-            state_dict = dist_checkpointing.load(sharded_state_dict, ckpt_name, load_strategy, strict='assume_ok_unexpected')
+            ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
+            state_dict = torch.load(os.path.join(ckpt_name))
             self.weight_loader(state_dict,
                                 self.model,
-                                self.config,
+                                self.hf_config,
                                 self.param_dtype,
                                 is_value_model=self.is_value_model,
-                                tie_word_embeddings=self.tie_word_embeddings)
+                                tie_word_embeddings=self.share_embeddings_and_output_weights)
         
         if 'optimizer' in self.checkpoint_contents:
             self.load_optimizer(ckpt_path)
@@ -241,23 +235,16 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             # wait for everyone to dump to local
             torch.distributed.barrier()
 
-            if self.rank == 0:
-                print(f'Saving actor checkpoint to {ckpt_path}')
-                model_ckpt_path = get_model_checkpoint_path(ckpt_path)
-                # torch.save(state_dict, os.path.join(model_path, 'model_state_dict.pt'))
-                save_strategy = get_default_save_sharded_strategy()
-                ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=True)
-                async_save_request = dist_checkpointing.save(state_dict, ckpt_name, save_strategy,
-                                                         async_sharded_save=self.async_save)
-                def after_saving():
-                    print(f'Finish model state_dict')
-                async_save_request.add_finalize_fn(after_saving)
-                print(f'Saved actor checkpoint to {model_ckpt_path}')
-                if hdfs_path is not None:
-                    print(f'Uploading actor checkpoint to {hdfs_path}')
-                    from verl.utils import hdfs_io
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+            print(f'Saving actor checkpoint to {ckpt_path}')
+            model_ckpt_path = get_model_checkpoint_path(ckpt_path)
+            ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
+            torch.save(state_dict, os.path.join(ckpt_name))
+            print(f'Saved actor checkpoint to {model_ckpt_path}')
+            if hdfs_path is not None:
+                print(f'Uploading actor checkpoint to {hdfs_path}')
+                from verl.utils import hdfs_io
+                hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         # Save Optimizer
         if 'optimizer' in self.checkpoint_contents:

@@ -52,7 +52,6 @@ actor_rollout_ref:
     load_weight: True
     checkpoint:
       contents: ['model', 'optimizer', 'extra']
-      async_save: True
   ref:
     megatron:
       tensor_model_parallel_size: 4
@@ -137,7 +136,6 @@ critic:
     kl_coef: 0.001
   checkpoint:
     contents: ['model', 'optimizer', 'extra']
-    async_save: True
 
 reward_model:
   enable: False
