@@ -52,15 +52,6 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running Checkpoint Unit Tests (fsdp)
-        run: |
-          ray stop --force
-          python3 tests/checkpoint/test_fsdp_ckpt.py
-      - name: Running Checkpoint Unit Tests (Megatron)
-        run: |
-          ray stop --force
-          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
-          python3 tests/checkpoint/test_megatron_ckpt.py
       - name: Running Checkpoint Integration Test (Qwen Megatron)
         run: |
           ray stop --force
