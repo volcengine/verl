@@ -604,7 +604,9 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        self.checkpoint_manager.load_checkpoint(local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+        self.checkpoint_manager.load_checkpoint(local_path=local_path,
+                                                hdfs_path=hdfs_path,
+                                                del_local_after_load=del_local_after_load)
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
@@ -885,7 +887,9 @@ class CriticWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
 
-        self.checkpoint_manager.load_checkpoint(path=path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+        self.checkpoint_manager.load_checkpoint(path=path,
+                                                hdfs_path=hdfs_path,
+                                                del_local_after_load=del_local_after_load)
 
         torch.distributed.barrier()
         if self._is_offload_param:

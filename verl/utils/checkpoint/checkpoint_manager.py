@@ -38,7 +38,7 @@ class BaseCheckpointManager:
     - huggingface tokenizer and config for ckpt merge
     """
 
-    def __init__(self, model=None, checkpoint_contents: list=['model', 'optimizer', 'extra']):
+    def __init__(self, model=None, checkpoint_contents: list = ['model', 'optimizer', 'extra']):
         self.previous_global_step = None
         self.previous_saved_path = None
 
@@ -48,12 +48,16 @@ class BaseCheckpointManager:
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
-    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load: bool=False):
+    def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt: bool=False):
+    def save_checkpoint(self,
+                        local_path: str,
+                        hdfs_path: str = None,
+                        global_step: int = 0,
+                        remove_previous_ckpt: bool = False):
         raise NotImplementedError
-    
+
     @staticmethod
     def checkpath(local_path: str, hdfs_path: str):
         assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"

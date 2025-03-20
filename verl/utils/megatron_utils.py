@@ -38,7 +38,10 @@ def get_model_config(model):
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, use_distributed_optimizer=True):
+def get_model(model_provider_func,
+              model_type=ModelType.encoder_or_decoder,
+              wrap_with_ddp=True,
+              use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \

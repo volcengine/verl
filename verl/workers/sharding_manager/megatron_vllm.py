@@ -67,7 +67,9 @@ class AllGatherPPModel:
                 self.pp_models[cur_pp_rank] = models
             else:
                 # for regular model, we wrapped it with DDP
-                models = get_model(model_provider, wrap_with_ddp=True, use_distributed_optimizer=use_distributed_optimizer)
+                models = get_model(model_provider,
+                                   wrap_with_ddp=True,
+                                   use_distributed_optimizer=use_distributed_optimizer)
                 assert len(models) == self._model_chunk_size, f"{len(models)} != {self._model_chunk_size}"
                 self._this_rank_models = nn.ModuleList(models)
                 self.pp_models[cur_pp_rank] = nn.ModuleList(unwrap_model(models, (torchDDP, LocalDDP)))

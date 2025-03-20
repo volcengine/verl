@@ -36,6 +36,7 @@ SAVE_PATH = '/tmp/checkpoint'
 
 additional_config = {}
 
+
 def build_additional_configs(MODEL_PATH):
     global additional_config
     additional_config = {
@@ -110,6 +111,7 @@ def build_additional_configs(MODEL_PATH):
         }
     }
 
+
 def get_custom_reward_fn(config):
     import importlib.util, os
 
@@ -136,6 +138,7 @@ def get_custom_reward_fn(config):
     print(f"using customized reward function '{function_name}' from '{file_path}'")
 
     return getattr(module, function_name)
+
 
 def check_result(origin_path, megatron_path, input_text):
     from transformers import AutoModelForCausalLM
@@ -220,7 +223,7 @@ def main(config):
 
     from verl.workers.reward_manager import NaiveRewardManager
     reward_manager_cls = NaiveRewardManager
-        
+
     compute_score = get_custom_reward_fn(config)
     reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
     val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
@@ -238,6 +241,7 @@ def main(config):
     # trainer.fit()
     trainer.actor_rollout_wg.save_checkpoint(SAVE_PATH)
 
+
 def run_single_model(model_path):
     ray.init()
     global MODEL_PATH
@@ -245,6 +249,7 @@ def run_single_model(model_path):
     build_additional_configs(model_path)
     main()
     check_result(model_path, SAVE_PATH, "who are you？")
+
 
 log_to_stderr(logging.DEBUG)
 

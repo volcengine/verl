@@ -34,6 +34,7 @@ from transformers import AutoModelForCausalLM
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 
+
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
     A checkpoint manager that saves and loads
@@ -61,7 +62,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
-                 checkpoint_contents: list=['model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  **kwargs):
 
         super().__init__(model, checkpoint_contents=checkpoint_contents)
@@ -79,12 +80,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.use_distributed_optimizer = use_distributed_optimizer
-        
+
         self.rank = torch.distributed.get_rank()
-        
+
         self.weight_saver = get_weight_saver(self.arch)
         self.weight_loader = get_weight_loader(self.arch)
-
 
     def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """ collect rng state across data parallel ranks """
@@ -93,17 +93,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             'np_rng_state': np.random.get_state(),
             'torch_rng_state': torch.get_rng_state(),
             'cuda_rng_state': torch.cuda.get_rng_state(),
-            'rng_tracker_states': tensor_parallel.get_cuda_rng_tracker().get_states()}
+            'rng_tracker_states': tensor_parallel.get_cuda_rng_tracker().get_states()
+        }
 
         rng_state_list = None
         if torch.distributed.is_initialized() and \
                 mpu.get_data_parallel_world_size() > 1 and data_parallel_random_init:
             rng_state_list = \
                 [None for i in range(mpu.get_data_parallel_world_size())]
-            torch.distributed.all_gather_object(
-                rng_state_list,
-                rng_state,
-                group=mpu.get_data_parallel_group())
+            torch.distributed.all_gather_object(rng_state_list, rng_state, group=mpu.get_data_parallel_group())
         else:
             rng_state_list = [rng_state]
 
@@ -112,15 +110,21 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             pp_size = mpu.get_pipeline_model_parallel_world_size()
             tp_rank = mpu.get_tensor_model_parallel_rank()
             tp_size = mpu.get_tensor_model_parallel_world_size()
-            rng_state_list = ShardedObject('rng_state', rng_state_list, (pp_size, tp_size), (pp_rank, tp_rank),
-                                        replica_id=mpu.get_data_parallel_rank(with_context_parallel=True))
+            rng_state_list = ShardedObject('rng_state',
+                                           rng_state_list, (pp_size, tp_size), (pp_rank, tp_rank),
+                                           replica_id=mpu.get_data_parallel_rank(with_context_parallel=True))
 
         return rng_state_list
 
-    def get_checkpoint_name(self, checkpoints_path, 
+    def get_checkpoint_name(self,
+                            checkpoints_path,
                             pipeline_parallel=None,
-                            tensor_rank=None, pipeline_rank=None,
-                            expert_parallel=None, expert_rank=None, return_base_dir=True, basename="model.pt"):
+                            tensor_rank=None,
+                            pipeline_rank=None,
+                            expert_parallel=None,
+                            expert_rank=None,
+                            return_base_dir=True,
+                            basename="model.pt"):
         """Determine the directory name for this rank's checkpoint."""
         # Use both the tensor and pipeline MP rank.
         if pipeline_parallel is None:
@@ -144,7 +148,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if expert_parallel:
             common_path = common_path + f'_{expert_rank:03d}'
-        
+
         os.makedirs(common_path, exist_ok=True)
 
         if return_base_dir:
@@ -156,7 +160,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
         print(f"Loading actor optimizer from {optimizer_path}")
         self.optimizer.load_parameter_state(optimizer_path)
-
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
         rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
@@ -177,10 +180,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             raise KeyError
         tensor_parallel.get_cuda_rng_tracker().set_states(rng_state['rng_tracker_states'])
 
-
-    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load=False):
+    def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
-        
+
         if ckpt_path is None:
             return
 
@@ -189,15 +191,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
             state_dict = torch.load(os.path.join(ckpt_name))
             self.weight_loader(state_dict,
-                                self.model,
-                                self.hf_config,
-                                self.param_dtype,
-                                is_value_model=self.is_value_model,
-                                tie_word_embeddings=self.share_embeddings_and_output_weights)
-        
+                               self.model,
+                               self.hf_config,
+                               self.param_dtype,
+                               is_value_model=self.is_value_model,
+                               tie_word_embeddings=self.share_embeddings_and_output_weights)
+
         if 'optimizer' in self.checkpoint_contents:
             self.load_optimizer(ckpt_path)
-        
+
         if 'extra' in self.checkpoint_contents:
             self.load_rng_states(ckpt_path)
 
@@ -209,9 +211,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     f'[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored'
                 )
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt=False):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, remove_previous_ckpt=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
-        
+
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -223,14 +225,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             local_path = self.local_mkdir(local_path)
         torch.distributed.barrier()
 
-
         # Save Model
         if 'model' in self.checkpoint_contents:
             state_dict = self.weight_saver(self.model,
-                                        self.hf_config,
-                                        dtype=self.param_dtype,
-                                        is_value_model=self.is_value_model,
-                                        tie_word_embeddings=self.share_embeddings_and_output_weights)
+                                           self.hf_config,
+                                           dtype=self.param_dtype,
+                                           is_value_model=self.is_value_model,
+                                           tie_word_embeddings=self.share_embeddings_and_output_weights)
 
             # wait for everyone to dump to local
             torch.distributed.barrier()
@@ -249,20 +250,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Save Optimizer
         if 'optimizer' in self.checkpoint_contents:
             torch.distributed.barrier()
-            
+
             optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
             self.optimizer.save_parameter_state(optimizer_path)
             if self.rank == 0:
                 print(f"saving critic optimizer state to {optimizer_path}")
-        
+
         # Save RNG States
         if 'extra' in self.checkpoint_contents:
             torch.distributed.barrier()
-            
+
             rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
             if self.rank == 0:
                 print(f"saving critic rng states to {rng_state_path}")
-    
+
         self.previous_saved_path = ckpt_path

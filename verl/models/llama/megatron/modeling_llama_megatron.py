@@ -519,7 +519,11 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
 class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process,
+    def __init__(self,
+                 config: LlamaConfig,
+                 megatron_config: ModelParallelConfig,
+                 pre_process,
+                 post_process,
                  share_embeddings_and_output_weights=False):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)

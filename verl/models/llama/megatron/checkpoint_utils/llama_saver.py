@@ -412,8 +412,8 @@ def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=Fals
             if getattr(gpt_model_module, "lm_head", None) is not None:
                 lm_head_weight = getattr(gpt_model_module.lm_head, "weight", None)
                 _broadcast_tensor(lm_head_weight if pp_rank == pp_size - 1 else None,
-                                "lm_head.weight",
-                                src_pp_rank=pp_size - 1)
+                                  "lm_head.weight",
+                                  src_pp_rank=pp_size - 1)
 
         else:
             _broadcast_tp_shard_tensor(

@@ -187,7 +187,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
             # Initialize the 3D HybridEngine
-            hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider, use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
+            hybrid_engine = AllGatherPPModel(
+                model_provider=megatron_actor_model_provider,
+                use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             # Fetch the model at current rank
             actor_module = hybrid_engine.this_rank_models
             actor_modules_list = []
@@ -359,8 +361,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 tokenizer=self.tokenizer,
                 optimizer=self.actor_optimizer,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
-                checkpoint_contents=self.config.actor.checkpoint.contents
-            )
+                checkpoint_contents=self.config.actor.checkpoint.contents)
 
         torch.cuda.empty_cache()
 
@@ -456,8 +457,8 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
         self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path,
-                                                 hdfs_path=hdfs_path,
-                                                 del_local_after_load=del_local_after_load)
+                                                  hdfs_path=hdfs_path,
+                                                  del_local_after_load=del_local_after_load)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_pretrained_model(self, checkpoint_path, del_local_after_load=True):
@@ -466,9 +467,9 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path,
-                                                    hdfs_path=hdfs_path,
-                                                    global_step=global_step,
-                                                    remove_previous_ckpt=remove_previous_ckpt)
+                                                  hdfs_path=hdfs_path,
+                                                  global_step=global_step,
+                                                  remove_previous_ckpt=remove_previous_ckpt)
 
 
 class CriticWorker(MegatronWorker):
@@ -548,13 +549,12 @@ class CriticWorker(MegatronWorker):
             # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
             # this_megatron_config = copy.deepcopy(megatron_config)
             # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(
-                config=critic_model_config,
-                megatron_config=megatron_config,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=False,
-                value=True)
+            parallel_model = get_parallel_model_from_config(config=critic_model_config,
+                                                            megatron_config=megatron_config,
+                                                            pre_process=pre_process,
+                                                            post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
+                                                            value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -630,8 +630,7 @@ class CriticWorker(MegatronWorker):
             tokenizer=self.tokenizer,
             optimizer=self.critic_optimizer,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
-            checkpoint_contents=self.config.checkpoint.contents
-        )
+            checkpoint_contents=self.config.checkpoint.contents)
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
@@ -658,14 +657,14 @@ class CriticWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, del_local_after_load=True):
         self.hf_config = self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path,
-                                                                    del_local_after_load=del_local_after_load)
+                                                                   del_local_after_load=del_local_after_load)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, remove_previous_ckpt=False):
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path,
-                                                 hdfs_path=hdfs_path,
-                                                 global_step=global_steps,
-                                                 remove_previous_ckpt=remove_previous_ckpt)
+                                                  hdfs_path=hdfs_path,
+                                                  global_step=global_steps,
+                                                  remove_previous_ckpt=remove_previous_ckpt)
 
 
 class RewardModelWorker(MegatronWorker):

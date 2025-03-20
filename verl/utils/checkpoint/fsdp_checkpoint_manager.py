@@ -48,7 +48,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                  model: FSDP,
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-                 checkpoint_contents: list=['model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
                  **kwargs):
 
@@ -62,16 +62,17 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self.lr_scheduler = lr_scheduler
         self.processing_class = processing_class
 
-    def load_checkpoint(self, local_path: str, hdfs_path: str=None, del_local_after_load=False):
+    def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
-        
+
         if ckpt_path is None:
             return
 
         # every rank download its own checkpoint
         remote_model_path = os.path.join(ckpt_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
         remote_optim_path = os.path.join(ckpt_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(ckpt_path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_extra_state_path = os.path.join(ckpt_path,
+                                               f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
             f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
         )
@@ -109,9 +110,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str=None, global_step: int=0, remove_previous_ckpt=False):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, remove_previous_ckpt=False):
         local, ckpt_path = self.checkpath(local_path, hdfs_path)
-        
+
         # record the previous global step
         self.previous_global_step = global_step
 
