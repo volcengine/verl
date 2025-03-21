@@ -418,7 +418,10 @@ def get_parallel_gptmodel_from_config(tfconfig,
     use_te = True
     assert tfconfig.normalization == "RMSNorm", 'only RMSNorm is supported for now'
     transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=use_te)
-
+    rope_scaling_args = {}
+    if hf_config.rope_scaling is not None:
+        assert hf_config.rope_scaling['type'] == 'linear', "only linear scaling is supported for now"
+        rope_scaling_args['seq_len_interpolation_factor'] = hf_config.rope_scaling['factor']
     parallel_model = GPTModel(
         config=tfconfig,
         transformer_layer_spec=transformer_layer_spec,
@@ -429,7 +432,7 @@ def get_parallel_gptmodel_from_config(tfconfig,
         share_embeddings_and_output_weights=share_embeddings_and_output_weights,
         position_embedding_type='rope',
         rotary_base=hf_config.rope_theta,
-        rope_scaling=hf_config.rope_scaling,
+        **rope_scaling_args
     )
     # # for layer in parallel_model.decoder.layers: layer.self_attention.core_attention.flash_attention.softmax_scale = None
     if post_process and value:

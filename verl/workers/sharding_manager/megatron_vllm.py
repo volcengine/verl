@@ -303,10 +303,18 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
             for infer_param in infer_params:
-                q, k, v = infer_param.split(split_size)
-                q_lst.append(q)
-                k_lst.append(k)
-                v_lst.append(v)
+                num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size(
+                )
+                for chunk in infer_param.chunk(num_query_groups_per_partition):
+                    split_size = [
+                        kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
+                        kv_size_per_tp // num_query_groups_per_partition,
+                        kv_size_per_tp // num_query_groups_per_partition
+                    ]
+                    q, k, v = chunk.split(split_size)
+                    q_lst.append(q)
+                    k_lst.append(k)
+                    v_lst.append(v)
             q = torch.cat(q_lst, dim=0)
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
@@ -341,16 +349,17 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         micro_dp_size = get_micro_data_parallel_world_size()
         micro_dp_group = get_micro_data_parallel_group()
 
-        if micro_dp_size <= 1:
-            return
 
         origin_params = {}
         for name in params.keys():
             param = params[name]
             if tp_utils.is_tensor_parallel_param(param):
                 # allocate a new tensor with proper size
-                infer_params = [torch.empty_like(param) for _ in range(micro_dp_size)]
-                torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
+                if micro_dp_size <= 1:
+                    infer_params = [param]
+                else:
+                    infer_params = [torch.empty_like(param) for _ in range(micro_dp_size)]
+                    torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
                 infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config)
                 # replace with original param
                 params[name] = infer_params
@@ -379,8 +388,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # FIXME(sgm): the best practice is to delete the cuda tensor
         # rebind the model weights, can be any cpu tensor
-        if get_micro_data_parallel_world_size() > 1:
-            for name in self.params.keys():
+        if self.origin_params is not None:
+            for name in self.origin_params.keys():
                 self.params[name] = self.origin_params[name]
 
         # self.inference_engine.sync_model_weights(params)
