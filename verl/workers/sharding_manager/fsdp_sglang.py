@@ -106,7 +106,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
-        self.inference_engine.release_memory_occupation
+        self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
