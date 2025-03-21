@@ -286,3 +286,9 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
     # we don't need to slice position ids
     input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
     return input_ids_rmpad, position_ids_rmpad, pad_size
+
+
+def validate_ulysses_config(num_heads, ulysses_sequence_size):
+    if ulysses_sequence_size > 1:
+        assert num_heads % ulysses_sequence_size == 0,\
+            f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
