@@ -33,7 +33,7 @@ from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.model import load_megatron_model_weights
+from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.megatron_utils import init_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
@@ -532,7 +532,7 @@ class CriticWorker(MegatronWorker):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config,convert_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer
@@ -552,19 +552,17 @@ class CriticWorker(MegatronWorker):
 
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
+        tfconfig = convert_config(critic_model_config, megatron_config)
+        print(f'TF config: {tfconfig}')
 
         def megatron_critic_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_model_from_config
-            # TODO: support vpp here
-            # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
-            # this_megatron_config = copy.deepcopy(megatron_config)
-            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(config=critic_model_config,
-                                                            megatron_config=megatron_config,
-                                                            pre_process=pre_process,
-                                                            post_process=post_process,
-                                                            share_embeddings_and_output_weights=False,
-                                                            value=True)
+            from verl.utils.model import get_parallel_gptmodel_from_config
+            parallel_model = get_parallel_gptmodel_from_config(tfconfig,
+                                                               critic_model_config,
+                                                               pre_process,
+                                                               post_process,
+                                                               share_embeddings_and_output_weights=False,
+                                                               value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -577,11 +575,11 @@ class CriticWorker(MegatronWorker):
         # critic_module = nn.ModuleList(critic_module)
 
         if self.config.load_weight:
-            load_megatron_model_weights(self.config,
-                                        critic_model_config,
-                                        critic_module,
-                                        params_dtype=megatron_config.params_dtype,
-                                        is_value_model=True)
+            load_megatron_gptmodel_weights(self.config,
+                                           critic_model_config,
+                                           critic_module,
+                                           params_dtype=megatron_config.params_dtype,
+                                           is_value_model=True)
         if self.rank == 0:
             print_model_size(critic_module[0])
 
