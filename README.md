@@ -108,8 +108,8 @@ verl is fast with:
 ## Performance Tuning Guide
 The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
 
-## vLLM v0.7 integration preview
-We have released a testing version of veRL that supports vLLM>=0.7.0. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.7.md) for installation guide and more information.
+## Use vLLM v0.8
+veRL now supports vLLM>=0.8.0 when using FSDP as the training backend. Please refer to [this document](docs/README_vllm0.8.md) for installation guide and more information.
 
 ## Citation and acknowledgement
 
