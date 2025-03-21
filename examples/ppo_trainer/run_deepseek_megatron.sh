@@ -9,7 +9,7 @@ huggingface-cli download deepseek-ai/deepseek-coder-6.7b-instruct
 # ``**.megatron.tensor_model_parallel_size``
 
 # the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
-
+# tested on L20-16 GPUs per nodes, for other machines please adjust the n_gpus_per_node config accordingly
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
     data.train_files=$HOME/data/gsm8k/train.parquet \

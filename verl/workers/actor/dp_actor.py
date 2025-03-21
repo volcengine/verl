@@ -16,22 +16,23 @@ Single Process Actor
 """
 
 import itertools
-from typing import Tuple
+from typing import Iterable, Tuple
 
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 from verl.trainer.ppo import core_algos
-from verl.utils.device import get_device_name, is_npu_available
+from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
-from verl.workers.actor import BasePPOActor
+from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+from verl.utils.device import get_device_name, is_npu_available
+import verl.utils.torch_functional as verl_F
+
+from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 __all__ = ['DataParallelPPOActor']
 
@@ -53,7 +54,10 @@ class DataParallelPPOActor(BasePPOActor):
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
-        self.compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
+        self.compute_entropy_from_logits = (
+            torch.compile(verl_F.entropy_from_logits, dynamic=True)
+            if self.config.get('use_torch_compile', True)  #  use torch compile by default
+            else verl_F.entropy_from_logits)
         self.device = get_device_name()
 
     def _forward_micro_batch(self, micro_batch, temperature) -> Tuple[torch.Tensor, torch.Tensor]:
