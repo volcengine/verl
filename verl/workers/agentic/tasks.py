@@ -16,27 +16,30 @@ async def openai_chat_start(index, url):
     async with httpx.AsyncClient() as client:
         response = await client.post(url + "/start_sample", json={
             "index": index,
-            "session_id": index,
+            # "session_id": index,
+            "name": "kg-env_train",
         }, timeout=30)
         ret = response.json()
-    ret["sid"] = index
+    ret["sid"] = response.headers["session_id"]
     return ret
 
 
 async def openai_chat_obs(message, sid, url, **_):
     payload = {"messages": [message]}
     header = {"session_id": str(sid)}
+    metrics = {"failed_times": 0, "observations_times": 1}
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url + "/interact", json=payload, headers=header, timeout=30)
-            assert response.status_code == 200, f"Wrong status code: {response.status_code=} {response=}"
+            assert response.status_code == 200, f"Wrong status code: {sid=} {response.status_code=} {response.content=}"
             ret = response.json()
-            ret["failed_times"] = 0
+            metrics["failed_times"] = 0
     except Exception as e:
         print(f"API call failed: {e}")
         traceback.print_exc()
-        ret = {"messages": [{"role": "user", "content": "Connection Error"}], "failed_times": 1, "finish": False}
-    ret["observations_times"] = 1
+        ret = {"messages": [{"role": "user", "content": "Connection Error"}], "finish": False, "reward": -1}
+        metrics["failed_times"] += 1
+    ret["metrics"] = metrics
     if torch.distributed.get_rank() == 0:
         print(f"Observation: {ret}")
     return ret

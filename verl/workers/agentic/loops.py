@@ -1,4 +1,3 @@
-import re
 from typing import Awaitable, Callable, Any
 
 from transformers import PreTrainedTokenizerBase
@@ -84,46 +83,43 @@ async def openai_chat_agent_loop(
     sid = start.pop("sid")
     collect_metrics(start, obs_metrics)
 
+    prompt_ids = tokenizer.apply_chat_template(history, tokenize=True)
+    ids = []
+    response_loss_mask = []
+
     # interact
     # TODO: maybe keep track of tokens here, can provide early stopping feature
     for turn in range(max_turns):
         message = await gen_fn({"messages": history, "tools": tools})
+        turn_ids = tokenizer.apply_chat_template([message], tokenize=True)
+        ids += turn_ids
+        response_loss_mask += [1] * len(turn_ids)
         history.append(message)
+
         obs = await obs_fn(message, sid)
-        history += obs.pop("messages")
+        # possible injection here
+        messages = obs.pop("messages")
+        for message in history:
+            ids += turn_ids
+            if message["role"] == "assistant":
+                response_loss_mask += [1] * len(turn_ids)
+            else:
+                response_loss_mask += [0] * len(turn_ids)
+
+        history += messages
         done = obs.pop("finish")
-        collect_metrics(obs, obs_metrics)
-        if done:
+        reward = obs.pop("reward")
+        collect_metrics(obs.get("metrics", {}), obs_metrics)
+
+        if done or len(ids) >= max_length:
             break
 
     await end_fn(sid, done)
 
-    # make ids and loss mask
-    if re.search(r"\{\%-?\s*generation\s*-?\%\}", tokenizer.chat_template):
-        # loss mask can be derived from chat template
-        ids, loss_mask = tokenizer.apply_chat_template(
-            history,
-            tokenize=True,
-            max_length=max_length,
-            truncation=True,
-            add_generation_prompt=True, # for glm models, generation prompt is eos
-            return_assistant_tokens_mask=True,
-        )
-    else:
-        ids = []
-        loss_mask = []
-        # TODO: add generation prompt for last turn
-        for message in history:
-            turn_ids = tokenizer.apply_chat_template([message], tokenize=True)
-            ids += turn_ids
-            if message["role"] == "assistant":
-                loss_mask += [1] * len(turn_ids)
-            else:
-                loss_mask += [0] * len(turn_ids)
-
     return {
-        "ids": ids[:max_length],
-        "loss_mask": loss_mask[:max_length],
+        "prompts": prompt_ids,
+        "responses": ids[:max_length],
+        "response_loss_mask": response_loss_mask[:max_length],
         "reward": reward,
         "obs_metrics": obs_metrics,
     }

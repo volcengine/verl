@@ -3,6 +3,7 @@
 # TODO(haoran): check reason for loading weight
 import os
 from functools import partial
+from json import JSONDecodeError
 
 import sglang as sgl
 import torch.distributed
@@ -57,6 +58,7 @@ class AsyncRollout(BaseRollout):
             print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         else:
             self.engine = None
+        self.engine: sgl.srt.entrypoints.engine.Engine | None
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_device
         torch.distributed.barrier()
         self.config = config
@@ -94,7 +96,12 @@ class AsyncRollout(BaseRollout):
             tools = request.get("tools", [])
             if torch.distributed.get_rank() == 0:
                 print(f"generating request: {request}")
-            ids = tokenizer.apply_chat_template(request["messages"], tools=tools, tokenize=True)
+            ids = tokenizer.apply_chat_template(
+                request["messages"],
+                tools=tools,
+                tokenize=True,
+                add_generation_prompt=True,
+            )
             try:
                 ret = await self.engine.async_generate(input_ids=ids, sampling_params=sampling_params)
             except ValueError as e:
@@ -107,7 +114,11 @@ class AsyncRollout(BaseRollout):
 
             if tools:
                 parser = FunctionCallParser(tools=[Tool.model_validate(tool) for tool in tools], tool_call_parser="qwen25")
-                normal_text, info_list = parser.parse_non_stream(ret["text"])
+                try:
+                    normal_text, info_list = parser.parse_non_stream(ret["text"])
+                except JSONDecodeError:
+                    normal_text = ret["text"]
+                    info_list = []
                 message["content"] = normal_text
                 message["tool_calls"] = [{
                     "id": str(info.tool_index),
@@ -118,6 +129,9 @@ class AsyncRollout(BaseRollout):
                 } for info in info_list]
             else:
                 message["content"] = ret["text"]
+
+            if torch.distributed.get_rank() == 0:
+                print(f"generated message: {message}")
 
             return message
 
@@ -223,7 +237,7 @@ class AsyncRollout(BaseRollout):
         # choose function set
         # TODO: maybe in init is better, but some functions are local
         # TODO: partial is not the best way to pass arguments
-        url = "http://60.165.239.101:5002/api"
+        url = "http://60.165.239.101:5100/api"
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
             "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dr_end),
             "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
@@ -252,6 +266,8 @@ class AsyncRollout(BaseRollout):
         prompts_ids = torch.full((batch_size, prompt_len), pad, dtype=torch.long, device=device)
         responses = torch.full((batch_size, response_len), pad, dtype=torch.long, device=device)
         loss_mask = torch.zeros((batch_size, max_len), dtype=torch.int, device=device)
+        if "reward" in results[0]:
+            rewards = torch.zeros((batch_size,), dtype=torch.float, device=device)
         obs_metrics = {}
 
         for i, r in enumerate(results):
@@ -259,6 +275,8 @@ class AsyncRollout(BaseRollout):
             length = min(len(r["responses"]), response_len)
             responses[i, :length] = torch.tensor(r["responses"][:length], device=device)
             loss_mask[i, prompt_len: prompt_len + length] = torch.tensor(r["response_loss_mask"][:length], device=device)
+            if "reward" in r:
+                rewards[i] = r["reward"]
 
             for k, v in r["obs_metrics"].items():
                 if k not in obs_metrics:
@@ -284,6 +302,7 @@ class AsyncRollout(BaseRollout):
             "attention_mask": attn_mask,
             "position_ids": position_ids,
             **obs_metrics,
+            **({"rm_final_scores": rewards} if "reward" in results[0] else {}),
         }, batch_size=batch_size)
 
         # torch.save(batch, f"batches/batch_{time.time()}.pt")

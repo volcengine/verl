@@ -190,7 +190,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
         dp_rank = device_mesh.get_local_rank(0)
         addr = os.environ["MASTER_ADDR"]
         port = 40000
-        print(f"nodedup in sharding manager {role=} {device_mesh=} {dp_rank=}")
+        print(f"in sharding manager {role=} {device_mesh=} {dp_rank=}")
         if role == "actor":
             print(f"nodedup sharding manager starting weight pg {dp_rank=} {addr=} {port=} {role=} {rollout_count=}")
             if dp_rank == 0:
@@ -279,6 +279,11 @@ class FSDPSGLShardingManager(BaseShardingManager):
         log_gpu_memory_usage('Before sync model weights in sharding manager', logger=logger)
 
         while not done:
+            if "actor" in self.role and local_rank != 0:
+                del tensor_list
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                break
             if "actor" in self.role and local_rank == 0:
                 count = 0
                 if self.exchange_size is None:
