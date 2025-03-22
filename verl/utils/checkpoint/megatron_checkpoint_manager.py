@@ -185,10 +185,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
-            state_dict = torch.load(os.path.join(ckpt_name))
-            self.model.load_state_dict(state_dict)
+            state_dicts = torch.load(os.path.join(ckpt_name))
+            assert len(state_dicts) == len(self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
+            for state_dict, model in zip(state_dicts, self.model):
+                model.load_state_dict(state_dict)
             print(f'Loaded sharded model checkpoint from {model_path}')
-            
 
         if 'optimizer' in self.checkpoint_contents:
             self.load_optimizer(local_path)
@@ -218,13 +219,16 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'model' in self.checkpoint_contents:
             torch.distributed.barrier()
             if mpu.get_data_parallel_rank() == 0:
-                state_dict = self.model.state_dict()
+                state_dicts = []
+                for model in self.model:
+                    state_dict = model.state_dict()
+                    state_dicts.append(state_dict)
 
                 print(f'Saving sharded model checkpoint to {local_path}')
                 model_ckpt_path = get_model_checkpoint_path(local_path)
-                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path, hf=True)
+                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
-                torch.save(state_dict, os.path.join(ckpt_name))
+                torch.save(state_dicts, os.path.join(ckpt_name))
                 self.processing_class.save_pretrained(hf_model_ckpt_path)   # tokenizer will be saved to hf_model_ckpt_path
                 print(f'Saved checkpoint to {model_ckpt_path}')
                 if hdfs_path is not None:
