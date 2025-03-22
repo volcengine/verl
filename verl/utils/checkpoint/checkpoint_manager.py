@@ -38,7 +38,8 @@ class BaseCheckpointManager:
     - huggingface tokenizer and config for ckpt merge
     """
 
-    def __init__(self, model,
+    def __init__(self,
+                 model,
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
