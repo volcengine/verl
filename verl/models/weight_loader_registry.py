@@ -28,9 +28,11 @@ def get_weight_loader(arch: str):
 
 
 def get_weight_saver(arch: str):
-    from verl.models.qwen2.megatron.checkpoint_utils.qwen2_saver import merge_megatron_ckpt_llama
+    from verl.models.llama.megatron.checkpoint_utils.llama_saver import merge_megatron_ckpt_llama
+    from verl.models.qwen2.megatron.checkpoint_utils.qwen2_saver import merge_megatron_ckpt_qwen2
     _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY = {
-        'Qwen2ForCausalLM': merge_megatron_ckpt_llama,
+        'LlamaForCausalLM': merge_megatron_ckpt_llama,
+        'Qwen2ForCausalLM': merge_megatron_ckpt_qwen2,
     }
     if arch in _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY[arch]

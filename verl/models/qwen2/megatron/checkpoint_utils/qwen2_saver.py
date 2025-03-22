@@ -65,11 +65,11 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
-        wrapped_modelss (list of megatron.core.distributed.DistributedDataParallel):
+        wrapped_models (list of megatron.core.distributed.DistributedDataParallel):
             The local DDP wrapped megatron modules.
         config (str or None):
             HF config for model
@@ -420,9 +420,16 @@ def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=Fals
             print_rank_0("collecting lm_head...")
 
             if is_value_model:
-                _broadcast_tensor(getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
-                                  "reward_head.weight",
-                                  src_pp_rank=pp_size - 1)
+                if getattr(gpt_model_module, "lm_head", None) is not None:
+                    lm_head_weight = getattr(gpt_model_module.lm_head, "weight", None)
+                    _broadcast_tensor(lm_head_weight if pp_rank == pp_size - 1 else None,
+                                      "lm_head.weight",
+                                      src_pp_rank=pp_size - 1)
+                if getattr(gpt_model_module, "reward_head", None) is not None:
+                    reward_head_weight = getattr(gpt_model_module.reward_head, "weight", None)
+                    _broadcast_tensor(reward_head_weight if pp_rank == pp_size - 1 else None,
+                                      "reward_head.weight",
+                                      src_pp_rank=pp_size - 1)
 
             else:
                 _broadcast_tp_shard_tensor(

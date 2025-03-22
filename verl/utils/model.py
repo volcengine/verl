@@ -270,6 +270,7 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
     architectures = getattr(config, "architectures", [])
     for arch in architectures:
         model_cls = ModelRegistry.load_model_cls(arch, value)
+        print(f'after load model cls')
         if model_cls is not None:
             return model_cls
     raise ValueError(f"Model architectures {architectures} are not supported for now. "
@@ -281,7 +282,8 @@ def load_megatron_model_weights(config,
                                 parallel_model,
                                 params_dtype,
                                 is_value_model=False,
-                                local_cache_path='~/.cache/verl/rlhf'):
+                                local_cache_path='~/.cache/verl/rlhf',
+                                resume_path=None):
     assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
@@ -292,25 +294,30 @@ def load_megatron_model_weights(config,
         local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
         print('finish download')
     else:
-        print(f"load from local dir {config.model.path}")
-        local_model_path = config.model.path
+        if resume_path is not None:
+            local_model_path = resume_path
+            print(f"resume, load from local dir {local_model_path}")
+        else:
+            local_model_path = config.model.path
+            print(f"load from local dir {local_model_path}")
 
     # TODO: to find a better way to load mistral7b-rm lm_head
     from verl.utils.fsdp_utils import get_init_weight_context_manager
     init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
-    with init_context(), warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        if 'mistral7b-rm' in config.model.path:
-            model = MistralForSequenceClassification.from_pretrained(
-                local_model_path)  # use score head instead of lm_head
-            state_dict = model.state_dict()
-            state_dict['lm_head.weight'] = state_dict['score.weight']
-            state_dict['model.embed_tokens.weight'] = state_dict[
-                'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
-            is_value_model = True
-        else:
-            model = AutoModelForCausalLM.from_pretrained(local_model_path)
-            state_dict = model.state_dict()
+    if resume_path is None:
+        with init_context(), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if 'mistral7b-rm' in config.model.path:
+                model = MistralForSequenceClassification.from_pretrained(
+                    local_model_path)  # use score head instead of lm_head
+                state_dict = model.state_dict()
+                state_dict['lm_head.weight'] = state_dict['score.weight']
+                state_dict['model.embed_tokens.weight'] = state_dict[
+                    'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
+                is_value_model = True
+            else:
+                model = AutoModelForCausalLM.from_pretrained(local_model_path)
+                state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
     print(f'before weight loader: architectures = {architectures}...')

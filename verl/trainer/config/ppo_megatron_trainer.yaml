@@ -47,14 +47,18 @@ actor_rollout_ref:
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       sequence_parallel: True
+      use_distributed_optimizer: True
       seed: 1
     load_weight: True
+    checkpoint:
+      contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     megatron:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       sequence_parallel: True
+      use_distributed_optimizer: True
       seed: 1
     load_weight: True
     param_offload: False
@@ -117,6 +121,7 @@ critic:
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     sequence_parallel: True
+    use_distributed_optimizer: True
     seed: 1
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
@@ -129,6 +134,8 @@ critic:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
+  checkpoint:
+    contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
 reward_model:
   enable: False
@@ -138,6 +145,7 @@ reward_model:
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     sequence_parallel: True
+    use_distributed_optimizer: True
     seed: 1
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
@@ -175,8 +183,10 @@ trainer:
   n_gpus_per_node: 8
   save_freq: -1
   # auto: find the last ckpt to resume. If can't find, start from scratch
-  resume_mode: disable # or auto or resume_path if 
+  resume_mode: auto # or disable or resume_path if
   resume_from_path: False
+  remove_previous_ckpt_in_save: False
+  del_local_ckpt_after_load: False
   test_freq: 2
   critic_warmup: 0
   default_hdfs_dir: null
