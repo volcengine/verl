@@ -11,6 +11,7 @@ from omegaconf import DictConfig
 from sglang.srt.function_call_parser import FunctionCallParser, Function
 from sglang.srt.openai_api.protocol import Tool
 from torch.distributed import DeviceMesh
+from torch.distributed import DeviceMesh
 
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
@@ -27,6 +28,8 @@ def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
 
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig, device_mesh: DeviceMesh):
+    # def __init__(self, model_path, config: DictConfig):
+
         super().__init__()
         torch.distributed.barrier()
         # print(f"nodedup in AsyncRollout: {torch.distributed.is_initialized() = } {torch.distributed.get_rank() = }")
@@ -52,6 +55,7 @@ class AsyncRollout(BaseRollout):
                 enable_memory_saver=config.enable_memory_saver,
                 mem_fraction_static=config.gpu_memory_utilization,
                 tp_size=device_mesh.size(1),
+                # enable_metrics=True,
             )
             print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
             self.engine.release_memory_occupation()
@@ -140,11 +144,63 @@ class AsyncRollout(BaseRollout):
         input_ids = input_ids.repeat_interleave(n, dim=0)
 
         # TODO: this is just a temporary approach for dr getting reward. should be moved to a backend.
+        # only last action saved
         dr_storage_sid2seq = {}
+        dr_storage_sid2browser = {}
+        
+        # exp-feature for history unfaithful judgement
+        dr_storage_sid2_history_obs = {}
+        dr_storage_sid2_unfaith_penalty = {}
 
         async def dr_start(index):
             index = index % len(input_ids)
             dr_storage_sid2seq[index] = []
+            return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
+        
+        async def dr_browser_start(index):
+            from browser import KiltBrowser
+            
+            # in Shannon, openvpn must be used to access the browser
+            # broswer_url = "172.18.73.157:8000"
+            # single_browser = KiltBrowser(
+            #     user_prompt="",
+            #     es_search_url=f"http://{broswer_url}/kilt_search",
+            #     knowledge_service_url=f"http://{broswer_url}/kilt_open"
+            # )
+            
+            # in Kruskal, the browser is directly accessible
+            single_browser = KiltBrowser(
+                user_prompt="",
+                es_search_url=f"http://10.50.60.34:9200/kilt/_search",
+                knowledge_service_url=f"http://172.18.193.64:8001/documents",
+            )
+            index = index % len(input_ids)
+            dr_storage_sid2seq[index] = []
+            dr_storage_sid2browser[index] = single_browser
+            
+            # new feature
+            dr_storage_sid2_history_obs[index] = []
+            dr_storage_sid2_unfaith_penalty[index] = []
+            
+            return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
+        
+        async def dr_jina_start(index):
+            from browser import JinaBrowser
+            
+            
+            
+            single_browser = JinaBrowser(
+                user_prompt="",
+                api_key="jina_b766b86a6a7940f28026f2f9c2d16650TlpTVW9sqvyautdpVa_ZFP3SzHVL",
+            )
+            index = index % len(input_ids)
+            dr_storage_sid2seq[index] = []
+            dr_storage_sid2browser[index] = single_browser
+            
+            # new feature
+            dr_storage_sid2_history_obs[index] = []
+            dr_storage_sid2_unfaith_penalty[index] = []
+            
             return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
 
         async def dr_obs(action_ids, sid, tokenizer, **_):
@@ -183,16 +239,84 @@ class AsyncRollout(BaseRollout):
             obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
             ret_ids = tokenizer.encode(obs_text)
             dr_storage_sid2seq[sid].extend(ret_ids)
-
-            if torch.distributed.get_rank() == 0:
-                print(f"nodedup {torch.distributed.get_rank()=} dr_obs: {obs_text=}")
-
             return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
+        
+        async def dr_browser_obs(action_ids, sid, tokenizer, **_):
+            # dr_storage_sid2seq[sid].extend(action_ids)
+            # only use the last action_ids
+            sid = sid % len(input_ids)
+            dr_storage_sid2seq[sid] = action_ids
+            stop_id = action_ids[-1]
+            stop_token = tokenizer.decode([stop_id])
+            print(f"stop token: [{stop_id}] - [{stop_token}]")
+            
+            action_details = {"search_times": 0, "click_times": 0, 'unfaith_penalty_times': 0}
+
+            # only finish with <|observation|> token can be multi-turn
+            if not stop_token.strip() == '<|observation|>':
+                if self.config.unfaith_penalty:
+                    dr_storage_sid2_unfaith_penalty[sid].extend([0] * len(action_ids))
+                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0, **action_details}
+            action = tokenizer.decode(action_ids, skip_special_tokens=False)
+            text = action.split("<|observation|>")[0].strip()
+
+            broswer_to_interact = dr_storage_sid2browser[sid]
+            
+            failed = 0
+            max_retries = 3
+            for i in range(max_retries):
+                try:
+                    browser_return = await asyncio.to_thread(broswer_to_interact, text)
+                    observation = browser_return["observation"]
+                    reason = browser_return["reason"].lower()
+                    
+                    if observation:
+                        action_details['search_times'] += int('search' in reason)
+                        action_details['click_times'] += int('click' in reason)
+                        break
+                    else:
+                        print({"info": f"Retry {i + 1} for empty observation", "observation": observation, "reason": reason})
+                        await asyncio.sleep(1)
+                        continue
+                except Exception as e:
+                    import time
+                    print(f"API call failed: {e}")
+            else:
+                observation = ""
+                failed = 1
+
+            refined_observation = "<observation>\n" + observation + "\n</observation>"
+            obs_text = f"\n{refined_observation}<|assistant|>\n"
+            
+            ret_ids = tokenizer.encode(obs_text)
+            
+            # new feature for unfaithful judgement
+            if self.config.unfaith_penalty:
+                from verl.utils.reward_score.unfaith_judge import is_unfaithful_judge
+                history = dr_storage_sid2_history_obs[sid]
+                judge_action = text
+                if len(history) == 0:
+                    dr_storage_sid2_unfaith_penalty[sid].extend([0] * len(action_ids) + [0] * len(ret_ids))
+                else:
+                    # is_unfaithful = is_unfaithful_judge(history, judge_action)
+                    is_unfaithful = await asyncio.to_thread(is_unfaithful_judge, history, judge_action)
+                    action_details['unfaith_penalty_times'] = int(is_unfaithful)
+                    dr_storage_sid2_unfaith_penalty[sid].extend([-int(is_unfaithful)] * len(action_ids) + [0] * len(ret_ids))
+            
+            dr_storage_sid2_history_obs[sid].append(refined_observation)
+            # import json
+            # print(json.dumps({"len(dr_storage_sid2_unfaith_penalty[sid])": len(dr_storage_sid2_unfaith_penalty[sid])}))
+            
+            # if observation:
+            #     return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            # else:
+            #     return {"done": True, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
+            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed, **action_details}
 
         async def dr_end(sid, _):
             # currently for dr sid == index
             sid = sid % len(input_ids)
-            print(f"nodedup {sid=} {len(prompts)=} {n=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
+            # print(f"nodedup {sid=} {len(prompts)=} {n=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
             data_item = prompts[sid // n]
             from verl.utils.reward_score import _default_compute_score
             prompt_ids = data_item.batch['input_ids']
@@ -202,6 +326,7 @@ class AsyncRollout(BaseRollout):
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
             sequences = dr_storage_sid2seq[sid]
+            print(f"in dr_end {sid=} {len(sequences)=} {len(valid_prompt_ids)=}")
             sequences_str = tokenizer.decode(sequences)
             prompt_str = tokenizer.decode(valid_prompt_ids)
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
@@ -215,9 +340,85 @@ class AsyncRollout(BaseRollout):
                 question=prompt_str,
                 tokenizer=tokenizer,
             )
-            return {
-                "rm_final_scores": score,
+            return_json = {"rm_final_scores": score}
+            if self.config.unfaith_penalty:
+                unfaith_penalty = dr_storage_sid2_unfaith_penalty[sid]
+                if len(unfaith_penalty) < self.config.response_length:
+                    unfaith_penalty += [0] * (self.config.response_length - len(unfaith_penalty))
+                else:
+                    unfaith_penalty = unfaith_penalty[:self.config.response_length]
+                return_json["unfaith_penalty"] = unfaith_penalty
+            return return_json
+        
+        async def dr_writing_end(sid, _):
+            # currently for dr sid == index
+            sid = sid % len(input_ids)
+            # print(f"nodedup {sid=} {len(prompts)=} {n=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
+            data_item = prompts[sid // n]
+            from verl.utils.reward_score import _default_compute_score
+            prompt_ids = data_item.batch['input_ids']
+            prompt_length = prompt_ids.shape[-1]
+            assert len(data_item.batch['attention_mask']) == prompt_length, f"{len(data_item.batch['attention_mask'])=} != {prompt_length=}"
+            valid_prompt_length = data_item.batch['attention_mask'].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+            sequences = dr_storage_sid2seq[sid]
+            print(f"in dr_end {sid=} {len(sequences)=} {len(valid_prompt_ids)=}")
+            sequences_str = tokenizer.decode(sequences)
+            prompt_str = tokenizer.decode(valid_prompt_ids)
+            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            origin_content = data_item.non_tensor_batch['reward_model']['origin_content']
+            
+            import json
+            semantic_extraction = json.loads(ground_truth)
+            
+            # data_source = data_item.non_tensor_batch['data_source']
+            # extra_info = data_item.non_tensor_batch.get('extra_info', None)
+            
+            sequences_str = sequences_str.strip().split("<|assistant|>")[-1]
+            print("tokenize len: ", len(tokenizer.tokenize(sequences_str)))
+            
+            url = "http://172.18.84.40:8888/writing_eval/"
+            payload = {
+                "prompt": prompt_str,
+                "semantic_extraction": semantic_extraction,
+                "response": sequences_str,
+                "origin_content": origin_content,
             }
+            
+            score = 0.0
+            
+            # only end with tokenizer.eos_token can be finished and judged
+            if sequences_str.strip().endswith(tokenizer.eos_token):
+                for i in range(5):
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            response = await client.post(
+                                url,
+                                json=payload,
+                                timeout=120.0
+                            )
+                            ret = response.json()
+                            score = ret['reward']
+                            print(f"score: {score}")
+                            break
+                    except Exception as e:
+                        print(f"API call failed: {e}")
+                        await asyncio.sleep(1 + i)
+                else:
+                    print(f"API call failed", "5 times retry ended")
+
+            return_json = {"rm_final_scores": score}
+            
+            if self.config.unfaith_penalty:
+                unfaith_penalty = dr_storage_sid2_unfaith_penalty[sid]
+                if len(unfaith_penalty) < self.config.response_length:
+                    unfaith_penalty += [0] * (self.config.response_length - len(unfaith_penalty))
+                else:
+                    unfaith_penalty = unfaith_penalty[:self.config.response_length]
+                return_json["unfaith_penalty"] = unfaith_penalty
+            
+            return return_json
 
         async def swedev_start(index):
             try:
@@ -240,6 +441,8 @@ class AsyncRollout(BaseRollout):
         url = "http://60.165.239.101:5100/api"
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
             "dr": (ids_agent_loop, dr_start, gen_id, partial(dr_obs, tokenizer=tokenizer), dr_end),
+            "dr_browser": (ids_agent_loop, dr_browser_start, gen_id, partial(dr_browser_obs, tokenizer=tokenizer), dr_end),
+            "writing": (ids_agent_loop, dr_jina_start, gen_id, partial(dr_browser_obs, tokenizer=tokenizer), dr_writing_end),
             "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
             "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url=url), gen_chat, partial(openai_chat_obs, url=url), partial(openai_chat_end, url=url)),
         }[self.task_type]
@@ -254,7 +457,9 @@ class AsyncRollout(BaseRollout):
             obs_fn=obs_fn,
             end_fn=end_fn,
             max_turns=self.config.max_turns,
-            max_length=self.total_len,
+            # max_length=self.total_len,
+            # fix by lurui: consider some special token
+            max_length=self.total_len - 50,
             tokenizer=tokenizer,
         ) for i in list(range(len(input_ids)))]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
@@ -305,6 +510,10 @@ class AsyncRollout(BaseRollout):
             **({"rm_final_scores": rewards} if "reward" in results[0] else {}),
         }, batch_size=batch_size)
 
-        # torch.save(batch, f"batches/batch_{time.time()}.pt")
+        import time
+        import os
+        print(f"Current working directory: {os.getcwd()}")
+        
+        # torch.save(batch, f"/workspace/lurui-yun/deep_research/verl/batches/batch_{time.time()}.pt")
 
         return DataProto(batch=batch)

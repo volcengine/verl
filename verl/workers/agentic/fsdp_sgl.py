@@ -7,6 +7,7 @@ from torch.distributed.distributed_c10d import _group_or_default_group, _canonic
     _rank_not_in_group, _get_object_coll_device, _object_to_tensor, broadcast, _tensor_to_object
 
 import torch
+from tqdm import tqdm
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.utils import init_custom_process_group
 from tensordict import TensorDict
@@ -247,7 +248,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
             # print(f'Weight keys: {st.keys()}')
             target_device = torch.device("cpu") if self.exchange_size else device
             tensor_list = []
-            for k, v in st.items():
+            for k, v in tqdm(st.items()):
                 if isinstance(v, DTensor):
                     v = v.full_tensor()
                 if local_rank == 0:
@@ -284,6 +285,7 @@ class FSDPSGLShardingManager(BaseShardingManager):
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
                 break
+            each_loop_start_time = time.time()
             if "actor" in self.role and local_rank == 0:
                 count = 0
                 if self.exchange_size is None:
@@ -340,7 +342,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
                         del tensor_list, v
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            log_gpu_memory_usage(f'After loop {loop_count} {done=} in sharding manager', logger=logger)
+            loop_consumed_time = time.time() - each_loop_start_time
+            log_gpu_memory_usage(f'After loop {loop_count} {done=} {loop_consumed_time=} in sharding manager', logger=logger)
             loop_count += 1
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
@@ -389,6 +392,8 @@ class FSDPSGLShardingManager(BaseShardingManager):
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
+        # prevent nccl timeout
+        torch.distributed.barrier()
         tp_size = self.device_mesh.size(1)
         tp_rank = self.device_mesh.get_local_rank(1)
         src_rank = self.device_mesh.get_local_rank(0) * tp_size

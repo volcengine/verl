@@ -107,7 +107,7 @@ def extract_solution(question, response, extractor_urls, eos_token):
     if not resp_text.strip().endswith(eos_token):
         print(f"not end with {eos_token}")
         print(resp_text)
-        return -1
+        return 0 # -1
 
     answer_template = EXTRACTION_TEMPLATE.format(
         question=question,
@@ -162,13 +162,13 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1., questio
     response = solution_str.replace("<|endoftext|>", "").strip()
     resp_print = response.strip().split("<|assistant|>")[-1]
     answer = extract_solution(question, response=solution_str, extractor_urls=extractor_urls, eos_token=eos_token)
-    print(f"computing score of {answer=} {ground_truth=}")
 
     # not end with eos_token(length or max turns)
+    if isinstance(answer, int):
+        return float(answer)
 
-    if answer == -1:
-        return float(-1)
-
+    print(f"computing score of {answer=} {ground_truth=}")
+    
     if answer is None:
         ans = float(0)
     else:

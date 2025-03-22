@@ -8,12 +8,12 @@ def default_preprocess_dataset(dataframe):
 
 PROMPT_GENERATOR = {
     "swedev": swedev_prompt_generator,
-    "default": default_prompt_generator
+    "default": default_prompt_generator,
 }
 
 PREPROCESS_DATASET = {
     "swedev": swedev_preprocess_dataset,
-    "default": default_preprocess_dataset
+    "default": default_preprocess_dataset,
 }
 
 SPECIFIC_TENSOR_LIST = {

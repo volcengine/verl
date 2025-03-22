@@ -268,9 +268,9 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
 
     # print("observations_times")
 
-    with open("logs/uid.txt", "a") as f:
-        f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
-        f.write(str(batch.non_tensor_batch['uid']) + "\n")
+    # with open("logs/uid.txt", "a") as f:
+    #     f.write(str(type(batch.non_tensor_batch['uid'])) + "\n")
+    #     f.write(str(batch.non_tensor_batch['uid']) + "\n")
 
     from collections import defaultdict
 
@@ -312,16 +312,22 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
+        'search/search_times':
+            torch.mean(batch.batch['search_times'].float()).detach().item(),
+        'search/click_times':
+            torch.mean(batch.batch['click_times'].float()).detach().item(),
         'search/failed_times':
             torch.mean(batch.batch['failed_times'].float()).detach().item(),
+        'search/unfaith_penalty_times':
+            torch.mean(batch.batch['unfaith_penalty_times'].float()).detach().item(),
         'search/length_overlong_ratio':
             length_overlong_ratio,
         'search/turn_overlong_ratio':
             turn_overlong_ratio,
         'search/overlong_ratio':
             overlong_ratio,
-        'search/penalty_minus_1_ratio':
-            torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
+        # 'search/penalty_minus_1_ratio':
+        #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
         # 'critic/score/mean':
         #     torch.mean(sequence_score).detach().item(),
@@ -1155,6 +1161,23 @@ class RayPPOTrainer(object):
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
+                        
+                        if self.config.actor_rollout_ref.get('unfaith_penalty', False):
+                            update_advantages = batch.batch['advantages'] + batch.batch['unfaith_penalty'] * 0.25
+                            save_log_for_penaltys = {
+                                "rm_final_scores": batch.batch['rm_final_scores'][0].item(),
+                                "unfaith_penaltys": batch.batch['unfaith_penalty'][0].tolist(),
+                                "response": batch.batch['responses'][0].tolist(),
+                                "prompt": batch.batch['input_ids'][0].tolist(),
+                                "advantages": batch.batch['advantages'][0].tolist(),
+                                "shape": str(batch.batch['responses']),
+                                "update_advantages": update_advantages[0].tolist(),
+                            }
+                            batch.batch['advantages'] = update_advantages
+                            
+                            import time, json
+                            with open(f"/workspace/lurui-yun/deep_research/verl/logs/unfaith_penalty/instances_adv_{time.time()}.json", "w") as f:
+                                f.write(json.dumps(save_log_for_penaltys, ensure_ascii=False) + "\n")
 
                     # update critic
                     if self.use_critic:

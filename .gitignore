@@ -119,3 +119,7 @@ logs/
 
 # data
 *.parquet
+batches/
+configs/
+
+scripts/rl_broswer
