@@ -537,7 +537,12 @@ class CriticWorker(MegatronWorker):
 
         # Step 1: initialize the tokenizer
         local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path)
+        try:
+            self.tokenizer = hf_tokenizer(local_path)
+        except OSError:
+            # If the model path doesn't contain a tokenizer, we use the tokenizer path specified in the config
+            tokenizer_local_path = copy_to_local(self.config.model.tokenizer_path)
+            self.tokenizer = hf_tokenizer(tokenizer_local_path)
 
         # Step 2: get the actor_model_config
         critic_model_config = AutoConfig.from_pretrained(local_path)
@@ -700,7 +705,11 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
+    def _build_rm_model(self,
+                        model_path,
+                        megatron_config: ModelParallelConfig,
+                        override_model_config,
+                        rm_tokenizer=None):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import update_model_config
         from verl.utils.megatron_utils import get_model
@@ -708,7 +717,14 @@ class RewardModelWorker(MegatronWorker):
 
         # Step 1: initialize the tokenizer
         local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path)
+        try:
+            self.tokenizer = hf_tokenizer(local_path)
+        except OSError:
+            # If the model path doesn't contain a tokenizer, we use rm_tokenizer
+            if rm_tokenizer:
+                self.tokenizer = rm_tokenizer
+            else:
+                raise ValueError('No tokenizer found in the model path and rm_tokenizer is not provided!')
 
         # Step 2: get the actor_model_config
         rm_model_config = AutoConfig.from_pretrained(local_path)
@@ -796,6 +812,7 @@ class RewardModelWorker(MegatronWorker):
             model_path=self.config.model.path,
             megatron_config=megatron_config,
             override_model_config=override_model_config,
+            rm_tokenizer=rm_tokenizer,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
