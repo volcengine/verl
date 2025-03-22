@@ -252,7 +252,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
             torch.distributed.barrier()
             if self.rank == 0:
-                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path, hf=True)
+                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 from accelerate import init_empty_weights
                 import warnings
                 with init_empty_weights(), warnings.catch_warnings():
