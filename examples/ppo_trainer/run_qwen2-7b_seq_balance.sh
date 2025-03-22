@@ -25,6 +25,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.kl_loss.type=low_var_kl \
+    actor_rollout_ref.actor.kl_loss.coef=0.001 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
@@ -38,7 +40,9 @@ python3 -m verl.trainer.main_ppo \
     critic.ppo_max_token_len_per_gpu=98304 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
-    algorithm.kl_ctrl.kl_coef=0.001 \
+    algorithm.in_reward_kl.type=kl \
+    algorithm.in_reward_kl.kl_ctrl.type=fixed \
+    algorithm.in_reward_kl.coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_example_gsm8k' \

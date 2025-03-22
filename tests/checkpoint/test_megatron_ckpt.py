@@ -84,7 +84,7 @@ additional_config = {
     },
     'algorithm': {
         'kl_ctrl': {
-            'kl_coef': 0.001
+            'coef': 0.001
         },
         'adv_estimator': 'grpo',
     },

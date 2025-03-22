@@ -16,7 +16,7 @@ An naive implementation of split placment example
 """
 from pprint import pprint
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics, AdvantageEstimator
+from verl.trainer.ppo.ray_trainer import compute_advantage, apply_in_reward_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics, AdvantageEstimator
 from copy import deepcopy
 import numpy as np
 import torch
@@ -131,11 +131,11 @@ def fit(self):
                     reward_tensor = self.reward_fn(batch)
                     batch.batch['token_level_scores'] = reward_tensor
 
-                    # compute rewards. apply_kl_penalty if available
-                    if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                        batch, kl_metrics = apply_kl_penalty(batch,
-                                                             kl_ctrl=self.kl_ctrl,
-                                                             kl_penalty=self.config.algorithm.kl_penalty)
+                    # compute rewards. apply_in_reward_kl_penalty if available
+                    if self.config.algorithm.in_reward_kl.coef > 1e-6:
+                        batch, kl_metrics = apply_in_reward_kl_penalty(batch,
+                                                                       kl_ctrl=self.kl_ctrl_in_reward,
+                                                                       kl_type=self.config.algorithm.in_reward_kl.type)
                         metrics.update(kl_metrics)
                     else:
                         batch.batch['token_level_rewards'] = batch.batch['token_level_scores']

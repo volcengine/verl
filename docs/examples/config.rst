@@ -83,10 +83,10 @@ Actor/Rollout/Reference Policy
       grad_clip: 1.0
       clip_ratio: 0.2
       entropy_coeff: 0.001
-      use_kl_loss: False # True for GRPO
       use_torch_compile: True # False to disable torch compile
-      kl_loss_coef: 0.001 # for grpo
-      kl_loss_type: low_var_kl # for grpo
+      kl_loss:
+        type: low_var_kl  # how to estimate kl divergence
+        coef: 0
       ppo_epochs: 1
       shuffle: False
       ulysses_sequence_parallel_size: 1 # sp size
@@ -204,7 +204,16 @@ Actor/Rollout/Reference Policy
 
     - Trading speed for GPU memory.
 
+- ``actor_rollout_ref.actor.kl_loss``: Config for kl loss
+
+  - ``type``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
+    specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+  - ``coef``: The coefficient of kl loss. Default is 0. If \> 1e-6, kl loss will be enabled.
+
+
 **Reference Model**
+
+Reference model will be enabled when ``actor.kl_loss.coef`` or/and ``algorithm.in_reward_kl.coef`` \> 1e-6
 
 - ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
   larger than 7B, it's recommended to turn on offload for ref by
@@ -320,7 +329,7 @@ Reward Model
     their own RewardModelWorker and pass it from the code.
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
-  if ``naive``. If all verification functions are multiprocessing-safe, the reward
+  is ``naive``. If all verification functions are multiprocessing-safe, the reward
   manager can be set to ``prime`` for parallel verification.
 
 Customized Reward Function
@@ -344,17 +353,26 @@ Algorithm
      gamma: 1.0
      lam: 1.0
      adv_estimator: gae
-     kl_penalty: kl  # how to estimate kl divergence
-     kl_ctrl:
-       type: fixed
-       kl_coef: 0.005
+     in_reward_kl:
+      type: kl  # how to estimate kl divergence
+      coef: 0
+      kl_ctrl:
+        type: fixed
+        horizon: 10000
+        target_kl: 0.1
 
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``rloo``
-- ``kl_penalty``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
-  calculate the kl divergence between actor and reference policy. For
-  specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+- ``in_reward_kl``: Config for in-reward kl_penalty
+  - ``type``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
+    calculate the kl divergence between actor and reference policy. For
+    specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+
+  - ``coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0. If \> 1e-6, in-reward kl penalty will be enabled.
+  - ``kl_ctrl``: Config for FixedKLController or AdaptiveKLController.
+    - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
+    - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
 
 Trainer
 ~~~~~~~

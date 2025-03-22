@@ -233,7 +233,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
-        if self.config.use_kl_loss:
+        if self.config.kl_loss.coef > 1e-6:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
@@ -296,17 +296,17 @@ class DataParallelPPOActor(BasePPOActor):
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
 
-                    if self.config.use_kl_loss:
+                    if self.config.kl_loss.coef > 1e-6:
                         ref_log_prob = data['ref_log_prob']
                         # compute kl loss
                         kld = core_algos.kl_penalty(logprob=log_prob,
                                                     ref_logprob=ref_log_prob,
-                                                    kl_penalty=self.config.kl_loss_type)
+                                                    kl_type=self.config.kl_loss.type)
                         kl_loss = masked_mean(kld, response_mask)
 
-                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                        policy_loss = policy_loss + kl_loss * self.config.kl_loss.coef
                         metrics['actor/kl_loss'] = kl_loss.detach().item()
-                        metrics['actor/kl_coef'] = self.config.kl_loss_coef
+                        metrics['actor/kl_coef'] = self.config.kl_loss.coef
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz

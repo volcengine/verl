@@ -53,18 +53,18 @@ class FixedKLController:
         pass
 
 
-def get_kl_controller(config):
-    if config.critic.kl_ctrl.type == 'fixed':
-        kl_ctrl = FixedKLController(kl_coef=config.critic.kl_ctrl.kl_coef)
-    elif config.critic.kl_ctrl.type == 'adaptive':
-        assert config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {config.critic.kl_ctrl.horizon}'
-        kl_ctrl = AdaptiveKLController(init_kl_coef=config.critic.kl_ctrl.kl_coef,
-                                       target_kl=config.critic.kl_ctrl.target_kl,
-                                       horizon=config.critic.kl_ctrl.horizon)
-    else:
-        raise ValueError('Unknown kl_ctrl type')
-
-    return kl_ctrl
+def get_kl_controller(kl_config):
+    if kl_config.coef > 1e-6:
+        if kl_config.kl_ctrl.type == 'fixed':
+            return FixedKLController(kl_coef=kl_config.coef)
+        elif kl_config.kl_ctrl.type == 'adaptive':
+            assert kl_config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {kl_config.kl_ctrl.horizon}'
+            return AdaptiveKLController(init_kl_coef=kl_config.coef,
+                                        target_kl=kl_config.kl_ctrl.target_kl,
+                                        horizon=kl_config.kl_ctrl.horizon)
+        else:
+            raise NotImplementedError
+    return FixedKLController(kl_coef=0.)
 
 
 def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torch.Tensor, eos_mask: torch.Tensor,
@@ -348,7 +348,7 @@ def compute_value_loss(vpreds, returns, values, eos_mask, cliprange_value):
     return vf_loss, vf_clipfrac
 
 
-def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
+def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_type: str) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
     Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
 
@@ -359,24 +359,24 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     Returns:
 
     """
-    if kl_penalty == "kl":
+    if kl_type == "kl":
         return logprob - ref_logprob
 
-    if kl_penalty == "abs":
+    if kl_type == "abs":
         return (logprob - ref_logprob).abs()
 
-    if kl_penalty == "mse":
+    if kl_type == "mse":
         return 0.5 * (logprob - ref_logprob).square()
 
     # J. Schulman. Approximating kl divergence, 2020.
     # # URL http://joschu.net/blog/kl-approx.html.
-    if kl_penalty == 'low_var_kl':
+    if kl_type == 'low_var_kl':
         kl = ref_logprob - logprob
         ratio = torch.exp(kl)
         kld = (ratio - kl - 1).contiguous()
         return torch.clamp(kld, min=-10, max=10)
 
-    if kl_penalty == "full":
+    if kl_type == "full":
         # so, here logprob and ref_logprob should contain the logits for every token in vocabulary
         raise NotImplementedError
 
