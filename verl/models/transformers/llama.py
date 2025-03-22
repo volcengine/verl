@@ -166,7 +166,7 @@ def llama_attn_forward(
     """
     Adapted from transformers 4.49.0 to support Ulysses sequence parallelism for transformers >= 4.48.0.
 
-    NOTE: This function has been tested only on transformers versions between 4.48.0 and 4.49.0.
+    NOTE: This function has been tested only on transformers versions between 4.48.0 and 4.50.0.
     """
     from transformers.models.llama.modeling_llama import eager_attention_forward
     from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS

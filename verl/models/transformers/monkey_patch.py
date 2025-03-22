@@ -21,7 +21,7 @@ def apply_monkey_patch_to_llama():
         from transformers.models.llama.modeling_llama import LlamaFlashAttention2
         from verl.models.transformers.llama import llama_flash_attn_forward
         LlamaFlashAttention2.forward = llama_flash_attn_forward
-    elif is_transformers_version_in_range("4.48.0", "4.49.0"):
+    elif is_transformers_version_in_range("4.48.0", "4.50.0"):
         from transformers.models.llama.modeling_llama import LlamaAttention
         from verl.models.transformers.llama import llama_attn_forward
         LlamaAttention.forward = llama_attn_forward
@@ -32,7 +32,7 @@ def apply_monkey_patch_to_qwen2():
         from transformers.models.qwen2.modeling_qwen2 import Qwen2FlashAttention2
         from verl.models.transformers.qwen2 import qwen2_flash_attn_forward
         Qwen2FlashAttention2.forward = qwen2_flash_attn_forward
-    elif is_transformers_version_in_range("4.48.0", "4.49.0"):
+    elif is_transformers_version_in_range("4.48.0", "4.50.0"):
         from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
         from verl.models.transformers.qwen2 import qwen2_attn_forward
         Qwen2Attention.forward = qwen2_attn_forward
@@ -47,9 +47,9 @@ from transformers import PretrainedConfig
 
 
 def apply_monkey_patch(config: PretrainedConfig, verbose=True):
-    if not is_transformers_version_in_range("4.45.0", "4.49.0"):
+    if not is_transformers_version_in_range("4.45.0", "4.50.0"):
         raise AssertionError("The installed `transformers` version doesn't support ulysses patch. "
-                             "Please install a version between 4.45.0 and 4.49.0 to use this ulysses feature.")
+                             "Please install a version between 4.45.0 and 4.50.0 to use this ulysses feature.")
     success_apply_monkey_patch = False
     if config.model_type in _PATCH_NAME_TO_FUNC:
         _PATCH_NAME_TO_FUNC[config.model_type]()
