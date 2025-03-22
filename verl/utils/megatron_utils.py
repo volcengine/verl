@@ -261,6 +261,11 @@ def get_model_checkpoint_path(checkpoint_path):
     return os.path.join(checkpoint_path, "model")
 
 
+def get_hf_model_checkpoint_path(checkpoint_path):
+    os.makedirs(checkpoint_path, exist_ok=True)
+    return os.path.join(checkpoint_path, "huggingface")
+
+
 def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
     os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
     if not use_distributed_optimizer:

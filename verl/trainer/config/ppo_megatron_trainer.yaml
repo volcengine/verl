@@ -51,7 +51,7 @@ actor_rollout_ref:
       seed: 1
     load_weight: True
     checkpoint:
-      contents: ['model', 'optimizer', 'extra']
+      contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     megatron:
       tensor_model_parallel_size: 4
@@ -135,7 +135,7 @@ critic:
     type: fixed
     kl_coef: 0.001
   checkpoint:
-    contents: ['model', 'optimizer', 'extra']
+    contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
 reward_model:
   enable: False
@@ -183,7 +183,7 @@ trainer:
   n_gpus_per_node: 8
   save_freq: -1
   # auto: find the last ckpt to resume. If can't find, start from scratch
-  resume_mode: disable # or auto or resume_path if
+  resume_mode: auto # or disable or resume_path if
   resume_from_path: False
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False

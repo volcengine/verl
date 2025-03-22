@@ -433,7 +433,8 @@ class ActorRolloutRefWorker(Worker):
                 model=self.actor_module_fsdp,
                 optimizer=self.actor.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
-                processing_class=self.processor if self.processor is not None else self.tokenizer)
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                checkpoint_contents=self.config.actor.get('checkpoint_contents'))
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
@@ -804,7 +805,8 @@ class CriticWorker(Worker):
             model=self.critic_module,
             optimizer=self.critic_optimizer,
             lr_scheduler=self.critic_lr_scheduler,
-            processing_class=self.processor if self.processor is not None else self.tokenizer)
+            processing_class=self.processor if self.processor is not None else self.tokenizer,
+            checkpoint_contents=self.config.get('checkpoint_contents'))
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):

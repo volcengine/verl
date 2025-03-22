@@ -38,11 +38,18 @@ class BaseCheckpointManager:
     - huggingface tokenizer and config for ckpt merge
     """
 
-    def __init__(self, model=None, checkpoint_contents: list = ['model', 'optimizer', 'extra']):
+    def __init__(self, model,
+                 optimizer: torch.optim.Optimizer,
+                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
+                 processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra']):
         self.previous_global_step = None
         self.previous_saved_path = None
 
         self.model = model
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.processing_class = processing_class
         self.checkpoint_contents = checkpoint_contents
 
         self.rank = torch.distributed.get_rank()

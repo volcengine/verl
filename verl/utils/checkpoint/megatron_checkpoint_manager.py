@@ -26,7 +26,7 @@ from verl.utils.fs import copy_to_local, is_non_local
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.models.weight_loader_registry import get_weight_loader
 from verl.utils.model import load_megatron_model_weights
-from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path
+from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_hf_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path
 
 from .checkpoint_manager import BaseCheckpointManager
 from transformers import AutoModelForCausalLM
@@ -62,10 +62,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
-                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra'],
                  **kwargs):
 
-        super().__init__(model, checkpoint_contents=checkpoint_contents)
+        super().__init__(model, optimizer=optimizer, lr_scheduler=None, processing_class=tokenizer, checkpoint_contents=checkpoint_contents)
         self.arch = arch
         self.config = config
         self.role = role
@@ -77,8 +77,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.param_dtype = param_dtype
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.model_path = self.config.model.path
-        self.tokenizer = tokenizer
-        self.optimizer = optimizer
         self.use_distributed_optimizer = use_distributed_optimizer
 
         self.rank = torch.distributed.get_rank()
@@ -158,12 +156,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     def load_optimizer(self, ckpt_path):
         # TODO: Check Optimizer format and distributed optimizer
         optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
-        print(f"Loading actor optimizer from {optimizer_path}")
+        print(f"Loading optimizer from {optimizer_path}")
         self.optimizer.load_parameter_state(optimizer_path)
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
         rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
-        print(f"Loading actor rng states from {rng_state_path}")
+        print(f"Loading rng states from {rng_state_path}")
         rng_state = torch.load(rng_state_path)
         # access rng_state for data parallel rank
         if not use_dist_ckpt:
@@ -181,27 +179,22 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         tensor_parallel.get_cuda_rng_tracker().set_states(rng_state['rng_tracker_states'])
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
-        local, ckpt_path = self.checkpath(local_path, hdfs_path)
-
-        if ckpt_path is None:
+        if local_path is None:
             return
 
         if 'model' in self.checkpoint_contents:
-            model_path = get_model_checkpoint_path(ckpt_path)
+            model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
             state_dict = torch.load(os.path.join(ckpt_name))
-            self.weight_loader(state_dict,
-                               self.model,
-                               self.hf_config,
-                               self.param_dtype,
-                               is_value_model=self.is_value_model,
-                               tie_word_embeddings=self.share_embeddings_and_output_weights)
+            self.model.load_state_dict(state_dict)
+            print(f'Loaded sharded model checkpoint from {model_path}')
+            
 
         if 'optimizer' in self.checkpoint_contents:
-            self.load_optimizer(ckpt_path)
+            self.load_optimizer(local_path)
 
         if 'extra' in self.checkpoint_contents:
-            self.load_rng_states(ckpt_path)
+            self.load_rng_states(local_path)
 
         if del_local_after_load:
             try:
@@ -212,8 +205,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 )
 
     def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, remove_previous_ckpt=False):
-        local, ckpt_path = self.checkpath(local_path, hdfs_path)
-
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -221,49 +212,74 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # TODO: shall we remove previous ckpt every save?
         if remove_previous_ckpt:
             self.remove_previous_save_local_path()
-        if local:
-            local_path = self.local_mkdir(local_path)
-        torch.distributed.barrier()
+        local_path = self.local_mkdir(local_path)
 
         # Save Model
         if 'model' in self.checkpoint_contents:
-            state_dict = self.weight_saver(self.model,
-                                           self.hf_config,
-                                           dtype=self.param_dtype,
-                                           is_value_model=self.is_value_model,
-                                           tie_word_embeddings=self.share_embeddings_and_output_weights)
+            torch.distributed.barrier()
+            if mpu.get_data_parallel_rank() == 0:
+                state_dict = self.model.state_dict()
 
+                print(f'Saving sharded model checkpoint to {local_path}')
+                model_ckpt_path = get_model_checkpoint_path(local_path)
+                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path, hf=True)
+                ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
+                torch.save(state_dict, os.path.join(ckpt_name))
+                self.processing_class.save_pretrained(hf_model_ckpt_path)   # tokenizer will be saved to hf_model_ckpt_path
+                print(f'Saved checkpoint to {model_ckpt_path}')
+                if hdfs_path is not None:
+                    print(f'Uploading checkpoint to {hdfs_path}')
+                    from verl.utils import hdfs_io
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+        
+        if 'hf_model' in self.checkpoint_contents:
             # wait for everyone to dump to local
             torch.distributed.barrier()
-
-            print(f'Saving actor checkpoint to {ckpt_path}')
-            model_ckpt_path = get_model_checkpoint_path(ckpt_path)
-            ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
-            torch.save(state_dict, os.path.join(ckpt_name))
-            print(f'Saved actor checkpoint to {model_ckpt_path}')
-            if hdfs_path is not None:
-                print(f'Uploading actor checkpoint to {hdfs_path}')
-                from verl.utils import hdfs_io
-                hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+            
+            if self.rank == 0:
+                state_dict = self.weight_saver(self.model,
+                                            self.hf_config,
+                                            dtype=self.param_dtype,
+                                            is_value_model=self.is_value_model,
+                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
+                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path, hf=True)
+                from accelerate import init_empty_weights
+                import warnings
+                with init_empty_weights(), warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    if 'mistral7b-rm' in self.config.model.path:
+                        from transformers import MistralForSequenceClassification
+                        model = MistralForSequenceClassification.from_pretrained(
+                            self.config.model.path)  # use score head instead of lm_head
+                        state_dict['score.weight'] = state_dict['score.weight']
+                    else:
+                        from transformers import AutoModelForCausalLM
+                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+                model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
+                if hdfs_path is not None:
+                    print(f'Uploading checkpoint to {hdfs_path}')
+                    from verl.utils import hdfs_io
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         # Save Optimizer
         if 'optimizer' in self.checkpoint_contents:
             torch.distributed.barrier()
 
-            optimizer_path = get_optimizer_checkpoint_path(ckpt_path)
+            optimizer_path = get_optimizer_checkpoint_path(local_path)
             self.optimizer.save_parameter_state(optimizer_path)
             if self.rank == 0:
-                print(f"saving critic optimizer state to {optimizer_path}")
+                print(f"saving optimizer state to {optimizer_path}")
 
         # Save RNG States
         if 'extra' in self.checkpoint_contents:
             torch.distributed.barrier()
 
-            rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+            rng_state_path = get_rng_states_checkpoint_path(local_path)
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
             if self.rank == 0:
-                print(f"saving critic rng states to {rng_state_path}")
+                print(f"saving rng states to {rng_state_path}")
 
-        self.previous_saved_path = ckpt_path
+        self.previous_saved_path = local_path

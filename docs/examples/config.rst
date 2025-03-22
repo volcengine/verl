@@ -105,7 +105,7 @@ Actor/Rollout/Reference Policy
         optimizer_offload: False
         fsdp_size: -1
       checkpoint:
-        contents: ['model', 'optimizer', 'extra']
+        contents: ['model', 'hf_model', 'optimizer', 'extra']
     ref:
       fsdp_config:
         param_offload: False
@@ -210,6 +210,8 @@ Actor/Rollout/Reference Policy
 
   - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
     The extra information includes Rng states currently, FSDP supported lr_scheduler, and Megatron opt_param_scheduler will coming soon.
+    Currently, we default store hf_model in checkpoint, but for future, we will only save sharded models for saving space, 
+    and we provide tools to convert checkpoint format to hf format.
 
 **Reference Model**
 
@@ -380,7 +382,7 @@ Trainer
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
-     resume_mode: disable # or auto or resume_path if
+     resume_mode: auto # or disable or resume_path if
      resume_from_path: False
      remove_previous_ckpt_in_save: False
      del_local_ckpt_after_load: False
@@ -397,7 +399,7 @@ Trainer
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.
 - ``trainer.resume_mode``: The mode of resuming training. Support
-  ``disable``, ``auto`` and ``resume_path``. If set to ``auto``, the
+  ``disable``, ``auto`` and ``resume_path``. If set to ``auto`` as default, the
   program will automatically resume from the latest checkpoint in the
   default_hdfs_dir. If set to ``resume_path``, the program will resume
   from the path specified in ``resume_from_path``.
