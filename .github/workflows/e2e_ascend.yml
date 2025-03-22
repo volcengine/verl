@@ -50,6 +50,25 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
-      - name: Run test
+      - name: Install the current repository
         run: |
-          lscpu
+          pip3 install hf_transfer peft
+          pip3 install -e .[test]
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running deepseek generation tests on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/generation/run_gen_deepseek_v2_lite_math_npu.sh
+      - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/sft/run_sft_qwen05_peft.sh 8 $HOME/ckpts
+          rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen05_gsm8k_grpo_npu.sh
+          rm -rf $HOME/ckpts

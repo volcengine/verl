@@ -15,6 +15,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.utils.device import is_npu_available
 
 import os
 import ray
@@ -159,16 +160,19 @@ class TaskRunner:
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RayPPOTrainer(config=config,
-                                tokenizer=tokenizer,
-                                processor=processor,
-                                role_worker_mapping=role_worker_mapping,
-                                resource_pool_manager=resource_pool_manager,
-                                ray_worker_group_cls=ray_worker_group_cls,
-                                reward_fn=reward_fn,
-                                val_reward_fn=val_reward_fn)
-        trainer.init_workers()
-        trainer.fit()
+    device_name = "npu" if is_npu_available else "cuda"
+
+    trainer = RayPPOTrainer(config=config,
+                            tokenizer=tokenizer,
+                            processor=processor,
+                            role_worker_mapping=role_worker_mapping,
+                            resource_pool_manager=resource_pool_manager,
+                            ray_worker_group_cls=ray_worker_group_cls,
+                            reward_fn=reward_fn,
+                            val_reward_fn=val_reward_fn,
+                            device_name=device_name)
+    trainer.init_workers()
+    trainer.fit()
 
 
 if __name__ == '__main__':

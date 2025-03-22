@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from importlib.metadata import version, PackageNotFoundError
+from verl.utils.device import is_npu_available
 
 ###
 # [SUPPORT AMD:]
@@ -29,11 +30,12 @@ def get_version(pkg):
 
 package_name = 'vllm'
 package_version = get_version(package_name)
+device_name = torch.npu.get_device_name() if is_npu_available else torch.cuda.get_device_name()
 
 ###
 # package_version = get_version(package_name)
 # [SUPPORT AMD:]
-if "AMD" in torch.cuda.get_device_name():
+if "AMD" in device_name:
     import re
     package_version = version(package_name)
     package_version = re.match(r'(\d+\.\d+\.?\d*)', package_version).group(1)
