@@ -239,14 +239,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         
         if 'hf_model' in self.checkpoint_contents:
             # wait for everyone to dump to local
+            state_dict = self.weight_saver(self.model,
+                                        self.hf_config,
+                                        dtype=self.param_dtype,
+                                        is_value_model=self.is_value_model,
+                                        tie_word_embeddings=self.share_embeddings_and_output_weights)
             torch.distributed.barrier()
-            
             if self.rank == 0:
-                state_dict = self.weight_saver(self.model,
-                                            self.hf_config,
-                                            dtype=self.param_dtype,
-                                            is_value_model=self.is_value_model,
-                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path, hf=True)
                 from accelerate import init_empty_weights
                 import warnings
