@@ -65,11 +65,11 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
-        wrapped_modelss (list of megatron.core.distributed.DistributedDataParallel):
+        wrapped_models (list of megatron.core.distributed.DistributedDataParallel):
             The local DDP wrapped megatron modules.
         config (str or None):
             HF config for model
