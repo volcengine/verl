@@ -89,6 +89,9 @@ class FSDPSFTTrainer(object):
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 
+        if self.tokenizer.chat_template is None:
+            logger.log(msg="Empty chat template!", level=logging.WARNING)
+
         # normalize dp size
         self._normalize_config_bsz()
 
