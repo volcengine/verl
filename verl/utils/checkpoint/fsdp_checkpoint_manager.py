@@ -58,7 +58,11 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             processing_class = kwargs.pop("tokenizer")
         assert "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents, f"FSDPCheckpointManager must include ['model', 'hf_model', 'optimizer', 'extra'], got {checkpoint_contents}"
 
-        super().__init__(model, optimizer, lr_scheduler=lr_scheduler, processing_class=processing_class, checkpoint_contents=checkpoint_contents)
+        super().__init__(model,
+                         optimizer,
+                         lr_scheduler=lr_scheduler,
+                         processing_class=processing_class,
+                         checkpoint_contents=checkpoint_contents)
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         if local_path is None:
@@ -154,7 +158,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if "hf_model" in self.checkpoint_contents:
             # wait for everyone to dump to local
             torch.distributed.barrier()
-            
+
             if self.rank == 0:
                 hf_local_path = os.path.join(local_path, 'huggingface')
                 os.makedirs(hf_local_path, exist_ok=True)
