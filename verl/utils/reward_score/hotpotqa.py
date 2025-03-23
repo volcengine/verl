@@ -156,7 +156,8 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1., questio
     # return random.random()
     # print(f"compute score {tokenizer=}")
 
-    eos_token = tokenizer.eos_token
+    # eos_token = tokenizer.eos_token
+    eos_token = ""
 
     # for llm-as-judge
     response = solution_str.replace("<|endoftext|>", "").strip()
@@ -168,7 +169,7 @@ def compute_score(solution_str, ground_truth, format_score=0., score=1., questio
         return float(answer)
 
     print(f"computing score of {answer=} {ground_truth=}")
-    
+
     if answer is None:
         ans = float(0)
     else:
