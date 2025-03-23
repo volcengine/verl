@@ -104,6 +104,8 @@ Actor/Rollout/Reference Policy
         param_offload: False
         optimizer_offload: False
         fsdp_size: -1
+      checkpoint:
+        contents: ['model', 'hf_model', 'optimizer', 'extra']
     ref:
       fsdp_config:
         param_offload: False
@@ -203,6 +205,13 @@ Actor/Rollout/Reference Policy
     offload
 
     - Trading speed for GPU memory.
+
+- ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
+
+  - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
+    The extra information includes Rng states currently, FSDP supported lr_scheduler, and Megatron opt_param_scheduler will coming soon.
+    Currently, we default store hf_model in checkpoint, but for future, we will only save sharded models for saving space, 
+    and we provide tools to convert checkpoint format to hf format.
 
 **Reference Model**
 
@@ -373,6 +382,10 @@ Trainer
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
+     resume_mode: auto # or disable or resume_path if
+     resume_from_path: False
+     remove_previous_ckpt_in_save: False
+     del_local_ckpt_after_load: False
 
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab
@@ -385,3 +398,14 @@ Trainer
 - ``trainer.test_freq``: The validation frequency (by iteration).
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.
+- ``trainer.resume_mode``: The mode of resuming training. Support
+  ``disable``, ``auto`` and ``resume_path``. If set to ``auto`` as default, the
+  program will automatically resume from the latest checkpoint in the
+  default_hdfs_dir. If set to ``resume_path``, the program will resume
+  from the path specified in ``resume_from_path``.
+- ``trainer.resume_from_path``: The path to resume training from. Only
+  effective when ``resume_mode`` is set to ``resume_path``.
+- ``trainer.remove_previous_ckpt_in_save``: Whether to remove previous
+  checkpoints in the save directory. Default is False.
+- ``trainer.del_local_ckpt_after_load``: Whether to delete local
+  checkpoints after loading them. Default is False.

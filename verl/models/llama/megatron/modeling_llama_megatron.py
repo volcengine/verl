@@ -519,8 +519,12 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
 class ParallelLlamaForCausalLMRmPadPP(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, pre_process, post_process,
-                 share_embeddings_and_output_weights):
+    def __init__(self,
+                 config: LlamaConfig,
+                 megatron_config: ModelParallelConfig,
+                 pre_process,
+                 post_process,
+                 share_embeddings_and_output_weights=False):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
         self.megatron_config = megatron_config
@@ -528,6 +532,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
                                                megatron_config=megatron_config,
                                                pre_process=pre_process,
                                                post_process=post_process)
+        assert share_embeddings_and_output_weights == False, f'Llama Model not supports sharing embedding and output weights'
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.vocab_size = config.vocab_size
         self.pre_process = pre_process
