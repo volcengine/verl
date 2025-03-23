@@ -148,12 +148,6 @@ class Worker(WorkerHelper):
             self.local_rank = int(os.environ['LOCAL_RANK'])
         ###
 
-        ###
-        # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
-            cuda_visible_devices = str(local_rank)
-        ###
-
         store = {
             '_world_size': world_size,
             '_rank': rank,
@@ -168,12 +162,6 @@ class Worker(WorkerHelper):
         meta = WorkerMeta(store=store)
         self._configure_with_meta(meta=meta)
 
-        ###
-        # [SUPPORT AMD: torch]
-        # torch.cuda.set_device(local_rank)
-        if "AMD" in torch.cuda.get_device_name():
-            torch.cuda.set_device(int(cuda_visible_devices))
-        ###
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """
