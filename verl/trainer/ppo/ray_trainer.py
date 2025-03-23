@@ -37,7 +37,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.dataset.rl_dataset import RLHFDataset, AgenticDataset, collate_fn
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -318,8 +318,8 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             torch.mean(batch.batch['click_times'].float()).detach().item(),
         'search/failed_times':
             torch.mean(batch.batch['failed_times'].float()).detach().item(),
-        'search/unfaith_penalty_times':
-            torch.mean(batch.batch['unfaith_penalty_times'].float()).detach().item(),
+        # 'search/unfaith_penalty_times':
+        #     torch.mean(batch.batch['unfaith_penalty_times'].float()).detach().item(),
         'search/length_overlong_ratio':
             length_overlong_ratio,
         'search/turn_overlong_ratio':
@@ -571,17 +571,43 @@ class RayPPOTrainer(object):
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
-        # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
-                                         tokenizer=self.tokenizer,
-                                         processor=self.processor,
-                                         prompt_key=self.config.data.prompt_key,
-                                         image_key=self.config.data.get('image_key', 'images'),
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         filter_prompts=True,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error',
-                                         task_type=self.config.data.task_type,
+        if self.config.data.task_type == "gen_chat":
+            spec = self.config.data.gen_chat
+            train = spec.train
+            val = spec.val
+            self.train_dataset = AgenticDataset(
+                name=train.name,
+                index_start=train.index_start,
+                index_end=train.index_end,
+            )
+            self.val_dataset = AgenticDataset(
+                name=val.name,
+                index_start=val.index_start,
+                index_end=val.index_end,
+            )
+        else:
+            # TODO: we have to make sure the batch size is divisible by the dp size
+            self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
+                                            tokenizer=self.tokenizer,
+                                            processor=self.processor,
+                                            prompt_key=self.config.data.prompt_key,
+                                            image_key=self.config.data.get('image_key', 'images'),
+                                            max_prompt_length=self.config.data.max_prompt_length,
+                                            filter_prompts=True,
+                                            return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                            truncation='error',
+                                            task_type=self.config.data.task_type,
+                                            )
+            self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+                                        tokenizer=self.tokenizer,
+                                        processor=self.processor,
+                                        prompt_key=self.config.data.prompt_key,
+                                        image_key=self.config.data.get('image_key', 'images'),
+                                        max_prompt_length=self.config.data.max_prompt_length,
+                                        filter_prompts=True,
+                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                        truncation='error',
+                                        task_type=self.config.data.task_type,
                                         )
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
@@ -598,17 +624,6 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                       tokenizer=self.tokenizer,
-                                       processor=self.processor,
-                                       prompt_key=self.config.data.prompt_key,
-                                       image_key=self.config.data.get('image_key', 'images'),
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       filter_prompts=True,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error',
-                                       task_type=self.config.data.task_type,
-                                    )
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
@@ -1069,12 +1084,15 @@ class RayPPOTrainer(object):
                         non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                     )
                 else:
-                    batch_keys = ['input_ids', 'attention_mask', 'position_ids']
-                    if self.task_type == "swedev": # TODO(haoran): pass arg list here
-                        batch_keys.append('instance_id')
-                        gen_batch = batch.pop(batch_keys=batch_keys)
-                    else: # TODO(haoran): hard encoding for dr
-                        gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
+                    if self.config.data.task_type == "gen_chat":
+                        gen_batch = batch.pop(batch_keys=["index"], non_tensor_batch_keys=['name'])
+                    else:
+                        batch_keys = ['input_ids', 'attention_mask', 'position_ids']
+                        if self.task_type == "swedev": # TODO(haoran): pass arg list here
+                            batch_keys.append('instance_id')
+                            gen_batch = batch.pop(batch_keys=batch_keys)
+                        else: # TODO(haoran): hard encoding for dr
+                            gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
 
                 with _timer('step', timing_raw):
                     # generate a batch
@@ -1161,7 +1179,7 @@ class RayPPOTrainer(object):
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
-                        
+
                         if self.config.actor_rollout_ref.get('unfaith_penalty', False):
                             update_advantages = batch.batch['advantages'] + batch.batch['unfaith_penalty'] * 0.25
                             save_log_for_penaltys = {
@@ -1174,7 +1192,7 @@ class RayPPOTrainer(object):
                                 "update_advantages": update_advantages[0].tolist(),
                             }
                             batch.batch['advantages'] = update_advantages
-                            
+
                             import time, json
                             with open(f"/workspace/lurui-yun/deep_research/verl/logs/unfaith_penalty/instances_adv_{time.time()}.json", "w") as f:
                                 f.write(json.dumps(save_log_for_penaltys, ensure_ascii=False) + "\n")

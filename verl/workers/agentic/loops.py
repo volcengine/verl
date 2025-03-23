@@ -18,7 +18,7 @@ def collect_metrics(src, tgt):
 
 
 async def ids_agent_loop(
-    index: int,
+    start_args: dict,
     start_fn: StarFnType,
     gen_fn: GenFnType,
     obs_fn: ObsFnType,
@@ -29,7 +29,7 @@ async def ids_agent_loop(
 ) -> dict:
     done = False
     obs_metrics = {}
-    start = await start_fn(index)
+    start = await start_fn(**start_args)
     # TODO(haoran): pad here! （hanchen: padding prompt_ids may cause wrong generation...)
     prompt_ids = start.pop("prompt_ids")
     all_ids = list(prompt_ids)
@@ -61,7 +61,7 @@ async def ids_agent_loop(
 
 
 async def openai_chat_agent_loop(
-    index: int,
+    start_args: dict,
     start_fn: StarFnType,
     gen_fn: GenFnType,
     obs_fn: ObsFnType,
@@ -76,7 +76,7 @@ async def openai_chat_agent_loop(
     obs_metrics = {}
 
     # start
-    start = await start_fn(index)
+    start = await start_fn(**start_args)
     print("start", start)
     history = start.pop("messages")
     tools = start.pop("tools")

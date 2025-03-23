@@ -73,6 +73,28 @@ def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 
     return image
 
 
+# TODO: maybe put base url here is more reasonable
+# TODO: maybe an unified protocol that supports automatically retrieving name and valid indices is better
+class AgenticDataset(Dataset):
+    def __init__(
+        self,
+        name: str,
+        index_start: int,
+        index_end: int,
+    ):
+        self.name = name
+        self.index_start = index_start
+        self.index_end = index_end
+
+    def __len__(self):
+        return self.index_end - self.index_start
+
+    def __getitem__(self, item):
+        return {
+            "index": torch.tensor(item + self.index_start),
+            "name": self.name,
+        }
+
 class RLHFDataset(Dataset):
     """
     We assume the dataset contains a column that contains prompts and other information

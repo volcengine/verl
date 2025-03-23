@@ -3,6 +3,8 @@ import asyncio
 import aiohttp
 import traceback
 
+import torch
+
 from verl.utils.swedev_utils import *
 
 
@@ -10,14 +12,15 @@ async def dummy(*_, **__):
     pass
 
 
-async def openai_chat_start(index, url):
+async def openai_chat_start(index, name, url):
     # TODO: exception handling in this function is tricky
     print(f"starting session {index=} @ {torch.distributed.get_rank()=}")
+    if isinstance(index, torch.Tensor):
+        index = index.item()
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         async with session.post(url + "/start_sample", json={
             "index": index,
-            # "session_id": index,
-            "name": "kg-env_train",
+            "name": name,
         }) as response:
             ret = await response.json()
     ret["sid"] = response.headers["session_id"]

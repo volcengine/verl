@@ -168,6 +168,15 @@ class DataProtoItem:
     non_tensor_batch: Dict = field(default_factory=dict)
     meta_info: Dict = field(default_factory=dict)
 
+    def to_dict(self, with_meta_info=False):
+        ret = {
+            **self.batch.to_dict(),
+            **self.non_tensor_batch,
+        }
+        if with_meta_info:
+            ret["meta_info"] = self.meta_info
+        return ret
+
 
 @dataclass
 class DataProto:
@@ -604,7 +613,7 @@ import ray
 class DataProtoFuture:
     """
     DataProtoFuture aims to eliminate actual data fetching on driver. By doing so, the driver doesn't have to wait
-    for data so that asynchronous execution becomes possible. 
+    for data so that asynchronous execution becomes possible.
     DataProtoFuture contains a list of futures from another WorkerGroup of size world_size.
     - collect_fn is a Callable that reduces the list of futures to a DataProto
     - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size and then select

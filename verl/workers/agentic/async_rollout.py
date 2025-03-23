@@ -71,7 +71,7 @@ class AsyncRollout(BaseRollout):
         self.event_loop = asyncio.get_event_loop()
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto | None:
-        print(f"nodedup in generate seq {torch.distributed.get_rank()=} {self.tp_rank=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
+        print(f"nodedup in generate seq {torch.distributed.get_rank()=} {self.tp_rank=} {prompts.non_tensor_batch=}")
         if self.tp_rank != 0:
             return None
 
@@ -137,16 +137,15 @@ class AsyncRollout(BaseRollout):
             return message
 
         n = self.config.n
-        input_ids: torch.Tensor = prompts.batch["input_ids"]
-        input_ids = input_ids.repeat_interleave(n, dim=0)
+        repeated = prompts.repeat(n)
 
         # TODO: this is just a temporary approach for dr getting reward. should be moved to a backend.
-        async def swedev_start(index):
+        async def swedev_start(instance_id, input_ids):
             try:
-                result = await initialize_runtime(prompts.batch['instance_id'][index // n].item())
+                result = await initialize_runtime(instance_id.item())
                 print(result)
                 return {
-                    "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]),
+                    "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids),
                     "sid": result["sid"],
                     "sids": int(result["sid"]), # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
                 }
@@ -166,10 +165,10 @@ class AsyncRollout(BaseRollout):
         }[self.task_type]
 
         # starting rollout
-        device = input_ids.device
+        device = torch.cuda.current_device()
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
         tasks = [loop_fn(
-            index=torch.distributed.get_rank() * len(input_ids) + i,
+            start_args=item.to_dict(),
             start_fn=start_fn,
             gen_fn=gen_fn,
             obs_fn=obs_fn,
@@ -179,7 +178,7 @@ class AsyncRollout(BaseRollout):
             # fix by lurui: consider some special token
             max_length=self.total_len - 50,
             tokenizer=tokenizer,
-        ) for i in list(range(len(input_ids)))]
+        ) for item in repeated]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
@@ -215,6 +214,11 @@ class AsyncRollout(BaseRollout):
 
         print(f"{obs_metrics=}")
         obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
+
+        print(f"{tokenizer.decode(torch.where(prompts_ids[0] != pad, prompts_ids[0], 0))=}")
+        print(f"{tokenizer.decode(torch.where(responses[0] != pad, responses[0], 0))=}")
+        print(f"{tokenizer.decode(torch.where(all_ids[0] != pad, all_ids[0], 0))=}")
+        print(f"{tokenizer.decode(torch.where(loss_mask[0] == 1, all_ids[0], 0))=}")
 
         # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" & dr "rm_score" placement problem
         batch = TensorDict({
