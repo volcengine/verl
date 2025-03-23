@@ -94,4 +94,8 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_gsm8k_custom_function_rm.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm without reference model
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_function_rm_no_ref.sh
 

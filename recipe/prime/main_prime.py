@@ -88,7 +88,6 @@ def main_task(config, compute_score=None):
 
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
-        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     global_pool_id = 'global_pool'
@@ -97,8 +96,15 @@ def main_task(config, compute_score=None):
     }
     mapping = {
         Role.ActorRollout: global_pool_id,
-        Role.RefPolicy: global_pool_id,
     }
+
+    #use reference model
+    if not config.actor_rollout_ref.actor.use_kl_loss:
+        config.actor_rollout_ref.actor.kl_loss_coef = 0
+    if config.algorithm.kl_ctrl.kl_coef > 1e-6 or config.actor_rollout_ref.actor.kl_loss_coef > 1e-6:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = global_pool_id
+
     if config.reward_model.enable:
         from .prime_fsdp_workers import PRIMERewardModelWorker
         role_worker_mapping[Role.RewardModel] = ray.remote(PRIMERewardModelWorker)
