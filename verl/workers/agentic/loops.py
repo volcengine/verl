@@ -81,32 +81,37 @@ async def openai_chat_agent_loop(
     history = start.pop("messages")
     tools = start.pop("tools")
     sid = start.pop("sid")
-    collect_metrics(start, obs_metrics)
+    collect_metrics(start.get("metrics", {}), obs_metrics)
 
-    prompt_ids = tokenizer.apply_chat_template(history, tokenize=True)
+    prompt_ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
     ids = []
     response_loss_mask = []
+
+    last_len = len(prompt_ids)
 
     # interact
     # TODO: maybe keep track of tokens here, can provide early stopping feature
     for turn in range(max_turns):
         message = await gen_fn({"messages": history, "tools": tools})
-        turn_ids = tokenizer.apply_chat_template([message], tokenize=True)
-        ids += turn_ids
-        response_loss_mask += [1] * len(turn_ids)
         history.append(message)
+        ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
+        turn_ids = ids[last_len:]
+        last_len = len(ids)
+        response_loss_mask += [1] * len(turn_ids)
 
         obs = await obs_fn(message, sid)
         # possible injection here
         messages = obs.pop("messages")
-        for message in history:
-            ids += turn_ids
+        for message in messages:
+            history.append(message)
+            ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
+            turn_ids = ids[last_len:]
+            last_len = len(ids)
             if message["role"] == "assistant":
                 response_loss_mask += [1] * len(turn_ids)
             else:
                 response_loss_mask += [0] * len(turn_ids)
 
-        history += messages
         done = obs.pop("finish")
         reward = obs.pop("reward")
         collect_metrics(obs.get("metrics", {}), obs_metrics)
@@ -118,7 +123,7 @@ async def openai_chat_agent_loop(
 
     return {
         "prompts": prompt_ids,
-        "responses": ids[:max_length],
+        "responses": ids[len(prompt_ids): max_length + len(prompt_ids)],
         "response_loss_mask": response_loss_mask[:max_length],
         "reward": reward,
         "obs_metrics": obs_metrics,
