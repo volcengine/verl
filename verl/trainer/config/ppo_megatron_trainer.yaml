@@ -191,3 +191,4 @@ trainer:
   critic_warmup: 0
   default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  max_ckpt_to_keep: null

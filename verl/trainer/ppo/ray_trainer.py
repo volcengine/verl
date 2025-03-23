@@ -659,7 +659,7 @@ class RayPPOTrainer(object):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
                                                 f'global_step_{self.global_steps}')
-
+        
         print(f'local_global_step_folder: {local_global_step_folder}')
         actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
@@ -689,6 +689,24 @@ class RayPPOTrainer(object):
                                                            'latest_checkpointed_iteration.txt')
         with open(local_latest_checkpointed_iteration, 'w') as f:
             f.write(str(self.global_steps))
+
+        # remove old checkpoints
+        max_ckpt_to_keep = self.config.trainer.get('max_ckpt_to_keep', None)
+        if max_ckpt_to_keep is not None:
+            ckpt_folders = []
+            for folder in os.listdir(self.config.trainer.default_local_dir):
+                if folder.startswith('global_step_'):
+                    try:
+                        step = int(folder.split('global_step_')[-1])
+                        ckpt_folders.append((step, folder))
+                    except ValueError:
+                        continue
+            ckpt_folders.sort(reverse=True)
+            for _, folder in ckpt_folders[max_ckpt_to_keep:]:
+                folder_path = os.path.join(self.config.trainer.default_local_dir, folder)
+                import shutil
+                shutil.rmtree(folder_path)
+                print(f'Removed old checkpoint: {folder_path}')
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == 'disable':
