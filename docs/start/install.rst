@@ -128,10 +128,10 @@ Megatron is optional. It's dependencies can be setup as below:
    # transformer engine
    pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@stable
 
-   # megatron core v0.4.0: clone and apply the patch
-   # You can also get the patched Megatron code patch via
-   # git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
-   cd ..
    git clone -b core_v0.11.0 https://github.com/NVIDIA/Megatron-LM.git
    cd Megatron-LM
    pip3 install -e .
+   
+   # megatron core v0.4.0: clone and apply the patch
+   # You can also get the patched Megatron code patch via
+   # git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM

@@ -1,5 +1,4 @@
-name: e2e_gsm8k_megatron
-# latest version: Megatron-LM core_r0.11.0 https://github.com/NVIDIA/Megatron-LM/tree/core_r0.11.0
+name: checkpoints
 
 on:
   # Trigger the workflow on push or pull request,
@@ -10,7 +9,7 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gsm8k_megatron.yml
+      - .github/workflows/checkpoints.yml
   pull_request:
     branches:
       - main
@@ -18,7 +17,7 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_gsm8k_megatron.yml
+      - .github/workflows/checkpoints.yml
       - "tests/e2e/*.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -53,11 +52,13 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
+      - name: Running Checkpoint Integration Test (Qwen Megatron)
         run: |
           ray stop --force
-          bash tests/e2e/run_deepseek_megatron_parallelism.sh
-      - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/checkpoint/run_qwen_megatron_ckpt.sh
+      - name: Running Checkpoint Integration Test (Deepseek Megatron)
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_megatron_parallelism.sh
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/checkpoint/run_deepseek_megatron_ckpt.sh
