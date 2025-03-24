@@ -151,7 +151,7 @@ class ActorRolloutRefWorker(Worker):
         from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.torch_dtypes import PrecisionType
         from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForVision2Seq
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision, CPUOffload
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
         from torch import optim
 
         assert role in ['actor', 'ref']
@@ -488,7 +488,8 @@ class ActorRolloutRefWorker(Worker):
         prompts = prompts.to(torch.cuda.current_device())
 
         assert self._is_rollout
-        if self._is_offload_param:
+        rollout_name = self.config.rollout.name
+        if self._is_offload_param and rollout_name != 'sglang':
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         meta_info = {
@@ -503,7 +504,7 @@ class ActorRolloutRefWorker(Worker):
         with self.rollout_sharding_manager:
 
             # after parameters sync with rollout, offload actor model to CPU
-            if self._is_offload_param:
+            if self._is_offload_param and rollout_name != 'sglang':
                 offload_fsdp_model_to_cpu(self.actor_module_fsdp)
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
@@ -662,9 +663,9 @@ class CriticWorker(Worker):
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
-        from verl.utils.model import LambdaLayer, print_model_size, squeeze
+        from verl.utils.model import print_model_size
         from verl.utils.torch_dtypes import PrecisionType
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
         from torch import optim
 
         local_path = copy_to_local(config.model.path)
@@ -690,7 +691,6 @@ class CriticWorker(Worker):
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         from transformers import AutoConfig, AutoModelForTokenClassification
-        from torch import nn
 
         trust_remote_code = False
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
@@ -941,7 +941,7 @@ class RewardModelWorker(Worker):
     def _build_model(self, config):
         # the following line is necessary
         from transformers import AutoModelForTokenClassification, AutoConfig
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, CPUOffload
 
         # download the checkpoint from hdfs
         local_path = copy_to_local(config.model.path)

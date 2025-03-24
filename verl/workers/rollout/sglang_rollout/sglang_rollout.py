@@ -33,13 +33,14 @@ from omegaconf import DictConfig
 from tensordict import TensorDict
 from verl import DataProto
 from verl.workers.rollout.base import BaseRollout
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length, pad_2d_list_to_length
+from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from sglang.srt.entrypoints.verl_engine import VerlEngine
 from torch.distributed.device_mesh import init_device_mesh
 from sglang.srt.sampling.sampling_params import SamplingParams
 from verl.third_party.sglang import parallel_state as sglang_ps
 import torch.distributed
 from torch.nn.utils.rnn import pad_sequence
+import multiprocessing
 
 if TYPE_CHECKING:
     from torch import nn
@@ -124,6 +125,9 @@ class SGLangRollout(BaseRollout):
         assert (model_hf_config.max_position_embeddings >= config.prompt_length +
                 config.response_length), "model context length should be greater than total sequence length"
 
+        # manually set the mp authkey to avoid authentication errors
+        multiprocessing.current_process().authkey = b'123456'
+
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
 
@@ -145,6 +149,7 @@ class SGLangRollout(BaseRollout):
             model_path=actor_module,
             dtype=config.dtype,
             mem_fraction_static=config.gpu_memory_utilization,
+            enable_memory_saver=True,
             device_mesh_cpu=device_mesh_cpu["tp"],
             base_gpu_id=0,
             gpu_id_step=1,
