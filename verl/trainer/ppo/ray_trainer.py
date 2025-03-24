@@ -777,7 +777,7 @@ class RayPPOTrainer(object):
                 return
 
         #Add tqdm
-        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps,desc="Training Progress")
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
         
         # we start from step 1
         self.global_steps += 1
@@ -929,6 +929,6 @@ class RayPPOTrainer(object):
                     pprint(f'Final validation metrics: {last_val_metrics}')
                     progress_bar.close()
                     return
-                
+
                 progress_bar.update(1)
                 self.global_steps += 1
