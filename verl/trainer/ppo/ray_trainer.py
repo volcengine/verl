@@ -37,7 +37,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, cleanup_expired_checkpoints
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
@@ -693,20 +693,10 @@ class RayPPOTrainer(object):
         # remove old checkpoints
         max_ckpt_to_keep = self.config.trainer.get('max_ckpt_to_keep', None)
         if max_ckpt_to_keep is not None:
-            ckpt_folders = []
-            for folder in os.listdir(self.config.trainer.default_local_dir):
-                if folder.startswith('global_step_'):
-                    try:
-                        step = int(folder.split('global_step_')[-1])
-                        ckpt_folders.append((step, folder))
-                    except ValueError:
-                        continue
-            ckpt_folders.sort(reverse=True)
-            for _, folder in ckpt_folders[max_ckpt_to_keep:]:
-                folder_path = os.path.join(self.config.trainer.default_local_dir, folder)
-                import shutil
-                shutil.rmtree(folder_path)
-                print(f'Removed old checkpoint: {folder_path}')
+            cleanup_expired_checkpoints(
+                checkpoint_dir=self.config.trainer.default_local_dir,
+                max_ckpt_to_keep=max_ckpt_to_keep
+            )
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == 'disable':

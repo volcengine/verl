@@ -21,6 +21,7 @@ import torch.distributed
 from transformers import PreTrainedTokenizer, ProcessorMixin
 import numpy as np
 import random
+import re
 
 
 class BaseCheckpointManager:
@@ -147,3 +148,18 @@ def get_checkpoint_tracker_filename(root_path: str):
     Tracker file rescords the latest chckpoint during training to restart from.
     """
     return os.path.join(root_path, "latest_checkpointed_iteration.txt")
+
+def cleanup_expired_checkpoints(checkpoint_dir: str, max_ckpt_to_keep: int, directory_format: str = "global_step_{}"):
+    if not max_ckpt_to_keep:
+        return
+    pattern = re.escape(directory_format).replace(r'\{\}', r'(\d+)')
+    ckpt_folders = []
+    for folder in os.listdir(checkpoint_dir):
+        if match := re.match(pattern, folder):
+            step = int(match.group(1))
+            ckpt_folders.append((step, folder))
+    ckpt_folders.sort(reverse=True)
+    for _, folder in ckpt_folders[max_ckpt_to_keep:]:
+        folder_path = os.path.join(checkpoint_dir, folder)
+        shutil.rmtree(folder_path)
+        print(f'Removed expired checkpoint: {folder_path}')
