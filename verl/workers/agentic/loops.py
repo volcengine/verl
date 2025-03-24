@@ -89,28 +89,29 @@ async def openai_chat_agent_loop(
 
     last_len = len(prompt_ids)
 
+    def append_message(msg):
+        nonlocal ids, last_len, response_loss_mask, history
+        assistant = int(msg["role"] == "assistant")
+        if assistant:
+            ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True, add_generation_prompt=True)
+            response_loss_mask += [0] * (len(ids) - last_len)
+            last_len = len(ids)
+        history.append(msg)
+        ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
+        response_loss_mask += [assistant] * (len(ids) - last_len)
+        last_len = len(ids)
+
     # interact
     # TODO: maybe keep track of tokens here, can provide early stopping feature
     for turn in range(max_turns):
         message = await gen_fn({"messages": history, "tools": tools})
-        history.append(message)
-        ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
-        turn_ids = ids[last_len:]
-        last_len = len(ids)
-        response_loss_mask += [1] * len(turn_ids)
+        append_message(message)
 
         obs = await obs_fn(message, sid)
         # possible injection here
         messages = obs.pop("messages")
         for message in messages:
-            history.append(message)
-            ids = tokenizer.apply_chat_template(history, tools=tools, tokenize=True)
-            turn_ids = ids[last_len:]
-            last_len = len(ids)
-            if message["role"] == "assistant":
-                response_loss_mask += [1] * len(turn_ids)
-            else:
-                response_loss_mask += [0] * len(turn_ids)
+            append_message(message)
 
         done = obs.pop("finish")
         reward = obs.pop("reward")
