@@ -30,5 +30,5 @@ if package_version <= '0.6.3':
     from .vllm_rollout import vLLMRollout
 else:
     vllm_mode = 'spmd'
-    from .vllm_rollout_spmd import vLLMRolloutWithSelf as vLLMRollout
-    # from .vllm_rollout_spmd import vLLMRollout
+    # from .vllm_rollout_spmd import vLLMRolloutWithSelf as vLLMRollout
+    from .vllm_rollout_spmd import vLLMRollout

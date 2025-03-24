@@ -13,8 +13,14 @@ echo "AMLT_OUTPUT_DIR=$AMLT_OUTPUT_DIR"
 # Set run variables
 export RUN_N=16
 export PPO_EPOCHS=2
-export MAX_RESPONSE_LENGTH=16384
-export PPO_MAX_TOKEN_LENGTH=32768
+# export DATASET_NAME="phi_math_tool"
+export DATASET_NAME="phi_math_new"
+# export MAX_RESPONSE_LENGTH=7168
+export MAX_RESPONSE_LENGTH=25600
+# export BASE_MODEL="phi-4"
+export BASE_MODEL="phi-4-o3-sft-long"
+# export PPO_MAX_TOKEN_LENGTH=32768
+export PPO_MAX_TOKEN_LENGTH=40960
 export PPO_BATCH_SIZE=$((NODES*8*2)) # This is batchsize of ppo
 export TRAIN_BATCH_SIZE=$((PPO_BATCH_SIZE)) # This is batchsize of the data loader
 export LR=1e-6

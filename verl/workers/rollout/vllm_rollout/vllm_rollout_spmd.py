@@ -260,8 +260,24 @@ class vLLMRolloutWithSelf(vLLMRollout):
         query_start = "<|im_start|>user<|im_sep|>"
         query_end = "<|im_end|><|im_start|>assistant<|im_sep|>"
 
+        tool_start = "<tool>"
+        tool_end = "</tool>"
+        tool_response_start = "<tool_response>"
+        tool_response_end = "</tool_response>"
+        think_start = "<think>"
+        think_end = "</think>"
+
         self.query_start_id_list = tokenizer.encode(query_start, add_special_tokens=False)
         self.query_end_id_list = tokenizer.encode(query_end, add_special_tokens=False)
+
+        self.tool_start_id_list = tokenizer.encode(tool_start, add_special_tokens=False)
+        self.tool_end_id_list = tokenizer.encode(tool_end, add_special_tokens=False)
+
+        self.tool_response_start_id_list = tokenizer.encode(tool_response_start, add_special_tokens=False)
+        self.tool_response_end_id_list = tokenizer.encode(tool_response_end, add_special_tokens=False)
+
+        self.think_start_id_list = tokenizer.encode(think_start, add_special_tokens=False)
+        self.think_end_id_list = tokenizer.encode(think_end, add_special_tokens=False)
 
     def extract_tool_content_from_string(self, text: str, tag: str = "tool") -> str:
         try:
@@ -275,17 +291,33 @@ class vLLMRolloutWithSelf(vLLMRollout):
             # print(f"extract_search_content failed: {text}")
             return ""
 
-    def extract_tool_content_from_ids(self, list, start_id, end_id):
-        # assert that the list ends with end_id
-        assert list[-1] == end_id
+    def find_ids_in_list(self, list, target_ids):
+        # convert to tuple for faster comparison
+        list_tup = tuple(list)
+        target_ids_tup = tuple(target_ids)
 
-        # find the last start_id
-        start_pos = list.rindex(start_id)
+        # find the last target_ids in the list
+        start_pos = -1
+        for i in range(len(list_tup)-len(target_ids_tup)):
+            if list_tup[i:i+len(target_ids_tup)] == target_ids_tup:
+                start_pos = i
+                break
         
+        return start_pos
+
+    def extract_tool_content_from_ids(self, list):
+        start_ids = self.tool_response_start_id_list
+        end_ids = self.tool_response_end_id_list
+
+        # assert that the list ends with the end_ids list
+        assert list[-len(end_ids):] == end_ids
+
+        start_pos = self.find_ids_in_list(list, start_ids)
+
         if start_pos == -1:
             return None
         
-        return list[start_pos+1:-1]
+        return list[start_pos + len(start_ids): - len(end_ids)]
 
 
     def get_result_mask(self, response_id: torch.Tensor, result_start_token: int, result_end_token: int, dtype=torch.int64) -> torch.Tensor:
@@ -315,15 +347,14 @@ class vLLMRolloutWithSelf(vLLMRollout):
         
         return mask
     
-    def remove_tagged_block(self, response, start_id, end_id) -> torch.Tensor:
+    def remove_tagged_block(self, response, end_ids) -> torch.Tensor:
 
-        start_position = response.index(start_id)
-        end_position = response.index(end_id)
+        end_position = self.find_ids_in_list(response, end_ids)
 
-        if start_position == -1 or end_position == -1:
+        if end_position == -1:
             return response
         
-        return response[:start_position] + response[end_position+1:]
+        return response[end_position+len(end_ids):]
 
 
     @torch.no_grad()
@@ -372,7 +403,13 @@ class vLLMRolloutWithSelf(vLLMRollout):
                 curr_input_ids = input_ids.copy()
                 curr_result_mask = []
                 while curr_max_tokens > 0:
-                    with self.update_sampling_params(n=1, stop_token_ids=[self.tokenizer.end_of_tool_query_token_id], max_tokens=curr_max_tokens):
+                    # with self.update_sampling_params(n=1, stop_token_ids=[self.tool_end_id_list[-1]], max_tokens=curr_max_tokens):
+                    #     output = self.inference_engine.generate(
+                    #         prompts=None,  # because we have already convert it to prompt token id
+                    #         sampling_params=self.sampling_params,
+                    #         prompt_token_ids=curr_input_ids,
+                    #         use_tqdm=False)
+                    with self.update_sampling_params(n=1, stop=['</tool>'], max_tokens=curr_max_tokens, detokenize=True, include_stop_str_in_output = True):
                         output = self.inference_engine.generate(
                             prompts=None,  # because we have already convert it to prompt token id
                             sampling_params=self.sampling_params,
@@ -380,16 +417,20 @@ class vLLMRolloutWithSelf(vLLMRollout):
                             use_tqdm=False)
 
                     curr_output_ids = output[0].outputs[0].token_ids
-                    # if curr_output_ids[-1] == self.tokenizer.eos_token_id:
-                    #     curr_input_ids += curr_output_ids
-                    #     curr_max_tokens -= len(curr_output_ids)
-                    #     curr_result_mask.extend([1] * len(curr_output_ids))
-                    #     break
-                    # else:
-                    if curr_output_ids[-1] == self.tokenizer.end_of_tool_query_token_id:
-                        tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tokenizer.begin_of_tool_query_token_id, self.tokenizer.end_of_tool_query_token_id)
+
+                    # if last token is eos
+                    if curr_output_ids[-1] == self.tokenizer.eos_token_id:
+                        curr_input_ids += curr_output_ids
+                        curr_max_tokens -= len(curr_output_ids)
+                        curr_result_mask.extend([1] * len(curr_output_ids))
+                        break
+
+                    # if the output ends with self.tool_end_id_list, we need to extract the tool content and do the tool query
+                    elif curr_output_ids[-len(self.tool_end_id_list):] == self.tool_end_id_list:
+                        tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tool_start_id_list, self.tool_end_id_list)
                         tool_query = self.query_start_id_list + tool_content + self.query_end_id_list
-                        with self.update_sampling_params(n=1, max_tokens=curr_max_tokens):
+                        tool_max_tokens = self.sampling_params.max_tokens - len(tool_query)
+                        with self.update_sampling_params(n=1, max_tokens=tool_max_tokens):
                             tool_output = self.inference_engine.generate(
                                 prompts=None,  # because we have already convert it to prompt token id
                                 sampling_params=self.sampling_params,
@@ -397,14 +438,14 @@ class vLLMRolloutWithSelf(vLLMRollout):
                                 use_tqdm=False)
                         tool_output_ids = tool_output[0].outputs[0].token_ids
                         tool_output_ids = tool_output_ids[len(tool_query):]
-                        tool_output_ids = self.remove_tagged_block(tool_output_ids, self.tokenizer.begin_of_think_token_id, self.tokenizer.end_of_think_token_id)
+                        tool_output_ids = self.remove_tagged_block(tool_output_ids, self.think_end_id_list)
                         if tool_output_ids[-1] == self.tokenizer.eos_token_id:
                             tool_output_ids = tool_output_ids[:-1]
 
                         curr_result_mask.extend([1] * len(curr_output_ids))
                         prefix_len = len(curr_output_ids)
                         # update curr_output_ids with search result
-                        curr_output_ids = curr_output_ids + self.tokenizer.begin_of_tool_response_token_id + tool_output_ids + self.tokenizer.end_of_tool_response_token_id
+                        curr_output_ids = curr_output_ids + self.tool_response_start_id_list + tool_output_ids + self.tool_response_end_id_list
                         curr_result_mask.extend([0] * (len(curr_output_ids) - prefix_len))
 
                         curr_output_ids = curr_output_ids[:curr_max_tokens]
@@ -413,12 +454,12 @@ class vLLMRolloutWithSelf(vLLMRollout):
                         # prepare for continue thinking
                         curr_input_ids += curr_output_ids
                         curr_max_tokens -= len(curr_output_ids)
-
+                    
+                    # if the output ends with other tags, we just continue
                     else:
                         curr_input_ids += curr_output_ids
                         curr_max_tokens -= len(curr_output_ids)
                         curr_result_mask.extend([1] * len(curr_output_ids))
-                        break
 
                 # output_ids_list.append(curr_input_ids[len(input_ids):])
                 # result_mask_list.append(curr_result_mask)

@@ -7,16 +7,23 @@ export RUN_NAME=$AMLT_JOB_NAME
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 wandb login $WANDB_TOKEN
 
+# Create a swap file of size 1TB to avoid OOM
+sudo fallocate -l 1T /tmp/swapfile
+sudo chmod 600 /tmp/swapfile
+sudo mkswap /tmp/swapfile
+sudo swapon /tmp/swapfile
+
+# Set run variables
 CMD="python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/mnt/data/data/phi_math_tool/train.parquet \
-    data.val_files=/mnt/data/data/phi_math/test.parquet \
+    data.train_files=/mnt/data/data/$DATASET_NAME/train.parquet \
+    data.val_files=/mnt/data/data/$DATASET_NAME/test.parquet \
     data.train_batch_size=$((TRAIN_BATCH_SIZE)) \
     data.val_batch_size=$((NODES*8)) \
     data.max_prompt_length=1024 \
     data.max_response_length=$((MAX_RESPONSE_LENGTH-1024)) \
     reward_model.reward_manager=prime \
-    actor_rollout_ref.model.path=/mnt/models/phi-4-tools \
+    actor_rollout_ref.model.path=/mnt/models/$BASE_MODEL \
     actor_rollout_ref.actor.optim.lr=$LR \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.01 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
@@ -50,7 +57,7 @@ CMD="python -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=$((GPUS)) \
     trainer.nnodes=$((NODES)) \
     trainer.save_freq=50 \
-    trainer.test_freq=25 \
+    trainer.test_freq=50 \
     trainer.default_local_dir=$AMLT_OUTPUT_DIR/checkpoints \
     trainer.total_epochs=1"
 

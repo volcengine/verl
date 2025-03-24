@@ -575,6 +575,7 @@ class RayPPOTrainer(object):
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
+        sample_answers = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -616,6 +617,9 @@ class RayPPOTrainer(object):
             # evaluate using reward_function
             reward_tensor, reward_metrics = self.val_reward_fn(test_batch)
 
+            # Store answers and solutions
+            sample_answers.extend(reward_metrics["no_wandb_ans"])
+
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
@@ -631,18 +635,22 @@ class RayPPOTrainer(object):
         # evaluate test_score based on data source
         data_source_reward = {}
         data_source_answer = {}
+        data_source_extracted = {}
         for i in range(reward_tensor.shape[0]):
             data_source = data_sources[i]
             question = sample_inputs[i]
             if data_source not in data_source_reward:
                 data_source_reward[data_source] = {}
                 data_source_answer[data_source] = {}
+                data_source_extracted[data_source] = {}
             if question not in data_source_reward[data_source]:
                 data_source_reward[data_source][question] = []
                 data_source_answer[data_source][question] = []
+                data_source_extracted[data_source][question] = []
 
             data_source_reward[data_source][question].append(reward_tensor[i].item())
             data_source_answer[data_source][question].append(sample_outputs[i])
+            data_source_extracted[data_source][question].append(sample_answers[i])
 
         for data_source, question_to_rewards in data_source_reward.items():
             # print(f'Validation data source: {data_source}')
@@ -654,7 +662,18 @@ class RayPPOTrainer(object):
                 sampled_answer = data_source_answer[data_source][question][sampled_index]
                 sampled_score = rewards[sampled_index]
                 outputs_to_log.append(sampled_answer)
-                scores_to_log.append("{}, {}, {}".format(sampled_score, np.mean(rewards), np.max(rewards)))
+
+                # Compute the majority vote for the extracted answers, ignore None
+                majority_score = 0.
+                extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+                if len(extracted_answers) > 0:
+                    majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+                    # check if the majority_answer corresponds to a reward of 1
+                    majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+                    if majority_idx != -1:
+                        majority_score = rewards[majority_idx]
+
+                scores_to_log.append("{}, avg{}, maj{}, max{}, n{}".format(sampled_score, np.mean(rewards), majority_score, np.max(rewards), len(rewards)))
 
         self._maybe_log_val_generations_to_wandb(inputs=inputs_to_log, outputs=outputs_to_log, scores=scores_to_log)
 
@@ -674,6 +693,21 @@ class RayPPOTrainer(object):
                 rewards.append(np.max(rewards_lst))
             
             metric_dict[f'val/{data_source}/best_of_n'] = np.mean(rewards)
+
+            # compute the appoximate majority score for each question based on the answer and the extracted answers
+            rewards = []
+            for question, rewards_lst in question_to_rewards.items():
+                majority_score = 0.
+                extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+                if len(extracted_answers) > 0:
+                    majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+                    # check if the majority_answer corresponds to a reward of 1
+                    majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+                    if majority_idx != -1:
+                        majority_score = rewards[majority_idx]
+                rewards.append(majority_score)
+
+            metric_dict[f'val/{data_source}/majority_of_n'] = np.mean(rewards)
 
         return metric_dict
 
@@ -951,7 +985,7 @@ class RayPPOTrainer(object):
                         reward_tensor, reward_metrics = self.reward_fn(batch)
                         
                         reward_metrics = {
-                            f"verifier/{k}": np.mean(v) for k, v in reward_metrics.items()
+                            f"verifier/{k}": np.mean(v) for k, v in reward_metrics.items() if "no_wandb" not in k
                         }
                         metrics.update(reward_metrics)
 
