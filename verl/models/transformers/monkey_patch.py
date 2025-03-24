@@ -21,7 +21,12 @@ import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, get_ulysses_sequence_parallel_world_size, get_ulysses_sequence_parallel_group
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    get_ulysses_sequence_parallel_group,
+)
 
 
 def _ulysses_flash_attention_forward(
@@ -53,6 +58,10 @@ def _ulysses_flash_attention_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=1, head_dim=2)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=1, head_dim=2)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=1, head_dim=2)
+
+        # TODO: all_gather position_ids because `prepare_fa2_from_position_ids` needs it, we can eliminate
+        # this all_gather by passing cu_seq_lens_q, cu_seq_lens_k, max_length_k, max_length_q explicitly.
+        # https://github.com/huggingface/transformers/pull/33932
 
         # (bsz, seq_len/n) -> (bsz, seq_len)
         position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
