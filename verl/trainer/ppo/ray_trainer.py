@@ -776,9 +776,9 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-        #Add tqdm
+        # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
-        
+
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
