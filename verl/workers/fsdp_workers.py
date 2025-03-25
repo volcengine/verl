@@ -175,14 +175,6 @@ class ActorRolloutRefWorker(Worker):
 
         self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
-        if use_remove_padding:
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(actor_model_config.model_type)
-
-        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(actor_model_config, verbose=True)
-
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
@@ -209,6 +201,11 @@ class ActorRolloutRefWorker(Worker):
                                                               config=actor_model_config,
                                                               attn_implementation='flash_attention_2',
                                                               trust_remote_code=trust_remote_code)
+
+            if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=actor_module)
+
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
@@ -483,41 +480,6 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def update_dpo(self, data: DataProto) -> DataProto:
-        """
-        Update actor model using DPO loss
-        """
-        # Logic to compute DPO loss and update model
-        chosen_logprobs = data.batch['chosen_logprobs']
-        rejected_logprobs = data.batch['rejected_logprobs']
-        ref_chosen_logprobs = data.batch['ref_chosen_logprobs']
-        ref_rejected_logprobs = data.batch['ref_rejected_logprobs']
-        
-        # KL penalty term (optional)
-        kl_penalty = 0
-        if self.config.actor.use_kl_penalty:
-            kl_chosen = chosen_logprobs - ref_chosen_logprobs
-            kl_rejected = rejected_logprobs - ref_rejected_logprobs
-            kl_penalty = self.config.actor.kl_coef * (kl_chosen.mean() + kl_rejected.mean())
-        
-        # DPO loss calculation
-        logits = self.config.actor.beta * (chosen_logprobs - rejected_logprobs)
-        loss = -torch.nn.functional.logsigmoid(logits).mean() + kl_penalty
-        
-        # Optimization step
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-        # Return metrics
-        data.meta_info['metrics'] = {
-            'actor/loss': loss.item(),
-            'actor/logit_diff': (chosen_logprobs - rejected_logprobs).mean().item(),
-        }
-        
-        return data
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(torch.cuda.current_device())
@@ -731,15 +693,6 @@ class CriticWorker(Worker):
         critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         critic_model_config.num_labels = 1
 
-        use_remove_padding = config.model.get('use_remove_padding', False)
-        if use_remove_padding:
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(critic_model_config.model_type)
-
-        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(critic_model_config, verbose=True)
-
         init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings,
                                                        mesh=self.device_mesh)
 
@@ -752,6 +705,11 @@ class CriticWorker(Worker):
                                                                             config=critic_model_config,
                                                                             attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
+
+            use_remove_padding = config.model.get('use_remove_padding', False)
+            if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=critic_module)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -994,15 +952,6 @@ class RewardModelWorker(Worker):
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         model_config.num_labels = 1
 
-        use_remove_padding = config.model.get('use_remove_padding', False)
-        if use_remove_padding:
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(model_config.model_type)
-
-        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(model_config, verbose=True)
-
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings,
                                                        mesh=self.device_mesh)
@@ -1015,7 +964,13 @@ class RewardModelWorker(Worker):
                                                                             torch_dtype=torch.bfloat16,
                                                                             attn_implementation='flash_attention_2',
                                                                             trust_remote_code=trust_remote_code)
+
+            if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=reward_module)
+
             reward_module.to(torch.bfloat16)
+
         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
 
         fsdp_mesh = self.device_mesh
