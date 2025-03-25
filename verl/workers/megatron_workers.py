@@ -169,6 +169,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.architectures = getattr(actor_model_config, "architectures", None)
 
         tfconfig = convert_config(actor_model_config, megatron_config)
+        self.hf_config = actor_model_config
         print(f'TF config: {tfconfig}')
         self.hf_config = actor_model_config
 
@@ -248,7 +249,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
             layer_name_mapping = {
-                "qkv_layer_name": "self_attention.linear_qkv.weight",
+                "qkv_layer_name": "self_attention.linear_qkv.",
                 "gate_proj_layer_name": "linear_fc1.weight",
             }
 
@@ -541,6 +542,7 @@ class CriticWorker(MegatronWorker):
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
         tfconfig = convert_config(critic_model_config, megatron_config)
+        self.hf_config = critic_model_config
         print(f'TF config: {tfconfig}')
 
         def megatron_critic_model_provider(pre_process, post_process):
