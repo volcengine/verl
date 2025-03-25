@@ -113,6 +113,38 @@ class LlamaDynamicNTKScalingRotaryEmbedding(LlamaRotaryEmbedding):
         self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
 
+class LlamaLlama3ScalingRotaryEmbedding(LlamaRotaryEmbedding):
+
+    def __init__(self, dim, config, max_position_embeddings=2048, base=10000, device=None):
+        super().__init__(dim, max_position_embeddings, base, device)
+
+        self.factor = config.rope_scaling["factor"]  # `8` in the original implementation
+        self.high_freq_factor = config.rope_scaling["high_freq_factor"]  # `1` in the original implementation
+        self.low_freq_factor = config.rope_scaling["low_freq_factor"]  # `4` in the original implementation
+        self.old_context_len = config.rope_scaling[
+            "original_max_position_embeddings"]  # `8192` in the original implementation
+
+        low_freq_wavelen = self.old_context_len / self.low_freq_factor
+        high_freq_wavelen = self.old_context_len / self.high_freq_factor
+
+        wavelen = 2 * math.pi / self.inv_freq
+        # wavelen < high_freq_wavelen: do nothing; wavelen > low_freq_wavelen: divide by factor
+        inv_freq_llama = torch.where(wavelen > low_freq_wavelen, self.inv_freq / self.factor, self.inv_freq)
+        # otherwise: interpolate between the two, using a smooth factor
+        smooth_factor = (self.old_context_len / wavelen - self.low_freq_factor) / (self.high_freq_factor -
+                                                                                   self.low_freq_factor)
+        smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / self.factor + smooth_factor * inv_freq_llama
+        is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+        inv_freq = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        # Build here to make `torch.jit.trace` work.
+        self._set_cos_sin_cache(seq_len=max_position_embeddings,
+                                device=self.inv_freq.device,
+                                dtype=torch.get_default_dtype())
+
+
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., :x.shape[-1] // 2]
@@ -209,7 +241,8 @@ class ParallelLlamaAttention(nn.Module):
                 base=self.rope_theta,
             )
         else:
-            scaling_type = self.config.rope_scaling["type"]
+            rope_type_key = "type" if "type" in self.config.rope_scaling else "rope_type"
+            scaling_type = self.config.rope_scaling[rope_type_key]
             scaling_factor = self.config.rope_scaling["factor"]
             if scaling_type == "linear":
                 self.rotary_emb = LlamaLinearScalingRotaryEmbedding(
@@ -223,6 +256,13 @@ class ParallelLlamaAttention(nn.Module):
                     self.head_dim,
                     max_position_embeddings=self.max_position_embeddings,
                     scaling_factor=scaling_factor,
+                    base=self.rope_theta,
+                )
+            elif scaling_type == "llama3":
+                self.rotary_emb = LlamaLlama3ScalingRotaryEmbedding(
+                    self.head_dim,
+                    self.config,
+                    max_position_embeddings=self.max_position_embeddings,
                     base=self.rope_theta,
                 )
             else:
