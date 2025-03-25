@@ -22,7 +22,7 @@ verl is flexible and easy to use with:
 
 - **Flexible device mapping**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
 
-- Readily integration with popular HuggingFace models
+- Ready integration with popular HuggingFace models
 
 
 verl is fast with:
@@ -46,7 +46,7 @@ verl is fast with:
   <li>[2024/10] verl is presented at Ray Summit. <a href="https://www.youtube.com/watch?v=MrhMcXkXvJU&list=PLzTswPQNepXntmT8jr9WaNfqQ60QwW7-U&index=37">Youtube video</a> available.</li>
   <li>[2024/12] The team presented <a href="https://neurips.cc/Expo/Conferences/2024/workshop/100677">Post-training LLMs: From Algorithms to Infrastructure</a> at NeurIPS 2024. <a href="https://github.com/eric-haibin-lin/verl-data/tree/neurips">Slides</a> and <a href="https://neurips.cc/Expo/Conferences/2024/workshop/100677">video</a> available.</li>
   <li>[2024/08] HybridFlow (verl) is accepted to EuroSys 2025.</li>
-</ul>	
+</ul>   
 </details>
 
 ## Key Features
@@ -106,10 +106,10 @@ verl is fast with:
 
 
 ## Performance Tuning Guide
-The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
+The performance is essential for on-policy RL algorithm. We have written a detailed [performance tuning guide](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) to help you optimize performance.
 
 ## Use vLLM v0.8
-veRL now supports vLLM>=0.8.0 when using FSDP as the training backend. Please refer to [this document](docs/README_vllm0.8.md) for installation guide and more information.
+veRL now supports vLLM>=0.8.0 when using FSDP as the training backend. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md) for installation guide and more information.
 
 ## Citation and acknowledgement
 
@@ -117,7 +117,7 @@ If you find the project helpful, please cite:
 - [HybridFlow: A Flexible and Efficient RLHF Framework](https://arxiv.org/abs/2409.19256v2)
 - [A Framework for Training Large Language Models for Code Generation via Proximal Policy Optimization](https://i.cs.hku.hk/~cwu/papers/gmsheng-NL2Code24.pdf)
 
-```tex
+```bibtex
 @article{sheng2024hybridflow,
   title   = {HybridFlow: A Flexible and Efficient RLHF Framework},
   author  = {Guangming Sheng and Chi Zhang and Zilingfeng Ye and Xibin Wu and Wang Zhang and Ru Zhang and Yanghua Peng and Haibin Lin and Chuan Wu},
@@ -151,10 +151,10 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [FIRE](https://arxiv.org/abs/2410.21236): Flaming-hot initiation with regular execution sampling for large language models
 
 ## Contribution Guide
-Contributions from the community are welcome! Please checkout our [roadmap](https://github.com/volcengine/verl/issues/22) and [release plan](https://github.com/volcengine/verl/issues/354).
+Contributions from the community are welcome! Please check out our [project roadmap](https://github.com/volcengine/verl/issues/22) and [release plan](https://github.com/volcengine/verl/issues/354) to see where you can contribute.
 
 ### Code formatting
-We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat you code locally, make sure you installed **latest** `yapf`
+We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat your code locally, make sure you have installed the **latest** version of `yapf`
 ```bash
 pip3 install yapf --upgrade
 ```
