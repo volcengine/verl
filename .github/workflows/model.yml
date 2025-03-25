@@ -25,7 +25,7 @@ permissions:
 jobs:
   model_rmpad:
     runs-on: [self-hosted, l20-1]
-    timeout-minutes: 5 # Increase this timeout value as needed
+    timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -49,12 +49,16 @@ jobs:
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
           pytest -s tests/model/test_transformer.py
-      - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
+      - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install hf_transfer
           torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
+          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+      - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.49.0
+        run: |
+          pip3 install transformers==4.49.0
           torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
         run: |

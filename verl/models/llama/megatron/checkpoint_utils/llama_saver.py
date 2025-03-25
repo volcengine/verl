@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
-from packaging.version import Version
-from torch.nn.parallel import DistributedDataParallel as torchDDP
-import torch
 import time
-from typing import Optional
-import torch.distributed as dist
 
+import torch
+import torch.distributed as dist
 from megatron.core import mpu
-from megatron.core.transformer.module import Float16Module
 from megatron.core.distributed import DistributedDataParallel as LocalDDP
+from megatron.core.transformer.module import Float16Module
+from torch.nn.parallel import DistributedDataParallel as torchDDP
 
 from verl.utils.megatron_utils import print_rank_0, unwrap_model
 
@@ -68,22 +65,22 @@ def _megatron_calc_layer_map(config):
     return layer_map
 
 
-def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtype='bf16'):
+def merge_megatron_ckpt_llama(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     """Merge sharded parameters of a Megatron module into a merged checkpoint.
 
     Args:
         wrapped_models (list of megatron.core.distributed.DistributedDataParallel):
             The local DDP wrapped megatron modules.
-        dtype (str or None):
-            The data type of state_dict. if None, the data type of the original parameters
-            is used.
-        gpt_model_key: key to access model
+        config (str or None):
+            HF config for model
+        dtype: model params type
+        is_value_model: if model is value model
+        tie_word_embeddings: tie_word_embeddings, not used in llama, only to keep same interface with qwen2
     Returns:
         state_dict (dict):
             The merged state_dict in rank 0, and an empty dictionary in other ranks.
     """
     start_time = time.time()
-    args = megatron.get_args()
 
     def _get_gpt_model(model):
         return model
@@ -152,7 +149,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
         if weight is None:
             weight = torch.empty(
                 tensor_shape,
-                dtype=args.params_dtype,
+                dtype=dtype,
                 device=torch.cuda.current_device(),
                 requires_grad=False,
             )
@@ -185,7 +182,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
@@ -229,7 +226,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
@@ -282,7 +279,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
         buffer_tensor = torch.empty(
             chunk_shape,
-            dtype=args.params_dtype,
+            dtype=dtype,
             device=torch.cuda.current_device(),
             requires_grad=False,
         )
@@ -412,9 +409,16 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
         print_rank_0("collecting lm_head...")
 
         if is_value_model:
-            _broadcast_tensor(getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
-                              "reward_head.weight",
-                              src_pp_rank=pp_size - 1)
+            if getattr(gpt_model_module, "lm_head", None) is not None:
+                lm_head_weight = getattr(gpt_model_module.lm_head, "weight", None)
+                _broadcast_tensor(lm_head_weight if pp_rank == pp_size - 1 else None,
+                                  "lm_head.weight",
+                                  src_pp_rank=pp_size - 1)
+            if getattr(gpt_model_module, "reward_head", None) is not None:
+                reward_head_weight = getattr(gpt_model_module.reward_head, "weight", None)
+                _broadcast_tensor(reward_head_weight if pp_rank == pp_size - 1 else None,
+                                  "reward_head.weight",
+                                  src_pp_rank=pp_size - 1)
 
         else:
             _broadcast_tp_shard_tensor(
@@ -427,13 +431,7 @@ def merge_megatron_ckpt_llama(wrapped_models, config, is_value_model=False, dtyp
 
     torch.cuda.empty_cache()
     if torch.distributed.get_rank() == 0:
-        if dtype == "fp16":
-            dtype = torch.float16
-        elif dtype == "bf16":
-            dtype = torch.bfloat16
-        elif dtype is None or dtype == "fp32":
-            dtype = torch.float32
-        else:
+        if dtype not in [torch.float16, torch.bfloat16, torch.float32]:
             print(f'Unknown/unsupported dtype to save: {dtype}"')
             exit(1)
         for k, v in state_dict.items():
