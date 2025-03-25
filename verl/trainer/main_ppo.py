@@ -22,12 +22,19 @@ import ray
 import hydra
 
 
-@hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
+@hydra.main(config_path='config', config_name='qwen7b_sft_async', version_base=None)
 def main(config):
     run_ppo(config)
 
 
 def run_ppo(config, compute_score=None):
+    import os, torch
+
+    print("VISIBLE DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
+    print("torch sees device count:", torch.cuda.device_count())
+    print("default device:", torch.cuda.current_device())
+    print("default device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
+
     if not ray.is_initialized():
         # this is for local ray cluster
         # ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})

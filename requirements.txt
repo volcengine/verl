@@ -1,20 +1,8 @@
-# requirements.txt records the full set of dependencies for development
+# # requirements.txt records the full set of dependencies for development
 accelerate
 codetiming
-datasets
-dill
-flash-attn
 hydra-core
-liger-kernel
-numpy
-pandas
-peft
-pyarrow>=15.0.0
-pybind11
-pylatexenc
-ray[data,train,tune,serve]
-tensordict<0.6
-torchdata
-transformers
-vllm<=0.6.3
+omegaconf
+tensordict==0.5.0
+torchdata==0.11.0
 wandb
