@@ -11,6 +11,7 @@ train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
 model_path=PRIME-RL/Eurus-2-7B-SFT
+# model_path=Qwen/Qwen2.5-0.5B-Instruct
 
 python3 -m recipe.prime.main_prime \
     data.train_files="$train_files" \
@@ -40,7 +41,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     algorithm.adv_estimator=rloo \
     reward_model.model.path=$model_path \
-    reward_model.micro_batch_size=8 \
+    reward_model.micro_batch_size_per_gpu=1 \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \
     reward_model.model.optim.lr=1e-6 \
@@ -50,9 +51,9 @@ python3 -m recipe.prime.main_prime \
     trainer.val_before_train=False \
     trainer.logger=['console','wandb'] \
     trainer.project_name='prime_example' \
-    trainer.experiment_name='Eurus-2-7B-SFT' \
+    trainer.experiment_name='Eurus-2-7B-SFT-gsm8k' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
-    trainer.test_freq=10 \
+    trainer.save_freq=64 \
+    trainer.test_freq=64 \
     trainer.total_epochs=15 $@
