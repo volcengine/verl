@@ -21,6 +21,8 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 .. _Megatron wandb: https://wandb.ai/verl-team/verl_megatron_gsm8k_examples/runs/10fetyr3
 .. _Qwen7b ReMax Script: https://github.com/eric-haibin-lin/verl/blob/main/examples/remax_trainer/run_qwen2.5-3b_seq_balance.sh
 .. _Qwen7b ReMax Wandb: https://wandb.ai/liziniu1997/verl_remax_example_gsm8k/runs/vxl10pln
+.. _Qwen0.5b PRIME Script: https://github.com/volcengine/verl/blob/main/recipe/prime/run_prime_qwen.sh
+.. _Qwen0.5b PRIME Wandb: https://api.wandb.ai/links/zefan-wang-thu-tsinghua-university/rxd1btvb
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
@@ -34,6 +36,8 @@ Refer to the table below to reproduce PPO training from different pre-trained mo
 | Qwen/Qwen2.5-0.5B-Instruct       | pretrained checkpoint  | 36.4       |   `Qwen Blog`_                                                                                |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-0.5B-Instruct       | PPO                    | 56.7       |   `PPO Command and Logs`_                                                                     |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+| Qwen/Qwen2.5-0.5B-Instruct       | PRIME                  | 58.7       |   `Qwen0.5b PRIME Script`_, `Qwen0.5b PRIME Wandb`_                                           |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | deepseek-ai/deepseek-llm-7b-chat | PPO                    | 69.5 [1]_  |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
