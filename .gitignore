@@ -93,6 +93,7 @@ celerybeat-schedule
 
 # virtualenv
 venv/
+.venv/
 ENV/
 
 # Spyder project settings
@@ -123,3 +124,4 @@ tests/e2e/toy_examples/deepspeed/synchronous/output.txt
 # local logs
 logs
 log
+outputs

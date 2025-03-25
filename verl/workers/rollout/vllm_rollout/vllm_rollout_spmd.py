@@ -188,6 +188,7 @@ class vLLMRollout(BaseRollout):
             } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
 
         do_sample = prompts.meta_info.get('do_sample', True)
+        is_validate = prompts.meta_info.get('validate', False)
         if not do_sample:
             kwargs = {
                 'best_of': 1,
@@ -197,6 +198,14 @@ class vLLMRollout(BaseRollout):
                 'temperature': 0,
                 'n': 1  # if greedy, only 1 response
             }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                'top_k': self.config.val_kwargs.top_k,
+                'top_p': self.config.val_kwargs.top_p,
+                'temperature': self.config.val_kwargs.temperature,
+                'n': 1,  # if validate, already repeat in ray_trainer
+            }
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -205,27 +214,27 @@ class vLLMRollout(BaseRollout):
                 sampling_params=self.sampling_params,
                 use_tqdm=False)
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+            # TODO(sgm): disable logprob when recompute_log_prob is enable
+            # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
-        response = []
-        for output in outputs:
-            for sample_id in range(len(output.outputs)):
-                response.append(output.outputs[sample_id].token_ids)
+            response = []
+            for output in outputs:
+                for sample_id in range(len(output.outputs)):
+                    response.append(output.outputs[sample_id].token_ids)
 
-        response = pad_2d_list_to_length(response, self.pad_token_id,
-                                         max_length=self.config.response_length).to(idx.device)
+            response = pad_2d_list_to_length(response, self.pad_token_id,
+                                             max_length=self.config.response_length).to(idx.device)
 
-        if self.config.n > 1 and do_sample:
-            idx = _repeat_interleave(idx, self.config.n)
-            attention_mask = _repeat_interleave(attention_mask, self.config.n)
-            position_ids = _repeat_interleave(position_ids, self.config.n)
-            batch_size = batch_size * self.config.n
-            if 'multi_modal_inputs' in non_tensor_batch.keys():
-                non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
-                                                                            self.config.n)
+            if self.sampling_params.n > 1 and do_sample:
+                idx = _repeat_interleave(idx, self.sampling_params.n)
+                attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
+                position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
+                batch_size = batch_size * self.sampling_params.n
+                if 'multi_modal_inputs' in non_tensor_batch.keys():
+                    non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
+                                                                                self.sampling_params.n)
 
-        seq = torch.cat([idx, response], dim=-1)
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)

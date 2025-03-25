@@ -256,8 +256,7 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
 
-    Note both input_ids_rmpad and position_ids_rmpad will be padded,
-    but only input_ids will be sliced.
+    Note both input_ids_rmpad and position_ids_rmpad will be padded and sliced.
 
     The is the utility of pre-forward for ulysses sequence parallelism
 
@@ -283,6 +282,13 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
         if position_ids_rmpad is not None:
             pad_pos_ids = torch.arange(pad_size, device=position_ids_rmpad.device).unsqueeze(0)
             position_ids_rmpad = torch.cat((position_ids_rmpad, pad_pos_ids), dim=-1)
-    # we don't need to slice position ids
     input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
+    if position_ids_rmpad is not None:
+        position_ids_rmpad = slice_input_tensor(position_ids_rmpad, dim=1, padding=False)
     return input_ids_rmpad, position_ids_rmpad, pad_size
+
+
+def validate_ulysses_config(num_heads, ulysses_sequence_size):
+    if ulysses_sequence_size > 1:
+        assert num_heads % ulysses_sequence_size == 0,\
+            f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"

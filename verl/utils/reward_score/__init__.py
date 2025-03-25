@@ -21,6 +21,14 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
         from . import math
         res = math.compute_score(solution_str, ground_truth)
+
+        # [Optional] Math-Verify Integration
+        # For enhanced accuracy, consider utilizing Math-Verify (https://github.com/huggingface/Math-Verify).
+        # Note: Math-Verify needs to be manually installed via pip: `pip install math-verify`.
+        # To use it, override the `compute_score` function with the following implementation:
+
+        # from . import math_verify
+        # res = math_verify.compute_score(solution_str, ground_truth)
     elif data_source in [
             'numina_aops_forum', 'numina_synthetic_math', 'numina_amc_aime', 'numina_synthetic_amc', 'numina_cn_k12',
             'numina_olympiads'

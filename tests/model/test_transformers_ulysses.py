@@ -25,13 +25,13 @@ from verl.protocol import DataProto
 from flash_attn.bert_padding import unpad_input, index_first_axis, rearrange
 from transformers import LlamaConfig, Qwen2Config
 from transformers import AutoModelForCausalLM
-from verl.models.transformers.monkey_patch import apply_monkey_patch_to_llama, apply_monkey_patch_to_qwen2
+from verl.models.transformers.monkey_patch import apply_monkey_patch
 
 # TODO(sgm): add more models for test
 # we only need one scale for each model
 test_configs = {
-    'llama': (LlamaConfig(num_hidden_layers=2), apply_monkey_patch_to_llama),
-    'qwen2': (Qwen2Config(num_hidden_layers=2), apply_monkey_patch_to_qwen2)
+    'llama': (LlamaConfig(num_hidden_layers=2), apply_monkey_patch),
+    'qwen2': (Qwen2Config(num_hidden_layers=2), apply_monkey_patch)
 }
 
 
@@ -57,11 +57,11 @@ def test_hf_casual_fwd():
 
     for model_name, (config, apply_monkey_patch) in test_configs.items():
         # patch before load
-        apply_monkey_patch()
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
                                                      attn_implementation='flash_attention_2')
+            apply_monkey_patch(model)
             model = model.to(device='cuda')
             sync_model_parameters_global(model)
 
@@ -135,11 +135,11 @@ def test_hf_casual_fwd_bwd():
 
     for model_name, (config, apply_monkey_patch) in test_configs.items():
         # patch before load
-        apply_monkey_patch()
         with torch.device('cuda'):
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
                                                      attn_implementation='flash_attention_2')
+            apply_monkey_patch(model)
             model = model.to(device='cuda')
             sync_model_parameters_global(model)
 

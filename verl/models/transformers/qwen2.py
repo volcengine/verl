@@ -20,7 +20,8 @@ from transformers.cache_utils import Cache
 from transformers.utils import logging
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.processing_utils import Unpack
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, get_ulysses_sequence_parallel_world_size
+from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, \
+    get_ulysses_sequence_parallel_world_size, validate_ulysses_config
 
 logger = logging.get_logger(__name__)
 
@@ -55,6 +56,8 @@ def qwen2_flash_attn_forward(
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
     if ulysses_sp_size > 1:
+        validate_ulysses_config(self.num_heads, ulysses_sp_size)
+
         # (bsz, n_head, seq_len/n, head_dim) -> (bsz, n_head/n, seq_len, head_dim)
         query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
@@ -154,7 +157,7 @@ def qwen2_attn_forward(
     """
     Adapted from transformers 4.49.0 to support Ulysses sequence parallelism for transformers >= 4.48.0.
 
-    NOTE: This function has been tested only on transformers versions between 4.48.0 and 4.49.0.
+    NOTE: This function has been tested only on transformers versions between 4.48.0 and 4.50.0.
     """
     from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
     bsz, q_len, _ = hidden_states.shape
@@ -168,6 +171,8 @@ def qwen2_attn_forward(
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
     if ulysses_sp_size > 1:
+        validate_ulysses_config(self.config.num_attention_heads, ulysses_sp_size)
+
         # (bsz, n_head, seq_len/n, head_dim) -> (bsz, n_head/n, seq_len, head_dim)
         query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
