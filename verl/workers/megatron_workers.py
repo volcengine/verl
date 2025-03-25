@@ -530,7 +530,7 @@ class CriticWorker(MegatronWorker):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config,convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config, convert_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer

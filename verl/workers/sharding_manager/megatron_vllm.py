@@ -349,7 +349,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         micro_dp_size = get_micro_data_parallel_world_size()
         micro_dp_group = get_micro_data_parallel_group()
 
-
         origin_params = {}
         for name in params.keys():
             param = params[name]

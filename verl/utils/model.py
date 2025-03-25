@@ -422,18 +422,16 @@ def get_parallel_gptmodel_from_config(tfconfig,
     if hf_config.rope_scaling is not None:
         assert hf_config.rope_scaling['type'] == 'linear', "only linear scaling is supported for now"
         rope_scaling_args['seq_len_interpolation_factor'] = hf_config.rope_scaling['factor']
-    parallel_model = GPTModel(
-        config=tfconfig,
-        transformer_layer_spec=transformer_layer_spec,
-        vocab_size=hf_config.vocab_size,
-        max_sequence_length=hf_config.max_position_embeddings,
-        pre_process=pre_process,
-        post_process=post_process,
-        share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-        position_embedding_type='rope',
-        rotary_base=hf_config.rope_theta,
-        **rope_scaling_args
-    )
+    parallel_model = GPTModel(config=tfconfig,
+                              transformer_layer_spec=transformer_layer_spec,
+                              vocab_size=hf_config.vocab_size,
+                              max_sequence_length=hf_config.max_position_embeddings,
+                              pre_process=pre_process,
+                              post_process=post_process,
+                              share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+                              position_embedding_type='rope',
+                              rotary_base=hf_config.rope_theta,
+                              **rope_scaling_args)
     # # for layer in parallel_model.decoder.layers: layer.self_attention.core_attention.flash_attention.softmax_scale = None
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
@@ -441,4 +439,3 @@ def get_parallel_gptmodel_from_config(tfconfig,
                                                          output_size=1,
                                                          config=tfconfig)
     return parallel_model
-

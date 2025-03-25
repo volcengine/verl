@@ -243,6 +243,7 @@ def megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
             weight_loader(param, loaded_weight)
 
+
 __LAYER_WEIGHT_MEGATRON_LOADER_REGISTRY__ = {
     ColumnParallelLinear: parallel_weight_loader,
     MergedColumnParallelLinear: parallel_weight_loader,

@@ -73,28 +73,21 @@ class MergedColumnParallelLinear(tensor_parallel.ColumnParallelLinear):
                          skip_bias_add=skip_bias_add,
                          **kwargs)
 
+
 import torch
+
+
 class LinearForLastLayer(torch.nn.Linear):
+
     def __init__(
         self,
         input_size,
         output_size,
         *,
         config,
-        init_method=None,
         bias=True,
-        gather_output=False,
-        stride=1,
-        keep_master_weight_for_test=False,
-        skip_bias_add=False,
-        skip_weight_param_allocation: bool = False,
-        embedding_activation_buffer = None,
-        grad_output_buffer = None,
-        is_expert: bool = False,
-        tp_comm_buffer_name: str = None,  # Not used
-        disable_grad_reduce: bool = False,
     ):
-        super().__init__(in_features=input_size, out_features=1, bias=bias)
+        super().__init__(in_features=input_size, out_features=output_size, bias=bias)
         self.sequence_parallel = config.sequence_parallel
         if self.sequence_parallel:
             setattr(self.weight, 'sequence_parallel', True)
