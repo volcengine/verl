@@ -14,7 +14,7 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def _default_compute_score(data_source, prompt, solution_str, ground_truth, extra_info=None):
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
@@ -37,10 +37,16 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['hiyouga/geometry3k']:
         from . import geo3k
         res = geo3k.compute_score(solution_str, ground_truth)
+    elif data_source in ["LawGPT"]:
+        from . import law
+        res, eval_result = law.compute_score(prompt, solution_str, ground_truth)
+    elif data_source in ["StrategyQA"]:
+        from . import strategyqa
+        res, eval_result = strategyqa.compute_score(prompt, solution_str, ground_truth)
     else:
         raise NotImplementedError
 
     if isinstance(res, (int, float, bool)):
-        return float(res)
+        return float(res), eval_result
     else:
-        return float(res[0])
+        return float(res[0]), eval_result

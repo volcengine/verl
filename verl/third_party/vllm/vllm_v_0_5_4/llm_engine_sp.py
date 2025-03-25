@@ -32,7 +32,7 @@ from vllm.usage.usage_lib import (UsageContext, is_usage_stats_enabled, usage_me
 from vllm.utils import Counter
 from vllm.engine.llm_engine import _load_generation_config_dict
 from vllm.engine.llm_engine import LLMEngine
-from vllm.version import __version__ as VLLM_VERSION
+# from vllm.version import __version__ as VLLM_VERSION
 
 import torch.nn as nn
 from .arg_utils import EngineArgs
@@ -111,7 +111,7 @@ class LLMEngine(LLMEngine):
             "decoding_config=%r, observability_config=%r, "
             "seed=%d, served_model_name=%s, use_v2_block_manager=%s, "
             "enable_prefix_caching=%s)",
-            VLLM_VERSION,
+            # VLLM_VERSION,
             model_config.model,
             speculative_config,
             model_config.tokenizer,

@@ -17,7 +17,9 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import os
+import json
 import uuid
+from datetime import datetime
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -268,6 +270,8 @@ class RayPPOTrainer(object):
         self.config = config
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
+        self.eval_times = 0
+        self.eval_dir = f"outputs/eval-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert self.hybrid_engine, 'Currently, only support hybrid engine'
@@ -507,6 +511,7 @@ class RayPPOTrainer(object):
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
+        eval_results = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -560,7 +565,8 @@ class RayPPOTrainer(object):
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
+            reward_tensor, batch_eval_results = self.val_reward_fn(test_batch)
+            eval_results.extend(batch_eval_results)
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -582,9 +588,50 @@ class RayPPOTrainer(object):
                 data_source_reward[data_source] = []
             data_source_reward[data_source].append(reward_tensor[i].item())
 
+        os.makedirs(f"outputs/eval/{self.eval_dir}", exist_ok=True)
+        with open(f"outputs/eval/{self.eval_dir}/eval_{self.eval_times}.json", "w") as f:
+            json.dump(eval_results, f, ensure_ascii=False, indent=4)
+            self.eval_times += 1
+
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
             metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+            metric_dict["val/correctness_rewards"] = round(float(np.mean(rewards).item()), 5)
+            metric_dict["val/format_rewards"] = round(
+                sum([item["format_rewards"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/length_rewards"] = round(
+                sum([item["length_rewards"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/repetition_rewards"] = round(
+                sum([item["repetition_rewards"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/language_monotony_rewards"] = round(
+                sum([item["language_monotony_rewards"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/unk_error_rewards"] = round(
+                sum([item["unk_error_rewards"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/soft_exact_match"] = round(
+                sum([item["soft_exact_match"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
+            metric_dict["val/hard_exact_match"] = round(
+                sum([item["hard_exact_match"] for item in eval_results])
+                / len(eval_results),
+                5,
+            )
 
         return metric_dict
 
@@ -874,8 +921,17 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
+                        reward_tensor, batch_eval_results = self.reward_fn(batch)
+
                         batch.batch['token_level_scores'] = reward_tensor
+                        for eval_result in batch_eval_results:
+                            for name, rewards in eval_result.items():
+                                # metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+                                if "reward" not in name:
+                                    continue
+                                if name not in metrics:
+                                    metrics[f"critic/{name}"] = 0
+                                metrics[f"critic/{name}"] += round(rewards, 5)
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
