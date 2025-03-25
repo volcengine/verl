@@ -74,7 +74,7 @@ The following steps are quick installation guide for verl-SGLang.
     
     # Install the latest stable version of sglang with verl support, currently, the latest version is 0.4.3.post3
     # For SGLang installation, you can also refer to https://docs.sglang.ai/start/install.html
-    python3 -m uv pip install "sglang[all]==0.4.3.post3" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+    python3 -m uv pip install "sglang[all]==0.4.4.post1" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
 
 
 Install from custom environment
