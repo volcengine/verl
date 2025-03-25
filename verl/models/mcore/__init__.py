@@ -1,45 +1,20 @@
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
 import torch
+from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core import parallel_state as mpu
 
 
-def gptmodel_forward(model, input_ids, attention_mask, position_ids, sequence_parallel, pack_seqs=False):
+def gptmodel_forward(model, input_ids, attention_mask, position_ids, sequence_parallel, pack_seqs=True):
     if pack_seqs:
-        from flash_attn.bert_padding import pad_input, unpad_input  # noqa
-        from megatron.core.packed_seq_params import PackedSeqParams
-        import copy
-        batch_size, sequence_length = input_ids.shape
-        input_ids_rmpad, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(input_ids.unsqueeze(dim=-1),
-                                                                                    attention_mask)
-        cu_seqlens_padded = None
-        if sequence_parallel:
-            original_total_nnz = input_ids_rmpad.shape[0]
-            input_ids_rmpad = sp_utils.pad_to_sequence_parallel(input_ids_rmpad)
-            total_nnz_new = input_ids_rmpad.shape[0]
-            pad_size = total_nnz_new - original_total_nnz
-            if pad_size > 0:
-                cu_seqlens_padded = copy.deepcopy(cu_seqlens)
-                cu_seqlens_padded[-1] = cu_seqlens_padded[-1] + pad_size
-                seqlens = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
-                max_seqlen_in_batch = seqlens.max().cpu().item()
+        batch_size, seq_len = input_ids.shape[:2]
+        input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask)
 
-        packed_seq_params = PackedSeqParams(qkv_format='thd',
-                                            cu_seqlens_q=cu_seqlens,
-                                            max_seqlen_q=max_seqlen_in_batch,
-                                            cu_seqlens_kv=cu_seqlens,
-                                            max_seqlen_kv=max_seqlen_in_batch,
-                                            cu_seqlens_q_padded=cu_seqlens_padded,
-                                            cu_seqlens_kv_padded=cu_seqlens_padded)
-        output = model(input_ids=input_ids_rmpad.T,
+        output = model(input_ids=input_ids_rmpad,
                        attention_mask=None,
                        position_ids=position_ids,
                        packed_seq_params=packed_seq_params)
-        output = torch.squeeze(output, dim=0)  # (1,seq,1)->(seq,1)
-
-        if sequence_parallel and pad_size > 0:
-            output = output[:cu_seqlens[-1]]
-
-        output = pad_input(output, indices, batch_size, seqlen=sequence_length)
+        output = postprocess_packed_seqs(output, packed_seq_params, attention_mask, batch_size, seq_len)
     else:
         # output = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
         batch_size, sequence_length = input_ids.shape
@@ -49,6 +24,59 @@ def gptmodel_forward(model, input_ids, attention_mask, position_ids, sequence_pa
         output = recover_left_padding(output, new_attention_mask, attention_mask, sequence_length)
 
     return output
+
+
+def preprocess_packed_seqs(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> tuple[torch.Tensor, PackedSeqParams]:
+    """
+    Preprocess packed sequences
+    """
+    batch_size = input_ids.shape[0]
+
+    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
+    tp_size = mpu.get_tensor_model_parallel_world_size()
+    pad_size = (tp_size - seqlens_in_batch % tp_size) % tp_size
+    seqlens_in_batch_padded = seqlens_in_batch + pad_size
+    max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
+    cu_seqlens = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
+    cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
+    cu_seqlens_padded = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
+    cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
+
+    shape = list(input_ids.shape[1:])
+    shape[0] = seqlens_in_batch_padded.sum().item()
+    input_ids_rmpad = torch.zeros(shape, dtype=input_ids.dtype, device=input_ids.device)
+    for i in range(batch_size):
+        seqlen = seqlens_in_batch[i]
+        input_ids_rmpad[cu_seqlens_padded[i]:cu_seqlens_padded[i] + seqlen] = input_ids[i, attention_mask[i]]
+
+    packed_seq_params = PackedSeqParams(qkv_format='thd',
+                                        cu_seqlens_q=cu_seqlens_padded,
+                                        max_seqlen_q=max_seqlen_in_batch,
+                                        cu_seqlens_kv=cu_seqlens_padded,
+                                        max_seqlen_kv=max_seqlen_in_batch,
+                                        cu_seqlens_q_padded=cu_seqlens_padded,
+                                        cu_seqlens_kv_padded=cu_seqlens_padded)
+    return input_ids_rmpad.unsqueeze(0), packed_seq_params
+
+
+def postprocess_packed_seqs(output: torch.Tensor, packed_seq_params: PackedSeqParams, attention_mask: torch.Tensor,
+                            batch_size: int, seq_len: int) -> torch.Tensor:
+    """
+    Postprocess packed sequences
+    """
+    shape = [batch_size, seq_len] + list(output.shape[2:])  # 1,packed, dim -> batch_size, seq_len, dim
+    output_new = torch.zeros(shape, dtype=output.dtype, device=output.device)
+
+    for i in range(batch_size):
+        s = attention_mask[i].sum().item()
+        output_new[i,
+                   attention_mask[i]] = output[0][packed_seq_params.
+                                                  cu_seqlens_q_padded[i]:packed_seq_params.cu_seqlens_q_padded[i] + s]
+
+    return output_new
 
 
 def remove_left_padding(input_ids: torch.Tensor,
