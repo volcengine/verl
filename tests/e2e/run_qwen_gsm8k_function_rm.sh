@@ -1,5 +1,5 @@
 set -x
-
+ENGINE=${1:-vllm}
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
@@ -17,7 +17,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.name=$ENGINE \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
@@ -36,5 +36,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=1 \
-    trainer.default_local_dir=$HOME/ckpt/ \
-    trainer.total_training_steps=1 $@
+    trainer.default_local_dir=$HOME/$ENGINE/ckpt/ \
+    trainer.total_training_steps=1

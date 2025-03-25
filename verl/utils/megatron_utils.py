@@ -13,33 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Pretrain utilities."""
-import importlib
-from packaging.version import Version
-from typing import Any, Dict
-import time
-from omegaconf import DictConfig
-from verl.utils.torch_dtypes import PrecisionType
-from verl.utils.memory_buffer import build_memory_reference_from_module
+import os
+from typing import Dict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from megatron.core import ModelParallelConfig
 from megatron.core import mpu, tensor_parallel
-from megatron.core.utils import get_attr_wrapped_model
+from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.enums import ModelType
+from megatron.core.optimizer import OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
-from megatron.core.distributed import DistributedDataParallelConfig
-from megatron.core.distributed import DistributedDataParallel as DDP
-from megatron.core.enums import ModelType
-from megatron.core import ModelParallelConfig
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.utils import get_attr_wrapped_model
+from omegaconf import DictConfig
+
+from verl.utils.memory_buffer import build_memory_reference_from_module
+from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
+def get_model(model_provider_func,
+              model_type=ModelType.encoder_or_decoder,
+              wrap_with_ddp=True,
+              use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
@@ -118,7 +120,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
                 disable_bucketing=(model_chunk_idx > 0),
                 ddp_config=DistributedDataParallelConfig(
                     overlap_grad_reduce=False,
-                    use_distributed_optimizer=True,
+                    use_distributed_optimizer=use_distributed_optimizer,
                     grad_reduce_in_fp32=True,  # [old] accumulate_allreduce_grads_in_fp32=True,
                 ))
             ddp_models.append(ddp_model)
@@ -155,6 +157,9 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
+    ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
+    batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
@@ -172,8 +177,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
-        overlap_p2p_comm=True,
-        batch_p2p_comm=False,
+        overlap_p2p_comm=overlap_p2p_comm,
+        batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
         params_dtype=dt,
         sequence_parallel=True,
@@ -181,15 +186,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
         bf16=dt is torch.bfloat16)
-    if torch.distributed.get_rank() == 0:
-        print(f'tensor_parallel_size={transformer_config.tensor_model_parallel_size} \n \
-                pipeline_model_parallel_size={transformer_config.pipeline_model_parallel_size} \n \
-                virtual_pipeline_model_parallel_size={transformer_config.virtual_pipeline_model_parallel_size} \n \
-                pipeline_dtype={transformer_config.pipeline_dtype} \n \
-                params_dtype={transformer_config.params_dtype} \n \
-                sequence_parallel={transformer_config.sequence_parallel} \n \
-                variable_seq_lengths={transformer_config.variable_seq_lengths} \n \
-                masked_softmax_fusion={transformer_config.masked_softmax_fusion} \n ')
 
     return transformer_config
 
@@ -258,3 +254,31 @@ def print_rank_0(message):
             print(message, flush=True)
     else:
         print(message, flush=True)
+
+
+def get_model_checkpoint_path(checkpoint_path):
+    os.makedirs(checkpoint_path, exist_ok=True)
+    return os.path.join(checkpoint_path, "model")
+
+
+def get_hf_model_checkpoint_path(checkpoint_path):
+    os.makedirs(checkpoint_path, exist_ok=True)
+    return os.path.join(checkpoint_path, "huggingface")
+
+
+def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
+    os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
+    if not use_distributed_optimizer:
+        return os.path.join(checkpoint_path, "optim", "optim.pt")
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    #TODO: support ep
+    return os.path.join(checkpoint_path, f"optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}.pt")
+
+
+def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=False):
+    os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
+    if not data_parallel_random_init:
+        return os.path.join(checkpoint_path, f'rng_states', "rng_states.pt")
+    dp_rank = mpu.get_data_parallel_rank()
+    return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")

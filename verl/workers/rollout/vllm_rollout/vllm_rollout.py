@@ -119,7 +119,7 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
         )
 
@@ -175,6 +175,7 @@ class vLLMRollout(BaseRollout):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
         do_sample = prompts.meta_info.get('do_sample', True)
+        is_validate = prompts.meta_info.get('validate', False)
         if not do_sample:
             kwargs = {
                 'best_of': 1,
@@ -183,6 +184,14 @@ class vLLMRollout(BaseRollout):
                 'min_p': 0.0,
                 'temperature': 0,
                 'n': 1  # if greedy, only 1 response
+            }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                'top_k': self.config.val_kwargs.top_k,
+                'top_p': self.config.val_kwargs.top_p,
+                'temperature': self.config.val_kwargs.temperature,
+                'n': 1,  # if validate, already repeat in ray_trainer
             }
 
         # users can customize different sampling_params at different run
@@ -193,21 +202,22 @@ class vLLMRollout(BaseRollout):
                 prompt_token_ids=idx_list,
                 use_tqdm=False)
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        response = output[0].to(idx.device)
-        log_probs = output[1].to(idx.device)
+            # TODO(sgm): disable logprob when recompute_log_prob is enable
+            # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+            response = output[0].to(idx.device)
+            # log_probs = output[1].to(idx.device)
 
-        if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+            if response.shape[1] < self.config.response_length:
+                response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
-        if self.config.n > 1 and do_sample:
-            idx = idx.repeat_interleave(self.config.n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
-            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
-            batch_size = batch_size * self.config.n
-        seq = torch.cat([idx, response], dim=-1)
+            # utilize current sampling params
+            if self.sampling_params.n > 1 and do_sample:
+                idx = idx.repeat_interleave(self.sampling_params.n, dim=0)
+                attention_mask = attention_mask.repeat_interleave(self.sampling_params.n, dim=0)
+                position_ids = position_ids.repeat_interleave(self.sampling_params.n, dim=0)
+                batch_size = batch_size * self.sampling_params.n
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)

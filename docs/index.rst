@@ -32,6 +32,7 @@ verl is fast with:
 
    start/install
    start/quickstart
+   start/multinode
 
 .. toctree::
    :maxdepth: 4
@@ -73,6 +74,7 @@ verl is fast with:
    
    perf/perf_tuning
    README_vllm0.7.md
+   README_vllm0.8.md
 
 .. toctree::
    :maxdepth: 1

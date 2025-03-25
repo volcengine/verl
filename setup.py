@@ -45,12 +45,14 @@ TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
 PRIME_REQUIRES = ['pyext']
 GEO_REQUIRES = ['mathruler']
 GPU_REQUIRES = ['liger-kernel', 'flash-attn']
+MATH_REQUIRES = ['math-verify']  # Add math-verify as an optional dependency
 
 extras_require = {
   'test': TEST_REQUIRES,
   'prime': PRIME_REQUIRES,
   'geo': GEO_REQUIRES,
   'gpu': GPU_REQUIRES,
+  'math': MATH_REQUIRES,
 }
 
 from pathlib import Path

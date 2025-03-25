@@ -8,6 +8,7 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
+# tested on L20-16 GPUs per nodes, for other machines please adjust the n_gpus_per_node config accordingly
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
     data.train_files="$train_files" \
