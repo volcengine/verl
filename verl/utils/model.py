@@ -316,7 +316,7 @@ def load_megatron_model_weights(config,
                     'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
                 is_value_model = True
             else:
-                model = AutoModelForCausalLM.from_pretrained(local_model_path)
+                model = AutoModelForCausalLM.from_pretrained(local_model_path, torch_dtype="auto")
                 state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
