@@ -7,7 +7,7 @@ from thefuzz.fuzz import ratio
 from lingua import LanguageDetectorBuilder
 
 
-def aggregate_rewards(self, rewards: Dict[str, float]) -> float:
+def aggregate_rewards(rewards: Dict[str, float]) -> float:
     """Aggregate multiple rewards into a single reward value.
 
     Args:
@@ -285,19 +285,26 @@ def parse_generation(
     regex_list = [
         r"<answer>\[刑期\](.*?)</answer>",
         r"<answer>\[金额\](.*?)</answer>",
-        r"<answer>\n\[刑期\](.*?)\n</answer>",
-        r"<answer>\n\[金额\](.*?)\n</answer>",
-        r"<answer>\\n\[刑期\](.*?)\\n</answer>",
-        r"<answer>\\n\[金额\](.*?)\\n</answer>",
+        r"<answer>[\\n]*\[刑期\](.*?)[\\n]*</answer>"
+        r"<answer>[\\n]*\[金额\](.*?)[\\n]*</answer>",
     ]
     parsed_answers = []
     for pred in preds:
         parsed_answer = ""
         for regex in regex_list:
-            match = re.search(regex, pred)
-            if match and match.group(1):
-                parsed_answer = match.group(1)
+            match = re.findall(regex, pred)
+            if len(match) > 0:
+                # pick the last match as the parsed answer
+                parsed_answer = match[-1]
                 break
+        if parsed_answer.strip() == "":
+            # if no match found, use the whole text as the parsed answer
+            parsed_answer = (
+                pred.rsplit("<answer>", 1)[-1]
+                .rsplit("</answer>", 1)[0]
+                .strip("[刑期]")
+                .strip("[金额]")
+            )
         parsed_answers.append(parsed_answer.strip())
 
     return parsed_answers
@@ -341,9 +348,7 @@ def validate_answer_format(passage: str) -> bool:
     return True
 
 
-def compute_score(
-    prompt, solution_str, ground_truth, method="strict", format_score=0.0, score=1.0
-) -> Tuple[float, Dict[str, float]]:
+def compute_score(prompt, solution_str, ground_truth) -> Tuple[float, Dict[str, float]]:
     """The scoring function for GSM8k.
 
     Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
@@ -363,6 +368,7 @@ def compute_score(
     )  # output
     predicted_answer = parse_generation([solution_str])[0]
     reference_answer = parse_generation([ground_truth])[0]
+
     eval_result = {
         "input": prompt,
         "output": solution_str,
@@ -382,15 +388,15 @@ def compute_score(
     model_answer = solution_str
 
     # Step 0. Check if the model response is valid
-    if solution_str is None or validate_answer_format(solution_str) is False:
+    if validate_answer_format(solution_str) is False:
         if "<think>" in solution_str and "</think>" in solution_str:
-            eval_result["format_rewards"] = 0.25
+            eval_result["format_rewards"] = 0.0
         elif "<think>" in solution_str or "</think>" in solution_str:
-            eval_result["format_rewards"] = 0.125
+            eval_result["format_rewards"] = -0.5
         elif "<answer>" in solution_str and "</answer>" in solution_str:
-            eval_result["format_rewards"] = 0.25
+            eval_result["format_rewards"] = 0.0
         elif "<answer>" in solution_str or "</answer>" in solution_str:
-            eval_result["format_rewards"] = 0.125
+            eval_result["format_rewards"] = -0.5
         else:
             eval_result["format_rewards"] = -0.5
 
@@ -423,17 +429,13 @@ def compute_score(
         eval_result["format_rewards"] = -0.5
 
     # Step 2. Process the ground truth(s)
-    ground_truth = (
-        input.ground_truth.get("answer", None)
-        if isinstance(input.ground_truth, dict)
-        else input.ground_truth
-    )
+    ground_truth = reference_answer
     # keywords for process supervision
-    _ = (
-        input.ground_truth.get("keywords", None)
-        if isinstance(input.ground_truth, dict)
-        else None
-    )
+    # _ = (
+    # input.ground_truth.get("keywords", None)
+    # if isinstance(input.ground_truth, dict)
+    # else None
+    # )
     if ground_truth is None:
         eval_result["unk_error_rewards"] = -0.5
 
