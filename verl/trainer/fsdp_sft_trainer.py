@@ -196,12 +196,6 @@ class FSDPSFTTrainer(object):
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(config.model_type)
-
-        if self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(config, verbose=True)
 
         # This may be very large
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings,
@@ -213,6 +207,10 @@ class FSDPSFTTrainer(object):
                                                                                torch_dtype=torch.float32,
                                                                                attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
+
+            if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=self.model)
 
             # Apply Liger kernel if use_liger is enabled
             if self.config.model.get('use_liger', False):
