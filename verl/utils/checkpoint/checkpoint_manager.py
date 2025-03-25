@@ -46,7 +46,7 @@ class BaseCheckpointManager:
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
                  checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra']):
         self.previous_global_step = None
-        self.previous_saved_path = None
+        self.previous_saved_paths = []
 
         self.model = model
         self.optimizer = optimizer
@@ -72,17 +72,15 @@ class BaseCheckpointManager:
         assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"
         return True if local_path is not None else False, local_path if local_path is not None else hdfs_path
 
-    def remove_previous_save_local_path(self):
-        if not self.previous_saved_path:
-            return
-
-        abs_path = os.path.abspath(self.previous_saved_path)
-        print(f'Checkpoint manager remove previous save local path: {abs_path}')
-        if not os.path.exists(abs_path):
-            return
-
-        # remove previous local_path
-        shutil.rmtree(abs_path, ignore_errors=True)
+    def remove_previous_save_local_path(self, path):
+        if isinstance(path, str):
+            path = [path]
+        for p in path:
+            abs_path = os.path.abspath(p)
+            print(f'Checkpoint manager remove previous save local path: {abs_path}')
+            if not os.path.exists(abs_path):
+                continue
+            shutil.rmtree(abs_path, ignore_errors=True)
 
     @staticmethod
     def local_mkdir(path):
@@ -148,18 +146,3 @@ def get_checkpoint_tracker_filename(root_path: str):
     Tracker file rescords the latest chckpoint during training to restart from.
     """
     return os.path.join(root_path, "latest_checkpointed_iteration.txt")
-
-def cleanup_expired_checkpoints(checkpoint_dir: str, max_ckpt_to_keep: int, directory_format: str = "global_step_{}"):
-    if not max_ckpt_to_keep:
-        return
-    pattern = re.escape(directory_format).replace(r'\{\}', r'(\d+)')
-    ckpt_folders = []
-    for folder in os.listdir(checkpoint_dir):
-        if match := re.match(pattern, folder):
-            step = int(match.group(1))
-            ckpt_folders.append((step, folder))
-    ckpt_folders.sort(reverse=True)
-    for _, folder in ckpt_folders[max_ckpt_to_keep:]:
-        folder_path = os.path.join(checkpoint_dir, folder)
-        shutil.rmtree(folder_path)
-        print(f'Removed expired checkpoint: {folder_path}')

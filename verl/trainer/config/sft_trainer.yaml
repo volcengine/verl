@@ -42,5 +42,6 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
-  max_ckpt_to_keep: null
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
 
