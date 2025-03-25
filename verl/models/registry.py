@@ -19,7 +19,7 @@ import torch.nn as nn
 
 # Supported models using HF Rmpad
 # TODO(sgm): HF may supported more than listed here, we should add more after testing
-_MODELS_SUPPORT_RMPAD = {'llama', 'mistral', 'gemma', 'qwen2', 'qwen2_vl', 'qwen2_5_vl'}
+_MODELS_SUPPORT_RMPAD = {'llama', 'mistral', 'gemma', 'qwen2', 'qwen2_vl', 'qwen2_5_vl', 'internlm3'}
 
 
 def check_model_support_rmpad(model_type: str):
@@ -41,13 +41,16 @@ def check_model_support_rmpad(model_type: str):
 
 # Supported models in Megatron-LM
 # Architecture -> (module, class).
+# To use InternLM3, please set trust_remote_code=True and update vllm version to 0.8.1 or higher. Vllm now supports InternLM3.
 _MODELS = {
     "LlamaForCausalLM":
         ("llama", ("ParallelLlamaForCausalLMRmPadPP", "ParallelLlamaForValueRmPadPP", "ParallelLlamaForCausalLMRmPad")),
     "Qwen2ForCausalLM":
         ("qwen2", ("ParallelQwen2ForCausalLMRmPadPP", "ParallelQwen2ForValueRmPadPP", "ParallelQwen2ForCausalLMRmPad")),
     "MistralForCausalLM": ("mistral", ("ParallelMistralForCausalLMRmPadPP", "ParallelMistralForValueRmPadPP",
-                                       "ParallelMistralForCausalLMRmPad"))
+                                       "ParallelMistralForCausalLMRmPad")),
+    "InternLM3ForCausalLM":
+        ("internlm3", ("ParallelLlamaForCausalLMRmPadPP", "ParallelLlamaForValueRmPadPP", "ParallelLlamaForCausalLMRmPad")),
 }
 
 
