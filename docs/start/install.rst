@@ -22,7 +22,7 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 Install verl-SGLang from scratch
 -------------------------------------
 
-**SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.**
+**SGLang has largely supported the research and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. SGLang supports native API for RLHF, so you do not need to patch a single line of code.**
 
 The following steps are quick installation guide for verl-SGLang.
 
@@ -48,18 +48,17 @@ Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-
 
 1. Launch the desired Docker image:
 
-.. code:: bash
+   .. code:: bash
 
-    docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
+       docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
 
+2. Inside the container, install verl:
 
-2.	Inside the container, install verl:
+   .. code:: bash
 
-.. code:: bash
-
-    # install the nightly version (recommended)
-    git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
-    # or install from pypi via `pip3 install verl`
+       # install the nightly version (recommended)
+       git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+       # or install from pypi via `pip3 install verl`
 
 .. note::
     
