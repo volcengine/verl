@@ -114,15 +114,6 @@ class PRIMERewardModelWorker(Worker):
         reward_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         reward_model_config.num_labels = 1
 
-        use_remove_padding = config.model.get('use_remove_padding', False)
-        if use_remove_padding:
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(reward_model_config.model_type)
-
-        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(reward_model_config, verbose=True)
-
         init_context = get_init_weight_context_manager(use_meta_tensor=not reward_model_config.tie_word_embeddings)
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -133,6 +124,10 @@ class PRIMERewardModelWorker(Worker):
                                                                  config=reward_model_config,
                                                                  attn_implementation='flash_attention_2',
                                                                  trust_remote_code=trust_remote_code)
+
+            if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=reward_module)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
