@@ -195,6 +195,15 @@ class vLLMRollout(BaseRollout):
                 'prompt_token_ids': raw_prompt_ids
             } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
 
+        # ensure the type of `prompt_token_ids` passed to vllm is list[int]
+        # https://github.com/volcengine/verl/pull/772
+        for input_data in vllm_inputs:
+            if isinstance(input_data['prompt_token_ids'], np.ndarray):
+                input_data['prompt_token_ids'] = input_data['prompt_token_ids'].tolist()
+            elif not isinstance(input_data['prompt_token_ids'], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
+
         do_sample = prompts.meta_info.get('do_sample', True)
         is_validate = prompts.meta_info.get('validate', False)
         if not do_sample:
