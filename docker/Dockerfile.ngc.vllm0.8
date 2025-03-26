@@ -56,9 +56,11 @@ RUN pip uninstall -y transformer-engine flash-attn && \
 # Fix cv2
 RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --no-cache-dir nvidia-ml-py>=12.560.30 opencv-python-headless==4.8.0.74 fastapi==0.115.6 && \
-    pip install -U optree>=0.13.0
+    pip install --no-cache-dir --upgrade optree>=0.13.0
 
 # Install verl
-# RUN git clone https://github.com/volcengine/verl.git && \
-#     cd verl && \
-#     pip install --no-deps -e .
+RUN pip install --no-cache-dir verl[vllm] -U
+
+# Reset pip config
+RUN pip config unset global.index-url && \
+    pip config unset global.extra-index-url
