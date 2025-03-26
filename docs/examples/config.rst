@@ -177,6 +177,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.grad_clip``: Gradient clipping for actor
   updates
+- ``actor_rollout_ref.actor.use_kl_loss``: to use kl loss in actor. When used, we are not applying KL in the reward function.
 
 - ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
 
