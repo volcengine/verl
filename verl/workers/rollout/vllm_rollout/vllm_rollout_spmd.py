@@ -207,6 +207,15 @@ class vLLMRollout(BaseRollout):
                 'n': 1,  # if validate, already repeat in ray_trainer
             }
 
+        # ensure the type of `prompt_token_ids` passed to vllm is list[int]
+        # https://github.com/volcengine/verl/pull/772
+        for input_data in vllm_inputs:
+            if isinstance(input_data['prompt_token_ids'], np.ndarray):
+                input_data['prompt_token_ids'] = input_data['prompt_token_ids'].tolist()
+            elif not isinstance(input_data['prompt_token_ids'], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
+
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             outputs = self.inference_engine.generate(
