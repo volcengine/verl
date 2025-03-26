@@ -293,7 +293,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         we can throw an error to force user disable TP HybridEngine.
         """
 
-        if self.layer_name_mapping.get("qkv_layer_name") in name:
+        if self.layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
             # if the tensor is qkv, for each param on tp, split into q, k, v
             # concat q, k, v separately.
             q_lst = []
