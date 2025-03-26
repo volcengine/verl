@@ -171,7 +171,8 @@ class vLLMRollout(BaseRollout):
 
         non_tensor_batch = prompts.non_tensor_batch
         if 'raw_prompt_ids' not in non_tensor_batch:
-            non_tensor_batch['raw_prompt_ids'] = [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)]
+            non_tensor_batch['raw_prompt_ids'] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
 
         if batch_size != len(non_tensor_batch['raw_prompt_ids']):
             raise RuntimeError('vllm sharding manager is not work properly.')
