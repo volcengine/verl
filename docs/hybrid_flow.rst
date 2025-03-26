@@ -126,7 +126,7 @@ Worker definition
 
 .. _ActorRolloutRefWorker: https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py
 
-We take `ActorRolloutRefWorker <_ActorRolloutRefWorker>`_ for an exmaple.
+We take `ActorRolloutRefWorker <https://github.com/volcengine/verl/blob/main/verl/workers/fsdp_workers.py>`_ for an example.
 The APIs it should expose to the controller process are:
 
 - init_model: build the underlying model

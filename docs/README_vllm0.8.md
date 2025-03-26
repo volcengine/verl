@@ -42,3 +42,13 @@ and also **remove** the environment variable if it exists:
 ```bash
 export VLLM_ATTENTION_BACKEND=XFORMERS
 ```
+
+## Notes
+
+When you just directly upgrade vllm>=0.8, some dependency packages may undergo version changes. If you encounter the following problems:
+
+```bash
+in <module> from torch.multiprocessing.reductions import ForkingPickler ImportError: cannot import name 'ForkingPickler' from 'torch.multiprocessing.reductions' (/opt/conda/lib/python3.11/site-packages/torch/multiprocessing/reductions.py)
+```
+
+You need to upgrade `tensordict` to version 0.6.2 using the command `pip install tensordict==0.6.2`.

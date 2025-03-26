@@ -177,6 +177,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.grad_clip``: Gradient clipping for actor
   updates
+- ``actor_rollout_ref.actor.use_kl_loss``: to use kl loss in actor. When used, we are not applying KL in the reward function.
 
 - ``actor_rollout_ref.actor.clip_ratio``: PPO clip ratio
 
@@ -227,9 +228,7 @@ Actor/Rollout/Reference Policy
 
 **Rollout Model**
 
-- ``actor_rollout_ref.rollout.name``: hf/vllm. We use vLLM by default
-  because it's much efficient and our hybrid engine is implemented with
-  vLLM.
+- ``actor_rollout_ref.rollout.name``: hf/vllm/sglang.
 
 - Rollout (Auto-regressive) parameters. The key should be equal to the
   property name in vLLM's ``SamplingParams``.

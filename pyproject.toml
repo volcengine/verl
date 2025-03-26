@@ -56,7 +56,7 @@ test = [
 ]
 prime = ["pyext"]
 gpu = ["liger-kernel", "flash-attn"]
-sglang = ["sglang[all]>=0.4.3.post3", "torch-memory-saver>=0.0.3"]
+sglang = ["sglang[all]==0.4.4", "torch-memory-saver>=0.0.3"]
 math = ["math-verify"]  # Add math-verify as an optional dependency
 
 # URLs
