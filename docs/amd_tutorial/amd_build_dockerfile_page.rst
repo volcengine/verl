@@ -1,117 +1,206 @@
-Multinode Training
-==================
+Getting started with AMD (ROCM Kernel)
+=====================================================
 
-.. _wuxibin89: https://github.com/wuxibin89
+Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 
-Author: `Xibin Wu <https://github.com/wuxibin89>`_, `Yusheng Su <https://yushengsu-thu.github.io/>`_.
-
-Manual
-------
-
-Set up multinode ray cluster
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Start head node with ``ray start --head --dashboard-host=0.0.0.0``, there're 2 address you should care about:
-
-- GCS address: ``ray start --address=<address>``, where worker node should connect to.
-- Dashboard address: ``<address>:8265``, where you should submit job to the cluster.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/head.png?raw=true
-
-2. Start worker node with ``ray start --address=<address>`` you get above.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/worker.png?raw=true
-
-3. Now you should see the cluster have 2 nodes with ``ray status``.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/status.png?raw=true
-
-4. Additionally, you can access dashboard in the browser with the address you get above. 
-
-*Firewall rules maybe need configure to access the dashboard, if there's any trouble, please contact your network administrator.*
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/overview.png?raw=true
-
-Submit job to ray cluster
-~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Submit ray job to cluster with the dashboard address you get above.
-
-.. code-block:: bash
-
-    ray job submit --address="http://127.0.0.1:8265" \
-        --runtime-env=verl/trainer/runtime_env.yaml \
-        --no-wait \
-        -- \
-        python3 -m verl.trainer.main_ppo \
-        trainer.n_gpus_per_node=8 \
-        trainer.nnodes=2 \
-        ...
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/submit.png?raw=true
-
-2. Then you can check the job status with the following commands:
-
-- ray job list: list all jobs submitted to the cluster.
-- ray job logs <Submission ID>: query the logs of the job.
-- ray job status <Submission ID>: query the status of the job.
-- ray job stop <Submission ID>: request the job to be stopped.
-
-3. You can also access driver/task/actor logs in ``/tmp/ray/session_latest/logs/``, driver log is ``job-driver-raysubmit_<Submission ID>.log``.
-
-4. We strongly recommend you to view job detail from dashboard in multinode training, because it provide more structure way to view the job information.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job.png?raw=true
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job_detail.png?raw=true
-
-
-Slurm
+Setup
 -----
-TBD
 
-How to debug?
----------------------
+If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run VeRL. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting RLHF training.
 
-Legacy Ray Debugger
-~~~~~~~~~~~~~~~~~~~
-1. Ray has a builtin legacy `debugger <https://docs.ray.io/en/latest/ray-observability/user-guides/debug-apps/ray-debugging.html>`_ that allows you to debug your distributed applications. To enable debugger, start ray cluster with ``RAY_DEBUG=legacy`` and ``--ray-debugger-external``.
+
+
+docker/Dockerfile.rocm
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-    # start head node
-    RAY_DEBUG=legacy ray start --head --dashboard-host=0.0.0.0 --ray-debugger-external
-    # start worker node
-    RAY_DEBUG=legacy ray start --address='10.124.46.192:6379' --ray-debugger-external
+    #  Build the docker in the repo dir:
+    # docker build -f docker/Dockerfile.rocm -t verl-rocm:03.04.2015 .
+    # docker images # you can find your built docker
+    FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
 
-2. Set up breakpoint in your code, and submit job to cluster. Then run ``ray debug`` to wait breakpoint:
+    # Set working directory
+    # WORKDIR $PWD/app
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/legacy.png?raw=true
+    # Set environment variables
+    ENV PYTORCH_ROCM_ARCH="gfx90a;gfx942"
 
-Ray Distributed Debugger VSCode Extension
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # Install vllm
+    RUN pip uninstall -y vllm && \
+        rm -rf vllm && \
+        git clone -b v0.6.3 https://github.com/vllm-project/vllm.git && \
+        cd vllm && \
+        MAX_JOBS=$(nproc) python3 setup.py install && \
+        cd .. && \
+        rm -rf vllm
 
-1. Starting with Ray 2.39, Anyscale introduce a new `Ray Distributed Debugger <https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html>`_ VSCode extension. Please follow the instruction to install the extension, and then add cluster with the dashboard address you get above.
+    # Copy the entire project directory
+    COPY . .
 
-*NOTE: Don't forget remove RAY_DEBUG=legacy and --ray-debugger-external in ray start*
+    # Install dependencies
+    RUN pip install "tensordict<0.6" --no-deps && \
+        pip install accelerate \
+        codetiming \
+        datasets \
+        dill \
+        hydra-core \
+        liger-kernel \
+        numpy \
+        pandas \
+        peft \
+        "pyarrow>=15.0.0" \
+        pylatexenc \
+        "ray[data,train,tune,serve]" \
+        torchdata \
+        transformers \
+        wandb \
+        orjson \
+        pybind11 && \
+        pip install -e . --no-deps
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/debugger.png?raw=true
+Build the image:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-2. Set up breakpoint in your code, and submit job to cluster. Then the extension will show the breakpoint information.
+.. code-block:: bash
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/breakpoint.png?raw=true
+    docker build -t verl-rocm .
 
-
-
-
-
-
+Run the container
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
+Optional: Running without root and with user permissions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Multi-node training on AMD clusters
+.. code-block:: bash
+
+    docker run --rm -it \
+      --device /dev/dri \
+      --device /dev/kfd \
+      -p 8265:8265 \
+      --group-add video \
+      --cap-add SYS_PTRACE \
+      --security-opt seccomp=unconfined \
+      --privileged \
+      -v $HOME/.ssh:/root/.ssh \
+      -v $HOME:$HOME \
+      --shm-size 128G \
+      -w $PWD \
+      verl-rocm \
+      /bin/bash
+
+(Optional): If you do not want to root mode and require assign yuorself as the user
+Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above docker launch script. 
+
+Example
+-------
+
+Due to to special setting in AMD (ROCM) torch, you need to assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting Ray in VeRL's RLHF training.
+
+PPO
+~~~
+
+.. code-block:: bash
+
+    YOUR_PROJECT_NAME=r1-verl-ppo-upstream
+    YOUR_RUN_NAME=r1-training_ppo-upstream 
+    # export HYDRA_FULL_ERROR=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    GPUS_PER_NODE=8
+    MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
+    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+     data.train_files=data/gsm8k/train.parquet \
+     data.val_files=data/gsm8k/test.parquet \
+     data.train_batch_size=256 \
+     data.val_batch_size=1312 \
+     data.max_prompt_length=512 \
+     data.max_response_length=256 \
+     actor_rollout_ref.model.path=$MODEL_PATH \
+     actor_rollout_ref.actor.optim.lr=1e-6 \
+     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+     critic.optim.lr=1e-5 \
+     critic.model.path=$MODEL_PATH \
+     critic.ppo_micro_batch_size_per_gpu=4 \
+     algorithm.kl_ctrl.kl_coef=0.001 \
+     trainer.logger=['console'] \
+     trainer.project_name=$YOUR_PROJECT_NAME \
+     trainer.experiment_name=$YOUR_RUN_NAME \
+     +trainer.val_before_train=False \
+     trainer.default_hdfs_dir=null \
+     trainer.n_gpus_per_node=$GPUS_PER_NODE \
+     trainer.nnodes=1 \
+     trainer.save_freq=10 \
+     trainer.test_freq=10 \
+     trainer.total_epochs=15 #2>&1 | tee verl_demo.log
+
+GRPO
+~~~~
+
+.. code-block:: bash
+
+    YOUR_PROJECT_NAME=r1-verl-grpo-upstream
+    YOUR_RUN_NAME=r1-training_grpo-upstream
+    # export HYDRA_FULL_ERROR=1
+    # export FSDP_VERBOSE=1 
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    GPUS_PER_NODE=8
+    MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
+    # MODEL_PATH=Qwen/Qwen2-7B-Instruct
+    python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
+    python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    python3 -m verl.trainer.main_ppo \
+        algorithm.adv_estimator=grpo \
+        data.train_files=data/gsm8k/train.parquet \
+        data.val_files=data/gsm8k/test.parquet \
+        data.train_batch_size=1024 \
+        data.val_batch_size=1312 \
+        data.max_prompt_length=512 \
+        data.max_response_length=1024 \
+        actor_rollout_ref.model.path=$MODEL_PATH \
+        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.model.use_remove_padding=True \
+        actor_rollout_ref.actor.ppo_mini_batch_size=256 \
+        actor_rollout_ref.actor.use_dynamic_bsz=True \
+        actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24000 \
+        actor_rollout_ref.actor.use_kl_loss=True \
+        actor_rollout_ref.actor.kl_loss_coef=0.001 \
+        actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+        actor_rollout_ref.model.enable_gradient_checkpointing=Flase \
+        actor_rollout_ref.actor.fsdp_config.param_offload=False \
+        actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+        actor_rollout_ref.rollout.name=vllm \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+        actor_rollout_ref.rollout.n=5 \
+        actor_rollout_ref.ref.fsdp_config.param_offload=False \
+        algorithm.kl_ctrl.kl_coef=0.001 \
+        trainer.critic_warmup=0 \
+        trainer.logger=['console'] \
+        trainer.project_name=$YOUR_PROJECT_NAME \
+        trainer.experiment_name=$YOUR_RUN_NAME \
+        trainer.n_gpus_per_node=$GPUS_PER_NODE \
+        +trainer.val_before_train=False \
+        trainer.nnodes=1 \
+        trainer.save_freq=-1 \
+        trainer.test_freq=10 \
+        trainer.total_epochs=15
+
+
+
+Multi-node training: slurm with Docker/Podman container
 ---------------------------------------------------------------------------------------
 
-If you want to run multi-node training with slurm with Docker/Podman container on AMD Cluster, you can use the following script. 
-
-If you encounter any issues in using AMD GPUs running verl, please contact `Yusheng Su <https://yushengsu-thu.github.io/>`_.
+If you want to run multi-node training with slurm, you can use the following script. 
 
 .. note::
     1. You need to use ``podman`` or ``docker`` in the following script. We will release the apptainer script later.
@@ -412,7 +501,7 @@ slurm_script.sh
         trainer.total_epochs=15
 
 
-Run multi-node training with above slurm_script.sh
+Run slurm_script.sh
 ~~~~~~~~~~~~~~~~~~~~
 Just sbatch your slurm_script.sh
 
