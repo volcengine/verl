@@ -185,9 +185,10 @@ trainer:
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if
   resume_from_path: False
-  remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
   test_freq: 2
   critic_warmup: 0
   default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
