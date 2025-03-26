@@ -248,9 +248,9 @@ class SGLangRollout(BaseRollout):
         response = out[0].to(idx.device)
         log_probs = out[1].to(idx.device)
 
-        if response.shape[1] < pad_length:
-            response = pad_sequence_to_length(response, pad_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, pad_length, self.pad_token_id)
+        if response.shape[1] < self.config.response_length:
+            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
