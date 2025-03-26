@@ -62,7 +62,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
-                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  **kwargs):
 
         super().__init__(model,
@@ -228,8 +228,33 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
             if mpu.get_data_parallel_rank() == 0:
                 state_dicts = []
-                for model in self.model:
+
+                for vpp_rank, model in enumerate(self.model):
                     state_dict = model.state_dict()
+
+                    # modify layer numbers
+                    pp_rank = mpu.get_pipeline_model_parallel_rank()
+                    pp_size = mpu.get_pipeline_model_parallel_world_size()
+                    num_layer_per_pp = self.config.num_hidden_layers // pp_size
+                    vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+
+                    if vpp_size is not None:
+                        num_layer_vpp_chunk = num_layer_per_pp // vpp_size
+                        num_layer_this_model = num_layer_vpp_chunk
+                        offset = vpp_rank * (
+                                self.config.num_hidden_layers // vpp_size) + \
+                                    (pp_rank * num_layer_vpp_chunk)
+                    else:
+                        num_layer_this_model = num_layer_per_pp
+                        offset = pp_rank * num_layer_per_pp
+
+                    new_keys = []
+                    old_keys = state_dict.keys()
+                    for k in old_keys:
+                        layer_idx = int(k.split('.')[2])
+                        new_keys.append('.'.join(k.split('.')[:2] + [str(layer_idx + offset)] + k.split('.')[3:]))
+                    state_dict = {new_key: state_dict[old_key] for new_key, old_key in zip(new_keys, old_keys)}
+
                     state_dicts.append(state_dict)
 
                 print(f'Saving sharded model checkpoint to {local_path}')
