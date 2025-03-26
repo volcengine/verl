@@ -452,7 +452,7 @@ class ParallelQwen2ModelRmPadPP(nn.Module):
         for i in range(self.num_layer_this_model):
             layer = ParallelQwen2DecoderLayerRmPad(config, megatron_config)
             setattr(layer, 'hidden_layer_index', offset + i)
-            self.layers.add_module(f'{offset + i}', layer)
+            self.layers.add_module(f'{i}', layer)
 
         if post_process:
             self.norm = ParallelQwen2RMSNorm(config, megatron_config)

@@ -20,6 +20,7 @@ import argparse
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 from concurrent.futures import ThreadPoolExecutor
 from torch.distributed._tensor import DTensor, Shard, Placement
+from safetensors.torch import load_file
 
 from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_checkpoint_path
 
@@ -30,7 +31,7 @@ parser.add_argument('--local_dir', type = str, required=True, help="The path for
 parser.add_argument('--target_dir', required=False, default="tmp", type = str, help="The path for the target model")
 parser.add_argument("--hf_upload_path", default=False, type = str, help="The path of the huggingface repo to upload")
 parser.add_argument("--test", action="store_true", help="test correctness of hf_model")
-parser.add_argument("--test_hf_dir", type = str, required=False, help="test correctness of hf_model")
+parser.add_argument("--test_hf_dir", type = str, required=False, help="test correctness of hf_model, , with hf_model in checkpoint.contents")
 args = parser.parse_args()
 os.makedirs(args.target_dir, exist_ok=True)
 if args.test:
@@ -232,9 +233,9 @@ def convert_megatron_checkpoints_to_hfmodes():
     
     state_dict = {}
     config = AutoConfig.from_pretrained(args.hf_model_path)
+    print(f'config.tie_word_embeddings: {config.tie_word_embeddings}')
     if args.test:
-        ref_model = AutoModelForCausalLM.from_pretrained(args.test_hf_dir)
-        ref_state_dict = ref_model.state_dict()
+        ref_state_dict = load_file(os.path.join(args.test_hf_dir, 'model.safetensors'))
 
     for pp_rank in range(pp_size):
         print(f'pp_rank: {pp_rank}')
@@ -243,6 +244,9 @@ def convert_megatron_checkpoints_to_hfmodes():
             keys = state_dict_single_layer_iter.keys()
             for key in keys:
                 if "extra_state" in key:
+                    continue
+                if getattr(config, 'tie_word_embeddings', False) and ("lm_head" in key or "reward_head" in key):
+                    print(f'skip lm_head and reward_head loading because of tie_word_embeddings')
                     continue
                 if re.search(r"self_attn\.qkv_proj", key) is None and re.search(r"gate_up_proj", key) is None:
                     state_dict[key] = None
@@ -265,7 +269,6 @@ def convert_megatron_checkpoints_to_hfmodes():
                     if re.search(r"self_attn\.qkv_proj", key):
                         hidden_size_per_head = config.hidden_size // config.num_attention_heads
 
-                        print(f'config.num_key_value_heads: {config.num_key_value_heads}, tp_size: {tp_size}')
                         if config.num_key_value_heads >= tp_size:
                             q_size_tp = config.hidden_size // tp_size
                             kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
@@ -295,7 +298,6 @@ def convert_megatron_checkpoints_to_hfmodes():
                             state_dict[f'{preffix}.v_proj.{suffix}'] = v_part
                         else:
                             state_dict[f'{preffix}.v_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.v_proj.{suffix}'], v_part], dim=0)
-                        print(f'{key} q_part.shape: {q_part.shape}, k_part.shape: {k_part.shape}, v_part.shape: {v_part.shape}, tensor.shape: {tensor.shape}, state_dict.shape: {state_dict[f"{preffix}.q_proj.{suffix}"].shape}')
                     if "self_attn.o_proj.weight" in key:
                         if state_dict[key] is None:
                             state_dict[key] = tensor
@@ -326,29 +328,27 @@ def convert_megatron_checkpoints_to_hfmodes():
                     if "model.norm.weight" in key:
                         if state_dict[key] is None:
                             state_dict[key] = tensor
-                        else:
-                            print("second model.norm.weight")
-                            state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
-                    if "lm_head.weight" in key:
-                        if state_dict[key] is None:
+                    if not getattr(config, 'tie_word_embeddings', False):
+                        if "lm_head.weight" in key:
+                            if state_dict[key] is None:
+                                state_dict[key] = tensor
+                            else:
+                                state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
+                        if "reward_head.weight" in key:
                             state_dict[key] = tensor
-                        else:
-                            state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
-                    if "reward_head.weight" in key:
-                        state_dict[key] = tensor
     
     del model_state_dict_lst
     if args.test:
         for key in state_dict:
             if key not in ref_state_dict:
-                raise RuntimeError(f'key: {key} not exist in ref_state_dict')
+                raise RuntimeError(f'key: {key} not exist in ref_state_dict {state_dict[key]}')
             if state_dict[key].shape != ref_state_dict[key].shape:
                 raise RuntimeError(f'key: {key} shape mismatch {state_dict[key].shape}, {ref_state_dict[key].shape}')
+            assert state_dict[key].dtype == ref_state_dict[key].dtype, f'{key} state_dict[key].dtype: {state_dict[key].dtype} != ref_state_dict[key].dtype: {ref_state_dict[key].dtype}'
             torch.testing.assert_close(state_dict[key], ref_state_dict[key], atol=1e-4, rtol=1e-4)
-            print(f'{key}: {state_dict[key].shape}')
         for key in ref_state_dict:
             if key not in state_dict:
-                raise RuntimeError(f'key: {key} not exist in state_dict')
+                raise RuntimeError(f'key: {key} not exist in state_dict {ref_state_dict[key]}')
         
     
     print('Writing to local disk')

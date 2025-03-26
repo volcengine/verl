@@ -432,6 +432,9 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
                                       src_pp_rank=pp_size - 1)
 
             else:
+                if pp_rank == pp_size - 1:
+                    print(f'gpt_model_module.lm_head.weight: {gpt_model_module.lm_head.weight}')
+                print(gpt_model_module.lm_head)
                 _broadcast_tp_shard_tensor(
                     getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
                     "lm_head.weight",
