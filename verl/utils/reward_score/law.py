@@ -389,30 +389,34 @@ def compute_score(prompt, solution_str, ground_truth) -> Tuple[float, Dict[str, 
 
     # Step 0. Check if the model response is valid
     if validate_answer_format(solution_str) is False:
-        if "<think>" in solution_str and "</think>" in solution_str:
-            eval_result["format_rewards"] = 0.0
-        elif "<think>" in solution_str or "</think>" in solution_str:
-            eval_result["format_rewards"] = -0.5
-        elif "<answer>" in solution_str and "</answer>" in solution_str:
-            eval_result["format_rewards"] = 0.0
-        elif "<answer>" in solution_str or "</answer>" in solution_str:
-            eval_result["format_rewards"] = -0.5
-        else:
-            eval_result["format_rewards"] = -0.5
+        eval_result["format_rewards"] = 0.
+        # if "<think>" in solution_str and "</think>" in solution_str:
+            # eval_result["format_rewards"] = 0.0
+        # elif "<think>" in solution_str or "</think>" in solution_str:
+            # eval_result["format_rewards"] = -0.5
+        # elif "<answer>" in solution_str and "</answer>" in solution_str:
+            # eval_result["format_rewards"] = 0.0
+        # elif "<answer>" in solution_str or "</answer>" in solution_str:
+            # eval_result["format_rewards"] = -0.5
+        # else:
+            # eval_result["format_rewards"] = -0.5
 
     # Check if the model response is too long or too short
-    eval_result["length_rewards"] = grade_generation_length(solution_str)
+    # eval_result["length_rewards"] = grade_generation_length(solution_str)
+    eval_result["length_rewards"] = 0.
 
     # Step 1. check the language monotony / repetition reward of the model response
     language_monotony_score = grade_language_monotony(solution_str, language="zh")
     if not language_monotony_score:
-        eval_result["language_monotony_rewards"] = -0.5
+        # eval_result["language_monotony_rewards"] = -0.5
+        eval_result["language_monotony_rewards"] = 0.
 
     language_repetition_score = grade_language_repetition(
         solution_str, language="zh", ngram=1, tau=1.0, steepness=4.0
     )
     if language_repetition_score < -0.5:
-        eval_result["repetition_rewards"] = language_repetition_score
+        # eval_result["repetition_rewards"] = language_repetition_score
+        eval_result["repetition_rewards"] = 0.
 
     # Step 1. extract the answer from the model response
     if (
@@ -426,7 +430,8 @@ def compute_score(prompt, solution_str, ground_truth) -> Tuple[float, Dict[str, 
         or solution_str.count("</answer>") != 1
         or (solution_str.count("[刑期]") != 1 and solution_str.count("[金额]") != 1)
     ):
-        eval_result["format_rewards"] = -0.5
+        # eval_result["format_rewards"] = -0.5
+        eval_result["format_rewards"] = 0.
 
     # Step 2. Process the ground truth(s)
     ground_truth = reference_answer
@@ -462,7 +467,7 @@ def compute_score(prompt, solution_str, ground_truth) -> Tuple[float, Dict[str, 
         ) or grade_law_solution_by_process(model_answer, ground_truth)
         if is_soft_correct:
             eval_result["correctness_rewards"] = 1.0
-            eval_result["soft_exact_match"] += 1
+            eval_result["soft_exact_match"] += 1.0
             is_hard_correct = grade_law_solution_by_outcome(
                 model_answer,
                 ground_truth,
@@ -470,7 +475,7 @@ def compute_score(prompt, solution_str, ground_truth) -> Tuple[float, Dict[str, 
                 enable_fuzzy_match=False,
             ) or grade_law_solution_by_process(model_answer, ground_truth)
             if is_hard_correct:
-                eval_result["hard_exact_match"] += 1
+                eval_result["hard_exact_match"] += 1.0
 
     # Step 5. If all else fails, assign incorrect reward and return
     if eval_result["correctness_rewards"] == 0:
