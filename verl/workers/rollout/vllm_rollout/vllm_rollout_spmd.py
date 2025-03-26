@@ -181,10 +181,10 @@ class vLLMRollout(BaseRollout):
             vllm_inputs = []
             for raw_prompt_ids, multi_modal_data in zip(non_tensor_batch.pop('raw_prompt_ids'),
                                                         non_tensor_batch.pop('multi_modal_data')):
-                vllm_inputs.append({'prompt_token_ids': list(raw_prompt_ids), 'multi_modal_data': multi_modal_data})
+                vllm_inputs.append({'prompt_token_ids': raw_prompt_ids.tolist(), 'multi_modal_data': multi_modal_data})
         else:
             vllm_inputs = [{
-                'prompt_token_ids': list(raw_prompt_ids)
+                'prompt_token_ids': raw_prompt_ids.tolist()
             } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
 
         do_sample = prompts.meta_info.get('do_sample', True)
