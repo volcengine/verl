@@ -210,7 +210,6 @@ class SGLangRollout(BaseRollout):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
         do_sample = prompts.meta_info.get("do_sample", True)
-        pad_length = self.config.response_length
         if not do_sample:
             # kwargs = {
             #     'top_p': 1.0,
