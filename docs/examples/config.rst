@@ -212,7 +212,7 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
 - ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
-    specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+    specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
@@ -374,7 +374,7 @@ Algorithm
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
 - ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
-  specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+  specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
 - ``kl_ctrl``: Config for in-reward kl_penalty controller
   - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
