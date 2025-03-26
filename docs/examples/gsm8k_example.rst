@@ -96,6 +96,16 @@ We also provide various training scripts for SFT on GSM8K dataset in `gsm8k sft 
        trainer.total_epochs=4 \
        trainer.logger=['console','wandb']
 
+
+If you use AMD GPUs (ROCm kernel), you need to add the following environment variables into the run script:
+
+    .. code-block:: bash
+
+        export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+        export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+        export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+
 Step 4: Perform PPO training with your model on GSM8K Dataset
 -------------------------------------------------------------
 
@@ -166,3 +176,14 @@ The script of run_deepseek7b_llm.sh
       trainer.save_freq=-1 \
       trainer.test_freq=1 \
       trainer.total_epochs=15 $@
+
+
+If you use AMD GPUs (ROCm kernel), you need to add the following environment variables into the run script:
+
+    .. code-block:: bash
+
+        export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+        export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+        export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+If you encounter any issues in using AMD GPUs running VeRL, feel free to contact me - `Yusheng Su <https://yushengsu-thu.github.io/>`_.
