@@ -3,9 +3,7 @@ Multinode Training
 
 .. _wuxibin89: https://github.com/wuxibin89
 
-Author: `Xibin Wu <https://github.com/wuxibin89>`_
-
-Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_.
+Author: `Xibin Wu <https://github.com/wuxibin89>`_, `Yusheng Su <https://yushengsu-thu.github.io/>`_.
 
 Manual
 ------
@@ -108,12 +106,12 @@ Ray Distributed Debugger VSCode Extension
 
 
 
-(Multi-node training) on AMD Cluster
+Multi-node training on AMD clusters
 ---------------------------------------------------------------------------------------
 
 If you want to run multi-node training with slurm with Docker/Podman container on AMD Cluster, you can use the following script. 
 
-If you encounter any issues in using AMD GPUs running VeRL, feel free to contact me - `Yusheng Su <https://yushengsu-thu.github.io/>`_.
+If you encounter any issues in using AMD GPUs running verl, feel free to contact me - `Yusheng Su <https://yushengsu-thu.github.io/>`_.
 
 .. note::
     1. You need to use ``podman`` or ``docker`` in the following script. We will release the apptainer script later.
