@@ -22,10 +22,10 @@ pip3 install flash-attn --no-build-isolation
 
 ```
 
-We have a pre-built docker image for veRL+vLLM 0.8.0. You can direct import it with the following command:
+We have a pre-built docker image for veRL+vLLM 0.8.2. You can direct import it with the following command:
 
 ```bash
-docker pull hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.0
+docker pull hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
 ```
 
 ## Features
