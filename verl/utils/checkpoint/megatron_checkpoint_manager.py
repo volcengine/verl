@@ -208,7 +208,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 else:
                     num_layer_this_model = num_layer_per_pp
                     offset = pp_rank * num_layer_per_pp
-                
+
                 state_dict_old = state_dict.copy()
                 old_keys = state_dict_old.keys()
                 for k in old_keys:
@@ -253,10 +253,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
             if mpu.get_data_parallel_rank() == 0:
                 state_dicts = []
-                
+
                 for vpp_rank, model in enumerate(self.model):
                     state_dict = model.state_dict()
-                    
+
                     # modify layer numbers
                     pp_rank = mpu.get_pipeline_model_parallel_rank()
                     pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -272,7 +272,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     else:
                         num_layer_this_model = num_layer_per_pp
                         offset = pp_rank * num_layer_per_pp
-                    
+
                     state_dict_old = state_dict.copy()
                     old_keys = state_dict_old.keys()
                     for k in old_keys:
@@ -282,7 +282,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             state_dict[new_key] = state_dict[k]
                             if new_key != k:
                                 state_dict.pop(k)
-                        
+
                     state_dicts.append(state_dict)
 
                 print(f'Saving sharded model checkpoint to {local_path}')
@@ -306,7 +306,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                                            dtype=self.param_dtype,
                                            is_value_model=self.is_value_model,
                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
-            
+
             print(f'self.param_dtype: {self.param_dtype}')
             for key in state_dict.keys():
                 print(f'state_dict[key].dtype: {key} {state_dict[key].dtype}')
