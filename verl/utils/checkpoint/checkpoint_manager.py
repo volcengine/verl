@@ -21,6 +21,7 @@ import torch.distributed
 from transformers import PreTrainedTokenizer, ProcessorMixin
 import numpy as np
 import random
+import re
 
 
 class BaseCheckpointManager:
@@ -45,7 +46,7 @@ class BaseCheckpointManager:
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
                  checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra']):
         self.previous_global_step = None
-        self.previous_saved_path = None
+        self.previous_saved_paths = []
 
         self.model = model
         self.optimizer = optimizer
@@ -63,7 +64,7 @@ class BaseCheckpointManager:
                         local_path: str,
                         hdfs_path: str = None,
                         global_step: int = 0,
-                        remove_previous_ckpt: bool = False):
+                        max_ckpt_to_keep: int = None):
         raise NotImplementedError
 
     @staticmethod
@@ -71,17 +72,15 @@ class BaseCheckpointManager:
         assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"
         return True if local_path is not None else False, local_path if local_path is not None else hdfs_path
 
-    def remove_previous_save_local_path(self):
-        if not self.previous_saved_path:
-            return
-
-        abs_path = os.path.abspath(self.previous_saved_path)
-        print(f'Checkpoint manager remove previous save local path: {abs_path}')
-        if not os.path.exists(abs_path):
-            return
-
-        # remove previous local_path
-        shutil.rmtree(abs_path, ignore_errors=True)
+    def remove_previous_save_local_path(self, path):
+        if isinstance(path, str):
+            path = [path]
+        for p in path:
+            abs_path = os.path.abspath(p)
+            print(f'Checkpoint manager remove previous save local path: {abs_path}')
+            if not os.path.exists(abs_path):
+                continue
+            shutil.rmtree(abs_path, ignore_errors=True)
 
     @staticmethod
     def local_mkdir(path):
