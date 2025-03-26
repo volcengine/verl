@@ -17,7 +17,7 @@ Prerequisite:
 
 - the latest version of ``verl`` and its dependencies installed following the installation guide. Using the docker image is recommended.
 
-- an GPU with at least 24 GB HBM
+- a GPU with at least 24 GB HBM
 
 
 Dataset Introduction
@@ -70,7 +70,7 @@ answer from both the solution and model's output using regular
 expression matching. We assign a reward of 1 to correct
 answer, 0.1 to incorrect answer and 0 to no answer. 
 
-For mode details, please refer to `verl/utils/reward_score/gsm8k.py <https://github.com/volcengine/verl/blob/v0.1/verl/utils/reward_score/gsm8k.py>`_.
+For more details, please refer to `verl/utils/reward_score/gsm8k.py <https://github.com/volcengine/verl/blob/v0.1/verl/utils/reward_score/gsm8k.py>`_.
 
 **Training Script**
 
