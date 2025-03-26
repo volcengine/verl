@@ -132,7 +132,7 @@ def fit(self):
                     batch.batch['token_level_scores'] = reward_tensor
 
                     # compute rewards. apply_kl_penalty if available
-                    if self.config.algorithm.kl_ctrl.kl_coef > 1e-6:
+                    if self.config.algorithm.use_kl_in_reward:
                         batch, kl_metrics = apply_kl_penalty(batch,
                                                              kl_ctrl=self.kl_ctrl_in_reward,
                                                              kl_penalty=self.config.algorithm.kl_penalty)

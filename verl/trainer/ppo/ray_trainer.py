@@ -143,7 +143,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     response_mask = attention_mask[:, -response_length:]
 
     # compute kl between ref_policy and current policy
-    # When apply_kl_penalty, algorithm.kl_ctrl.kl_coef>1e-6
+    # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
     kld = core_algos.kl_penalty(data.batch['old_log_probs'], data.batch['ref_log_prob'],
                                 kl_penalty=kl_penalty)  # (batch_size, response_length)
     kld = kld * response_mask
@@ -265,7 +265,8 @@ class RayPPOTrainer(object):
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
-        self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
+        if config.algorithm.use_kl_in_reward:
+            self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
         if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
             self.use_critic = True
@@ -354,7 +355,7 @@ class RayPPOTrainer(object):
                 assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
-        if (config.algorithm.kl_ctrl.kl_coef > 1e-6 and config.actor_rollout_ref.actor.kl_loss_coef > 1e-6):
+        if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print(f"NOTICE: You have both enabled in-reward kl and kl loss.")
 
         # critic
@@ -883,7 +884,7 @@ class RayPPOTrainer(object):
                         batch.batch['token_level_scores'] = reward_tensor
 
                         # compute rewards. apply_kl_penalty if available
-                        if self.config.algorithm.kl_ctrl.kl_coef > 1e-6:
+                        if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(batch,
                                                                  kl_ctrl=self.kl_ctrl_in_reward,
                                                                  kl_penalty=self.config.algorithm.kl_penalty)

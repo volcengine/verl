@@ -54,17 +54,13 @@ class FixedKLController:
 
 
 def get_kl_controller(kl_ctrl):
-    if kl_ctrl.kl_coef > 1e-6:
-        if kl_ctrl.type == 'fixed':
-            return FixedKLController(kl_coef=kl_ctrl.kl_coef)
-        elif kl_ctrl.type == 'adaptive':
-            assert kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {kl_ctrl.horizon}'
-            return AdaptiveKLController(init_kl_coef=kl_ctrl.kl_coef,
-                                        target_kl=kl_ctrl.target_kl,
-                                        horizon=kl_ctrl.horizon)
-        else:
-            raise NotImplementedError
-    return FixedKLController(kl_coef=0.)
+    if kl_ctrl.type == 'fixed':
+        return FixedKLController(kl_coef=kl_ctrl.kl_coef)
+    elif kl_ctrl.type == 'adaptive':
+        assert kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {kl_ctrl.horizon}'
+        return AdaptiveKLController(init_kl_coef=kl_ctrl.kl_coef, target_kl=kl_ctrl.target_kl, horizon=kl_ctrl.horizon)
+    else:
+        raise NotImplementedError
 
 
 def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torch.Tensor, eos_mask: torch.Tensor,
