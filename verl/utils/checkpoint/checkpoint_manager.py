@@ -64,7 +64,7 @@ class BaseCheckpointManager:
                         local_path: str,
                         hdfs_path: str = None,
                         global_step: int = 0,
-                        remove_previous_ckpt: bool = False):
+                        max_ckpt_to_keep: int = None):
         raise NotImplementedError
 
     @staticmethod
