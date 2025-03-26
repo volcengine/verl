@@ -15,7 +15,7 @@ cd verl
 pip3 install -e .
 
 # Install the latest stable version of vLLM
-pip3 install vllm==0.8.1
+pip3 install vllm==0.8.2
 
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
