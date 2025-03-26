@@ -209,9 +209,9 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.use_kl_loss``: Whether to enable kl loss. Default is False.
 
-- ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. Will be set to 0 when ``actor_rollout_ref.actor.use_kl_loss``=False.  If \> 1e-6, kl loss will be enabled.
+- ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
-- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
     specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
@@ -222,7 +222,7 @@ Actor/Rollout/Reference Policy
 
 **Reference Model**
 
-Reference model will be enabled when ``actor.kl_loss_coef`` or/and ``algorithm.kl_ctrl.kl_coef`` \> 1e-6
+Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.use_kl_in_reward`` is/are True.
 
 - ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
   larger than 7B, it's recommended to turn on offload for ref by
@@ -360,6 +360,7 @@ Algorithm
      gamma: 1.0
      lam: 1.0
      adv_estimator: gae
+     use_kl_in_reward: False
      kl_penalty: kl  # how to estimate kl divergence
      kl_ctrl:
        type: fixed
@@ -370,11 +371,12 @@ Algorithm
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``rloo``
-- ``kl_penalty``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
+- ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
+- ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
   specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
 - ``kl_ctrl``: Config for in-reward kl_penalty controller
-  - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0. If \> 1e-6, in-reward kl penalty will be enabled.
+  - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
 
