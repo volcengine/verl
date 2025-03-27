@@ -39,11 +39,12 @@ TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
 # Algorithm
+temperature=1.0
+top_p=1.0
+top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 ## Train
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 20))
-## Validation
-val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
 
 # Performance Related Parameter
@@ -100,11 +101,14 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
-    actor_rollout_ref.rollout.val_kwargs.top_k="${val_top_k}" \
-    actor_rollout_ref.rollout.val_kwargs.top_p=1.0 \
-    actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
-    actor_rollout_ref.rollout.val_kwargs.n=1 \
+    actor_rollout_ref.rollout.temperature=${temperature} \
+    actor_rollout_ref.rollout.top_p=${top_p} \
+    actor_rollout_ref.rollout.top_k="${top_k}" \
+    actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
+    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p} \
+    actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
