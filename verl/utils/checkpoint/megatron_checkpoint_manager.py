@@ -194,20 +194,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
             for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
                 # modify layer numbers
-                pp_rank = mpu.get_pipeline_model_parallel_rank()
-                pp_size = mpu.get_pipeline_model_parallel_world_size()
-                num_layer_per_pp = self.hf_config.num_hidden_layers // pp_size
-                vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
-
-                if vpp_size is not None:
-                    num_layer_vpp_chunk = num_layer_per_pp // vpp_size
-                    num_layer_this_model = num_layer_vpp_chunk
-                    offset = vpp_rank * (
-                            self.hf_config.num_hidden_layers // vpp_size) + \
-                                (pp_rank * num_layer_vpp_chunk)
-                else:
-                    num_layer_this_model = num_layer_per_pp
-                    offset = pp_rank * num_layer_per_pp
+                offset = model.layers[0].layer_idx
 
                 state_dict_old = state_dict.copy()
                 old_keys = state_dict_old.keys()
@@ -256,23 +243,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
                 for vpp_rank, model in enumerate(self.model):
                     state_dict = model.state_dict()
-
+                    
                     # modify layer numbers
-                    pp_rank = mpu.get_pipeline_model_parallel_rank()
-                    pp_size = mpu.get_pipeline_model_parallel_world_size()
-                    num_layer_per_pp = self.hf_config.num_hidden_layers // pp_size
-                    vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
-
-                    if vpp_size is not None:
-                        num_layer_vpp_chunk = num_layer_per_pp // vpp_size
-                        num_layer_this_model = num_layer_vpp_chunk
-                        offset = vpp_rank * (
-                                self.hf_config.num_hidden_layers // vpp_size) + \
-                                    (pp_rank * num_layer_vpp_chunk)
-                    else:
-                        num_layer_this_model = num_layer_per_pp
-                        offset = pp_rank * num_layer_per_pp
-
+                    offset = model.layers[0].layer_idx
                     state_dict_old = state_dict.copy()
                     old_keys = state_dict_old.keys()
                     for k in old_keys:
@@ -282,7 +255,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             state_dict[new_key] = state_dict[k]
                             if new_key != k:
                                 state_dict.pop(k)
-
+                    
                     state_dicts.append(state_dict)
 
                 print(f'Saving sharded model checkpoint to {local_path}')

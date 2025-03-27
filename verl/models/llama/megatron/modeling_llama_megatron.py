@@ -451,8 +451,7 @@ class ParallelLlamaModelRmPadPP(nn.Module):
 
         self.layers = nn.ModuleList()
         for i in range(self.num_layer_this_model):
-            layer = ParallelLlamaDecoderLayerRmPad(config, megatron_config)
-            setattr(layer, 'hidden_layer_index', offset + i)
+            layer = ParallelLlamaDecoderLayerRmPad(config, megatron_config, layer_idx=offset + i)
             self.layers.add_module(f'{i}', layer)
 
         if post_process:
