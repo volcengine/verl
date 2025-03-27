@@ -374,7 +374,7 @@ class FSDPSFTTrainer(object):
                 else:
                     dp_size = 1
 
-                loss = torch.sum(loss) / valid_token_this_rank * dp_size
+                loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
 
                 if do_backward:
                     loss.backward()
