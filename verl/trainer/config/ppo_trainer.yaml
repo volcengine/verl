@@ -6,7 +6,6 @@ data:
   reward_fn_key: data_source
   max_prompt_length: 512
   max_response_length: 512
-  gen_batch_size: ${data.train_batch_size}
   train_batch_size: 1024
   val_batch_size: null # DEPRECATED: Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves
   return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
@@ -173,11 +172,6 @@ reward_model:
 custom_reward_function:
   path: null
   name: compute_score
-  overlong_buffer: 
-    enable: False # We try to avoid forgetting to set enable
-    len: 0
-    penalty_factor: 0.0
-    log: False
 
 algorithm:
   gamma: 1.0
@@ -187,10 +181,6 @@ algorithm:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
-  filter_groups:
-    enable: False # We try to avoid forgetting to set enable
-    metric: null # acc / score / seq_reward / seq_final_reward / ...
-    max_num_gen_batches: 0 # Non-positive values mean no upper limit
 
 trainer:
   balance_batch: True
