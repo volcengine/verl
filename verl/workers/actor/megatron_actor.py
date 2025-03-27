@@ -277,6 +277,8 @@ class MegatronPPOActor(BasePPOActor):
 
             clip_ratio = meta_info['clip_ratio']
             entropy_coeff = meta_info['entropy_coeff']
+            use_dual_clip = meta_info['use_dual_clip']
+            clip_ratio_c = meta_info['clip_ratio_c']
 
             # compute policy loss
             logits = output.logits
@@ -288,7 +290,9 @@ class MegatronPPOActor(BasePPOActor):
                                                                           log_prob=log_prob,
                                                                           advantages=advantages,
                                                                           eos_mask=response_mask,
-                                                                          cliprange=clip_ratio)
+                                                                          cliprange=clip_ratio,
+                                                                          use_dual_clip=use_dual_clip,
+                                                                          clip_ratio_c=clip_ratio_c)
             entropy_loss = vocab_parallel_compute_entropy_loss(logits, eos_mask=response_mask)
             policy_loss = pg_loss - entropy_loss * entropy_coeff
 
@@ -324,7 +328,14 @@ class MegatronPPOActor(BasePPOActor):
             if forward_only:
                 meta_info = None
             else:
-                meta_info = {'clip_ratio': self.config.clip_ratio, 'entropy_coeff': self.config.entropy_coeff}
+                use_dual_clip = self.config.get('use_dual_clip', False)
+                clip_ratio_c = self.config.get('clip_ratio_c', 3)
+                meta_info = {
+                    'clip_ratio': self.config.clip_ratio,
+                    'entropy_coeff': self.config.entropy_coeff,
+                    'use_dual_clip': use_dual_clip,
+                    'clip_ratio_c': clip_ratio_c
+                }
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 
         # batch should be a list of batches inside micro-batches

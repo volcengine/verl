@@ -269,7 +269,7 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange):
+def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange, use_dual_clip=False, clip_ratio_c=3):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
 
     Args:
@@ -283,13 +283,18 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
             shape: (bs, response_length)
         cliprange: (float)
             The clip range used in PPO. See https://arxiv.org/abs/1707.06347
+        use_dual_clip: (float)
+            The use_dual_clip ppo. See https://arxiv.org/pdf/1912.09729
+        clip_ratio_c: (float)
+            THe lower bound of the ratio, defalut 3. See https://arxiv.org/pdf/1912.09729
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
             policy gradient loss computed via PPO
         pg_clipfrac: (float)
             a float number indicating the fraction of policy gradient loss being clipped
-
+        ppo_kl: (float)
+            the estimated KL divergence between the latest updating policy and the old sampling policy
     """
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
@@ -297,9 +302,13 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
 
     pg_losses = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
-
-    pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
+    if not use_dual_clip:
+        pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
+    else:
+        pg_losses3 = -advantages * clip_ratio_c
+        pg_loss = verl_F.masked_mean(torch.min(pg_losses3, torch.max(pg_losses, pg_losses2)), eos_mask)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
+
     return pg_loss, pg_clipfrac, ppo_kl
 
 
