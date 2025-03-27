@@ -13,8 +13,6 @@ OUTPUT_FILE="$(pwd)/output_custom_reward.txt"
 FUNCTION_NAME="my_reward_function"
 rm -rf $OUTPUT_FILE
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
-
 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \

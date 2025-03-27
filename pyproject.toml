@@ -16,52 +16,12 @@ name = "verl"
 # We'll mark the version as "dynamic" because it's read from the file "verl/version/version" 
 # (PEP 621 calls this "dynamic version"). 
 # The actual version is specified in the [tool.setuptools.dynamic] section below.
-dynamic = ["version"]
+dynamic = ["version", "dependencies", "optional-dependencies", "authors", "urls"]
 
 description = "verl: Volcano Engine Reinforcement Learning for LLM"
 license = {file = "LICENSE"}  # or "Apache-2.0", if you prefer an SPDX identifier
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
-
-authors = [
-  { name = "Bytedance - Seed - MLSys", email = "zhangchi.usc1992@bytedance.com" },
-  { name = "Bytedance - Seed - MLSys", email = "gmsheng@connect.hku.hk" },
-]
-
-# Dependencies corresponding to install_requires in setup.py
-dependencies = [
-    "accelerate",
-    "codetiming",
-    "datasets",
-    "dill",
-    "hydra-core",
-    "numpy",
-    "pandas",
-    "peft",
-    "pyarrow>=15.0.0",
-    "pybind11",
-    "pylatexenc",
-    "ray>=2.10",
-    "tensordict<0.6",
-    "torchdata",
-    "transformers",
-    "vllm<=0.6.3",
-    'wandb',
-]
-
-# Optional dependencies (extras_require in setup.py)
-[project.optional-dependencies]
-test = [
-  "pytest", "yapf", "py-spy",
-]
-prime = ["pyext"]
-gpu = ["liger-kernel", "flash-attn"]
-sglang = ["sglang[all]==0.4.4"]
-math = ["math-verify"]  # Add math-verify as an optional dependency
-
-# URLs
-[project.urls]
-Homepage = "https://github.com/volcengine/verl"
 
 # -------------------------------
 # tool.setuptools - Additional config

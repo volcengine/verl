@@ -1,6 +1,5 @@
 set -x
 ENGINE=${1:-vllm}
-export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
@@ -36,5 +35,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=1 \
-    trainer.default_local_dir=$HOME/$ENGINE/ckpt/ \
+    trainer.resume_mode=disable \
     trainer.total_training_steps=1
