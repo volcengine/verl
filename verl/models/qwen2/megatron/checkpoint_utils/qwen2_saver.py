@@ -420,21 +420,15 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
             print_rank_0("collecting lm_head...")
 
             if is_value_model:
-                if getattr(gpt_model_module, "lm_head", None) is not None:
-                    lm_head_weight = getattr(gpt_model_module.lm_head, "weight", None)
-                    _broadcast_tensor(lm_head_weight if pp_rank == pp_size - 1 else None,
-                                      "lm_head.weight",
-                                      src_pp_rank=pp_size - 1)
-                if getattr(gpt_model_module, "reward_head", None) is not None:
-                    reward_head_weight = getattr(gpt_model_module.reward_head, "weight", None)
-                    _broadcast_tensor(reward_head_weight if pp_rank == pp_size - 1 else None,
-                                      "reward_head.weight",
-                                      src_pp_rank=pp_size - 1)
+                _broadcast_tensor(gpt_model_module.lm_head.weight if pp_rank == pp_size - 1 else None,
+                                  "lm_head.weight",
+                                  src_pp_rank=pp_size - 1)
+                _broadcast_tensor(gpt_model_module.reward_head.weight if pp_rank == pp_size - 1 and
+                                  getattr(gpt_model_module, "reward_weight", None) is not None else None,
+                                  "reward_head.weight",
+                                  src_pp_rank=pp_size - 1)
 
             else:
-                if pp_rank == pp_size - 1:
-                    print(f'gpt_model_module.lm_head.weight: {gpt_model_module.lm_head.weight}')
-                print(gpt_model_module.lm_head)
                 _broadcast_tp_shard_tensor(
                     getattr(gpt_model_module.lm_head, "weight", None) if pp_rank == pp_size - 1 else None,
                     "lm_head.weight",
