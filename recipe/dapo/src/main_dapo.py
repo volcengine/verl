@@ -14,7 +14,7 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
-from .ray_trainer import RayPPOTrainer
+from .dapo_ray_trainer import RayDAPOTrainer
 
 import os
 import ray
@@ -172,14 +172,14 @@ class TaskRunner:
                                            overlong_buffer_cfg=config.custom_reward_function.overlong_buffer)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RayPPOTrainer(config=config,
-                                tokenizer=tokenizer,
-                                processor=processor,
-                                role_worker_mapping=role_worker_mapping,
-                                resource_pool_manager=resource_pool_manager,
-                                ray_worker_group_cls=ray_worker_group_cls,
-                                reward_fn=reward_fn,
-                                val_reward_fn=val_reward_fn)
+        trainer = RayDAPOTrainer(config=config,
+                                 tokenizer=tokenizer,
+                                 processor=processor,
+                                 role_worker_mapping=role_worker_mapping,
+                                 resource_pool_manager=resource_pool_manager,
+                                 ray_worker_group_cls=ray_worker_group_cls,
+                                 reward_fn=reward_fn,
+                                 val_reward_fn=val_reward_fn)
         trainer.init_workers()
         trainer.fit()
 
