@@ -89,7 +89,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.rank = torch.distributed.get_rank()
 
         self.weight_saver = get_weight_saver(self.arch)
-        self.weight_loader = get_weight_loader(self.arch)
 
     def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """ collect rng state across data parallel ranks """
