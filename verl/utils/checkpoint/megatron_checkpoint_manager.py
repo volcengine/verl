@@ -246,7 +246,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
                 for vpp_rank, model in enumerate(self.model):
                     state_dict = model.state_dict()
-                    
+
                     # modify layer numbers
                     offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
                     state_dict_old = state_dict.copy()
@@ -258,7 +258,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             state_dict[new_key] = state_dict[k]
                             if new_key != k:
                                 state_dict.pop(k)
-                    
+
                     state_dicts.append(state_dict)
 
                 print(f'Saving sharded model checkpoint to {local_path}')
