@@ -332,10 +332,9 @@ def convert_megatron_checkpoints_to_hfmodes():
                         if "lm_head.weight" in key:
                             if state_dict[key] is None:
                                 state_dict[key] = tensor
-                            else:
-                                state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
                         if "reward_head.weight" in key:
-                            state_dict[key] = tensor
+                            if state_dict[key] is None:
+                                state_dict[key] = tensor
     
     del model_state_dict_lst
     if args.test:
@@ -384,5 +383,3 @@ if __name__ == '__main__':
         convert_megatron_checkpoints_to_hfmodes()
     else:
         raise NotImplementedError(f"{args.backend} not supported")
-
-
