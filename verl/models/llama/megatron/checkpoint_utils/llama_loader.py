@@ -229,22 +229,25 @@ def load_state_dict_to_megatron_llama(state_dict,
         layer_map = _megatron_calc_layer_map(config)
         
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_size = mpu.get_pipeline_model_parallel_world_size
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
         num_layer_per_pp = config.num_hidden_layers // pp_size
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
 
+        layer_list = []
         if vpp_size is not None:
-            num_layer_vpp_chunk = num_layer_per_pp // vpp_size
-            num_layer_this_model = num_layer_vpp_chunk
-            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()
-            offset = vpp_rank * (
-                    config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
-                        (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+            for vpp_rank in range(vpp_size):
+                num_layer_vpp_chunk = num_layer_per_pp // vpp_size
+                num_layer_this_model = num_layer_vpp_chunk
+                offset = vpp_rank * (
+                        config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
+                            (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+                layer_list.extend(list(range(offset, offset + num_layer_this_model)))
         else:
             num_layer_this_model = num_layer_per_pp
             offset = pp_rank * num_layer_per_pp
+            layer_list.extend(list(range(offset, offset + num_layer_this_model)))
 
-        for layer in range(offset, offset + num_layer_this_model):
+        for layer in layer_list:
             print_rank_0(f"loading layer #{layer}...")
             layer_name = f"model.layers.{layer}"
             dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]

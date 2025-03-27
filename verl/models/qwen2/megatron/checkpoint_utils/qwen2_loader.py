@@ -101,7 +101,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         """broadcast tensor"""
         nonlocal state_dict
         if tensor is not None:
-            tensor.data.copy_(state_dict[name])
+            tensor = tensor.data.copy_(state_dict[name], non_blocking=True)
 
     def _broadcast_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
         """broadcast tensor in tp shards"""
@@ -115,7 +115,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
                 full_weight = mutate_func(full_weight)
             tensor_chunk = torch.chunk(full_weight, tp_size, dim=chunk_dim)
             if tensor is not None:
-                tensor.data.copy_(tensor_chunk[tp_rank])
+                tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
@@ -132,7 +132,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
             tensor_chunk = torch.chunk(full_weight, tp_size, dim=chunk_dim)
             tensor.data.copy_(tensor_chunk[tp_rank])
             if tensor is not None:
-                tensor.data.copy_(tensor_chunk[tp_rank])
+                tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
@@ -158,7 +158,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
 
             tensor_chunk = torch.chunk(new_gate_up_weight, tp_size, dim=0)
             if tensor is not None:
-                tensor.data.copy_(tensor_chunk[tp_rank])
+                tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
         else:
             print(f"tp_shard tensor:[{gate_name}, {up_name}] not in state_dict, skip loading")
 
@@ -219,42 +219,46 @@ def load_state_dict_to_megatron_qwen2(state_dict,
 
         tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)
         if tensor is not None:
-            tensor.data.copy_(tensor_chunk[tp_rank])
+            tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
 
     if dp_rank == 0:
         # Embeddings
         # -------------------
         print_rank_0("loading embeddings...")
         gpt_model_module = _get_gpt_model(models[0])
-        embed_tokens_weight = None
         if pp_rank == 0:
             embed_tokens_weight = gpt_model_module.model.embed_tokens.weight
-        _broadcast_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
+            _broadcast_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
 
         # Transformer layers
         # -------------------
         layer_map = _megatron_calc_layer_map(config)
         
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_size = mpu.get_pipeline_model_parallel_world_size
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
         num_layer_per_pp = config.num_hidden_layers // pp_size
         vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
 
+        layer_list = []
         if vpp_size is not None:
-            num_layer_vpp_chunk = num_layer_per_pp // vpp_size
-            num_layer_this_model = num_layer_vpp_chunk
-            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()
-            offset = vpp_rank * (
-                    config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
-                        (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+            for vpp_rank in range(vpp_size):
+                num_layer_vpp_chunk = num_layer_per_pp // vpp_size
+                num_layer_this_model = num_layer_vpp_chunk
+                offset = vpp_rank * (
+                        config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
+                            (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+                layer_list.extend(list(range(offset, offset + num_layer_this_model)))
         else:
             num_layer_this_model = num_layer_per_pp
             offset = pp_rank * num_layer_per_pp
+            layer_list.extend(list(range(offset, offset + num_layer_this_model)))
 
-        for layer in range(offset, offset + num_layer_this_model):
+        for layer in layer_list:
             print(f"{torch.distributed.get_rank()} loading layer #{layer}...")
             layer_name = f"model.layers.{layer}"
             dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
+
+            print(f'{torch.distributed.get_rank()} offset: {offset}, num_layer_this_model: {num_layer_this_model}, layer_name: {layer_name}, layer_map[layer]: {layer_map[layer]}')
 
             gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
             sync_layer = gpt_model_module.model.layers[dst_layer_idx]
