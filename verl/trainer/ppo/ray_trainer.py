@@ -870,24 +870,21 @@ class RayPPOTrainer(object):
         self.global_steps += 1
         last_val_metrics = None
 
-        timing_raw = defaultdict(float)
-        batch = None
-        num_prompt_in_batch = 0
-        num_gen_batches = 0
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
+                timing_raw = {}
 
-                new_batch: DataProto = DataProto.from_single_dict(batch_dict)
-                num_gen_batches += 1
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
+
                 # pop those keys for generation
-                if 'multi_modal_inputs' in new_batch.non_tensor_batch.keys():
-                    gen_batch = new_batch.pop(
+                if 'multi_modal_inputs' in batch.non_tensor_batch.keys():
+                    gen_batch = batch.pop(
                         batch_keys=['input_ids', 'attention_mask', 'position_ids'],
                         non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                     )
                 else:
-                    gen_batch = new_batch.pop(
+                    gen_batch = batch.pop(
                         batch_keys=['input_ids', 'attention_mask', 'position_ids'],
                         non_tensor_batch_keys=['raw_prompt_ids'],
                     )
@@ -905,111 +902,21 @@ class RayPPOTrainer(object):
                             gen_baseline_batch.meta_info['do_sample'] = False
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
-                            new_batch = new_batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(new_batch)
+                            batch = batch.union(gen_baseline_output)
+                            reward_baseline_tensor = self.reward_fn(batch)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                            new_batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
 
-                            new_batch.batch['reward_baselines'] = reward_baseline_tensor
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    new_batch.non_tensor_batch['uid'] = np.array(
-                        [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object)
+                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                                                             dtype=object)
                     # repeat to align with repeated responses in rollout
-                    new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    new_batch = new_batch.union(gen_batch_output)
-
-                    with _timer('reward', timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(new_batch)
-                            new_batch = new_batch.union(reward_tensor)
-
-                        # we combine with rule-based rm
-                        reward_extra_infos_dict: dict[str, list]
-                        try:
-                            reward_result = self.reward_fn(new_batch, return_dict=True)
-                            reward_tensor = reward_result['reward_tensor']
-                            reward_extra_infos_dict = reward_result['reward_extra_info']
-                        except Exception as e:
-                            print(f'Error in reward_fn: {e}')
-                            reward_tensor = self.reward_fn(new_batch)
-                            reward_extra_infos_dict = {}
-
-                        new_batch.batch['token_level_scores'] = reward_tensor
-
-                        print(f'{list(reward_extra_infos_dict.keys())=}')
-                        if reward_extra_infos_dict:
-                            new_batch.non_tensor_batch.update({
-                                k: np.array(v) for k, v in reward_extra_infos_dict.items()
-                            })
-
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                            new_batch, kl_metrics = apply_kl_penalty(new_batch,
-                                                                     kl_ctrl=self.kl_ctrl,
-                                                                     kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(
-                                kl_metrics)  # TODO: This will be cleared if we use multiple genenration batches
-                        else:
-                            new_batch.batch['token_level_rewards'] = new_batch.batch['token_level_scores']
-
-                    if not self.config.algorithm.filter_groups.enable:
-                        batch = new_batch
-                    else:  # NOTE: When prompts after filtering is less than train batch size, we skip to the next generation batch
-                        metric_name = self.config.algorithm.filter_groups.metric
-                        if metric_name == "seq_final_reward":
-                            # Turn to numpy for easier filtering
-                            new_batch.non_tensor_batch["seq_final_reward"] = new_batch.batch['token_level_scores'].sum(
-                                dim=-1).numpy()
-                        elif metric_name == "seq_reward":
-                            new_batch.non_tensor_batch["seq_reward"] = new_batch.batch['token_level_scores'].sum(
-                                dim=-1).numpy()
-
-                        # Collect the sequence reward for each trajectory
-                        prompt_uid2metric_vals = defaultdict(list)
-                        for uid, metric_val in zip(new_batch.non_tensor_batch['uid'],
-                                                   new_batch.non_tensor_batch[metric_name]):
-                            prompt_uid2metric_vals[uid].append(metric_val)
-
-                        prompt_uid2metric_std = {}
-                        for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
-                            prompt_uid2metric_std[prompt_uid] = np.std(metric_vals)
-
-                        kept_prompt_uids = [uid for uid, std in prompt_uid2metric_std.items() if std > 0]
-                        num_prompt_in_batch += len(kept_prompt_uids)
-
-                        kept_traj_idxs = []
-                        for idx, traj_from_prompt_uid in enumerate(new_batch.non_tensor_batch['uid']):
-                            if traj_from_prompt_uid in kept_prompt_uids:
-                                kept_traj_idxs.append(idx)
-
-                        new_batch = new_batch[kept_traj_idxs]
-                        if batch is None:
-                            batch = new_batch
-                        else:
-                            batch = DataProto.concat([batch, new_batch])
-
-                        prompt_bsz = self.config.data.train_batch_size
-                        if num_prompt_in_batch < prompt_bsz:
-                            print(f'{num_prompt_in_batch=} < {prompt_bsz=}')
-                            max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
-                            if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
-                                print(f'{num_gen_batches=}. Keep generating...')
-                                continue
-                            else:
-                                raise ValueError(
-                                    f'{num_gen_batches=} >= {max_num_gen_batches=}. Generated too many. Please check your data.'
-                                )
-                        else:
-                            # Align the batch
-                            traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
-                            batch = batch[:traj_bsz]
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    batch = batch.union(gen_batch_output)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -1038,6 +945,40 @@ class RayPPOTrainer(object):
                             batch = batch.union(values)
 
                     with _timer('adv', timing_raw):
+                        # compute scores. Support both model and function-based.
+                        # We first compute the scores using reward model. Then, we call reward_fn to combine
+                        # the results from reward model and rule-based results.
+                        if self.use_rm:
+                            # we first compute reward model score
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        # we combine with rule-based rm
+                        reward_extra_infos_dict: dict[str, list]
+                        try:
+                            reward_result = self.reward_fn(batch, return_dict=True)
+                            reward_tensor = reward_result['reward_tensor']
+                            reward_extra_infos_dict = reward_result['reward_extra_info']
+                        except Exception as e:
+                            print(f'Error in reward_fn: {e}')
+                            reward_tensor = self.reward_fn(batch)
+                            reward_extra_infos_dict = {}
+
+                        batch.batch['token_level_scores'] = reward_tensor
+
+                        print(f'{list(reward_extra_infos_dict.keys())=}')
+                        if reward_extra_infos_dict:
+                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+
+                        # compute rewards. apply_kl_penalty if available
+                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                 kl_ctrl=self.kl_ctrl,
+                                                                 kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        else:
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
@@ -1080,12 +1021,6 @@ class RayPPOTrainer(object):
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
-                timing_raw = defaultdict(float)  # clear timing
-
-                metrics["train/num_gen_batches"] = num_gen_batches
-                batch = None
-                num_prompt_in_batch = 0
-                num_gen_batches = 0
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
