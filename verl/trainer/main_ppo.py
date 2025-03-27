@@ -152,24 +152,24 @@ class TaskRunner:
             from verl.workers.reward_manager import DAPORewardManager
             reward_manager_cls = DAPORewardManager
         else:
-            
+
             raise NotImplementedError
 
         compute_score = get_custom_reward_fn(config)
         reward_fn = reward_manager_cls(tokenizer=tokenizer,
-                                    num_examine=0,
-                                    compute_score=compute_score,
-                                    reward_fn_key=config.data.reward_fn_key,
-                                    max_resp_len=config.data.max_response_length,
-                                    overlong_buffer_cfg=config.custom_reward_function.overlong_buffer)
+                                       num_examine=0,
+                                       compute_score=compute_score,
+                                       reward_fn_key=config.data.reward_fn_key,
+                                       max_resp_len=config.data.max_response_length,
+                                       overlong_buffer_cfg=config.custom_reward_function.overlong_buffer)
 
         # Note that we always use function-based RM for validation
         val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
-                                        num_examine=1,
-                                        compute_score=compute_score,
-                                        reward_fn_key=config.data.reward_fn_key,
-                                        max_resp_len=config.data.max_response_length,
-                                        overlong_buffer_cfg=config.custom_reward_function.overlong_buffer)
+                                           num_examine=1,
+                                           compute_score=compute_score,
+                                           reward_fn_key=config.data.reward_fn_key,
+                                           max_resp_len=config.data.max_response_length,
+                                           overlong_buffer_cfg=config.custom_reward_function.overlong_buffer)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RayPPOTrainer(config=config,
