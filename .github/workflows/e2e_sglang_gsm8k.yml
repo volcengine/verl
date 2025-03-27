@@ -48,7 +48,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer
-          pip3 install torch-memory-saver==0.0.3
+          pip3 install torch-memory-saver>=0.0.5
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Prepare gsm8k dataset
         run: |
