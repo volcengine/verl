@@ -158,7 +158,6 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage('Before init from HF AutoModel', logger=logger)
         local_path = copy_to_local(model_path)
-        print("verl/verl/workers/fsdp_workers.py line161: ", torch.cuda.memory_summary())
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
@@ -174,7 +173,6 @@ class ActorRolloutRefWorker(Worker):
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
 
         self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
-        print("verl/verl/workers/fsdp_workers.py line177: ", torch.cuda.memory_summary())
         if use_remove_padding:
             from verl.models.registry import check_model_support_rmpad
             check_model_support_rmpad(actor_model_config.model_type)
@@ -196,7 +194,6 @@ class ActorRolloutRefWorker(Worker):
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings,
                                                        mesh=self.device_mesh)
-        print("verl/verl/workers/fsdp_workers.py line199: ", torch.cuda.memory_summary())
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
@@ -251,7 +248,6 @@ class ActorRolloutRefWorker(Worker):
             auto_wrap_policy = None
 
         print(f'wrap_policy: {auto_wrap_policy}')
-        print("verl/verl/workers/fsdp_workers.py line249: ", torch.cuda.memory_summary())
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
@@ -272,7 +268,6 @@ class ActorRolloutRefWorker(Worker):
             device_mesh=self.device_mesh,
             forward_prefetch=False)
 
-        print("verl/verl/workers/fsdp_workers.py line270: ", torch.cuda.memory_summary())
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
         # TODO: add more optimizer args into config
@@ -298,7 +293,6 @@ class ActorRolloutRefWorker(Worker):
             actor_lr_scheduler = None
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
-        print("verl/verl/workers/fsdp_workers.py line295: ", torch.cuda.memory_summary())
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self):
