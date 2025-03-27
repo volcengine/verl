@@ -1041,7 +1041,8 @@ class RewardModelWorker(Worker):
             else:
                 output = self.reward_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
-                                            position_ids=position_ids)
+                                            position_ids=position_ids,
+                                            use_cache=False)
                 rm_score = output.logits  # (batch_size, seq_len, 1)
                 rm_score = rm_score.squeeze(-1)
 
