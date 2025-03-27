@@ -111,6 +111,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
+    reward_model.reward_manager=dapo \
     custom_reward_function.overlong_buffer.enable=${enable_overlong_buffer} \
     custom_reward_function.overlong_buffer.len=${overlong_buffer_len} \
     custom_reward_function.overlong_buffer.penalty_factor=${overlong_penalty_factor} \

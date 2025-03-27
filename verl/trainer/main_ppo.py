@@ -148,7 +148,11 @@ class TaskRunner:
         elif reward_manager_name == 'prime':
             from verl.workers.reward_manager import PrimeRewardManager
             reward_manager_cls = PrimeRewardManager
+        elif reward_manager_name == 'dapo':
+            from verl.workers.reward_manager import DAPORewardManager
+            reward_manager_cls = DAPORewardManager
         else:
+            
             raise NotImplementedError
 
         compute_score = get_custom_reward_fn(config)
