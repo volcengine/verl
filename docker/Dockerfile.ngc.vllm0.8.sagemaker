@@ -23,10 +23,10 @@ RUN apt-get update && \
     apt-get install -y tini && \
     apt-get clean
 
-# Install torch-2.6.0 + vllm-0.8.1
-RUN pip install --no-cache-dir vllm==0.8.1 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 tensordict torchdata==0.11.0 \
+# Install torch-2.6.0 + vllm-0.8.2
+RUN pip install --no-cache-dir vllm==0.8.2 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 tensordict torchdata==0.11.0 \
     transformers>=4.49.0 accelerate datasets peft hf-transfer \
-    ray codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
+    ray[default] codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
     pytest yapf py-spy pyext pre-commit ruff
 
 # Install flash_attn-2.7.4.post1
@@ -36,7 +36,11 @@ RUN pip uninstall -y transformer-engine flash-attn && \
 # Fix cv2
 RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --no-cache-dir nvidia-ml-py>=12.560.30 opencv-python-headless==4.8.0.74 fastapi==0.115.6 && \
-    pip install -U optree>=0.13.0
+    pip install --no-cache-dir --upgrade optree>=0.13.0
 
 # Install verl
-RUN git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
+RUN pip install --no-cache-dir verl[vllm] -U
+
+# Reset pip config
+RUN pip config unset global.index-url && \
+    pip config unset global.extra-index-url
