@@ -149,9 +149,9 @@ def load_state_dict_to_megatron_llama(state_dict,
             gate_weight = state_dict[gate_name]
             up_weight = state_dict[up_name]
             new_gate_up_weight = torch.empty(config.intermediate_size * 2,
-                                                config.hidden_size,
-                                                dtype=params_dtype,
-                                                device=torch.cuda.current_device())
+                                             config.hidden_size,
+                                             dtype=params_dtype,
+                                             device=torch.cuda.current_device())
             for i in range(tp_size):
                 intermediate_size_tp = config.intermediate_size // tp_size
                 gate_weight_tp = gate_weight[i * intermediate_size_tp:(i + 1) * intermediate_size_tp]
@@ -183,32 +183,30 @@ def load_state_dict_to_megatron_llama(state_dict,
             kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
             total_size = q_size_tp + 2 * kv_size_tp
             new_weight_qkv = torch.empty(total_size * tp_size,
-                                            config.hidden_size,
-                                            dtype=params_dtype,
-                                            device=torch.cuda.current_device())
+                                         config.hidden_size,
+                                         dtype=params_dtype,
+                                         device=torch.cuda.current_device())
             for i in range(tp_size):
                 q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp]
                 k_part = full_weight_k[i * kv_size_tp:(i + 1) * kv_size_tp]
                 v_part = full_weight_v[i * kv_size_tp:(i + 1) * kv_size_tp]
-                new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part],
-                                                                                    dim=0))
+                new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part], dim=0))
 
         else:
             q_size_tp = config.hidden_size // tp_size
             kv_size_tp = hidden_size_per_head
             total_size = q_size_tp + 2 * kv_size_tp
             new_weight_qkv = torch.empty(total_size * tp_size,
-                                            config.hidden_size,
-                                            dtype=params_dtype,
-                                            device=torch.cuda.current_device())
+                                         config.hidden_size,
+                                         dtype=params_dtype,
+                                         device=torch.cuda.current_device())
             for i in range(tp_size):
                 q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp]
                 start_idx = i * config.num_key_value_heads // tp_size * hidden_size_per_head
                 end_idx = (i * config.num_key_value_heads // tp_size + 1) * hidden_size_per_head
                 k_part = full_weight_k[start_idx:end_idx]
                 v_part = full_weight_v[start_idx:end_idx]
-                new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part],
-                                                                                    dim=0))
+                new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part], dim=0))
 
             tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)
         if tensor is not None:
@@ -227,7 +225,7 @@ def load_state_dict_to_megatron_llama(state_dict,
         # Transformer layers
         # -------------------
         layer_map = _megatron_calc_layer_map(config)
-        
+
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         num_layer_per_pp = config.num_hidden_layers // pp_size
