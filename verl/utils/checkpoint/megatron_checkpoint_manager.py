@@ -267,7 +267,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                         state_dict['score.weight'] = state_dict['score.weight']
                     else:
                         from transformers import AutoModelForCausalLM
-                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
                 if hdfs_path is not None:
                     print(f'Uploading checkpoint to {hdfs_path}')
