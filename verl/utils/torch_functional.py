@@ -115,8 +115,18 @@ def masked_sum(values, mask, axis=None):
     return (values * mask).sum(axis=axis)
 
 
+# def masked_mean(values, mask, axis=None):
+#     """Compute mean of tensor with a masked values."""
+#     return (values * mask).sum(axis=axis) / mask.sum(axis=axis)
 def masked_mean(values, mask, axis=None):
     """Compute mean of tensor with a masked values."""
+    # Handle mismatch in shape, e.g., (B, 3071) vs (B, 3072)
+    if values.shape != mask.shape:
+        print(f"[masked_mean warning] shape mismatch: values {values.shape}, mask {mask.shape}")
+        min_len = min(values.shape[-1], mask.shape[-1])
+        values = values[..., :min_len]
+        mask = mask[..., :min_len]
+    
     return (values * mask).sum(axis=axis) / (mask.sum(axis=axis) + 1e-8)
 
 

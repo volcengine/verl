@@ -519,10 +519,36 @@ class DataProto:
 
         return output
 
+    # @staticmethod
+    # def concat(data: List['DataProto']) -> 'DataProto':
+    #     """Concat a list of DataProto. The batch is concatenated among dim=0.
+    #     The meta_info is assumed to be identical and will use the first one.
+
+    #     Args:
+    #         data (List[DataProto]): list of DataProto
+
+    #     Returns:
+    #         DataProto: concatenated DataProto
+    #     """
+    #     batch_lst = []
+    #     for batch in data:
+    #         batch_lst.append(batch.batch)
+    #     if batch_lst[0] is not None:
+    #         new_batch = torch.cat(batch_lst, dim=0)
+    #     else:
+    #         new_batch = None
+
+    #     non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
+    #     for key, val in non_tensor_batch.items():
+    #         non_tensor_batch[key] = np.concatenate(val, axis=0)
+
+    #     return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
+
     @staticmethod
     def concat(data: List['DataProto']) -> 'DataProto':
-        """Concat a list of DataProto. The batch is concatenated among dim=0.
+        """Concat a list of DataProto. The batch is concatenated along dim=0.
         The meta_info is assumed to be identical and will use the first one.
+        Automatically pads tensors along dimension 1 if needed.
 
         Args:
             data (List[DataProto]): list of DataProto
@@ -530,15 +556,41 @@ class DataProto:
         Returns:
             DataProto: concatenated DataProto
         """
-        batch_lst = []
-        for batch in data:
-            batch_lst.append(batch.batch)
-        if batch_lst[0] is not None:
-            new_batch = torch.cat(batch_lst, dim=0)
+        batch_lst = [d.batch for d in data if d.batch is not None]
+
+        if len(batch_lst) > 0:
+            reshaped_batches = []
+            for batch in batch_lst:
+                if batch is None:
+                    continue
+                if isinstance(batch, TensorDict):
+                    reshaped_batches.append(batch)
+                else:
+                    raise TypeError(f"Expected TensorDict but got {type(batch)}")
+
+            if len(reshaped_batches) == 0:
+                new_batch = None
+            else:
+                max_len = max(v.shape[1] for batch in reshaped_batches for v in batch.values())
+
+                padded_batch_lst = []
+                for batch in reshaped_batches:
+                    padded = {}
+                    for key, value in batch.items():
+                        pad_len = max_len - value.shape[1]
+                        if pad_len > 0:
+                            value = torch.nn.functional.pad(value, (0, pad_len), value=0)
+                        padded[key] = value
+                    padded_batch_lst.append(TensorDict(padded, batch_size=(batch.batch_size[0],)))
+
+                new_batch = torch.cat(padded_batch_lst, dim=0)
         else:
             new_batch = None
 
-        non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
+        # Process non-tensor batch
+        non_tensor_batch = list_of_dict_to_dict_of_list(
+            list_of_dict=[d.non_tensor_batch for d in data]
+        )
         for key, val in non_tensor_batch.items():
             non_tensor_batch[key] = np.concatenate(val, axis=0)
 
