@@ -276,7 +276,7 @@ def load_state_dict_to_megatron_llama(state_dict,
         )
 
         _broadcast_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
-                                            f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
+                                           f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
 
         _broadcast_tp_shard_tensor(
             sync_layer.mlp.down_proj.weight if dst_pp_rank == pp_rank else None,
@@ -309,7 +309,7 @@ def load_state_dict_to_megatron_llama(state_dict,
             print_rank_0('fail to match lm_head in value_model')
     else:
         _broadcast_tp_shard_tensor(lm_head_weight, "lm_head.weight")
-        
+
     dist.barrier()
     torch.cuda.empty_cache()
     print_rank_0(f"loading megatron ckpt done, time elapsed {time.time() - start_time}s")

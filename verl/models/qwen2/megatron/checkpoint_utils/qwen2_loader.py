@@ -275,10 +275,10 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         )
 
         _broadcast_tp_shard_tensor_qkv(sync_layer.self_attn.qkv_proj.bias if dst_pp_rank == pp_rank else None,
-                                        f"{layer_name}.self_attn.q_proj.bias",
-                                        f"{layer_name}.self_attn.k_proj.bias",
-                                        f"{layer_name}.self_attn.v_proj.bias",
-                                        bias=True)
+                                       f"{layer_name}.self_attn.q_proj.bias",
+                                       f"{layer_name}.self_attn.k_proj.bias",
+                                       f"{layer_name}.self_attn.v_proj.bias",
+                                       bias=True)
 
         _broadcast_tp_shard_tensor(
             sync_layer.self_attn.o_proj.weight if dst_pp_rank == pp_rank else None,
@@ -292,7 +292,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         )
 
         _broadcast_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
-                                            f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
+                                           f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
 
         _broadcast_tp_shard_tensor(
             sync_layer.mlp.down_proj.weight if dst_pp_rank == pp_rank else None,
