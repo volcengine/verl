@@ -269,7 +269,7 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange, use_dual_clip=False, clip_ratio_c=3):
+def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange, clip_ratio_c=3.0):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
 
     Args:
@@ -283,8 +283,6 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange,
             shape: (bs, response_length)
         cliprange: (float)
             The clip range used in PPO. See https://arxiv.org/abs/1707.06347
-        use_dual_clip: (float)
-            The use_dual_clip ppo. See https://arxiv.org/pdf/1912.09729
         clip_ratio_c: (float)
             THe lower bound of the ratio, defalut 3. See https://arxiv.org/pdf/1912.09729
 
@@ -302,14 +300,16 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange,
 
     pg_losses = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
-    if not use_dual_clip:
-        pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
-    else:
-        pg_losses3 = -advantages * clip_ratio_c
-        pg_loss = verl_F.masked_mean(torch.min(pg_losses3, torch.max(pg_losses, pg_losses2)), eos_mask)
+
+    pg_losses3 = -advantages * clip_ratio_c
+    max_pg_losses = torch.max(pg_losses, pg_losses2)
+
+    pg_loss = verl_F.masked_mean(torch.min(pg_losses3, max_pg_losses), eos_mask)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
 
-    return pg_loss, pg_clipfrac, ppo_kl
+    pg_clipfrac_lower = verl_F.masked_mean(torch.gt(max_pg_losses, pg_losses3).float(), eos_mask)
+
+    return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
 def compute_entropy_loss(logits, eos_mask):
