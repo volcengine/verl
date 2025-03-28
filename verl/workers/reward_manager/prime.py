@@ -72,7 +72,7 @@ async def parallel_compute_score_async(evaluation_func, completions, references,
             scores.append(0.0)
             metric = {}
         else:
-            print(result)
+            # print(result)
             result, metric = result[0]
             if isinstance(result, (int, float, bool)):
                 scores.append(float(result))

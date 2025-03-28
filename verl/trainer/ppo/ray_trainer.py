@@ -267,10 +267,20 @@ def compute_data_metrics(batch, use_critic=True):
         # response length
         'response_length/mean':
             torch.mean(response_length).detach().item(),
+        'response_length/mean_correct': # mean of responses with reward > 0
+            torch.mean(torch.masked_select(response_length, sequence_reward > 0)).detach().item(),
+        'response_length/mean_incorrect':
+            torch.mean(torch.masked_select(response_length, sequence_reward < 0)).detach().item(),
         'response_length/max':
             torch.max(response_length).detach().item(),
         'response_length/min':
             torch.min(response_length).detach().item(),
+        'response_length/75th_percentile':
+            torch.quantile(response_length, 0.75).detach().item(),
+        'response_length/25th_percentile':
+            torch.quantile(response_length, 0.25).detach().item(),
+        'response_length/median':
+            torch.median(response_length).detach().item(),
         'response_length/clip_ratio':
             torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
         # prompt length
@@ -650,7 +660,7 @@ class RayPPOTrainer(object):
 
             data_source_reward[data_source][question].append(reward_tensor[i].item())
             data_source_answer[data_source][question].append(sample_outputs[i])
-            data_source_extracted[data_source][question].append(sample_answers[i])
+            # data_source_extracted[data_source][question].append(sample_answers[i])
 
         for data_source, question_to_rewards in data_source_reward.items():
             # print(f'Validation data source: {data_source}')
@@ -665,13 +675,13 @@ class RayPPOTrainer(object):
 
                 # Compute the majority vote for the extracted answers, ignore None
                 majority_score = 0.
-                extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
-                if len(extracted_answers) > 0:
-                    majority_answer = max(set(extracted_answers), key=extracted_answers.count)
-                    # check if the majority_answer corresponds to a reward of 1
-                    majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
-                    if majority_idx != -1:
-                        majority_score = rewards[majority_idx]
+                # extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+                # if len(extracted_answers) > 0:
+                #     majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+                #     # check if the majority_answer corresponds to a reward of 1
+                #     majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+                #     if majority_idx != -1:
+                #         majority_score = rewards[majority_idx]
 
                 scores_to_log.append("{}, avg{}, maj{}, max{}, n{}".format(sampled_score, np.mean(rewards), majority_score, np.max(rewards), len(rewards)))
 
@@ -695,19 +705,19 @@ class RayPPOTrainer(object):
             metric_dict[f'val/{data_source}/best_of_n'] = np.mean(rewards)
 
             # compute the appoximate majority score for each question based on the answer and the extracted answers
-            rewards = []
-            for question, rewards_lst in question_to_rewards.items():
-                majority_score = 0.
-                extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
-                if len(extracted_answers) > 0:
-                    majority_answer = max(set(extracted_answers), key=extracted_answers.count)
-                    # check if the majority_answer corresponds to a reward of 1
-                    majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
-                    if majority_idx != -1:
-                        majority_score = rewards[majority_idx]
-                rewards.append(majority_score)
+            # rewards = []
+            # for question, rewards_lst in question_to_rewards.items():
+            #     majority_score = 0.
+            #     extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+            #     if len(extracted_answers) > 0:
+            #         majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+            #         # check if the majority_answer corresponds to a reward of 1
+            #         majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+            #         if majority_idx != -1:
+            #             majority_score = rewards[majority_idx]
+            #     rewards.append(majority_score)
 
-            metric_dict[f'val/{data_source}/majority_of_n'] = np.mean(rewards)
+            # metric_dict[f'val/{data_source}/majority_of_n'] = np.mean(rewards)
 
         return metric_dict
 

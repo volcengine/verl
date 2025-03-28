@@ -191,7 +191,14 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
     repetition_penalty_score = compute_repetition_penalty(solution_str)
 
     # Bail out if the completion is invalid or incomplete.
-    if invalid_think or incomplete or no_think:
+    if incomplete:
+        tool_reward = 1. if tool_count > 0 else 0. # Give a reward if the model uses a tool.
+        rwds = [-0.7, repetition_penalty_score, soft_format_reward, xml_reward, tool_reward] # -0.7 is a penalty for incomplete answers, at least an incomplete attempt is better than a wrong one I guess.
+        weights.append(0.25)  # Add weight for tool use
+        rwd = sum([r*w for r, w in zip(rwds, weights)]) / sum(weights)
+        return rwd, {"acc_reward_raw": 0., "acc_reward_scaled": -1., "repetition_penalty_score": repetition_penalty_score, "soft_format_reward": soft_format_reward, "xml_reward": xml_reward, "response_length": response_length, "progress": progress, "tool_use": tool_count}
+
+    if invalid_think or no_think:
         rwds = [-1., repetition_penalty_score, soft_format_reward, xml_reward]
         rwd = sum([r*w for r, w in zip(rwds, weights)]) / sum(weights)
         return rwd, {"acc_reward_raw": 0., "acc_reward_scaled": -1., "repetition_penalty_score": repetition_penalty_score, "soft_format_reward": soft_format_reward, "xml_reward": xml_reward, "response_length": response_length, "progress": progress, "tool_use": tool_count}
@@ -200,7 +207,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         acc_reward = -1.
         acc_reward_raw = 0.
     else:
-        UNIT_LENGTH = MAX_RESPONSE_LENGTH//4
+        UNIT_LENGTH = min(MAX_RESPONSE_LENGTH//4, 3702)
         min_value_wrong = -1.0
         max_value_wrong = -0.7
         # min_value_wrong = max_value_wrong = - 0.5
@@ -216,8 +223,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
             # If the completion is CORRECT, use the correct min/max values.
             min_value = min_value_correct
             max_value = max_value_correct
-            min_response_length = UNIT_LENGTH*3
-            progress = min(1, max(max_response_length - response_length, 0) / (max_response_length - min_response_length))
+            progress = min(1, max(max_response_length - response_length, 0) / UNIT_LENGTH)
         else:
             # Swap min/max for incorrect answers
             min_value = max_value_wrong

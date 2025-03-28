@@ -7,11 +7,25 @@ export RUN_NAME=$AMLT_JOB_NAME
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 wandb login $WANDB_TOKEN
 
-# Create a swap file of size 1TB to avoid OOM
-sudo fallocate -l 1T /tmp/swapfile
-sudo chmod 600 /tmp/swapfile
-sudo mkswap /tmp/swapfile
-sudo swapon /tmp/swapfile
+SWAP_SIZE=1T
+SWAP_FILE=/myswap
+
+if [ ! -f "$SWAP_FILE" ]; then
+    echo "Creating swapfile of size $SWAP_SIZE..."
+    sudo fallocate -l $SWAP_SIZE $SWAP_FILE
+    sudo chmod 600 $SWAP_FILE
+    sudo mkswap $SWAP_FILE
+fi
+
+# Enable swap if not already enabled
+if ! swapon -s | grep -q "$SWAP_FILE"; then
+    echo "Enabling swapfile..."
+    sudo swapon $SWAP_FILE
+fi
+
+# Verify swap is active
+echo "Current swap status:"
+swapon -s
 
 # Set run variables
 CMD="python -m verl.trainer.main_ppo \
@@ -25,7 +39,7 @@ CMD="python -m verl.trainer.main_ppo \
     reward_model.reward_manager=prime \
     actor_rollout_ref.model.path=/mnt/models/$BASE_MODEL \
     actor_rollout_ref.actor.optim.lr=$LR \
-    actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.01 \
+    actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.02 \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=$((PPO_BATCH_SIZE)) \
@@ -52,12 +66,12 @@ CMD="python -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.val_generations_to_log_to_wandb=90 \
-    trainer.project_name="reasoning" \
+    trainer.project_name="reasoning_AOPS" \
     trainer.experiment_name=$RUN_NAME \
     trainer.n_gpus_per_node=$((GPUS)) \
     trainer.nnodes=$((NODES)) \
-    trainer.save_freq=50 \
-    trainer.test_freq=50 \
+    trainer.save_freq=25 \
+    trainer.test_freq=25 \
     trainer.default_local_dir=$AMLT_OUTPUT_DIR/checkpoints \
     trainer.total_epochs=1"
 

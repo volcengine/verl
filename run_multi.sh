@@ -11,11 +11,11 @@ echo "MASTER_PORT=$MASTER_PORT"
 echo "AMLT_OUTPUT_DIR=$AMLT_OUTPUT_DIR"
 
 # Set run variables
-export RUN_N=16
-export PPO_EPOCHS=2
+export RUN_N=8
+export PPO_EPOCHS=4
 # export DATASET_NAME="phi_math_tool"
 export DATASET_NAME="phi_math_new"
-# export MAX_RESPONSE_LENGTH=7168
+# export MAX_RESPONSE_LENGTH=5120
 export MAX_RESPONSE_LENGTH=25600
 # export BASE_MODEL="phi-4"
 export BASE_MODEL="phi-4-o3-sft-long"
