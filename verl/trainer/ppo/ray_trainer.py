@@ -693,10 +693,14 @@ class RayPPOTrainer(object):
         if self.config.trainer.default_hdfs_dir is not None:
             raise NotImplementedError('load from hdfs is not implemented yet')
         else:
-            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
+            checkpoint_folder = self.config.trainer.default_local_dir
             if not os.path.isabs(checkpoint_folder):
                 working_dir = os.getcwd()
                 checkpoint_folder = os.path.join(working_dir, checkpoint_folder)
+            
+            # create the folder to see if we can write to it
+            os.makedirs(checkpoint_folder, exist_ok=True)
+            
             global_step_folder = find_latest_ckpt_path(checkpoint_folder)  # None if no latest
 
         # find global_step_folder
@@ -918,8 +922,9 @@ class RayPPOTrainer(object):
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and ( is_last_step or \
-                            self.global_steps % self.config.trainer.save_freq == 0):
+                    # Save checkpoint if it's the last step (regardless of save_freq, also handles the save_freq == -1 case)
+                    # Or save checkpoint if save freq is reached
+                    if is_last_step or (self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
