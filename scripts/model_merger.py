@@ -26,6 +26,8 @@ from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_ch
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--backend', type = str, required=True, help="The backend of the model")
+parser.add_argument('--tie-word-embedding', action='store_true', help="Whether to tie word embedding weights")
+parser.add_argument('--is-value-model', action='store_true', help="Whether the model loaded as value model")
 parser.add_argument('--hf_model_path', type = str, required=True, help="The path for the huggingface model")
 parser.add_argument('--local_dir', type = str, required=True, help="The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, commonly be `config.default_local_dir/global_step_\{global_step\}`.")
 parser.add_argument('--target_dir', required=False, default="tmp", type = str, help="The path for the target model")
@@ -233,7 +235,6 @@ def convert_megatron_checkpoints_to_hfmodes():
     
     state_dict = {}
     config = AutoConfig.from_pretrained(args.hf_model_path)
-    print(f'config.tie_word_embeddings: {config.tie_word_embeddings}')
     if args.test:
         ref_state_dict = load_file(os.path.join(args.test_hf_dir, 'model.safetensors'))
 
@@ -245,7 +246,7 @@ def convert_megatron_checkpoints_to_hfmodes():
             for key in keys:
                 if "extra_state" in key:
                     continue
-                if getattr(config, 'tie_word_embeddings', False) and ("lm_head" in key or "reward_head" in key):
+                if args.tie_word_embedding and ("lm_head" in key or "reward_head" in key):
                     print(f'skip lm_head and reward_head loading because of tie_word_embeddings')
                     continue
                 if re.search(r"self_attn\.qkv_proj", key) is None and re.search(r"gate_up_proj", key) is None:
@@ -328,13 +329,20 @@ def convert_megatron_checkpoints_to_hfmodes():
                     if "model.norm.weight" in key:
                         if state_dict[key] is None:
                             state_dict[key] = tensor
-                    if not getattr(config, 'tie_word_embeddings', False):
-                        if "lm_head.weight" in key:
-                            if state_dict[key] is None:
-                                state_dict[key] = tensor
-                        if "reward_head.weight" in key:
-                            if state_dict[key] is None:
-                                state_dict[key] = tensor
+                    if not args.tie_word_embedding:
+                        if args.is_value_model:
+                            if "lm_head.weight" in key:
+                                if state_dict[key] is None:
+                                    state_dict[key] = tensor
+                            if "reward_head.weight" in key:
+                                if state_dict[key] is None:
+                                    state_dict[key] = tensor
+                        else:
+                            if "lm_head.weight" in key:
+                                if state_dict[key] is None:
+                                    state_dict[key] = tensor
+                                else:
+                                    state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
     
     del model_state_dict_lst
     if args.test:
