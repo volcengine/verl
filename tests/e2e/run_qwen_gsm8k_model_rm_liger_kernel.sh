@@ -1,5 +1,7 @@
 set -x
 
+huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
+
 python3 -m verl.trainer.main_ppo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -7,7 +9,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     +actor_rollout_ref.model.use_liger=True \
@@ -25,13 +27,13 @@ python3 -m verl.trainer.main_ppo \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.optim.lr_warmup_steps_ratio=0.05 \
-    critic.model.path=Qwen/Qwen2.5-0.5B \
+    critic.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size=32 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
-    reward_model.model.path=Qwen/Qwen2.5-0.5B\
+    reward_model.model.path=$HOME/models/Qwen/Qwen2.5-0.5B\
     reward_model.model.use_remove_padding=True \
     reward_model.model.fsdp_config.param_offload=True \
     reward_model.micro_batch_size=16 \
