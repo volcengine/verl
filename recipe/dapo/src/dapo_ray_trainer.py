@@ -25,7 +25,7 @@ import numpy as np
 import torch
 
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, AdvantageEstimator, _timer, apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.metric_utils import (compute_data_metrics, compute_throughout_metrics, compute_timing_metrics,
                                            reduce_metrics)
 
