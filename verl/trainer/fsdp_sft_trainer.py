@@ -396,11 +396,16 @@ class FSDPSFTTrainer(object):
             loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
             step_loss += loss.item()
 
-        self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
+        grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
         log_gpu_memory_usage('Before optimizer step', logger=logger)
 
-        self.optimizer.step()
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.optimizer.zero_grad()
+        else:
+            self.optimizer.step()
 
         log_gpu_memory_usage('After optimizer step', logger=logger)
 
