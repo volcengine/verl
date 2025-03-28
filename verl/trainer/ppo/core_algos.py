@@ -284,7 +284,7 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange,
         cliprange: (float)
             The clip range used in PPO. See https://arxiv.org/abs/1707.06347
         clip_ratio_c: (float)
-            THe lower bound of the ratio, defalut 3. See https://arxiv.org/pdf/1912.09729
+            THe lower bound of the ratio for dual-clip PPO, defalut 3. See https://arxiv.org/pdf/1912.09729
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
@@ -294,6 +294,8 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange,
         ppo_kl: (float)
             the estimated KL divergence between the latest updating policy and the old sampling policy
     """
+    assert clip_ratio_c > 1.0 , f"The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0, but get the value: {clip_ratio_c}."
+    
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
@@ -301,13 +303,16 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange,
     pg_losses = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
 
-    pg_losses3 = -advantages * clip_ratio_c
-    max_pg_losses = torch.max(pg_losses, pg_losses2)
-
-    pg_loss = verl_F.masked_mean(torch.min(pg_losses3, max_pg_losses), eos_mask)
+    clip_pg_losses1 = torch.max(pg_losses, pg_losses2)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
 
-    pg_clipfrac_lower = verl_F.masked_mean(torch.gt(max_pg_losses, pg_losses3).float(), eos_mask)
+    pg_losses3 = -advantages * clip_ratio_c
+    clip_pg_losses2 = torch.min(pg_losses3, clip_pg_losses1)
+    pg_clipfrac_lower = verl_F.masked_mean(torch.gt(clip_pg_losses2, pg_losses3) * (advantages < 0).float(), eos_mask)
+    # We only apply the dual-clip when the advantage is negative.
+    pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+
+    pg_loss = verl_F.masked_mean(pg_losses, eos_mask)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
