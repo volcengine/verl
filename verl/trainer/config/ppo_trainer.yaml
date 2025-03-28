@@ -66,6 +66,9 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
+    sync_ref_model: False
+    ref_model_sync_steps: 0
+    ref_model_mixup_alpha: 0.0
   rollout:
     name: vllm
     temperature: 1.0
