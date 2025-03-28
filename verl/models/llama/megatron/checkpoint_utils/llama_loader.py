@@ -208,9 +208,9 @@ def load_state_dict_to_megatron_llama(state_dict,
                 v_part = full_weight_v[start_idx:end_idx]
                 new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part], dim=0))
 
-            tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)
-            if tensor is not None:
-                tensor.data.copy_(tensor_chunk[tp_rank])
+        tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)
+        if tensor is not None:
+            tensor.data.copy_(tensor_chunk[tp_rank])
 
     # Embeddings
     # -------------------
