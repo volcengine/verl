@@ -228,7 +228,7 @@ class SGLangRollout(BaseRollout):
                 top_k=-1,
                 ignore_eos=False,
                 min_new_tokens=0,
-                max_new_tokens=4096,
+                max_new_tokens=self.config.response_length,
                 skip_special_tokens=True,
                 spaces_between_special_tokens=True,
             )
