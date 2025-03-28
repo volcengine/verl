@@ -70,11 +70,11 @@ def load_state_dict_to_megatron_llama(state_dict,
     def _get_gpt_model(model):
         return model
 
-    def broadcast_params(module):
+    def fetch_params(module):
         for param in module.parameters():
-            torch.distributed.broadcast(param.data,
-                                        src=mpu.get_data_parallel_src_rank(),
-                                        group=mpu.get_data_parallel_group())
+            torch.distributed.fetch(param.data,
+                                    src=mpu.get_data_parallel_src_rank(),
+                                    group=mpu.get_data_parallel_group())
 
     dp_rank = mpu.get_data_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -101,14 +101,14 @@ def load_state_dict_to_megatron_llama(state_dict,
         gpt_model_module = _get_gpt_model(models[i])
         assert len(gpt_model_module.model.layers) == num_layers_per_model
 
-    def _broadcast_tensor(tensor, name) -> torch.Tensor:
-        """broadcast tensor"""
+    def _fetch_tensor(tensor, name) -> torch.Tensor:
+        """fetch tensor"""
         nonlocal state_dict
         if tensor is not None:
             tensor.data.copy_(state_dict[name])
 
-    def _broadcast_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
-        """broadcast tensor in tp shards"""
+    def _fetch_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
+        """fetch tensor in tp shards"""
         nonlocal state_dict
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -123,8 +123,8 @@ def load_state_dict_to_megatron_llama(state_dict,
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
-    def _broadcast_tp_shard_tensor(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
-        """broadcast tensor in tp shards"""
+    def _fetch_tp_shard_tensor(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
+        """fetch tensor in tp shards"""
         nonlocal state_dict
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -139,8 +139,8 @@ def load_state_dict_to_megatron_llama(state_dict,
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
-    def _broadcast_tp_shard_tensor_gate_up(tensor, gate_name, up_name) -> torch.Tensor:
-        """broadcast gate_up tensor in tp shards"""
+    def _fetch_tp_shard_tensor_gate_up(tensor, gate_name, up_name) -> torch.Tensor:
+        """fetch gate_up tensor in tp shards"""
         nonlocal state_dict
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -165,8 +165,8 @@ def load_state_dict_to_megatron_llama(state_dict,
         else:
             print(f"tp_shard tensor:[{gate_name}, {up_name}] not in state_dict, skip loading")
 
-    def _broadcast_tp_shard_tensor_qkv(tensor, q_name, k_name, v_name) -> torch.Tensor:
-        """broadcast tensor in tp shards across mp_group"""
+    def _fetch_tp_shard_tensor_qkv(tensor, q_name, k_name, v_name) -> torch.Tensor:
+        """fetch tensor in tp shards across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -219,7 +219,7 @@ def load_state_dict_to_megatron_llama(state_dict,
     embed_tokens_weight = None
     if pp_rank == 0:
         embed_tokens_weight = gpt_model_module.model.embed_tokens.weight
-    _broadcast_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
+    _fetch_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
 
     # Transformer layers
     # -------------------
@@ -252,33 +252,33 @@ def load_state_dict_to_megatron_llama(state_dict,
         gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
         sync_layer = gpt_model_module.model.layers[dst_layer_idx]
 
-        _broadcast_tensor(
+        _fetch_tensor(
             sync_layer.input_layernorm.weight if dst_pp_rank == pp_rank else None,
             f"{layer_name}.input_layernorm.weight",
         )
 
-        _broadcast_tp_shard_tensor_qkv(
+        _fetch_tp_shard_tensor_qkv(
             sync_layer.self_attn.qkv_proj.weight if dst_pp_rank == pp_rank else None,
             f"{layer_name}.self_attn.q_proj.weight",
             f"{layer_name}.self_attn.k_proj.weight",
             f"{layer_name}.self_attn.v_proj.weight",
         )
 
-        _broadcast_tp_shard_tensor(
+        _fetch_tp_shard_tensor(
             sync_layer.self_attn.o_proj.weight if dst_pp_rank == pp_rank else None,
             f"{layer_name}.self_attn.o_proj.weight",
             chunk_dim=1,
         )
 
-        _broadcast_tensor(
+        _fetch_tensor(
             sync_layer.post_attention_layernorm.weight if dst_pp_rank == pp_rank else None,
             f"{layer_name}.post_attention_layernorm.weight",
         )
 
-        _broadcast_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
-                                           f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
+        _fetch_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
+                                       f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
 
-        _broadcast_tp_shard_tensor(
+        _fetch_tp_shard_tensor(
             sync_layer.mlp.down_proj.weight if dst_pp_rank == pp_rank else None,
             f"{layer_name}.mlp.down_proj.weight",
             chunk_dim=1,
@@ -287,28 +287,27 @@ def load_state_dict_to_megatron_llama(state_dict,
     # -------------------
     print_rank_0("loading final layernorm...")
     gpt_model_module = _get_gpt_model(models[-1])
-    _broadcast_tensor(
+    _fetch_tensor(
         getattr(gpt_model_module.model.norm, "weight", None),
         "model.norm.weight",
     )
 
     print_rank_0("loading lm_head...")
-    lm_head_weight = None
     if pp_rank + 1 == pp_size:
         lm_head_weight = gpt_model_module.lm_head.weight
 
-    if is_value_model:
-        if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
-            _broadcast_tensor(lm_head_weight, "lm_head.weight")
-            print_rank_0('load lm_head weight')
-        elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
-            _broadcast_tensor(lm_head_weight, "reward_head.weight")
-            print_rank_0('load lm_head from value_head weight')
+        if is_value_model:
+            if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
+                _fetch_tensor(lm_head_weight, "lm_head.weight")
+                print_rank_0('load lm_head weight')
+            elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
+                _fetch_tensor(lm_head_weight, "reward_head.weight")
+                print_rank_0('load lm_head from value_head weight')
+            else:
+                _fetch_tensor(None, "lm_head.weight")
+                print_rank_0('fail to match lm_head in value_model')
         else:
-            _broadcast_tensor(None, "lm_head.weight")
-            print_rank_0('fail to match lm_head in value_model')
-    else:
-        _broadcast_tp_shard_tensor(lm_head_weight, "lm_head.weight")
+            _fetch_tp_shard_tensor(lm_head_weight, "lm_head.weight")
 
     dist.barrier()
     torch.cuda.empty_cache()

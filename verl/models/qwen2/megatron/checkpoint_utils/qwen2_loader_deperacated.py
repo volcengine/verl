@@ -16,6 +16,11 @@ import torch
 import time
 from typing import Dict, Any, Callable, Optional
 import torch.distributed as dist
+"""_summary_
+
+This File deperacated if you have storage nodes connected to every calculation node, if you can only place data on rank 0 nodes, use function defined here.
+
+"""
 
 
 def _megatron_calc_layer_map(config):
@@ -66,11 +71,11 @@ def load_state_dict_to_megatron_qwen2(state_dict,
     def _get_gpt_model(model):
         return model
 
-    def fetch_params(module):
+    def broadcast_params(module):
         for param in module.parameters():
-            torch.distributed.fetch(param.data,
-                                    src=mpu.get_data_parallel_src_rank(),
-                                    group=mpu.get_data_parallel_group())
+            torch.distributed.broadcast(param.data,
+                                        src=mpu.get_data_parallel_src_rank(),
+                                        group=mpu.get_data_parallel_group())
 
     dp_rank = mpu.get_data_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -97,14 +102,14 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         gpt_model_module = _get_gpt_model(models[i])
         assert len(gpt_model_module.model.layers) == num_layers_per_model
 
-    def _fetch_tensor(tensor, name) -> torch.Tensor:
-        """fetch tensor"""
+    def _broadcast_tensor(tensor, name) -> torch.Tensor:
+        """broadcast tensor"""
         nonlocal state_dict
         if tensor is not None:
             tensor = tensor.data.copy_(state_dict[name], non_blocking=True)
 
-    def _fetch_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
-        """fetch tensor in tp shards"""
+    def _broadcast_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
+        """broadcast tensor in tp shards"""
         nonlocal state_dict
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -119,8 +124,8 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
-    def _fetch_tp_shard_tensor(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
-        """fetch tensor in tp shards"""
+    def _broadcast_tp_shard_tensor(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
+        """broadcast tensor in tp shards"""
         nonlocal state_dict
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -130,13 +135,14 @@ def load_state_dict_to_megatron_qwen2(state_dict,
             if mutate_func is not None:
                 full_weight = mutate_func(full_weight)
             tensor_chunk = torch.chunk(full_weight, tp_size, dim=chunk_dim)
+            tensor.data.copy_(tensor_chunk[tp_rank])
             if tensor is not None:
                 tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
-    def _fetch_tp_shard_tensor_gate_up(tensor, gate_name, up_name) -> torch.Tensor:
-        """fetch gate_up tensor in tp shards"""
+    def _broadcast_tp_shard_tensor_gate_up(tensor, gate_name, up_name) -> torch.Tensor:
+        """broadcast gate_up tensor in tp shards"""
         nonlocal state_dict
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -161,8 +167,8 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         else:
             print(f"tp_shard tensor:[{gate_name}, {up_name}] not in state_dict, skip loading")
 
-    def _fetch_tp_shard_tensor_qkv(tensor, q_name, k_name, v_name, bias=False) -> torch.Tensor:
-        """fetch tensor in tp shards across mp_group"""
+    def _broadcast_tp_shard_tensor_qkv(tensor, q_name, k_name, v_name, bias=False) -> torch.Tensor:
+        """broadcast tensor in tp shards across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -218,116 +224,122 @@ def load_state_dict_to_megatron_qwen2(state_dict,
         if tensor is not None:
             tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
 
-    # Embeddings
-    # -------------------
-    print_rank_0("loading embeddings...")
-    gpt_model_module = _get_gpt_model(models[0])
-    if pp_rank == 0:
-        embed_tokens_weight = gpt_model_module.model.embed_tokens.weight
-        _fetch_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
+    if dp_rank == 0:
+        # Embeddings
+        # -------------------
+        print_rank_0("loading embeddings...")
+        gpt_model_module = _get_gpt_model(models[0])
+        if pp_rank == 0:
+            embed_tokens_weight = gpt_model_module.model.embed_tokens.weight
+            _broadcast_tp_shard_tensor_vocab(embed_tokens_weight, "model.embed_tokens.weight")
 
-    # Transformer layers
-    # -------------------
-    layer_map = _megatron_calc_layer_map(config)
+        # Transformer layers
+        # -------------------
+        layer_map = _megatron_calc_layer_map(config)
 
-    pp_rank = mpu.get_pipeline_model_parallel_rank()
-    pp_size = mpu.get_pipeline_model_parallel_world_size()
-    num_layer_per_pp = config.num_hidden_layers // pp_size
-    vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+        pp_rank = mpu.get_pipeline_model_parallel_rank()
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
+        num_layer_per_pp = config.num_hidden_layers // pp_size
+        vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
 
-    layer_list = []
-    if vpp_size is not None:
-        for vpp_rank in range(vpp_size):
-            num_layer_vpp_chunk = num_layer_per_pp // vpp_size
-            num_layer_this_model = num_layer_vpp_chunk
-            offset = vpp_rank * (
-                    config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
-                        (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+        layer_list = []
+        if vpp_size is not None:
+            for vpp_rank in range(vpp_size):
+                num_layer_vpp_chunk = num_layer_per_pp // vpp_size
+                num_layer_this_model = num_layer_vpp_chunk
+                offset = vpp_rank * (
+                        config.num_hidden_layers // mpu.get_virtual_pipeline_model_parallel_world_size()) + \
+                            (mpu.get_pipeline_model_parallel_rank() * num_layer_vpp_chunk)
+                layer_list.extend(list(range(offset, offset + num_layer_this_model)))
+        else:
+            num_layer_this_model = num_layer_per_pp
+            offset = pp_rank * num_layer_per_pp
             layer_list.extend(list(range(offset, offset + num_layer_this_model)))
-    else:
-        num_layer_this_model = num_layer_per_pp
-        offset = pp_rank * num_layer_per_pp
-        layer_list.extend(list(range(offset, offset + num_layer_this_model)))
 
-    for layer in layer_list:
-        print(f"{torch.distributed.get_rank()} loading layer #{layer}...")
-        layer_name = f"model.layers.{layer}"
-        dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
+        for layer in layer_list:
+            print(f"{torch.distributed.get_rank()} loading layer #{layer}...")
+            layer_name = f"model.layers.{layer}"
+            dst_pp_rank, dst_virtual_pp_rank, dst_layer_idx = layer_map[layer]
 
-        print(
-            f'{torch.distributed.get_rank()} offset: {offset}, num_layer_this_model: {num_layer_this_model}, layer_name: {layer_name}, layer_map[layer]: {layer_map[layer]}'
+            print(
+                f'{torch.distributed.get_rank()} offset: {offset}, num_layer_this_model: {num_layer_this_model}, layer_name: {layer_name}, layer_map[layer]: {layer_map[layer]}'
+            )
+
+            gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
+            sync_layer = gpt_model_module.model.layers[dst_layer_idx]
+
+            _broadcast_tensor(
+                sync_layer.input_layernorm.weight if dst_pp_rank == pp_rank else None,
+                f"{layer_name}.input_layernorm.weight",
+            )
+
+            _broadcast_tp_shard_tensor_qkv(
+                sync_layer.self_attn.qkv_proj.weight if dst_pp_rank == pp_rank else None,
+                f"{layer_name}.self_attn.q_proj.weight",
+                f"{layer_name}.self_attn.k_proj.weight",
+                f"{layer_name}.self_attn.v_proj.weight",
+            )
+
+            _broadcast_tp_shard_tensor_qkv(sync_layer.self_attn.qkv_proj.bias if dst_pp_rank == pp_rank else None,
+                                           f"{layer_name}.self_attn.q_proj.bias",
+                                           f"{layer_name}.self_attn.k_proj.bias",
+                                           f"{layer_name}.self_attn.v_proj.bias",
+                                           bias=True)
+
+            _broadcast_tp_shard_tensor(
+                sync_layer.self_attn.o_proj.weight if dst_pp_rank == pp_rank else None,
+                f"{layer_name}.self_attn.o_proj.weight",
+                chunk_dim=1,
+            )
+
+            _broadcast_tensor(
+                sync_layer.post_attention_layernorm.weight if dst_pp_rank == pp_rank else None,
+                f"{layer_name}.post_attention_layernorm.weight",
+            )
+
+            _broadcast_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
+                                               f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
+
+            _broadcast_tp_shard_tensor(
+                sync_layer.mlp.down_proj.weight if dst_pp_rank == pp_rank else None,
+                f"{layer_name}.mlp.down_proj.weight",
+                chunk_dim=1,
+            )
+        # Final Layernorm
+        # -------------------
+        print_rank_0("loading final layernorm...")
+        gpt_model_module = _get_gpt_model(models[-1])
+        _broadcast_tensor(
+            getattr(gpt_model_module.model.norm, "weight", None),
+            "model.norm.weight",
         )
 
-        gpt_model_module = _get_gpt_model(models[dst_virtual_pp_rank])
-        sync_layer = gpt_model_module.model.layers[dst_layer_idx]
-
-        _fetch_tensor(
-            sync_layer.input_layernorm.weight if dst_pp_rank == pp_rank else None,
-            f"{layer_name}.input_layernorm.weight",
-        )
-
-        _fetch_tp_shard_tensor_qkv(
-            sync_layer.self_attn.qkv_proj.weight if dst_pp_rank == pp_rank else None,
-            f"{layer_name}.self_attn.q_proj.weight",
-            f"{layer_name}.self_attn.k_proj.weight",
-            f"{layer_name}.self_attn.v_proj.weight",
-        )
-
-        _fetch_tp_shard_tensor_qkv(sync_layer.self_attn.qkv_proj.bias if dst_pp_rank == pp_rank else None,
-                                   f"{layer_name}.self_attn.q_proj.bias",
-                                   f"{layer_name}.self_attn.k_proj.bias",
-                                   f"{layer_name}.self_attn.v_proj.bias",
-                                   bias=True)
-
-        _fetch_tp_shard_tensor(
-            sync_layer.self_attn.o_proj.weight if dst_pp_rank == pp_rank else None,
-            f"{layer_name}.self_attn.o_proj.weight",
-            chunk_dim=1,
-        )
-
-        _fetch_tensor(
-            sync_layer.post_attention_layernorm.weight if dst_pp_rank == pp_rank else None,
-            f"{layer_name}.post_attention_layernorm.weight",
-        )
-
-        _fetch_tp_shard_tensor_gate_up(sync_layer.mlp.gate_up_proj.weight if dst_pp_rank == pp_rank else None,
-                                       f"{layer_name}.mlp.gate_proj.weight", f"{layer_name}.mlp.up_proj.weight")
-
-        _fetch_tp_shard_tensor(
-            sync_layer.mlp.down_proj.weight if dst_pp_rank == pp_rank else None,
-            f"{layer_name}.mlp.down_proj.weight",
-            chunk_dim=1,
-        )
-    # Final Layernorm
-    # -------------------
-    print_rank_0("loading final layernorm...")
-    gpt_model_module = _get_gpt_model(models[-1])
-    _fetch_tensor(
-        getattr(gpt_model_module.model.norm, "weight", None),
-        "model.norm.weight",
-    )
-
-    if tie_word_embeddings:
-        print_rank_0("tie_word_embeddings skip load lm_head")
-    else:
-        print_rank_0("loading lm_head...")
-        if pp_rank + 1 == pp_size:
-            lm_head_weight = gpt_model_module.lm_head.weight
+        if tie_word_embeddings:
+            print_rank_0("tie_word_embeddings skip load lm_head")
+        else:
+            print_rank_0("loading lm_head...")
+            lm_head_weight = None
+            if pp_rank + 1 == pp_size:
+                lm_head_weight = gpt_model_module.lm_head.weight
 
             if is_value_model:
                 if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
-                    _fetch_tensor(lm_head_weight, "lm_head.weight")
+                    _broadcast_tensor(lm_head_weight, "lm_head.weight")
                     print_rank_0('load lm_head from value_head weight')
                 elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:
-                    _fetch_tensor(lm_head_weight, "reward_head.weight")
+                    _broadcast_tensor(lm_head_weight, "reward_head.weight")
                     print_rank_0('load lm_head from value_head weight')
                 else:
-                    _fetch_tensor(None, "lm_head.weight")
+                    _broadcast_tensor(None, "lm_head.weight")
                     print_rank_0('fail to match lm_head in value_model')
 
             else:
-                _fetch_tp_shard_tensor(lm_head_weight, "lm_head.weight")
+                _broadcast_tp_shard_tensor(lm_head_weight, "lm_head.weight")
 
     dist.barrier()
+    # Broadcast weights inside data parallel groups
+    for wrapped_model in wrapped_models:
+        broadcast_params(wrapped_model)
+
     torch.cuda.empty_cache()
     print_rank_0(f"loading megatron ckpt done, time elapsed {time.time() - start_time}s")
