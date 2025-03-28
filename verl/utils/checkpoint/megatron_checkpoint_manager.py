@@ -210,14 +210,17 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     f'[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored'
                 )
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, remove_previous_ckpt=False):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
         # record the previous global step
         self.previous_global_step = global_step
 
         # remove previous local_path
-        # TODO: shall we remove previous ckpt every save?
-        if remove_previous_ckpt:
-            self.remove_previous_save_local_path()
+        if max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(
+                self.previous_saved_paths) >= max_ckpt_to_keep:
+            keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
+            self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
+            self.previous_saved_paths = self.previous_saved_paths[keep_start:]
+
         local_path = self.local_mkdir(local_path)
 
         # Save Model
@@ -264,7 +267,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                         state_dict['score.weight'] = state_dict['score.weight']
                     else:
                         from transformers import AutoModelForCausalLM
-                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
                 if hdfs_path is not None:
                     print(f'Uploading checkpoint to {hdfs_path}')
@@ -291,4 +294,4 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 print(f"saving rng states to {rng_state_path}")
 
-        self.previous_saved_path = local_path
+        self.previous_saved_paths.append(local_path)
