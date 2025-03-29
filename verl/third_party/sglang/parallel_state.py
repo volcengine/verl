@@ -9,16 +9,13 @@ from typing import Optional
 
 import torch
 import torch.distributed
-import vllm.distributed.parallel_state as ps
-from vllm.distributed.parallel_state import (
+import sglang.srt.distributed.parallel_state as ps
+from sglang.srt.distributed.parallel_state import (
     get_pp_group,
     get_world_group,
     init_distributed_environment,
     init_model_parallel_group,
 )
-from vllm.logger import init_logger
-
-logger = init_logger(__name__)
 """
 This version is strongly tied with Megatron to implement HybridEngine and weight sharing between vllm and Megatron.
 - We assume the Megatron tp+dp+pp world is already established before calling this function.
