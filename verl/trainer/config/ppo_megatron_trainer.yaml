@@ -51,7 +51,7 @@ actor_rollout_ref:
       seed: 1
     load_weight: True
     checkpoint:
-      contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     megatron:
       tensor_model_parallel_size: 4
@@ -135,7 +135,7 @@ critic:
     type: fixed
     kl_coef: 0.001
   checkpoint:
-    contents: ['model', 'hf_model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
 reward_model:
   enable: False

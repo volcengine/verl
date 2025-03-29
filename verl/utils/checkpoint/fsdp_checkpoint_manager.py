@@ -49,14 +49,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  **kwargs):
 
         if processing_class is None:
             assert "tokenizer" in kwargs, "tokenizer or processor must be provided"
             warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
             processing_class = kwargs.pop("tokenizer")
-        assert "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents, f"FSDPCheckpointManager must include ['model', 'hf_model', 'optimizer', 'extra'], got {checkpoint_contents}"
+        assert "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents, f"FSDPCheckpointManager must include ['model', 'optimizer', 'extra'], got {checkpoint_contents}"
 
         super().__init__(model,
                          optimizer,

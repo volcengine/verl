@@ -62,3 +62,11 @@ jobs:
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
           bash tests/checkpoint/run_deepseek_megatron_ckpt.sh
+      - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
+        run: |
+          python scripts/model_merger.py --backend megatron --tie-word-embedding --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor/huggingface
+          python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/critic --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/critic/huggingface
+      - name: Test Megatron checkpoints merging function (Deepseek Actor and Critic)
+        run: |
+          python scripts/model_merger.py --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/actor --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/actor/huggingface
+          python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/critic --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/critic/huggingface

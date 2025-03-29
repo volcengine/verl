@@ -2,6 +2,8 @@
 
 set -e -x
 
+huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
+
 python3 tests/e2e/arithmetic_sequence/rl/main_trainer.py \
     data.train_files=tests/e2e/arithmetic_sequence/data/train.parquet \
     data.val_files=tests/e2e/arithmetic_sequence/data/test.parquet \
