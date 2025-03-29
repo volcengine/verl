@@ -96,7 +96,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             loaded_params = model.load_weights(
                 ((name, param.full_tensor() if world_size != 1 else param) for name, param in params.items()))
-            logger.info(f"vLLM load wegiths, loaded_params: {len(loaded_params)}")
+            logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
 
