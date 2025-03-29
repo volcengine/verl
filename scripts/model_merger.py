@@ -163,10 +163,3 @@ if __name__ == '__main__':
             repo_id=args.hf_upload_path,
             repo_type="model"
         )
-    
-    
-
-
-
-
-
