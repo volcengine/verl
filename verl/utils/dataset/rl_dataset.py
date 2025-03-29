@@ -115,6 +115,11 @@ class RLHFDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
+        if 'difficulty' in self.dataframe.columns:
+            self.difficulties = self.dataframe['difficulty'].values.tolist()
+        else:
+            self.difficulties = None
+
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
         parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files

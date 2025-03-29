@@ -40,6 +40,7 @@ from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_througho
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.dataset.rl_sampler import DynamicSampler
 from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -401,16 +402,31 @@ class RayPPOTrainer(object):
             'truncation', 'error'
         ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
         # use sampler for better ckpt resume
-        if self.config.data.shuffle:
+        if self.config.data.get('use_dynamic_sampler', False):
+            print("use dynamic sampler")
+            if self.config.trainer.total_training_steps is not None:
+                total_training_steps = self.config.trainer.total_training_steps
+            else:
+                total_training_steps = (len(self.train_dataset) // self.config.data.train_batch_size) * self.config.trainer.total_epochs
+            sampler = DynamicSampler(data_source=self.train_dataset,
+                                     difficulties=self.train_dataset.difficulties,
+                                     total_steps=total_training_steps,
+                                     batch_size=self.config.data.train_batch_size,
+                                     init_level=0)
+        elif self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
             train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
             sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
 
+        num_workers = 8
+        if self.config.data.get('use_dynamic_sampler', False):
+            # disable multiprocessing for dynamic sampler
+            num_workers = 0
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
                                                    batch_size=self.config.data.train_batch_size,
-                                                   num_workers=8,
+                                                   num_workers=num_workers,
                                                    drop_last=True,
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
@@ -446,8 +462,12 @@ class RayPPOTrainer(object):
         print(f'Size of train dataloader: {len(self.train_dataloader)}')
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
-        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
-
+        if self.config.data.get('use_dynamic_sampler', False):
+            # len(train_dataloader) depends on the len(sampler)
+            # But sampler is dynamic, so we need to set total_training_steps in advance
+            total_training_steps = len(self.train_dataloader)
+        else:
+            total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
         if self.config.trainer.total_training_steps is not None:
             total_training_steps = self.config.trainer.total_training_steps
 
@@ -937,6 +957,9 @@ class RayPPOTrainer(object):
                     pprint(f'Final validation metrics: {last_val_metrics}')
                     progress_bar.close()
                     return
+
+                if self.config.data.get('use_dynamic_sampler', False):
+                    self.train_dataloader.sampler.update_sampling_policy(metrics["critic/score/mean"])
 
                 progress_bar.update(1)
                 self.global_steps += 1
