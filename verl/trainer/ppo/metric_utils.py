@@ -16,9 +16,10 @@ Metrics related to the PPO trainer.
 """
 
 import torch
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 import numpy as np
 from verl import DataProto
+from collections import Counter, defaultdict
 
 
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
@@ -166,3 +167,35 @@ def compute_throughout_metrics(batch: DataProto, timing_raw: Dict[str, float], n
         'perf/time_per_step': time,
         'perf/throughput': total_num_tokens / (time * n_gpus),
     }
+
+
+def bootstrap_metric(data: list[dict[str, Any]],
+                     subset_size: int,
+                     reduce_fns: list[Callable[[np.ndarray], float]],
+                     n_bootstrap: int = 1000,
+                     seed: int = 42) -> list[tuple[float, float]]:
+    np.random.seed(seed)
+
+    bootstrap_metric_lsts = [[] for _ in range(len(reduce_fns))]
+    for _ in range(n_bootstrap):
+        bootstrap_idxs = np.random.choice(len(data), size=subset_size, replace=True)
+        bootstrap_data = [data[i] for i in bootstrap_idxs]
+        for i, reduce_fn in enumerate(reduce_fns):
+            bootstrap_metric_lsts[i].append(reduce_fn(bootstrap_data))
+    return [(np.mean(lst), np.std(lst)) for lst in bootstrap_metric_lsts]
+
+
+def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> float:
+    """
+    Calculate the majority voting metric
+    """
+    vote2vals = defaultdict(list)
+    for d in data:
+        vote2vals[d[vote_key]].append(d[val_key])
+
+    vote2cnt = {k: len(v) for k, v in vote2vals.items()}
+    maj_vote = max(vote2cnt, key=vote2cnt.get)
+
+    maj_val = vote2vals[maj_vote][0]
+
+    return maj_val
