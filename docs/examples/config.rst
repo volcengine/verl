@@ -381,8 +381,8 @@ Trainer
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
      default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name} # local checkpoint path
-     resume_mode: auto # or disable or resume_path if
-     resume_from_path: False
+     resume_mode: auto # or disable or resume_path if resume_from_path is set
+     resume_from_path: null
      remove_previous_ckpt_in_save: False
      del_local_ckpt_after_load: False
 
