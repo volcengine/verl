@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 
 def get_gsm8k_data():
@@ -54,3 +55,45 @@ def test_rl_dataset():
     output = tokenizer.batch_decode([data])[0]
     print(f'type: type{output}')
     print(f'\n\noutput: {output}')
+
+
+def test_rl_dataset_continue_final_message_false():
+    from verl.utils.dataset.rl_dataset import RLHFDataset
+    from verl.utils import hf_tokenizer
+
+    tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
+    local_path = get_gsm8k_data()
+
+    # verify old behaviour
+    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256,
+                          continue_final_message=False)
+    dataset.dataframe = pd.DataFrame(data={'prompt':
+                                               [[{"role": "user",
+                                                  "content": f"Here is a dummy task. Think step by step inside <think> tags."},
+                                                 {"role": "assistant",
+                                                  "content": "Let me solve this step by step.\n<think>"}]]
+                                           })
+    new_begin_tokens = dataset.tokenizer.encode('\n<|EOT|>\n### Response:\n')[1:]  # without begin of sentence token
+    final_tokens_of_prompt = next(iter(dataset))['raw_prompt_ids'][-len(new_begin_tokens):]
+    assert final_tokens_of_prompt == new_begin_tokens
+
+
+def test_rl_dataset_continue_final_message_true():
+    from verl.utils.dataset.rl_dataset import RLHFDataset
+    from verl.utils import hf_tokenizer
+
+    tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
+    local_path = get_gsm8k_data()
+
+    # verify it does not start a new conversation turn
+    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256,
+                          continue_final_message=True)
+    dataset.dataframe = pd.DataFrame(data={'prompt':
+                                               [[{"role": "user",
+                                                  "content": f"Here is a dummy task. Think step by step inside <think> tags."},
+                                                 {"role": "assistant",
+                                                  "content": "Let me solve this step by step.\n<think>"}]]
+                                           })
+    new_begin_tokens = dataset.tokenizer.encode('\n<|EOT|>\n### Response:\n')[1:]  # without begin of sentence token
+    final_tokens_of_prompt = next(iter(dataset))['raw_prompt_ids'][-len(new_begin_tokens):]
+    assert final_tokens_of_prompt != new_begin_tokens
