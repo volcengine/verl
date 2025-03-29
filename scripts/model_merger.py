@@ -310,7 +310,8 @@ def convert_megatron_checkpoints_to_hfmodes():
             return state_dict
         # Tranformer Layers
         if "input_layernorm.weight" in key:
-            state_dict[key] = tensor
+            if state_dict[key] is None:
+                state_dict[key] = tensor
             return state_dict
         if re.search(r"self_attn\.qkv_proj", key):
             state_dict = handle_qkv_proj(key, config, tensor, state_dict)
@@ -322,7 +323,8 @@ def convert_megatron_checkpoints_to_hfmodes():
                 state_dict[key] = torch.concat([state_dict[key], tensor], dim=1)
             return state_dict
         if "post_attention_layernorm.weight" in key:
-            state_dict[key] = tensor
+            if state_dict[key] is None:
+                state_dict[key] = tensor
             return state_dict
         if re.search(r"mlp\.gate_up_proj\.weight", key):
             state_dict = handle_gate_up_proj(key, config, tensor, state_dict)
@@ -375,6 +377,7 @@ def convert_megatron_checkpoints_to_hfmodes():
     del model_state_dict_lst
     if args.test:
         for key, value in state_dict.items():
+            print(key)
             if key not in ref_state_dict:
                 raise RuntimeError(f'key: {key} not exist in ref_state_dict {value}')
             if value.shape != ref_state_dict[key].shape:
