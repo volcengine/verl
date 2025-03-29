@@ -129,6 +129,11 @@ def main(config):
         Role.Critic: global_pool_id,
     }
 
+    # use reward model
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = global_pool_id
+
     reward_fn = make_reward_function(tokenizer=tokenizer, num_examine=1)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)

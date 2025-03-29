@@ -14,6 +14,7 @@ FUNCTION_NAME="my_reward_function"
 rm -rf $OUTPUT_FILE
 
 python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=1024 \
@@ -26,12 +27,11 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=Qwen/Qwen2.5-0.5B \
@@ -39,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
-    algorithm.kl_ctrl.kl_coef=0.001 \
+    algorithm.use_kl_in_reward=False \
     custom_reward_function.path=$FILE\
     custom_reward_function.name=$FUNCTION_NAME\
     trainer.critic_warmup=0 \

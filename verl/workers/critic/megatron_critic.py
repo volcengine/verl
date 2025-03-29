@@ -66,16 +66,6 @@ class MegatronPPOCritic(BasePPOCritic):
             'reduce_grads_use_alltoall': False
         })
 
-        if self.config.kl_ctrl.type == 'fixed':
-            self.kl_ctrl = core_algos.FixedKLController(kl_coef=self.config.kl_ctrl.kl_coef)
-        elif self.config.kl_ctrl.type == 'adaptive':
-            assert self.config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {self.config.kl_ctrl.horizon}'
-            self.kl_ctrl = core_algos.AdaptiveKLController(init_kl_coef=self.config.kl_ctrl.kl_coef,
-                                                           target_kl=self.config.kl_ctrl.target_kl,
-                                                           horizon=self.config.kl_ctrl.horizon)
-        else:
-            raise NotImplementedError
-
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1

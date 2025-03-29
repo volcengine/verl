@@ -53,18 +53,14 @@ class FixedKLController:
         pass
 
 
-def get_kl_controller(config):
-    if config.critic.kl_ctrl.type == 'fixed':
-        kl_ctrl = FixedKLController(kl_coef=config.critic.kl_ctrl.kl_coef)
-    elif config.critic.kl_ctrl.type == 'adaptive':
-        assert config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {config.critic.kl_ctrl.horizon}'
-        kl_ctrl = AdaptiveKLController(init_kl_coef=config.critic.kl_ctrl.kl_coef,
-                                       target_kl=config.critic.kl_ctrl.target_kl,
-                                       horizon=config.critic.kl_ctrl.horizon)
+def get_kl_controller(kl_ctrl):
+    if kl_ctrl.type == 'fixed':
+        return FixedKLController(kl_coef=kl_ctrl.kl_coef)
+    elif kl_ctrl.type == 'adaptive':
+        assert kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {kl_ctrl.horizon}'
+        return AdaptiveKLController(init_kl_coef=kl_ctrl.kl_coef, target_kl=kl_ctrl.target_kl, horizon=kl_ctrl.horizon)
     else:
-        raise ValueError('Unknown kl_ctrl type')
-
-    return kl_ctrl
+        raise NotImplementedError
 
 
 def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torch.Tensor, eos_mask: torch.Tensor,
