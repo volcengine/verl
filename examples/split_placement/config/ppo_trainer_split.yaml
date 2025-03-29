@@ -164,8 +164,8 @@ trainer:
   n_gpus_per_node: 8
   save_freq: -1
   # auto: find the last ckpt to resume. If can't find, start from scratch
-  resume_mode: auto # or auto or resume_path if 
-  resume_from_path: False
+  resume_mode: auto # or disable or resume_path if resume_from_path is set
+  resume_from_path: null
   test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null
