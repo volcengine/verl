@@ -48,7 +48,7 @@ MATH_REQUIRES = ['math-verify']  # Add math-verify as an optional dependency
 VLLM_REQUIRES = ['tensordict<=0.6.2', 'vllm<=0.8.2']
 SGLANG_REQUIRES = [
   'tensordict<=0.6.2', 
-  'sglang[all] @ git+https://github.com/sgl-project/sglang.git#subdirectory=python',
+  'sglang[all]==0.4.4.post3',
   'torch-memory-saver>=0.0.5'
 ]
 
