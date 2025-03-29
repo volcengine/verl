@@ -237,6 +237,123 @@ def convert_megatron_checkpoints_to_hfmodes():
     config = AutoConfig.from_pretrained(args.hf_model_path)
     if args.test:
         ref_state_dict = load_file(os.path.join(args.test_hf_dir, 'model.safetensors'))
+    
+    def handle_qkv_proj(key, config, tensor, state_dict):
+        nonlocal tp_size
+        
+        hidden_size_per_head = config.hidden_size // config.num_attention_heads
+
+        if config.num_key_value_heads >= tp_size:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
+            total_size = q_size_tp + 2 * kv_size_tp
+            q_part = tensor[:q_size_tp]
+            k_part = tensor[q_size_tp:q_size_tp + kv_size_tp]
+            v_part = tensor[q_size_tp + kv_size_tp:total_size]
+        else:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head
+            total_size = q_size_tp + 2 * kv_size_tp
+            q_part = tensor[:q_size_tp]
+            k_part = tensor[q_size_tp:q_size_tp + kv_size_tp]
+            v_part = tensor[q_size_tp + kv_size_tp:total_size]
+        
+        preffix = '.'.join(key.split('.')[:4])
+        suffix = '.'.join(key.split('.')[5:])
+        if state_dict.get(f'{preffix}.q_proj.{suffix}') is None:
+            state_dict[f'{preffix}.q_proj.{suffix}'] = q_part
+        else:
+            state_dict[f'{preffix}.q_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.q_proj.{suffix}'], q_part], dim=0)
+        if state_dict.get(f'{preffix}.k_proj.{suffix}') is None:
+            state_dict[f'{preffix}.k_proj.{suffix}'] = k_part
+        else:
+            state_dict[f'{preffix}.k_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.k_proj.{suffix}'], k_part], dim=0)
+        if state_dict.get(f'{preffix}.v_proj.{suffix}') is None:
+            state_dict[f'{preffix}.v_proj.{suffix}'] = v_part
+        else:
+            state_dict[f'{preffix}.v_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.v_proj.{suffix}'], v_part], dim=0)
+            
+        return state_dict
+
+    def handle_gate_up_proj(key, config, tensor, state_dict):
+        nonlocal tp_size
+        
+        intermediate_size_tp = config.intermediate_size // tp_size
+        gate_weight_tp = tensor[:intermediate_size_tp]
+        up_weight_tp = tensor[intermediate_size_tp:]
+        preffix = '.'.join(key.split('.')[:4])
+        suffix = '.'.join(key.split('.')[5:])
+        if state_dict.get(f'{preffix}.gate_proj.{suffix}') is None:
+            state_dict[f'{preffix}.gate_proj.{suffix}'] = gate_weight_tp
+        else:
+            state_dict[f'{preffix}.gate_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.gate_proj.{suffix}'], gate_weight_tp], dim=0)
+        if state_dict.get(f'{preffix}.up_proj.{suffix}') is None:
+            state_dict[f'{preffix}.up_proj.{suffix}'] = up_weight_tp
+        else:
+            state_dict[f'{preffix}.up_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.up_proj.{suffix}'], up_weight_tp], dim=0)
+        
+        return state_dict
+    
+    def merge_between_tp_rank(key, model_state_dict):
+        nonlocal state_dict
+        
+        try:
+            tensor = model_state_dict.pop(key)
+        except:
+            raise RuntimeError(f"error pop: {key}")
+        # Embedding layer
+        if "model.embed_tokens.weight" in key:
+            if state_dict[key] is None:
+                state_dict[key] = tensor
+            else:
+                state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
+            return state_dict
+        # Tranformer Layers
+        if "input_layernorm.weight" in key:
+            state_dict[key] = tensor
+            return state_dict
+        if re.search(r"self_attn\.qkv_proj", key):
+            state_dict = handle_qkv_proj(key, config, tensor, state_dict)
+            return state_dict
+        if "self_attn.o_proj.weight" in key:
+            if state_dict[key] is None:
+                state_dict[key] = tensor
+            else:
+                state_dict[key] = torch.concat([state_dict[key], tensor], dim=1)
+            return state_dict
+        if "post_attention_layernorm.weight" in key:
+            state_dict[key] = tensor
+            return state_dict
+        if re.search(r"mlp\.gate_up_proj\.weight", key):
+            state_dict = handle_gate_up_proj(key, config, tensor, state_dict)
+            return state_dict
+        if "mlp.down_proj.weight" in key:
+            if state_dict[key] is None:
+                state_dict[key] = tensor
+            else:
+                state_dict[key] = torch.concat([state_dict[key], tensor], dim=1)
+            return state_dict
+        # Final LayerNorm
+        if "model.norm.weight" in key:
+            if state_dict[key] is None:
+                state_dict[key] = tensor
+            return state_dict
+        if not args.tie_word_embedding:
+            if args.is_value_model:
+                if "lm_head.weight" in key:
+                    if state_dict[key] is None:
+                        state_dict[key] = tensor
+                if "reward_head.weight" in key:
+                    if state_dict[key] is None:
+                        state_dict[key] = tensor
+            else:
+                if "lm_head.weight" in key:
+                    if state_dict[key] is None:
+                        state_dict[key] = tensor
+                    else:
+                        state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
+            return state_dict
+        return state_dict
 
     for pp_rank in range(pp_size):
         print(f'pp_rank: {pp_rank}')
@@ -253,106 +370,17 @@ def convert_megatron_checkpoints_to_hfmodes():
                     state_dict[key] = None
                 for tp_rank in range(tp_size):
                     model_state_dict = model_state_dict_lst[pp_rank][tp_rank][vpp_rank]
-                    try:
-                        tensor = model_state_dict.pop(key)
-                    except:
-                        raise RuntimeError(f"error pop: {key}")
-                    # Embedding layer
-                    if "model.embed_tokens.weight" in key:
-                        if state_dict[key] is None:
-                            state_dict[key] = tensor
-                        else:
-                            state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
-                    # Tranformer Layers
-                    if "input_layernorm.weight" in key:
-                        state_dict[key] = tensor
-                        break
-                    if re.search(r"self_attn\.qkv_proj", key):
-                        hidden_size_per_head = config.hidden_size // config.num_attention_heads
-
-                        if config.num_key_value_heads >= tp_size:
-                            q_size_tp = config.hidden_size // tp_size
-                            kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
-                            total_size = q_size_tp + 2 * kv_size_tp
-                            q_part = tensor[:q_size_tp]
-                            k_part = tensor[q_size_tp:q_size_tp + kv_size_tp]
-                            v_part = tensor[q_size_tp + kv_size_tp:total_size]
-                        else:
-                            q_size_tp = config.hidden_size // tp_size
-                            kv_size_tp = hidden_size_per_head
-                            total_size = q_size_tp + 2 * kv_size_tp
-                            q_part = tensor[:q_size_tp]
-                            k_part = tensor[q_size_tp:q_size_tp + kv_size_tp]
-                            v_part = tensor[q_size_tp + kv_size_tp:total_size]
-                        
-                        preffix = '.'.join(key.split('.')[:4])
-                        suffix = '.'.join(key.split('.')[5:])
-                        if state_dict.get(f'{preffix}.q_proj.{suffix}') is None:
-                            state_dict[f'{preffix}.q_proj.{suffix}'] = q_part
-                        else:
-                            state_dict[f'{preffix}.q_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.q_proj.{suffix}'], q_part], dim=0)
-                        if state_dict.get(f'{preffix}.k_proj.{suffix}') is None:
-                            state_dict[f'{preffix}.k_proj.{suffix}'] = k_part
-                        else:
-                            state_dict[f'{preffix}.k_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.k_proj.{suffix}'], k_part], dim=0)
-                        if state_dict.get(f'{preffix}.v_proj.{suffix}') is None:
-                            state_dict[f'{preffix}.v_proj.{suffix}'] = v_part
-                        else:
-                            state_dict[f'{preffix}.v_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.v_proj.{suffix}'], v_part], dim=0)
-                    if "self_attn.o_proj.weight" in key:
-                        if state_dict[key] is None:
-                            state_dict[key] = tensor
-                        else:
-                            state_dict[key] = torch.concat([state_dict[key], tensor], dim=1)
-                    if "post_attention_layernorm.weight" in key:
-                        state_dict[key] = tensor
-                    if re.search(r"mlp\.gate_up_proj\.weight", key):
-                        intermediate_size_tp = config.intermediate_size // tp_size
-                        gate_weight_tp = tensor[:intermediate_size_tp]
-                        up_weight_tp = tensor[intermediate_size_tp:]
-                        preffix = '.'.join(key.split('.')[:4])
-                        suffix = '.'.join(key.split('.')[5:])
-                        if state_dict.get(f'{preffix}.gate_proj.{suffix}') is None:
-                            state_dict[f'{preffix}.gate_proj.{suffix}'] = gate_weight_tp
-                        else:
-                            state_dict[f'{preffix}.gate_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.gate_proj.{suffix}'], gate_weight_tp], dim=0)
-                        if state_dict.get(f'{preffix}.up_proj.{suffix}') is None:
-                            state_dict[f'{preffix}.up_proj.{suffix}'] = up_weight_tp
-                        else:
-                            state_dict[f'{preffix}.up_proj.{suffix}'] = torch.concat([state_dict[f'{preffix}.up_proj.{suffix}'], up_weight_tp], dim=0)
-                    if "mlp.down_proj.weight" in key:
-                        if state_dict[key] is None:
-                            state_dict[key] = tensor
-                        else:
-                            state_dict[key] = torch.concat([state_dict[key], tensor], dim=1)
-                    # Final LayerNorm
-                    if "model.norm.weight" in key:
-                        if state_dict[key] is None:
-                            state_dict[key] = tensor
-                    if not args.tie_word_embedding:
-                        if args.is_value_model:
-                            if "lm_head.weight" in key:
-                                if state_dict[key] is None:
-                                    state_dict[key] = tensor
-                            if "reward_head.weight" in key:
-                                if state_dict[key] is None:
-                                    state_dict[key] = tensor
-                        else:
-                            if "lm_head.weight" in key:
-                                if state_dict[key] is None:
-                                    state_dict[key] = tensor
-                                else:
-                                    state_dict[key] = torch.concat([state_dict[key], tensor], dim=0)
+                    state_dict = merge_between_tp_rank(key, model_state_dict)
     
     del model_state_dict_lst
     if args.test:
-        for key in state_dict:
+        for key, value in state_dict.items():
             if key not in ref_state_dict:
-                raise RuntimeError(f'key: {key} not exist in ref_state_dict {state_dict[key]}')
-            if state_dict[key].shape != ref_state_dict[key].shape:
-                raise RuntimeError(f'key: {key} shape mismatch {state_dict[key].shape}, {ref_state_dict[key].shape}')
-            assert state_dict[key].dtype == ref_state_dict[key].dtype, f'{key} state_dict[key].dtype: {state_dict[key].dtype} != ref_state_dict[key].dtype: {ref_state_dict[key].dtype}'
-            torch.testing.assert_close(state_dict[key], ref_state_dict[key], atol=1e-4, rtol=1e-4)
+                raise RuntimeError(f'key: {key} not exist in ref_state_dict {value}')
+            if value.shape != ref_state_dict[key].shape:
+                raise RuntimeError(f'key: {key} shape mismatch {value.shape}, {ref_state_dict[key].shape}')
+            assert value.dtype == ref_state_dict[key].dtype, f'{key} state_dict[key].dtype: {value.dtype} != ref_state_dict[key].dtype: {ref_state_dict[key].dtype}'
+            torch.testing.assert_close(value, ref_state_dict[key], atol=1e-4, rtol=1e-4)
         for key in ref_state_dict:
             if key not in state_dict:
                 raise RuntimeError(f'key: {key} not exist in state_dict {ref_state_dict[key]}')

@@ -238,7 +238,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = self.local_mkdir(local_path)
 
         # Save Model
-        if 'model' in self.checkpoint_contents and  mpu.get_data_parallel_rank() == 0:
+        if 'model' in self.checkpoint_contents and mpu.get_data_parallel_rank() == 0:
             state_dicts = []
 
             for vpp_rank, model in enumerate(self.model):
@@ -263,8 +263,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
             torch.save(state_dicts, os.path.join(ckpt_name))
-            self.processing_class.save_pretrained(
-                hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
+            self.processing_class.save_pretrained(hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
             print(f'Saved checkpoint to {model_ckpt_path}')
             if hdfs_path is not None:
                 print(f'Uploading checkpoint to {hdfs_path}')
