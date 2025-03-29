@@ -238,41 +238,39 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         local_path = self.local_mkdir(local_path)
 
         # Save Model
-        if 'model' in self.checkpoint_contents:
-            torch.distributed.barrier()
-            if mpu.get_data_parallel_rank() == 0:
-                state_dicts = []
+        if 'model' in self.checkpoint_contents and  mpu.get_data_parallel_rank() == 0:
+            state_dicts = []
 
-                for vpp_rank, model in enumerate(self.model):
-                    state_dict = model.state_dict()
+            for vpp_rank, model in enumerate(self.model):
+                state_dict = model.state_dict()
 
-                    # modify layer numbers
-                    offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
-                    state_dict_old = state_dict.copy()
-                    old_keys = state_dict_old.keys()
-                    for k in old_keys:
-                        if k.split('.')[1] == 'layers':
-                            layer_idx = int(k.split('.')[2])
-                            new_key = '.'.join(k.split('.')[:2] + [str(layer_idx + offset)] + k.split('.')[3:])
-                            state_dict[new_key] = state_dict[k]
-                            if new_key != k:
-                                state_dict.pop(k)
+                # modify layer numbers
+                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
+                state_dict_old = state_dict.copy()
+                old_keys = state_dict_old.keys()
+                for k in old_keys:
+                    if k.split('.')[1] == 'layers':
+                        layer_idx = int(k.split('.')[2])
+                        new_key = '.'.join(k.split('.')[:2] + [str(layer_idx + offset)] + k.split('.')[3:])
+                        state_dict[new_key] = state_dict[k]
+                        if new_key != k:
+                            state_dict.pop(k)
 
-                    state_dicts.append(state_dict)
+                state_dicts.append(state_dict)
 
-                print(f'Saving sharded model checkpoint to {local_path}')
-                model_ckpt_path = get_model_checkpoint_path(local_path)
-                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
-                ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
-                torch.save(state_dicts, os.path.join(ckpt_name))
-                self.processing_class.save_pretrained(
-                    hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
-                print(f'Saved checkpoint to {model_ckpt_path}')
-                if hdfs_path is not None:
-                    print(f'Uploading checkpoint to {hdfs_path}')
-                    from verl.utils import hdfs_io
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+            print(f'Saving sharded model checkpoint to {local_path}')
+            model_ckpt_path = get_model_checkpoint_path(local_path)
+            hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
+            ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
+            torch.save(state_dicts, os.path.join(ckpt_name))
+            self.processing_class.save_pretrained(
+                hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
+            print(f'Saved checkpoint to {model_ckpt_path}')
+            if hdfs_path is not None:
+                print(f'Uploading checkpoint to {hdfs_path}')
+                from verl.utils import hdfs_io
+                hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         if 'hf_model' in self.checkpoint_contents:
             # wait for everyone to dump to local
@@ -282,6 +280,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                                            is_value_model=self.is_value_model,
                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
 
+            torch.distributed.barrier()
             print(f'self.param_dtype: {self.param_dtype}')
             for key in state_dict.keys():
                 print(f'state_dict[key].dtype: {key} {state_dict[key].dtype}')
