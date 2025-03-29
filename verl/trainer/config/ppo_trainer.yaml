@@ -31,6 +31,7 @@ actor_rollout_ref:
     ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
     grad_clip: 1.0
     clip_ratio: 0.2
+    clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
     entropy_coeff: 0.001
     use_kl_loss: False # True for GRPO
     use_torch_compile: True # False to disable torch compile
