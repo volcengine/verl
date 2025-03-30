@@ -462,7 +462,7 @@ class RayPPOTrainer(object):
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
-        generations_to_log = self.config.trainer.val_generations_to_log_to_wandb
+        generations_to_log = self.config.trainer.log_val_generations
 
         if generations_to_log == 0:
             return
