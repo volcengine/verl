@@ -1,0 +1,40 @@
+name: Pylint Check
+
+on:
+  push:
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install pylint (version from requirements.txt)
+        run: |
+          PYLINT_VERSION=$(grep '^pylint' requirements.txt)
+          if [ -z "$PYLINT_VERSION" ]; then
+            echo "No pylint version found in requirements.txt"
+            exit 1
+          fi
+          # only install pylint to avoid dependency problems on CPU
+          pip install "$PYLINT_VERSION"
+
+      - name: Run pylint
+        run: |
+          pylint --recursive=y --rcfile=pyproject.toml ./

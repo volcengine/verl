@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   e2e_digit_completion:
-    runs-on: [self-hosted, l20-0]
+    runs-on: [self-hosted, l20-1]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

@@ -90,6 +90,7 @@ verl is fast with:
    advance/dpo_extension
    advance/fsdp_extension
    advance/megatron_extension
+   advance/checkpoint
 
 .. toctree::
    :maxdepth: 1
