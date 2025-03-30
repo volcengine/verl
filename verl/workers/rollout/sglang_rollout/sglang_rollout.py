@@ -288,6 +288,7 @@ class SGLangRollout(BaseRollout):
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
             batch_size = batch_size * self.config.n
+            non_tensor_batch['multi_modal_inputs'] = non_tensor_batch['multi_modal_inputs'].repeat_interleave(self.config.n, dim=0)
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
