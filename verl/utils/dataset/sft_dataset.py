@@ -34,17 +34,20 @@ from verl.utils import hf_tokenizer
 class SFTDataset(Dataset):
     """
     This is an in-memory SFTDataset
+
+    Arguments:
+        config (OmegaConf): the data config
     """
 
-    def __init__(self,
-                 parquet_files: Union[str, List[str]],
-                 tokenizer,
-                 prompt_key='prompt',
-                 prompt_dict_keys=None,
-                 response_key='response',
-                 response_dict_keys=None,
-                 max_length=1024,
-                 truncation='error'):
+    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config):
+
+        prompt_key = config.prompt_key
+        prompt_dict_keys = config.get('prompt_dict_keys', None)
+        response_key = config.response_key
+        response_dict_keys = config.get('response_dict_keys', None)
+        max_length = config.max_length
+        truncation = config.truncation
+
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
 
