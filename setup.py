@@ -46,7 +46,11 @@ GEO_REQUIRES = ['mathruler']
 GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 MATH_REQUIRES = ['math-verify']  # Add math-verify as an optional dependency
 VLLM_REQUIRES = ['tensordict<=0.6.2', 'vllm<=0.8.2']
-SGLANG_REQUIRES = ['tensordict<=0.6.2', 'sglang[all]==0.4.4']
+SGLANG_REQUIRES = [
+  'tensordict<=0.6.2', 
+  'sglang[all]==0.4.4.post3',
+  'torch-memory-saver>=0.0.5'
+]
 
 extras_require = {
   'test': TEST_REQUIRES,
