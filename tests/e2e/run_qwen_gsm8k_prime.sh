@@ -1,5 +1,7 @@
 set -x
 
+huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
+
 python3 -m recipe.prime.main_prime \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -11,7 +13,7 @@ python3 -m recipe.prime.main_prime \
     data.accuracy_upper_bound=0.8 \
     data.oversample_factor=4 \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -27,7 +29,7 @@ python3 -m recipe.prime.main_prime \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.adv_estimator=rloo \
-    reward_model.model.path=Qwen/Qwen2.5-0.5B \
+    reward_model.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     reward_model.micro_batch_size_per_gpu=1 \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \
