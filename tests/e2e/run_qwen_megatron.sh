@@ -2,7 +2,8 @@ set -x
 
 # the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
 
-huggingface-cli download Qwen/Qwen2.5-0.5B
+mkdir -p $HOME/models
+huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
@@ -13,7 +14,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.train_batch_size=1024 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=2e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
@@ -25,7 +26,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=2 \
     critic.optim.lr=2e-5 \
-    critic.model.path=Qwen/Qwen2.5-0.5B \
+    critic.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.megatron.tensor_model_parallel_size=2 \

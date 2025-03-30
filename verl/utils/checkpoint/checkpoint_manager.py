@@ -44,7 +44,7 @@ class BaseCheckpointManager:
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra']):
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra']):
         self.previous_global_step = None
         self.previous_saved_paths = []
 
