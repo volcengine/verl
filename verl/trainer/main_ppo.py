@@ -21,8 +21,8 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import ray
 import hydra
 
-
-@hydra.main(config_path='config', config_name='qwen7b_sft_async', version_base=None)
+# qwen7b_sft_async gsm8k
+@hydra.main(config_path='config', config_name='gsm8k', version_base=None)
 def main(config):
     run_ppo(config)
 

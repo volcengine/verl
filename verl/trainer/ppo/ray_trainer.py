@@ -1084,15 +1084,17 @@ class RayPPOTrainer(object):
                         non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                     )
                 else:
-                    if self.config.data.task_type == "gen_chat":
-                        gen_batch = batch.pop(batch_keys=["index"], non_tensor_batch_keys=['name'])
-                    else:
-                        batch_keys = ['input_ids', 'attention_mask', 'position_ids']
-                        if self.task_type == "swedev": # TODO(haoran): pass arg list here
-                            batch_keys.append('instance_id')
-                            gen_batch = batch.pop(batch_keys=batch_keys)
-                        else: # TODO(haoran): hard encoding for dr
-                            gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
+                    batch_keys = ['input_ids', 'attention_mask', 'position_ids']
+                    if self.task_type == "swedev": # TODO(haoran): pass arg list here
+                        batch_keys.append('instance_id')
+                        gen_batch = batch.pop(batch_keys=batch_keys)
+                    elif self.task_type == "gsm8k":
+                        gen_batch = batch.pop(
+                            batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+                            non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info']
+                        )
+                    else: # TODO(haoran): hard encoding for dr
+                        gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
 
                 with _timer('step', timing_raw):
                     # generate a batch

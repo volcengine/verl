@@ -28,7 +28,8 @@ class NaiveRewardManager:
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
-
+        print(f"[NAIVE Reward Manager] Processing {len(data)} samples...")
+    
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
@@ -69,50 +70,6 @@ class NaiveRewardManager:
 
         already_print_data_sources = {}
 
-        # for i in range(len(data)):
-        #     data_item = data[i]  # DataProtoItem
-
-        #     prompt_ids = data_item.batch['prompts']
-
-        #     prompt_length = prompt_ids.shape[-1]
-
-        #     valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-        #     valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
-        #     response_ids = data_item.batch['responses']
-        #     valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-        #     # valid_response_ids = response_ids[:valid_response_length]
-        #     valid_response_ids = response_ids
-
-        #     # decode
-        #     sequences = torch.cat((valid_prompt_ids, valid_response_ids))
-        #     sequences_str = self.tokenizer.decode(sequences)
-
-        #     prompt_str = self.tokenizer.decode(valid_prompt_ids)
-        #     ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
-        #     data_source = data_item.non_tensor_batch['data_source']
-
-        #     extra_info = data_item.non_tensor_batch.get('extra_info', None)
-
-        #     score = self.compute_score(
-        #         data_source=data_source,
-        #         solution_str=sequences_str,
-        #         ground_truth=ground_truth,
-        #         extra_info=extra_info,
-        #         question=prompt_str
-        #     )
-        #     reward_tensor[i, valid_response_length - 1] = score
-
-        #     if data_source not in already_print_data_sources:
-        #         already_print_data_sources[data_source] = 0
-
-        #     if already_print_data_sources[data_source] < self.num_examine:
-        #         already_print_data_sources[data_source] += 1
-        #         # print(sequences_str)
-
-        # parallel eval
-
         import concurrent.futures
 
         def compute_score_for_item(i, data_item):
@@ -132,6 +89,15 @@ class NaiveRewardManager:
             data_source = data_item.non_tensor_batch['data_source']
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
+            print(f"\n[Stage 5] Reward Calculation for sample {i}:")
+            print(f"Input sequence: {sequences_str}...")
+            print(f"Ground truth: {ground_truth}")
+    
+            has_separator = '####' in sequences_str
+            answer = (sequences_str.split('####')[-1].strip() if has_separator 
+                    else "No #### found")
+            print(f"Extracted answer: {answer}")
+            
             # print(f"naive reward manager {self.tokenizer=}")
             score = self.compute_score(
                 data_source=data_source,
@@ -141,6 +107,9 @@ class NaiveRewardManager:
                 question=prompt_str,
                 tokenizer=self.tokenizer
             )
+            
+            print(f"Final score: {score}")
+    
             return i, valid_response_length, score, data_source, sequences_str
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(data)) as executor:
