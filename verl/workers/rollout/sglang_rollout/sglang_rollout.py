@@ -288,7 +288,13 @@ class SGLangRollout(BaseRollout):
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
             batch_size = batch_size * self.config.n
-            non_tensor_batch['multi_modal_inputs'] = non_tensor_batch['multi_modal_inputs'].repeat_interleave(self.config.n, dim=0)
+            if 'multi_modal_inputs' in non_tensor_batch:
+                if isinstance(non_tensor_batch['multi_modal_inputs'], np.ndarray):
+                    # For NumPy arrays, use numpy's repeat function
+                    non_tensor_batch['multi_modal_inputs'] = np.repeat(non_tensor_batch['multi_modal_inputs'], self.config.n, axis=0)
+                elif torch.is_tensor(non_tensor_batch['multi_modal_inputs']):
+                    # For PyTorch tensors, use repeat_interleave
+                    non_tensor_batch['multi_modal_inputs'] = non_tensor_batch['multi_modal_inputs'].repeat_interleave(self.config.n, dim=0)
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
