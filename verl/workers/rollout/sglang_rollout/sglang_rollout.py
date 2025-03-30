@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 import os
+import numpy as np
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, List
 from omegaconf import DictConfig
@@ -204,10 +205,40 @@ class SGLangRollout(BaseRollout):
         eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
-        idx_list = []
-        # parse idx from torch.Tensor to List[List[str]]
-        for i in range(batch_size):
-            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+        
+        # Extract non-tensor data
+        non_tensor_batch = prompts.non_tensor_batch
+        if 'raw_prompt_ids' not in non_tensor_batch:
+            non_tensor_batch['raw_prompt_ids'] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
+        
+        if 'multi_modal_data' in non_tensor_batch:
+            sglang_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(
+                    non_tensor_batch.pop('raw_prompt_ids'),
+                    non_tensor_batch.pop('multi_modal_data')):
+                sglang_inputs.append({
+                    'prompt_token_ids': raw_prompt_ids, 
+                    'multi_modal_data': multi_modal_data,
+                    'image_data': multi_modal_data.get('image', None) if isinstance(multi_modal_data, dict) else None
+                })
+        else:
+            sglang_inputs = [{
+                'prompt_token_ids': raw_prompt_ids
+            } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
+        
+        # Ensure token IDs are lists
+        for input_data in sglang_inputs:
+            if isinstance(input_data['prompt_token_ids'], np.ndarray):
+                input_data['prompt_token_ids'] = input_data['prompt_token_ids'].tolist()
+            elif not isinstance(input_data['prompt_token_ids'], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
+        
+        
+        # Extract token IDs and image data for SGLang Engine
+        idx_list = [input_data['prompt_token_ids'] for input_data in sglang_inputs]
+        image_list = [input_data.get('image_data', None) for input_data in sglang_inputs]
 
         do_sample = prompts.meta_info.get("do_sample", True)
         if not do_sample:
@@ -240,6 +271,7 @@ class SGLangRollout(BaseRollout):
                 sampling_params=self.sampling_params,
                 return_logprob=True,
                 input_ids=idx_list,
+                image_data=image_list
             )
 
         out = _post_process_outputs(self.tokenizer, output)
@@ -287,4 +319,4 @@ class SGLangRollout(BaseRollout):
         if self.config.free_cache_engine and self.inference_engine._engine is not None:
             self.inference_engine._engine.tokenizer_manager.flush_cache()
 
-        return DataProto(batch=batch)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
