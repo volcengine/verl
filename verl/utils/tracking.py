@@ -43,7 +43,16 @@ class Tracking(object):
 
         if 'mlflow' in default_backend:
             import mlflow
-            mlflow.start_run(run_name=experiment_name)
+            import os
+
+            MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", None)
+            if MLFLOW_TRACKING_URI:
+                mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+            # Project_name is actually experiment_name in MLFlow
+            # If experiment does not exist, will create a new experiment
+            experiment = mlflow.set_experiment(project_name)
+            mlflow.start_run(experiment_id=experiment.experiment_id, run_name=experiment_name)
             mlflow.log_params(_compute_mlflow_params_from_objects(config))
             self.logger['mlflow'] = _MlflowLoggingAdapter()
 
@@ -175,6 +184,8 @@ class ValidationGenerationsLogger:
             self.log_generations_to_wandb(samples, step)
         if 'swanlab' in loggers:
             self.log_generations_to_swanlab(samples, step)
+        if 'mlflow' in loggers:
+            self.log_generations_to_mlflow(samples, step)
 
     def log_generations_to_wandb(self, samples, step):
         """Log samples to wandb as a table"""
@@ -224,3 +235,23 @@ class ValidationGenerationsLogger:
 
         # Log to swanlab
         swanlab.log({"val/generations": swanlab_text_list}, step=step)
+
+    def log_generations_to_mlflow(self, samples, step):
+        """Log validation generation to mlflow as artifacts"""
+        #https://mlflow.org/docs/latest/api_reference/python_api/mlflow.html?highlight=log_artifact#mlflow.log_artifact
+
+        import mlflow
+        import tempfile
+        import json
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                validation_gen_step_file = Path(tmp_dir, f"val_step{step}.json")
+                row_data = []
+                for sample in samples:
+                    data = {"input": sample[0], "output": sample[1], "score": sample[2]}
+                    row_data.append(data)
+                with open(validation_gen_step_file, "w") as file:
+                    json.dump(row_data, file)
+                mlflow.log_artifact(validation_gen_step_file)
+        except Exception as e:
+            print(f"WARNING: save validation generation file to mlflow failed with error {e}")
