@@ -238,6 +238,8 @@ def megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -
             continue
         if "rotary_emb.inv_freq" in name:
             continue
+        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
+            continue
         else:
             param = params_dict[name]
             weight_loader = getattr(param, "weight_loader", default_weight_loader)

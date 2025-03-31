@@ -179,9 +179,9 @@ class MegatronPPOCritic(BasePPOCritic):
                                       input_ids,
                                       attention_mask,
                                       position_ids,
-                                      sequence_parallel=self.megatron_config.sequence_parallel)
+                                      sequence_parallel=self.megatron_config.sequence_parallel,
+                                      value_model=True)
 
-            output = output[..., 0]
             return output, partial(loss_func, data=batch, meta_info={})
 
         # batch should be a list of batches inside micro-batches
