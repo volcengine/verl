@@ -63,7 +63,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_example' \
-    +trainer.val_before_train=False \
+    trainer.val_before_train=False \
     trainer.experiment_name='Qwen2-7B-Instruct_hybrid_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
