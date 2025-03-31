@@ -33,8 +33,11 @@ def test_sft_cot_dataset():
     dataset = SFTDataset(parquet_files=local_path,
                          tokenizer=tokenizer,
                          config=OmegaConf.create({
-                             'prompt_key', 'prompt', 'prompt_dict_keys', ['content'], 'response_key', 'extra_info',
-                             'response_dict_keys', ['answer'], 'max_length', 512
+                             'prompt_key': 'prompt',
+                             'prompt_dict_keys': ['content'],
+                             'response_key': 'extra_info',
+                             'response_dict_keys': ['answer'],
+                             'max_length': 512,
                          }))
 
     data = dataset[0]['input_ids']
