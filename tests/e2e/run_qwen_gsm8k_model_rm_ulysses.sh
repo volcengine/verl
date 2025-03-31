@@ -43,7 +43,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.micro_batch_size_per_gpu=16 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
-    +trainer.val_before_train=False \
+    trainer.val_before_train=False \
     trainer.logger=['console'] \
     trainer.project_name='verl_example' \
     trainer.experiment_name='Qwen2.5-0.5B-ci_hybrid_rm_sp2' \

@@ -44,7 +44,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name='verl_example_gsm8k' \
     trainer.experiment_name='qwen2-7b_function_rm_bsz8k_p4k_r4k_seq_packing' \
     trainer.n_gpus_per_node=8 \
-    +trainer.val_before_train=False \
+    trainer.val_before_train=False \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
