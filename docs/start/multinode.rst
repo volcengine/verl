@@ -405,7 +405,7 @@ slurm_script.sh
         trainer.project_name='verl_example' \
         trainer.experiment_name='Qwen2.5-32B-Instruct_function_rm' \
         trainer.n_gpus_per_node=${SLURM_GPUS_PER_NODE} \
-        +trainer.val_before_train=False \
+        trainer.val_before_train=False \
         trainer.nnodes=${SLURM_NNODES} \
         trainer.save_freq=-1 \
         trainer.test_freq=10 \
