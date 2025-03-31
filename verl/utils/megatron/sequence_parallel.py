@@ -15,7 +15,6 @@
 
 import torch
 import torch.nn.functional as F
-from megatron.core import parallel_state as mpu
 
 
 def mark_parameter_as_sequence_parallel(parameter):
@@ -36,6 +35,7 @@ def pad_to_sequence_parallel(unpad_tokens: torch.Tensor):
 
     """
     total_nnz = unpad_tokens.shape[0]
+    from megatron.core import mpu
     sp_world_size = mpu.get_tensor_model_parallel_world_size()
 
     if total_nnz % sp_world_size == 0:

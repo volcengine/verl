@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import torch
-from megatron.core import parallel_state as mpu
 
 from .sequence_parallel import pad_to_sequence_parallel
 
@@ -23,6 +22,7 @@ def compute_transformers_input_shapes(batches, meta_info):
     from flash_attn.bert_padding import unpad_input  # flash 2 is a must for Megatron
     # pre-compute input shapes for each micro-batch at each pp stage
     input_shapes = []
+    from megatron.core import mpu
     for model_inputs in batches:
         input_ids = model_inputs['input_ids']
         attention_mask = model_inputs['attention_mask']

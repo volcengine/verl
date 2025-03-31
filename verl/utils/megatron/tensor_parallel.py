@@ -19,12 +19,11 @@ from typing import Dict
 import torch
 from torch.nn import init
 import torch.distributed as dist
-from megatron.core import ModelParallelConfig
-from megatron.core import parallel_state as mpu, tensor_parallel
 import verl.utils.torch_functional as verl_F
 
 
-def update_kwargs_with_config(dictionary: Dict, config: ModelParallelConfig):
+def update_kwargs_with_config(dictionary: Dict, config):
+    # config: ModelParallelConfig
     dictionary['config'] = config
     return dictionary
 
@@ -41,6 +40,7 @@ def get_default_kwargs_for_model_parallel_config():
 
 
 def get_default_model_parallel_config():
+    from megatron.core import ModelParallelConfig
     return ModelParallelConfig(**get_default_kwargs_for_model_parallel_config())
 
 
@@ -61,6 +61,7 @@ def get_default_kwargs_for_column_parallel_linear():
         'async_tensor_model_parallel_allreduce': False,
     }
     model_parallel_config_kwargs.update(column_parallel_config_kwargs)
+    from megatron.core import ModelParallelConfig
     column_default_kwargs = {
         'config': ModelParallelConfig(**model_parallel_config_kwargs),
     }
@@ -76,6 +77,7 @@ def get_default_kwargs_for_row_parallel_linear():
 
 def get_default_kwargs_for_parallel_embedding():
     model_parallel_config_kwargs = get_default_kwargs_for_model_parallel_config()
+    from megatron.core import ModelParallelConfig
     embedding_default_kwargs = {
         'init_method': init.xavier_normal_,
         'config': ModelParallelConfig(**model_parallel_config_kwargs),
@@ -106,6 +108,7 @@ class _VocabParallelEntropy(torch.autograd.Function):
         def mul_reduce(a, b):
             return (a * b).sum(dim=-1, keepdim=True)
 
+        from megatron.core import parallel_state as mpu
         logits_max = vocab_parallel_logits.max(dim=-1, keepdim=True).values
         dist.all_reduce(logits_max, op=dist.ReduceOp.MAX, group=mpu.get_tensor_model_parallel_group())
         normalized_vocab_parallel_logits = vocab_parallel_logits - logits_max
@@ -146,6 +149,7 @@ def vocab_parallel_entropy(vocab_parallel_logits: torch.Tensor) -> torch.Tensor:
 
 def vocab_parallel_log_probs_from_logits(logits, labels):
     """TODO(zhangchi.usc1992): We may change the implementation later"""
+    from megatron.core import parallel_state as tensor_parallel
     return -tensor_parallel.vocab_parallel_cross_entropy(vocab_parallel_logits=logits, target=labels)
 
 

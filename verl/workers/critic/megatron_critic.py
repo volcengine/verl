@@ -33,17 +33,17 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_dtypes import PrecisionType
 from verl.utils.torch_functional import masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
 from verl.utils.megatron import sequence_parallel as sp_utils
-from megatron.core.optimizer import OptimizerConfig
-
-from megatron.core import parallel_state as mpu
-from megatron.core.pipeline_parallel import get_forward_backward_func
-from megatron.core.optimizer import DistributedOptimizer
 
 
 class MegatronPPOCritic(BasePPOCritic):
 
     def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
-                 critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
+                 critic_optimizer, critic_optimizer_config):
+        """
+        Args:
+            ``critic_optimizer``: megatron.core.optimizers.DistributedOptimizer
+            ``critic_optimizer_config``: megatron.core.optimizer.OptimizerConfig
+        """
         super().__init__(config=config)
         self._validate_config(config)
         self.model_config = model_config
@@ -77,6 +77,7 @@ class MegatronPPOCritic(BasePPOCritic):
         response_length = responses.size(1)
         with torch.no_grad():
             output = self.forward_backward_batch(data=data, forward_only=True)
+            from megatron.core import mpu
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
                 # only on last rank. It should be on every tp rank
                 values = torch.cat([o['vpreds'] for o in output], dim=0)  # (bs, seq_size, vocal_size)
@@ -109,6 +110,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def forward_backward_batch(self, data: DataProto, forward_only=False):
         # broadcast from last pp rank to all other pp ranks
         data.batch = data.batch.contiguous()
+        from megatron.core import mpu
         broadcast_dict_tensor(data.batch,
                               src=mpu.get_pipeline_model_parallel_last_rank(),
                               group=mpu.get_pipeline_model_parallel_group())
@@ -126,6 +128,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 'hidden_size': self.model_config.hidden_size
             })
 
+        from megatron.core.pipeline_parallel import get_forward_backward_func
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):
