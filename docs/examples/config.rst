@@ -373,6 +373,7 @@ Trainer
      project_name: verl_examples
      experiment_name: gsm8k
      logger: ['console', 'wandb']
+     log_val_generations: 0
      nnodes: 1
      n_gpus_per_node: 8
      save_freq: -1
@@ -387,9 +388,10 @@ Trainer
      del_local_ckpt_after_load: False
 
 - ``trainer.total_epochs``: Number of epochs in training.
-- ``trainer.project_name``: For wandb, swanlab
-- ``trainer.experiment_name``: For wandb, swanlab
+- ``trainer.project_name``: For wandb, swanlab, mlflow
+- ``trainer.experiment_name``: For wandb, swanlab, mlflow
 - ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
+- ``trainer.log_val_generations``: The number of logged generation during validation (default ``0``)
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
