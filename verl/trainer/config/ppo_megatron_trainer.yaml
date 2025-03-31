@@ -172,7 +172,6 @@ algorithm:
     kl_coef: 0.001
 
 trainer:
-  val_before_train: True
   balance_batch: True
   total_epochs: 30
   total_training_steps: null
@@ -187,6 +186,7 @@ trainer:
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null
   del_local_ckpt_after_load: False
+  val_before_train: True
   test_freq: 2
   critic_warmup: 0
   default_hdfs_dir: null
