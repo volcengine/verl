@@ -10,6 +10,9 @@ data:
   truncation: error
   balance_dp_token: False
   chat_template: null
+  custom_cls:
+    path: null
+    name: null
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   fsdp_config:

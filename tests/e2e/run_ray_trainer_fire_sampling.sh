@@ -36,5 +36,5 @@ python3 tests/e2e/arithmetic_sequence/rl/main_trainer.py \
     trainer.test_freq=1 \
     trainer.save_freq=110 | tee $OUTPUT_FILE;
 
-python3 tests/e2e/check_results.py --output_file=$OUTPUT_FILE
+python3 tests/e2e/check_results.py --output_file=$OUTPUT_FILE --target 0.19
 rm -rf $OUTPUT_FILE
