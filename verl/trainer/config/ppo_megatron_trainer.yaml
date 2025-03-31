@@ -102,6 +102,7 @@ actor_rollout_ref:
       do_sample: False # default eager for validation
 
 critic:
+  rollout_n: ${actor_rollout_ref.rollout.n}
   strategy: megatron
   optim:
     lr: 1e-5
