@@ -204,7 +204,7 @@ class ActorRolloutRefWorker(Worker):
 
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=actor_module)
+                apply_monkey_patch(model=actor_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
@@ -711,7 +711,7 @@ class CriticWorker(Worker):
             use_remove_padding = config.model.get('use_remove_padding', False)
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=critic_module)
+                apply_monkey_patch(model=critic_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -969,7 +969,7 @@ class RewardModelWorker(Worker):
 
             if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=reward_module)
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             reward_module.to(torch.bfloat16)
 

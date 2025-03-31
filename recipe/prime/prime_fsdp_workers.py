@@ -127,7 +127,7 @@ class PRIMERewardModelWorker(Worker):
 
             if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=reward_module)
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
