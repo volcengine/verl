@@ -25,6 +25,9 @@ Data
      filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
      truncation: error
      image_key: images
+     custom_cls:
+        path: null
+        name: null
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
   file. The program will read all files into memory, so it can't be too
@@ -59,6 +62,20 @@ Data
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+
+Customized Dataset
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Customized dataset extension is implemented for the SFT trainer and can be extended to other trainers with similar changes.
+
+.. code:: yaml
+
+   custom_cls:
+     path: null
+     name: null
+
+- ``data.custom_cls.path``: The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.
+- ``data.custom_cls.name``: The name of the dataset class within the specified file.
 
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -373,9 +390,11 @@ Trainer
      project_name: verl_examples
      experiment_name: gsm8k
      logger: ['console', 'wandb']
+     log_val_generations: 0
      nnodes: 1
      n_gpus_per_node: 8
      save_freq: -1
+     val_before_train: True
      test_freq: 2
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
@@ -386,13 +405,15 @@ Trainer
      del_local_ckpt_after_load: False
 
 - ``trainer.total_epochs``: Number of epochs in training.
-- ``trainer.project_name``: For wandb, swanlab
-- ``trainer.experiment_name``: For wandb, swanlab
+- ``trainer.project_name``: For wandb, swanlab, mlflow
+- ``trainer.experiment_name``: For wandb, swanlab, mlflow
 - ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
+- ``trainer.log_val_generations``: The number of logged generation during validation (default ``0``)
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
   of the actor and critic model.
+- ``trainer.val_before_train``: Whether to run validation before training.
 - ``trainer.test_freq``: The validation frequency (by iteration).
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.

@@ -90,7 +90,7 @@ PYTHONUNBUFFERED=1 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
     critic.ppo_micro_batch_size_per_gpu=4 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.logger=['console'] \
-    +trainer.val_before_train=False \
+    trainer.val_before_train=False \
     trainer.default_hdfs_dir=null \
     trainer.n_gpus_per_node="${SLURM_GPUS_PER_NODE}" \
     trainer.nnodes="${SLURM_NNODES}" \

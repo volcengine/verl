@@ -50,4 +50,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.total_epochs=15 \
-    +trainer.val_before_train=False $@
+    trainer.val_before_train=False $@
