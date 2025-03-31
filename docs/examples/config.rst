@@ -376,6 +376,7 @@ Trainer
      nnodes: 1
      n_gpus_per_node: 8
      save_freq: -1
+     val_before_train: True
      test_freq: 2
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
@@ -393,6 +394,7 @@ Trainer
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
   of the actor and critic model.
+- ``trainer.val_before_train``: Whether to run validation before training.
 - ``trainer.test_freq``: The validation frequency (by iteration).
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.
