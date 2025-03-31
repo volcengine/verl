@@ -19,7 +19,7 @@ Choices of Backend Engines
 
 We recommend using **FSDP** backend to investigate, research and prototype different models, datasets and RL algorithms. The guide for using FSDP backend can be found in :doc:`FSDP Workers<../workers/fsdp_workers>`.
 
-For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM v0.11 [1]_. The guide for using Megatron-LM backend can be found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
+For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support `Megatron-LM v0.11<https://github.com/NVIDIA/Megatron-LM/tree/v0.11.0>`_. The guide for using Megatron-LM backend can be found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
 
 .. note:: 
 
@@ -40,17 +40,15 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup. For SGLang usage, please follow the later sections in this doc.
 
-Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` if you need both FSDP and Megatron support.
+Image and tag: ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0``. Check files under ``docker/`` for NGC-based image or if you want to build your own.
 
-We highly recommend ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 for fastest rollout performance with FSDP.
-
-See files under ``docker/`` for NGC-based image or if you want to build your own.
-
-1. Launch the desired Docker image:
+1. Launch the desired Docker image and attach into it:
 
 .. code:: bash
 
-    docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
+    docker create --runtime=nvidia --gpus all --net=host --shm-size="10g" --cap-add=SYS_ADMIN -v .:/workspace/verl --name verl <image:tag>
+    docker start verl
+    docker exec -it verl bash
 
 
 2.	Inside the container, install latest verl:
@@ -65,14 +63,14 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     
     The Docker image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` is built with the following configurations:
 
-    - **PyTorch**: 2.4.0+cu124
-    - **CUDA**: 12.4
-    - **Megatron-LM**: core_r0.11.0
-    - **vLLM**: 0.6.3
-    - **Ray**: 2.10.0
-    - **TransformerEngine**: 2.0.0+754d2a0
+    - **PyTorch**: 2.6.0+cu126
+    - **CUDA**: 12.6
+    - **Megatron-LM**: v0.11.0
+    - **vLLM**: 0.8.2
+    - **Ray**: 2.44.0
+    - **TransformerEngine**: 2.1.0+8eb1712
 
-    Now verl has been **compatible to Megatron-LM core_r0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM core_r0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
+    Now verl has been **compatible to Megatron-LM v0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM v0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
 
 
 Install SGLang as rollout backend
@@ -127,7 +125,7 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
    pip3 install flash-attn --no-build-isolation
    git clone https://github.com/volcengine/verl.git
    cd verl
