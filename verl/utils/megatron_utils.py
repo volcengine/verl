@@ -19,15 +19,6 @@ from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from megatron.core import ModelParallelConfig
-from megatron.core import mpu, tensor_parallel
-from megatron.core.distributed import DistributedDataParallel as DDP
-from megatron.core.distributed import DistributedDataParallelConfig
-from megatron.core.enums import ModelType
-from megatron.core.optimizer import OptimizerConfig
-from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.module import Float16Module
-from megatron.core.utils import get_attr_wrapped_model
 from omegaconf import DictConfig
 
 from verl.utils.memory_buffer import build_memory_reference_from_module
@@ -35,15 +26,24 @@ from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):
+    from megatron.core.utils import get_attr_wrapped_model
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
 def get_model(model_provider_func,
-              model_type=ModelType.encoder_or_decoder,
+              model_type,
               wrap_with_ddp=True,
               use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
+    from megatron.core import mpu, tensor_parallel
+    from megatron.core.distributed import DistributedDataParallel as DDP
+    from megatron.core.distributed import DistributedDataParallelConfig
+    from megatron.core.enums import ModelType
+    from megatron.core.transformer import TransformerConfig
+    from megatron.core.transformer.module import Float16Module
+    if model_type is None:
+        model_type = ModelType.encoder_and_decoder
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
        mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
         assert model_type != ModelType.encoder_and_decoder, \
@@ -132,10 +132,7 @@ def get_model(model_provider_func,
     return model
 
 
-ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
-
-
-def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
+def unwrap_model(model, module_instances):
     return_list = True
     if not isinstance(model, list):
         model = [model]
@@ -153,7 +150,7 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
 from transformers import PretrainedConfig
 
 
-def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
+def convert_config(hf_config: PretrainedConfig, megatron_config):
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
@@ -161,9 +158,11 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         qkv_bias = True
     else:
         qkv_bias = getattr(hf_config, 'attention_bias', False)
+    from megatron.core import mpu
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
     ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
+    from megatron.core.transformer import TransformerConfig
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
@@ -197,7 +196,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     return transformer_config
 
 
-def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: Dict):
+    from megatron.core.optimizer import OptimizerConfig
     config = OptimizerConfig(
         optimizer='adam',
         lr=optim_config.get('lr'),
@@ -210,9 +210,10 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     return config
 
 
-def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
+def init_model_parallel_config(config: DictConfig):
     # TODO(sgm): check how to disable megatron timers
     timers = None
+    from megatron.core import ModelParallelConfig
     return ModelParallelConfig(tensor_model_parallel_size=config.get('tensor_model_parallel_size'),
                                pipeline_model_parallel_size=config.get('pipeline_model_parallel_size'),
                                virtual_pipeline_model_parallel_size=config.get('virtual_pipeline_model_parallel_size'),
@@ -225,6 +226,7 @@ def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
 
 
 def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
+    from megatron.core import mpu
     if hybrid_engine is not None:
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         for buffer in hybrid_engine.memory_buffers[pp_rank].values():
@@ -240,6 +242,7 @@ def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=Fal
 
 
 def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_grad=False, hybrid_engine=None):
+    from megatron.core import mpu
     if hybrid_engine is not None:
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         for buffer in hybrid_engine.memory_buffers[pp_rank].values():
@@ -277,6 +280,7 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
     os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
     if not use_distributed_optimizer:
         return os.path.join(checkpoint_path, "optim", "optim.pt")
+    from megatron.core import mpu
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     tp_rank = mpu.get_tensor_model_parallel_rank()
     #TODO: support ep
@@ -287,5 +291,6 @@ def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=Fa
     os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
     if not data_parallel_random_init:
         return os.path.join(checkpoint_path, f'rng_states', "rng_states.pt")
+    from megatron.core import mpu
     dp_rank = mpu.get_data_parallel_rank()
     return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")

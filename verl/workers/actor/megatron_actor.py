@@ -27,16 +27,7 @@ from typing import Iterable, Dict
 import torch
 from torch import nn
 import torch.distributed
-from megatron.core.optimizer import OptimizerConfig
-from megatron.core import parallel_state as mpu
-from megatron.core import ModelParallelConfig
 from verl.utils.megatron_utils import get_model_config
-from megatron.core.pipeline_parallel import get_forward_backward_func
-
-from megatron.core.distributed import finalize_model_grads
-# from megatron.core.optimizer import DistributedOptimizer
-
-from megatron.core.optimizer import DistributedOptimizer
 
 from omegaconf import OmegaConf
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
@@ -52,8 +43,8 @@ __all__ = ['MegatronPPOActor']
 
 class MegatronPPOActor(BasePPOActor):
 
-    def __init__(self, config, model_config, megatron_config: ModelParallelConfig, actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig):
+    def __init__(self, config, model_config, megatron_config, actor_module: nn.ModuleList,
+                 actor_optimizer, actor_optimizer_config):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -77,6 +68,10 @@ class MegatronPPOActor(BasePPOActor):
                 ``sequence_parallel_enabled``: whether the sequence parallel is enabled.
 
                 ``param_dtype``: the dtype of the parameters.
+                
+                ``actor_optimizer``: megatron.core.optimizer.DistributedOptimizer
+                
+                ``actor_optimizer_config``: megatron.core.optimizer.OptimizerConfig
 
                 ``virtual_pipeline_model_parallel_size``: virtual pipeline model parallel size. a.k.a number of chunks in each pp stage.
             actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this pp stage.
@@ -116,6 +111,7 @@ class MegatronPPOActor(BasePPOActor):
         self.model_config = model_config
         self.megatron_config = megatron_config
         self.actor_module = actor_module
+        from megatron.core.optimizer import DistributedOptimizer
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.actor_optimizer_config = actor_optimizer_config
 
@@ -133,6 +129,7 @@ class MegatronPPOActor(BasePPOActor):
 
         config = get_model_config(self.actor_module[0])
         print(config)
+        from megatron.core.distributed import finalize_model_grads
         config.finalize_model_grads_func = finalize_model_grads
 
     def _validate_config(self, config) -> None:
@@ -180,6 +177,7 @@ class MegatronPPOActor(BasePPOActor):
             response_length = response.size(1)
             with torch.no_grad():
                 output = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn)
+                from megatron.core import mpu
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
                     log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
@@ -238,6 +236,7 @@ class MegatronPPOActor(BasePPOActor):
         """
         # broadcast from last pp rank to all other pp ranks
         # TODO: actually, we just need to control the sampling order.
+        from megatron.core import mpu
         broadcast_dict_tensor(data.batch,
                               src=mpu.get_pipeline_model_parallel_last_rank(),
                               group=mpu.get_pipeline_model_parallel_group())
@@ -259,6 +258,7 @@ class MegatronPPOActor(BasePPOActor):
         n_micro_batch = len(batches)
         seq_len = batches[0]['input_ids'].shape[1]
 
+        from megatron.core.pipeline_parallel import get_forward_backward_func
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):

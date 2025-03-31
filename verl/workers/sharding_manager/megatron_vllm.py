@@ -22,10 +22,6 @@ import torch.distributed as dist
 
 from torch import nn
 
-from megatron.core import parallel_state as mpu
-from megatron.core import DistributedDataParallel as LocalDDP
-from megatron.core.transformer.module import Float16Module
-from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from verl.utils.megatron_utils import get_model, unwrap_model
 from verl.utils.memory_buffer import (
     build_memory_buffer,
@@ -38,6 +34,9 @@ class AllGatherPPModel:
 
     def __init__(self, model_provider, use_distributed_optimizer=True) -> None:
 
+        from megatron.core import parallel_state as mpu
+        from megatron.core import DistributedDataParallel as LocalDDP
+        from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
         self._pp_group = mpu.get_pipeline_model_parallel_group()
         self._pp_rank = mpu.get_pipeline_model_parallel_rank()
         self._pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -143,6 +142,7 @@ class AllGatherPPModel:
                 dist.broadcast(tensor=param.data, src=global_src, group=self.pp_group, async_op=False)
 
     def forward(self, *inputs, **kwargs):
+        from megatron.core import parallel_state as mpu
         try:
             prev_output = None
             for cur_chunk_rank in range(self._model_chunk_size):
@@ -186,6 +186,9 @@ class AllGatherPPModel:
                 tensors of each model chunk
 
         """
+        from megatron.core import DistributedDataParallel as LocalDDP
+        from megatron.core.transformer.module import Float16Module
+        from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
         params = []
         for pp_rank in range(self.pp_size):
             params.append([])
@@ -203,6 +206,8 @@ class AllGatherPPModel:
 
     def update_this_rank_models(self, new_models):
         self._this_rank_models = new_models
+        from megatron.core import DistributedDataParallel as LocalDDP
+        from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
         self._pp_models[self.pp_rank] = unwrap_model(new_models, (torchDDP, LocalDDP))
 
     @property
@@ -256,6 +261,7 @@ _MICRO_DATA_PARALLEL_GROUP = None
 class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __init__(self, module: AllGatherPPModel, inference_engine: LLM, model_config, layer_name_mapping):
+        from megatron.core import parallel_state as mpu
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -402,6 +408,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
+        from megatron.core import parallel_state as mpu
         # prompts are identical for each training tp. We select for each inference tp
         micro_dp_size = get_micro_data_parallel_world_size()
         micro_dp_rank = get_micro_data_parallel_rank()
@@ -418,6 +425,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
+        from megatron.core import parallel_state as mpu
         meta_info = data.meta_info
         # all gather batch among micro-dp groups
         micro_dp_size = get_micro_data_parallel_world_size()

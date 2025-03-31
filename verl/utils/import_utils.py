@@ -18,33 +18,24 @@ We assume package availability won't change during runtime.
 
 from functools import cache
 from typing import List, Optional
-
+import importlib
 
 @cache
 def is_megatron_core_available():
-    try:
-        from megatron.core import parallel_state as mpu
-        return True
-    except ImportError:
-        return False
+    mcore_loader = importlib.find_loader('megatron.core')
+    return mcore_loader is not None
 
 
 @cache
 def is_vllm_available():
-    try:
-        import vllm
-        return True
-    except ImportError:
-        return False
+    vllm_loader = importlib.find_loader('vllm')
+    return vllm_loader is not None
 
 
 @cache
 def is_sglang_available():
-    try:
-        import sglang
-        return True
-    except ImportError:
-        return False
+    sglang_loader = importlib.find_loader('sglang')
+    return sglang_loader is not None
 
 
 def import_external_libs(external_libs=None):
