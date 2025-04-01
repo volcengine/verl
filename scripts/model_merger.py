@@ -279,7 +279,7 @@ def convert_megatron_checkpoints_to_hfmodes():
 
             tp_data = [q,k,v]
             
-        elif "layer_norm" in key or "layernorm" in key:
+        elif "layer_norm" in key or "layernorm" in key or "output_layer" in key and args.is_value_model:
             tp_data = tp_data[0]
         else:
             dim = 0
