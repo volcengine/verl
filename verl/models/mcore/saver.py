@@ -380,7 +380,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
-            if f"{layer_name}.self_attn.q_proj.bias" in state_dict:
+            if getattr(sync_layer.self_attention.linear_qkv, 'bias', None) is not None:
                 _broadcast_tp_shard_tensor_qkv(
                     sync_layer.self_attention.linear_qkv.bias,
                     f"{layer_name}.self_attn.q_proj.bias",
