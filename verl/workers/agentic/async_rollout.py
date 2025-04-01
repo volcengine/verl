@@ -26,6 +26,7 @@ def _pre_process_inputs(pad_token_id, token_ids: torch.Tensor) -> list[int]:
     token_ids = token_ids[non_pad_index:].tolist()
     return token_ids
 
+
 class AsyncRollout(BaseRollout):
     def __init__(self, model_path, config: DictConfig, device_mesh: DeviceMesh):
         super().__init__()
@@ -36,9 +37,13 @@ class AsyncRollout(BaseRollout):
         self.tp_rank = device_mesh.get_local_rank(1)
         cuda_visible_device = os.environ["CUDA_VISIBLE_DEVICES"]
         visible_devices: list[str | None] = [None] * device_mesh.size(1)
-        torch.distributed.all_gather_object(visible_devices, cuda_visible_device, group=device_mesh.get_group(1))
+        torch.distributed.all_gather_object(
+            visible_devices, cuda_visible_device, group=device_mesh.get_group(1)
+        )
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
-        print(f"nodedup in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}")
+        print(
+            f"nodedup in async rollout {os.environ['CUDA_VISIBLE_DEVICES']=} @ {torch.distributed.get_rank()=} {self.tp_rank=}"
+        )
         self.total_len = config.prompt_length + config.response_length
         print(f"async rollout {config.gpu_memory_utilization=}")
         torch.distributed.barrier()
@@ -56,7 +61,9 @@ class AsyncRollout(BaseRollout):
                 tp_size=device_mesh.size(1),
                 # enable_metrics=True,
             )
-            print(f"nodedup {torch.distributed.get_rank() = } releasing memory occupation")
+            print(
+                f"nodedup {torch.distributed.get_rank() = } releasing memory occupation"
+            )
             self.engine.release_memory_occupation()
             print(f"nodedup {torch.distributed.get_rank() = } engine initialized")
         else:
@@ -67,13 +74,17 @@ class AsyncRollout(BaseRollout):
         self.config = config
         self.task_type = config.task_type
         self.sampling_params = dict(config.sampling_params)
-        self.sampling_params.update({
-            "skip_special_tokens": False,
-        })
+        self.sampling_params.update(
+            {
+                "skip_special_tokens": False,
+            }
+        )
         self.event_loop = asyncio.get_event_loop()
 
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto | None:
-        print(f"nodedup in generate seq {torch.distributed.get_rank()=} {self.tp_rank=} {prompts.non_tensor_batch=}")
+        print(
+            f"nodedup in generate seq {torch.distributed.get_rank()=} {self.tp_rank=} {prompts.non_tensor_batch=}"
+        )
         if self.tp_rank != 0:
             return None
 
@@ -81,9 +92,16 @@ class AsyncRollout(BaseRollout):
         sampling_params.update(kwargs)
         tokenizer = self.engine.tokenizer_manager.tokenizer
 
+        if not hasattr(self, "gsm8k_metadata"):
+            self.gsm8k_metadata = {}
+
         async def gen_id(input_ids):
-            assert isinstance(input_ids, list) and isinstance(input_ids[0], int), f"not list int: {input_ids=}"
-            res = await self.engine.async_generate(input_ids=input_ids, sampling_params=sampling_params)
+            assert isinstance(input_ids, list) and isinstance(
+                input_ids[0], int
+            ), f"not list int: {input_ids=}"
+            res = await self.engine.async_generate(
+                input_ids=input_ids, sampling_params=sampling_params
+            )
             if torch.distributed.get_rank() == 0:
                 print(f"nodedup {torch.distributed.get_rank()=} generated: {res=}")
             text = res["text"]
@@ -106,7 +124,9 @@ class AsyncRollout(BaseRollout):
                 add_generation_prompt=True,
             )
             try:
-                ret = await self.engine.async_generate(input_ids=ids, sampling_params=sampling_params)
+                ret = await self.engine.async_generate(
+                    input_ids=ids, sampling_params=sampling_params
+                )
             except ValueError as e:
                 print(f"Error generating chat: {e}")
                 raise
@@ -116,20 +136,26 @@ class AsyncRollout(BaseRollout):
             }
 
             if tools:
-                parser = FunctionCallParser(tools=[Tool.model_validate(tool) for tool in tools], tool_call_parser="qwen25")
+                parser = FunctionCallParser(
+                    tools=[Tool.model_validate(tool) for tool in tools],
+                    tool_call_parser="qwen25",
+                )
                 try:
                     normal_text, info_list = parser.parse_non_stream(ret["text"])
                 except JSONDecodeError:
                     normal_text = ret["text"]
                     info_list = []
                 message["content"] = normal_text
-                message["tool_calls"] = [{
-                    "id": str(info.tool_index),
-                    "function": {
-                        "name": info.name,
-                        "arguments": info.parameters,
+                message["tool_calls"] = [
+                    {
+                        "id": str(info.tool_index),
+                        "function": {
+                            "name": info.name,
+                            "arguments": info.parameters,
+                        },
                     }
-                } for info in info_list]
+                    for info in info_list
+                ]
             else:
                 message["content"] = ret["text"]
 
@@ -145,93 +171,15 @@ class AsyncRollout(BaseRollout):
         async def swedev_start(instance_id, input_ids):
             try:
                 result = await initialize_runtime(instance_id.item())
-        dr_storage_sid2seq = {}
- 
-        async def dr_start(index):
-            index = index % len(input_ids)
-            dr_storage_sid2seq[index] = []
-            return {"prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]), "sid": index}
-
-        async def dr_obs(action_ids, sid, tokenizer, **_):
-            # find <|observation|> token part
-            sid = sid % len(input_ids)
-            dr_storage_sid2seq[sid].extend(action_ids)
-            stop_id = action_ids[-1]
-            stop_token = tokenizer.decode([stop_id])
-            print(f"stop token: [{stop_id}] - [{stop_token}]")
-
-            # only finish with <|observation|> token can be multi-turn
-            if not stop_token.strip() == '<|observation|>':
-                return {"done": True, "ids": [], "observations_times": 0, "failed_times": 0}
-            action = tokenizer.decode(action_ids, skip_special_tokens=False)
-            text = action.split("<|observation|>")[0].strip()
-
-            # call api part
-            url = "http://172.16.65.43:8888/observation_kilt/"
-            payload = {"content": text, "translate": True}
-            failed = 0
-            for i in range(5):
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.post(url, json=payload)
-                        ret = response.json()
-                        break
-                except Exception as e:
-                    print(f"API call failed: {e}")
-                    await asyncio.sleep(1 + i)
-            else:
-                ret = [{"content": "API call failed, you may try again."}]
-                failed = 1
-
-            # combine part
-            obv_combined = ['\n' + obv['content'].strip() for obv in ret]
-            obs_text = f"{'<|observation|>'.join(obv_combined)}<|assistant|>\n"
-            ret_ids = tokenizer.encode(obs_text)
-            dr_storage_sid2seq[sid].extend(ret_ids)
-
-            if torch.distributed.get_rank() == 0:
-                print(f"nodedup {torch.distributed.get_rank()=} dr_obs: {obs_text=}")
-
-            return {"done": False, "ids": ret_ids, "observations_times": 1, "failed_times": failed}
-
-        async def dr_end(sid, _):
-            # currently for dr sid == index
-            sid = sid % len(input_ids)
-            print(f"nodedup {sid=} {len(prompts)=} {n=} {prompts.batch['input_ids'].shape=} {prompts.non_tensor_batch=}")
-            data_item = prompts[sid // n]
-            from verl.utils.reward_score import _default_compute_score
-            prompt_ids = data_item.batch['input_ids']
-            prompt_length = prompt_ids.shape[-1]
-            assert len(data_item.batch['attention_mask']) == prompt_length, f"{len(data_item.batch['attention_mask'])=} != {prompt_length=}"
-            valid_prompt_length = data_item.batch['attention_mask'].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
-            sequences = dr_storage_sid2seq[sid]
-            sequences_str = tokenizer.decode(sequences)
-            prompt_str = tokenizer.decode(valid_prompt_ids)
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-            data_source = data_item.non_tensor_batch['data_source']
-            extra_info = data_item.non_tensor_batch.get('extra_info', None)
-            score = await asyncio.to_thread(_default_compute_score,
-                data_source=data_source,
-                solution_str=sequences_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-                question=prompt_str,
-                tokenizer=tokenizer,
-            )
-            return {
-                "rm_final_scores": score,
-            }
-
-        async def swedev_start(index):
-            try:
-                result = await initialize_runtime(prompts.batch['instance_id'][index // n].item())
                 print(result)
                 return {
-                    "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids),
+                    "prompt_ids": _pre_process_inputs(
+                        tokenizer.pad_token_id, input_ids
+                    ),
                     "sid": result["sid"],
-                    "sids": int(result["sid"]), # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
+                    "sids": int(
+                        result["sid"]
+                    ),  # will be treated as a obs metric, thus, will be gathered into batch, and later used in reward acquisition
                 }
             except Exception as e:
                 # TODO: return true for handle api instead of raising an error
@@ -239,71 +187,95 @@ class AsyncRollout(BaseRollout):
                 # in original logic, mismatched sids count and instance_ids count will cause error eventually, better raise now
                 raise
 
-        async def gsm8k_start(index):
+        async def gsm8k_start(
+            index,
+            input_ids,
+            data_source=None,
+            reward_model=None,
+            extra_info=None,
+            **kwargs,
+        ):
             if index not in self.gsm8k_storage_sid2seq:
                 self.gsm8k_storage_sid2seq[index] = []
-            
+
+            if index not in self.gsm8k_metadata:
+                self.gsm8k_metadata[index] = {
+                    "data_source": data_source,
+                    "reward_model": reward_model,
+                    "extra_info": extra_info,
+                    "input_ids": (
+                        input_ids.cpu().tolist()
+                        if isinstance(input_ids, torch.Tensor)
+                        else input_ids
+                    ),
+                }
+
             return {
-                "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids[index]),
-                "sid": index
+                "prompt_ids": _pre_process_inputs(tokenizer.pad_token_id, input_ids),
+                "sid": index,
+                "observations_times": 0,
+                "failed_times": 0,
+                "search_times": 0,
             }
 
-        async def gsm8k_obs(action_ids, sid, tokenizer, **_):
+        async def gsm8k_obs(action_ids, sid, tokenizer, **kwargs):
             text = tokenizer.decode(action_ids, skip_special_tokens=False)
-            print(f"\n[Stage 3] Model Generation {sid}:")
-            print(f"Raw output: \n\n{text}\n\n")
-            
+            # print(f"\n[Stage 3] Model Generation {sid}:")
+            # print(f"Raw output: \n{text}\n")
+
             if sid not in self.gsm8k_storage_sid2seq:
                 self.gsm8k_storage_sid2seq[sid] = []
             self.gsm8k_storage_sid2seq[sid].extend(action_ids)
-            
+
             if "####" in text:
                 return {
                     "done": True,
-                    "ids": [],
+                    "ids": [],  # TODO: provide feedback
                     "observations_times": 0,
                     "failed_times": 0
                 }
             
             return {
                 "done": False,
-                "ids": [],
+                "ids": [], # TODO: provide feedback
                 "observations_times": 1,
                 "failed_times": 0
             }
 
-        async def gsm8k_end(sid, _):
-            sid = sid % len(input_ids)
-            data_item = prompts[sid // n]
-            
+        async def gsm8k_end(sid, done):
+            metadata = self.gsm8k_metadata.get(sid, {})
             sequences = self.gsm8k_storage_sid2seq.get(sid, [])
             sequences_str = tokenizer.decode(sequences)
-            
-            print(f"\n[Stage 4] Complete Generation for sample {sid}:")
-            print(f"Full response: {sequences_str}")
-    
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-            data_source = data_item.non_tensor_batch['data_source']
-            prompt_ids = data_item.batch['input_ids']
-            prompt_length = prompt_ids.shape[-1]
-            valid_prompt_length = data_item.batch['attention_mask'].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-            prompt_str = tokenizer.decode(valid_prompt_ids)
+            sequences = self.gsm8k_storage_sid2seq.get(sid, [])
+            sequences_str = tokenizer.decode(sequences)
+
+            # print(f"\n[Stage 4] Complete Generation for sample {sid}:")
+            # print(f"Full response: {sequences_str}")
+
+            data_source = metadata.get("data_source", "openai/gsm8k")
+            reward_model = metadata.get("reward_model", {})
+            ground_truth = reward_model.get("ground_truth", "")
+            extra_info = metadata.get("extra_info")
+            input_ids = metadata.get("input_ids", [])
+            prompt_str = tokenizer.decode(input_ids) if input_ids else ""
+
             from verl.utils.reward_score import _default_compute_score
-            score = await asyncio.to_thread(_default_compute_score,
+
+            score = await asyncio.to_thread(
+                _default_compute_score,
                 data_source=data_source,
                 solution_str=sequences_str,
                 ground_truth=ground_truth,
-                extra_info=data_item.non_tensor_batch.get('extra_info', None),
+                extra_info=extra_info,
                 question=prompt_str,
                 tokenizer=tokenizer,
             )
-            print(f"\n[GSM8K Generation] Final output for sample {sid}:")
+            print(f"Final output for sample {sid}:")
             print(f"Question: {prompt_str}")
             print(f"Complete response:\n{sequences_str}")
             print(f"Ground truth: {ground_truth}")
             print(f"Score: {score}\n")
-    
+
             return {
                 "rm_final_scores": score,
             }
@@ -311,45 +283,78 @@ class AsyncRollout(BaseRollout):
         # choose function set
         # TODO: maybe in init is better, but some functions are local
         # TODO: partial is not the best way to pass arguments
-        url = self.config["base_url"]
+        url = self.config["base_url"] if self.task_type == "gen_chat" else None
         loop_fn, start_fn, gen_fn, obs_fn, end_fn = {
-            "swedev": (ids_agent_loop, swedev_start, gen_id, partial(swe_dev_obs, tokenizer=tokenizer), swe_dev_end),
-            "gen_chat": (openai_chat_agent_loop, partial(openai_chat_start, url=url), gen_chat, partial(openai_chat_obs, url=url), partial(openai_chat_end, url=url)),
-            "gsm8k": (ids_agent_loop, gsm8k_start, gen_id, partial(gsm8k_obs, tokenizer=tokenizer), gsm8k_end),
+            "swedev": (
+                ids_agent_loop,
+                swedev_start,
+                gen_id,
+                partial(swe_dev_obs, tokenizer=tokenizer),
+                swe_dev_end,
+            ),
+            "gen_chat": (
+                openai_chat_agent_loop,
+                partial(openai_chat_start, url=url),
+                gen_chat,
+                partial(openai_chat_obs, url=url),
+                partial(openai_chat_end, url=url),
+            ),
+            "gsm8k": (
+                ids_agent_loop,
+                gsm8k_start,
+                gen_id,
+                partial(gsm8k_obs, tokenizer=tokenizer),
+                gsm8k_end,
+            ),
         }[self.task_type]
         # starting rollout
         device = torch.cuda.current_device()
         print(f"In async rollout {self.config.max_turns=} {self.total_len=}")
-        tasks = [loop_fn(
-            start_args=item.to_dict(),
-            start_fn=start_fn,
-            gen_fn=gen_fn,
-            obs_fn=obs_fn,
-            end_fn=end_fn,
-            max_turns=self.config.max_turns,
-            # max_length=self.total_len,
-            # fix by lurui: consider some special token
-            max_length=self.total_len - 50,
-            tokenizer=tokenizer,
-        ) for item in repeated]
+        tasks = [
+            loop_fn(
+                start_args=item.to_dict(),
+                start_fn=start_fn,
+                gen_fn=gen_fn,
+                obs_fn=obs_fn,
+                end_fn=end_fn,
+                max_turns=self.config.max_turns,
+                # max_length=self.total_len,
+                # fix by lurui: consider some special token
+                max_length=self.total_len - 50,
+                tokenizer=tokenizer,
+            )
+            for item in repeated
+        ]
         results = self.event_loop.run_until_complete(asyncio.gather(*tasks))
 
         # make batch
         batch_size = len(results)
         pad = tokenizer.pad_token_id
-        max_len, prompt_len, response_len = self.total_len, self.config.prompt_length, self.config.response_length
-        prompts_ids = torch.full((batch_size, prompt_len), pad, dtype=torch.long, device=device)
-        responses = torch.full((batch_size, response_len), pad, dtype=torch.long, device=device)
+        max_len, prompt_len, response_len = (
+            self.total_len,
+            self.config.prompt_length,
+            self.config.response_length,
+        )
+        prompts_ids = torch.full(
+            (batch_size, prompt_len), pad, dtype=torch.long, device=device
+        )
+        responses = torch.full(
+            (batch_size, response_len), pad, dtype=torch.long, device=device
+        )
         loss_mask = torch.zeros((batch_size, max_len), dtype=torch.int, device=device)
         if "reward" in results[0]:
             rewards = torch.zeros((batch_size,), dtype=torch.float, device=device)
         obs_metrics = {}
 
         for i, r in enumerate(results):
-            prompts_ids[i, -len(r["prompts"]):] = torch.tensor(r["prompts"], device=device)
+            prompts_ids[i, -len(r["prompts"]) :] = torch.tensor(
+                r["prompts"], device=device
+            )
             length = min(len(r["responses"]), response_len)
             responses[i, :length] = torch.tensor(r["responses"][:length], device=device)
-            loss_mask[i, prompt_len: prompt_len + length] = torch.tensor(r["response_loss_mask"][:length], device=device)
+            loss_mask[i, prompt_len : prompt_len + length] = torch.tensor(
+                r["response_loss_mask"][:length], device=device
+            )
             if "reward" in r:
                 rewards[i] = r["reward"]
 
@@ -363,26 +368,35 @@ class AsyncRollout(BaseRollout):
         position_ids = torch.zeros_like(attn_mask, device=device)
         for i in range(batch_size):
             position_ids[i, :] = torch.cumsum(attn_mask[i, :], dim=0) - 1
-            position_ids[i, attn_mask[i, :] == 0] = 0  # it's fine because all the valid tokens a continuous
+            position_ids[i, attn_mask[i, :] == 0] = (
+                0  # it's fine because all the valid tokens a continuous
+            )
 
         print(f"{obs_metrics=}")
-        obs_metrics = {k: torch.tensor(v, device=device) for k, v in obs_metrics.items()}
+        obs_metrics = {
+            k: torch.tensor(v, device=device) for k, v in obs_metrics.items()
+        }
 
-        print(f"{tokenizer.decode(torch.where(prompts_ids[0] != pad, prompts_ids[0], 0))=}")
+        print(
+            f"{tokenizer.decode(torch.where(prompts_ids[0] != pad, prompts_ids[0], 0))=}"
+        )
         print(f"{tokenizer.decode(torch.where(responses[0] != pad, responses[0], 0))=}")
         print(f"{tokenizer.decode(torch.where(all_ids[0] != pad, all_ids[0], 0))=}")
         print(f"{tokenizer.decode(torch.where(loss_mask[0] == 1, all_ids[0], 0))=}")
 
         # TODO: maybe put obs metrics into non_tensor_batch after resolving swedev "sids" & dr "rm_score" placement problem
-        batch = TensorDict({
-            "prompts": prompts_ids,
-            "responses": responses,
-            "input_ids": all_ids,
-            "loss_mask": loss_mask,
-            "attention_mask": attn_mask,
-            "position_ids": position_ids,
-            **obs_metrics,
-            **({"rm_final_scores": rewards} if "reward" in results[0] else {}),
-        }, batch_size=batch_size)
+        batch = TensorDict(
+            {
+                "prompts": prompts_ids,
+                "responses": responses,
+                "input_ids": all_ids,
+                "loss_mask": loss_mask,
+                "attention_mask": attn_mask,
+                "position_ids": position_ids,
+                **obs_metrics,
+                **({"rm_final_scores": rewards} if "reward" in results[0] else {}),
+            },
+            batch_size=batch_size,
+        )
 
         return DataProto(batch=batch)

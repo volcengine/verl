@@ -312,50 +312,50 @@ def compute_data_metrics(batch, use_critic=True, tokenizer=None):
             sum([max(scores) for scores in uid_scores.values()]) / len(uid_scores),
         'search/observation_times':
             torch.mean(batch.batch['observations_times'].float()).detach().item(),
-        'search/search_times':
-            torch.mean(batch.batch['search_times'].float()).detach().item(),
-        'search/click_times':
-            torch.mean(batch.batch['click_times'].float()).detach().item(),
-        'search/failed_times':
-            torch.mean(batch.batch['failed_times'].float()).detach().item(),
-        # 'search/unfaith_penalty_times':
-        #     torch.mean(batch.batch['unfaith_penalty_times'].float()).detach().item(),
-        'search/length_overlong_ratio':
-            length_overlong_ratio,
-        'search/turn_overlong_ratio':
-            turn_overlong_ratio,
-        'search/overlong_ratio':
-            overlong_ratio,
-        # 'search/penalty_minus_1_ratio':
-        #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
+        # 'search/search_times':
+        #     torch.mean(batch.batch['search_times'].float()).detach().item(),
+        # 'search/click_times':
+        #     torch.mean(batch.batch['click_times'].float()).detach().item(),
+        # 'search/failed_times':
+        #     torch.mean(batch.batch['failed_times'].float()).detach().item(),
+        # # 'search/unfaith_penalty_times':
+        # #     torch.mean(batch.batch['unfaith_penalty_times'].float()).detach().item(),
+        # 'search/length_overlong_ratio':
+        #     length_overlong_ratio,
+        # 'search/turn_overlong_ratio':
+        #     turn_overlong_ratio,
+        # 'search/overlong_ratio':
+        #     overlong_ratio,
+        # # 'search/penalty_minus_1_ratio':
+        # #     torch.mean(torch.eq(sequence_score, -1).float()).detach().item(),
 
-        # 'critic/score/mean':
-        #     torch.mean(sequence_score).detach().item(),
-        # 'critic/score/max':
-        #     torch.max(sequence_score).detach().item(),
-        # 'critic/score/min':
-        #     torch.min(sequence_score).detach().item(),
-        # reward
-        # 'critic/rewards/mean':
-        #     torch.mean(sequence_reward).detach().item(),
-        # 'critic/rewards/max':
-        #     torch.max(sequence_reward).detach().item(),
-        # 'critic/rewards/min':
-        #     torch.min(sequence_reward).detach().item(),
-        # adv
-        'critic/advantages/mean':
-            torch.mean(valid_adv).detach().item(),
-        'critic/advantages/max':
-            torch.max(valid_adv).detach().item(),
-        'critic/advantages/min':
-            torch.min(valid_adv).detach().item(),
-        # returns
-        'critic/returns/mean':
-            torch.mean(valid_returns).detach().item(),
-        'critic/returns/max':
-            torch.max(valid_returns).detach().item(),
-        'critic/returns/min':
-            torch.min(valid_returns).detach().item(),
+        # # 'critic/score/mean':
+        # #     torch.mean(sequence_score).detach().item(),
+        # # 'critic/score/max':
+        # #     torch.max(sequence_score).detach().item(),
+        # # 'critic/score/min':
+        # #     torch.min(sequence_score).detach().item(),
+        # # reward
+        # # 'critic/rewards/mean':
+        # #     torch.mean(sequence_reward).detach().item(),
+        # # 'critic/rewards/max':
+        # #     torch.max(sequence_reward).detach().item(),
+        # # 'critic/rewards/min':
+        # #     torch.min(sequence_reward).detach().item(),
+        # # adv
+        # 'critic/advantages/mean':
+        #     torch.mean(valid_adv).detach().item(),
+        # 'critic/advantages/max':
+        #     torch.max(valid_adv).detach().item(),
+        # 'critic/advantages/min':
+        #     torch.min(valid_adv).detach().item(),
+        # # returns
+        # 'critic/returns/mean':
+        #     torch.mean(valid_returns).detach().item(),
+        # 'critic/returns/max':
+        #     torch.max(valid_returns).detach().item(),
+        # 'critic/returns/min':
+        #     torch.min(valid_returns).detach().item(),
         **({
             # values
             'critic/values/mean': torch.mean(valid_values).detach().item(),
@@ -571,7 +571,7 @@ class RayPPOTrainer(object):
         print("[validate_config] All configuration checks passed successfully!")
 
     def _create_dataloader(self):
-        if self.config.data.task_type == "gen_chat":
+        if self.task_type == "gen_chat":
             spec = self.config.data.gen_chat
             train = spec.train
             val = spec.val
@@ -596,7 +596,7 @@ class RayPPOTrainer(object):
                                             filter_prompts=True,
                                             return_raw_chat=self.config.data.get('return_raw_chat', False),
                                             truncation='error',
-                                            task_type=self.config.data.task_type,
+                                            task_type=self.task_type,
                                             )
             self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                         tokenizer=self.tokenizer,
@@ -607,7 +607,7 @@ class RayPPOTrainer(object):
                                         filter_prompts=True,
                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
                                         truncation='error',
-                                        task_type=self.config.data.task_type,
+                                        task_type=self.task_type,
                                         )
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
@@ -706,6 +706,7 @@ class RayPPOTrainer(object):
         self.validation_table = new_table
 
     def _validate(self):
+        print("NaiveRewardManager _validate")
         reward_tensor_lst = []
         data_source_lst = []
 
@@ -1084,17 +1085,20 @@ class RayPPOTrainer(object):
                         non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                     )
                 else:
-                    batch_keys = ['input_ids', 'attention_mask', 'position_ids']
-                    if self.task_type == "swedev": # TODO(haoran): pass arg list here
-                        batch_keys.append('instance_id')
-                        gen_batch = batch.pop(batch_keys=batch_keys)
+                    if self.task_type == "gen_chat":
+                        gen_batch = batch.pop(batch_keys=['index'], non_tensor_batch_keys=['name'])
                     elif self.task_type == "gsm8k":
                         gen_batch = batch.pop(
                             batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                            non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info']
+                            non_tensor_batch_keys=['index', 'data_source', 'reward_model', 'extra_info']
                         )
-                    else: # TODO(haoran): hard encoding for dr
-                        gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
+                    else:
+                        batch_keys = ['input_ids', 'attention_mask', 'position_ids']
+                        if self.task_type == "swedev": # TODO(haoran): pass arg list here
+                            batch_keys.append('instance_id')
+                            gen_batch = batch.pop(batch_keys=batch_keys)
+                        else: # TODO(haoran): hard encoding for dr
+                            gen_batch = batch.pop(batch_keys=batch_keys, non_tensor_batch_keys=['data_source', 'reward_model', 'extra_info'])
 
                 with _timer('step', timing_raw):
                     # generate a batch

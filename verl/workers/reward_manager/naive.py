@@ -28,9 +28,8 @@ class NaiveRewardManager:
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
-        print(f"[NAIVE Reward Manager] Processing {len(data)} samples...")
-    
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
@@ -47,24 +46,7 @@ class NaiveRewardManager:
                 # valid_response_lengths.append(valid_response_length)
                 # unfaith_penaltys.append(item['unfaith_penalty'])
                 reward_tensor[i, valid_response_length - 1] = item['rm_final_scores']
-            # import json
-            # print_log_for_penaltys = {
-            #     "rm_final_scores": data.batch['rm_final_scores'].tolist(), 
-            #     "valid_response_lengths": [item.item() for item in valid_response_lengths],
-            #     "unfaith_penaltys": [len(item.tolist()) for item in unfaith_penaltys]
-            # }
-            # print(json.dumps(print_log_for_penaltys, ensure_ascii=False))
-            # save_log_for_penaltys = {
-            #     "rm_final_scores": data.batch['rm_final_scores'][0].item(),
-            #     "valid_response_lengths": valid_response_lengths[0].item(),
-            #     "unfaith_penaltys": unfaith_penaltys[0].tolist(),
-            #     "response": data.batch['responses'][0].tolist(),
-            #     "prompt": data.batch['prompts'][0].tolist(),
-            #     "attention_mask": data.batch['attention_mask'][0].tolist()
-            # }
-            # import time
-            # with open(f"/workspace/lurui-yun/deep_research/verl/logs/unfaith_penalty/instances_{time.time()}.json", "w") as f:
-            #     f.write(json.dumps(save_log_for_penaltys, ensure_ascii=False) + "\n")
+
             return reward_tensor
 
 
@@ -89,15 +71,6 @@ class NaiveRewardManager:
             data_source = data_item.non_tensor_batch['data_source']
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            print(f"\n[Stage 5] Reward Calculation for sample {i}:")
-            print(f"Input sequence: {sequences_str}...")
-            print(f"Ground truth: {ground_truth}")
-    
-            has_separator = '####' in sequences_str
-            answer = (sequences_str.split('####')[-1].strip() if has_separator 
-                    else "No #### found")
-            print(f"Extracted answer: {answer}")
-            
             # print(f"naive reward manager {self.tokenizer=}")
             score = self.compute_score(
                 data_source=data_source,
@@ -107,9 +80,7 @@ class NaiveRewardManager:
                 question=prompt_str,
                 tokenizer=self.tokenizer
             )
-            
-            print(f"Final score: {score}")
-    
+
             return i, valid_response_length, score, data_source, sequences_str
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(data)) as executor:
@@ -123,6 +94,6 @@ class NaiveRewardManager:
 
                 if already_print_data_sources[data_source] < self.num_examine:
                     already_print_data_sources[data_source] += 1
-                    # print(sequences_str)
+                    print(sequences_str)
 
         return reward_tensor
