@@ -180,7 +180,7 @@ To extend to other RLHF algorithms, such as DPO, GRPO, please refer to
 
                    # compute rewards. apply_kl_penalty if available
                    batch, kl_metrics = apply_kl_penalty(batch,
-                                                           kl_ctrl=self.kl_ctrl,
+                                                           kl_ctrl=self.kl_ctrl_in_reward,
                                                            kl_penalty=self.config.algorithm.kl_penalty)
                    metrics.update(kl_metrics)
 

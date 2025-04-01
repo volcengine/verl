@@ -25,6 +25,9 @@ Data
      filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
      truncation: error
      image_key: images
+     custom_cls:
+        path: null
+        name: null
 
 - ``data.train_files``: Training set parquet. Can be a list or a single
   file. The program will read all files into memory, so it can't be too
@@ -59,6 +62,20 @@ Data
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+
+Customized Dataset
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Customized dataset extension is implemented for the SFT trainer and can be extended to other trainers with similar changes.
+
+.. code:: yaml
+
+   custom_cls:
+     path: null
+     name: null
+
+- ``data.custom_cls.path``: The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.
+- ``data.custom_cls.name``: The name of the dataset class within the specified file.
 
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -207,6 +224,13 @@ Actor/Rollout/Reference Policy
 
     - Trading speed for GPU memory.
 
+- ``actor_rollout_ref.actor.use_kl_loss``: Whether to enable kl loss. Default is False.
+
+- ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
+
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
+    specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
+
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
   - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
@@ -214,6 +238,8 @@ Actor/Rollout/Reference Policy
     We do not store hf_model in checkpoint by default, but we provide a tool in `scripts/model_merge.py` to convert checkpoint format to hf format.
 
 **Reference Model**
+
+Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.use_kl_in_reward`` is/are True.
 
 - ``actor_rollout_ref.ref``: FSDP config same as actor. **For models
   larger than 7B, it's recommended to turn on offload for ref by
@@ -327,7 +353,7 @@ Reward Model
     their own RewardModelWorker and pass it from the code.
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
-  if ``naive``. If all verification functions are multiprocessing-safe, the reward
+  is ``naive``. If all verification functions are multiprocessing-safe, the reward
   manager can be set to ``prime`` for parallel verification.
 
 Customized Reward Function
@@ -351,17 +377,25 @@ Algorithm
      gamma: 1.0
      lam: 1.0
      adv_estimator: gae
+     use_kl_in_reward: False
      kl_penalty: kl  # how to estimate kl divergence
      kl_ctrl:
        type: fixed
        kl_coef: 0.005
+       horizon: 10000
+       target_kl: 0.1
 
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
 - ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``rloo``
-- ``kl_penalty``: Support ``kl``, ``abs``, ``mse`` and ``full``. How to
+- ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
+- ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
-  specific options, refer to `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py#L192>`_ .
+  specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
+- ``kl_ctrl``: Config for in-reward kl_penalty controller
+  - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
+  - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
+  - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
 
 Trainer
 ~~~~~~~
@@ -373,9 +407,11 @@ Trainer
      project_name: verl_examples
      experiment_name: gsm8k
      logger: ['console', 'wandb']
+     log_val_generations: 0
      nnodes: 1
      n_gpus_per_node: 8
      save_freq: -1
+     val_before_train: True
      test_freq: 2
      critic_warmup: 0
      default_hdfs_dir: ~/experiments/gsm8k/ppo/${trainer.experiment_name} # hdfs checkpoint path
@@ -386,13 +422,15 @@ Trainer
      del_local_ckpt_after_load: False
 
 - ``trainer.total_epochs``: Number of epochs in training.
-- ``trainer.project_name``: For wandb, swanlab
-- ``trainer.experiment_name``: For wandb, swanlab
+- ``trainer.project_name``: For wandb, swanlab, mlflow
+- ``trainer.experiment_name``: For wandb, swanlab, mlflow
 - ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
+- ``trainer.log_val_generations``: The number of logged generation during validation (default ``0``)
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
 - ``trainer.save_freq``: The frequency (by iteration) to save checkpoint
   of the actor and critic model.
+- ``trainer.val_before_train``: Whether to run validation before training.
 - ``trainer.test_freq``: The validation frequency (by iteration).
 - ``trainer.critic_warmup``: The number of iteration to train the critic
   model before actual policy learning.

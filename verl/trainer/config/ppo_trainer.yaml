@@ -170,13 +170,15 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
+    horizon: 10000
+    target_kl: 0.1
 
 trainer:
-  val_before_train: True
   balance_batch: True
   total_epochs: 30
   total_training_steps: null
@@ -190,6 +192,7 @@ trainer:
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null
+  val_before_train: True
   test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null
