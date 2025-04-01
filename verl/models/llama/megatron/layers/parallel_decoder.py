@@ -34,9 +34,10 @@ from verl.utils.megatron_utils import TransformerConfig, convert_config
 
 class ParallelLlamaDecoderLayer(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, layer_idx: int):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
+        self.layer_idx = layer_idx
         self.hidden_size = config.hidden_size
         self.self_attn = ParallelLlamaAttention(config=config, megatron_config=megatron_config)
 
@@ -101,10 +102,10 @@ class ParallelLlamaDecoderLayer(nn.Module):
 
 class ParallelLlamaDecoderLayerRmPad(nn.Module):
 
-    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
+    def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig, layer_idx: int):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
-        self.megatron_config = megatron_config
+        self.layer_idx = layer_idx
         self.hidden_size = config.hidden_size
         self.self_attn = ParallelLlamaAttentionRmPad(config=config, megatron_config=megatron_config)
 

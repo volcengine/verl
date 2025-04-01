@@ -464,11 +464,11 @@ class ActorRolloutRefWorker(MegatronWorker):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path,
                                                   hdfs_path=hdfs_path,
                                                   global_step=global_step,
-                                                  remove_previous_ckpt=remove_previous_ckpt)
+                                                  max_ckpt_to_keep=max_ckpt_to_keep)
 
 
 class CriticWorker(MegatronWorker):
@@ -653,16 +653,17 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path, del_local_after_load=True):
-        self.hf_config = self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path,
-                                                                   del_local_after_load=del_local_after_load)
+    def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
+        self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path,
+                                                  hdfs_path=hdfs_path,
+                                                  del_local_after_load=del_local_after_load)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, remove_previous_ckpt=False):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, max_ckpt_to_keep=None):
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path,
                                                   hdfs_path=hdfs_path,
                                                   global_step=global_steps,
-                                                  remove_previous_ckpt=remove_previous_ckpt)
+                                                  max_ckpt_to_keep=max_ckpt_to_keep)
 
 
 class RewardModelWorker(MegatronWorker):

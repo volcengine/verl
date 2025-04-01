@@ -21,18 +21,21 @@ import warnings
 from typing import Union
 import torch
 import torch.distributed
+from torch.nn.parallel import DistributedDataParallel as torchDDP
 
 from verl.utils.fs import copy_to_local, is_non_local
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.models.weight_loader_registry import get_weight_loader
 from verl.utils.model import load_megatron_model_weights
-from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_hf_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path
+from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_hf_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path, unwrap_model
 
 from .checkpoint_manager import BaseCheckpointManager
 from transformers import AutoModelForCausalLM
 
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
+from megatron.core.transformer.module import Float16Module
+from megatron.core.distributed import DistributedDataParallel as LocalDDP
 
 
 class MegatronCheckpointManager(BaseCheckpointManager):
@@ -62,7 +65,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                  tokenizer,
                  optimizer,
                  use_distributed_optimizer: bool,
-                 checkpoint_contents: list = ['model', 'hf_model', 'optimizer', 'extra'],
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  **kwargs):
 
         super().__init__(model,
@@ -86,7 +89,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.rank = torch.distributed.get_rank()
 
         self.weight_saver = get_weight_saver(self.arch)
-        self.weight_loader = get_weight_loader(self.arch)
 
     def get_rng_state(self, use_dist_ckpt: bool = False, data_parallel_random_init: bool = False):
         """ collect rng state across data parallel ranks """
@@ -192,7 +194,19 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             state_dicts = torch.load(os.path.join(ckpt_name))
             assert len(state_dicts) == len(
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
-            for state_dict, model in zip(state_dicts, self.model):
+            for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
+                # modify layer numbers
+                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
+
+                state_dict_old = state_dict.copy()
+                old_keys = state_dict_old.keys()
+                for k in old_keys:
+                    if k.split('.')[1] == 'layers':
+                        layer_idx = int(k.split('.')[2])
+                        new_key = '.'.join(k.split('.')[:2] + [str(layer_idx - offset)] + k.split('.')[3:])
+                        state_dict[new_key] = state_dict[k]
+                        if new_key != k:
+                            state_dict.pop(k)
                 model.load_state_dict(state_dict)
             print(f'Loaded sharded model checkpoint from {model_path}')
 
@@ -210,38 +224,52 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     f'[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored'
                 )
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, remove_previous_ckpt=False):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
         # record the previous global step
         self.previous_global_step = global_step
 
         # remove previous local_path
-        # TODO: shall we remove previous ckpt every save?
-        if remove_previous_ckpt:
-            self.remove_previous_save_local_path()
+        if max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(
+                self.previous_saved_paths) >= max_ckpt_to_keep:
+            keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
+            self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
+            self.previous_saved_paths = self.previous_saved_paths[keep_start:]
+
         local_path = self.local_mkdir(local_path)
 
         # Save Model
-        if 'model' in self.checkpoint_contents:
-            torch.distributed.barrier()
-            if mpu.get_data_parallel_rank() == 0:
-                state_dicts = []
-                for model in self.model:
-                    state_dict = model.state_dict()
-                    state_dicts.append(state_dict)
+        if 'model' in self.checkpoint_contents and mpu.get_data_parallel_rank() == 0:
+            state_dicts = []
 
-                print(f'Saving sharded model checkpoint to {local_path}')
-                model_ckpt_path = get_model_checkpoint_path(local_path)
-                hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
-                ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
-                torch.save(state_dicts, os.path.join(ckpt_name))
-                self.processing_class.save_pretrained(
-                    hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
-                print(f'Saved checkpoint to {model_ckpt_path}')
-                if hdfs_path is not None:
-                    print(f'Uploading checkpoint to {hdfs_path}')
-                    from verl.utils import hdfs_io
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+            for vpp_rank, model in enumerate(self.model):
+                state_dict = model.state_dict()
+
+                # modify layer numbers
+                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
+                state_dict_old = state_dict.copy()
+                old_keys = state_dict_old.keys()
+                for k in old_keys:
+                    if k.split('.')[1] == 'layers':
+                        layer_idx = int(k.split('.')[2])
+                        new_key = '.'.join(k.split('.')[:2] + [str(layer_idx + offset)] + k.split('.')[3:])
+                        state_dict[new_key] = state_dict[k]
+                        if new_key != k:
+                            state_dict.pop(k)
+
+                state_dicts.append(state_dict)
+
+            print(f'Saving sharded model checkpoint to {local_path}')
+            model_ckpt_path = get_model_checkpoint_path(local_path)
+            hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
+            ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
+            torch.save(state_dicts, os.path.join(ckpt_name))
+            self.processing_class.save_pretrained(hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
+            print(f'Saved checkpoint to {model_ckpt_path}')
+            if hdfs_path is not None:
+                print(f'Uploading checkpoint to {hdfs_path}')
+                from verl.utils import hdfs_io
+                hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
 
         if 'hf_model' in self.checkpoint_contents:
             # wait for everyone to dump to local
@@ -250,6 +278,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                                            dtype=self.param_dtype,
                                            is_value_model=self.is_value_model,
                                            tie_word_embeddings=self.share_embeddings_and_output_weights)
+
+            torch.distributed.barrier()
+            print(f'self.param_dtype: {self.param_dtype}')
+            for key in state_dict.keys():
+                print(f'state_dict[key].dtype: {key} {state_dict[key].dtype}')
             torch.distributed.barrier()
             if self.rank == 0:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
@@ -264,7 +297,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                         state_dict['score.weight'] = state_dict['score.weight']
                     else:
                         from transformers import AutoModelForCausalLM
-                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
                 if hdfs_path is not None:
                     print(f'Uploading checkpoint to {hdfs_path}')
@@ -291,4 +324,4 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 print(f"saving rng states to {rng_state_path}")
 
-        self.previous_saved_path = local_path
+        self.previous_saved_paths.append(local_path)

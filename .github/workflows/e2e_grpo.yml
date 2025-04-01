@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   e2e_gsm8k_megatron:
-    runs-on: [self-hosted, l20-0]
+    runs-on: [self-hosted, l20-1]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

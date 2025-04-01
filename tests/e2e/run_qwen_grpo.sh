@@ -2,6 +2,8 @@ set -x
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
+huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$HOME/data/gsm8k/train.parquet \
@@ -11,7 +13,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path=$HOME/models/Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -29,7 +31,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    algorithm.kl_ctrl.kl_coef=0.001 \
+    algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_grpo_example_gsm8k' \

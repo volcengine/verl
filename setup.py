@@ -33,11 +33,10 @@ install_requires = [
   'pyarrow>=15.0.0',
   'pybind11',
   'pylatexenc',
-  'ray>=2.10',
-  'tensordict<0.6',
+  'ray[default]>=2.10',
+  'tensordict<=0.6.2',
   'torchdata',
   'transformers',
-  'vllm<=0.6.3',
   'wandb',
 ]
 
@@ -46,6 +45,12 @@ PRIME_REQUIRES = ['pyext']
 GEO_REQUIRES = ['mathruler']
 GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 MATH_REQUIRES = ['math-verify']  # Add math-verify as an optional dependency
+VLLM_REQUIRES = ['tensordict<=0.6.2', 'vllm<=0.8.2']
+SGLANG_REQUIRES = [
+  'tensordict<=0.6.2', 
+  'sglang[all]==0.4.4.post3',
+  'torch-memory-saver>=0.0.5'
+]
 
 extras_require = {
   'test': TEST_REQUIRES,
@@ -53,6 +58,8 @@ extras_require = {
   'geo': GEO_REQUIRES,
   'gpu': GPU_REQUIRES,
   'math': MATH_REQUIRES,
+  'vllm': VLLM_REQUIRES,
+  'sglang': SGLANG_REQUIRES,
 }
 
 from pathlib import Path

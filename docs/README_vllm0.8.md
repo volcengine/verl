@@ -15,17 +15,17 @@ cd verl
 pip3 install -e .
 
 # Install the latest stable version of vLLM
-pip3 install vllm==0.8.1
+pip3 install vllm==0.8.2
 
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
 
 ```
 
-We have a pre-built docker image for veRL+vLLM 0.8.0. You can direct import it with the following command:
+We have a pre-built docker image for veRL+vLLM 0.8.2. You can direct import it with the following command:
 
 ```bash
-docker pull hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.0
+docker pull hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
 ```
 
 ## Features
@@ -42,3 +42,13 @@ and also **remove** the environment variable if it exists:
 ```bash
 export VLLM_ATTENTION_BACKEND=XFORMERS
 ```
+
+## Notes
+
+When you just directly upgrade vllm>=0.8, some dependency packages may undergo version changes. If you encounter the following problems:
+
+```bash
+in <module> from torch.multiprocessing.reductions import ForkingPickler ImportError: cannot import name 'ForkingPickler' from 'torch.multiprocessing.reductions' (/opt/conda/lib/python3.11/site-packages/torch/multiprocessing/reductions.py)
+```
+
+You need to upgrade `tensordict` to version 0.6.2 using the command `pip install tensordict==0.6.2`.

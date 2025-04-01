@@ -119,7 +119,13 @@ class DataParallelPPOCritic(BasePPOCritic):
             grad_norm = self.critic_module.clip_grad_norm_(self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
-        self.critic_optimizer.step()
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.critic_optimizer.zero_grad()
+        else:
+            self.critic_optimizer.step()
         return grad_norm
 
     def compute_values(self, data: DataProto) -> torch.Tensor:
