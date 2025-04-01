@@ -51,16 +51,18 @@ def main():
     print("Start init")
     local_rank, rank, world_size = initialize_global_process_group()
     print(f"RANK{rank}", local_rank, rank, world_size)
+    
+    "============================================= Parallel ============================================="
     dp, tp, pp = 1, 4, 1
     # dp, tp, pp = 2, 4, 1
-    
-    if rank == 0:
-        print(f"rank 0 init success")
-    
+    device_count = 2
     model_name = "Qwen/Qwen2-7B-Instruct"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    # model_name = "deepseek-ai/deepseek-llm-7b-chat"
+    "============================================= Parallel ============================================="
     
-    "======================================================================================="
+    # tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    
+    "============================================= FSDP ============================================="
     device_mesh = init_device_mesh(
         "cuda", mesh_shape=(dp*tp,), mesh_dim_names=["fsdp"]
     )
@@ -69,31 +71,32 @@ def main():
         reduce_dtype=torch.float32,
         buffer_dtype=torch.float32,
     )
-    # with torch.device("cuda"):
-    #     actor_model = AutoModelForCausalLM.from_pretrained(
-    #         model_name, trust_remote_code=True
-    #     )
-    #     actor_model.to(torch.bfloat16)
-    # fsdp_model = FSDP(
-    #     actor_model,
-    #     use_orig_params=True,
-    #     auto_wrap_policy=None,
-    #     device_id=torch.cuda.current_device(),
-    #     sharding_strategy=ShardingStrategy.FULL_SHARD,
-    #     mixed_precision=mixed_precision,
-    #     cpu_offload=CPUOffload(offload_params=False),
-    #     sync_module_states=False,
-    #     device_mesh=device_mesh,
-    # )
-    # FSDP.set_state_dict_type(
-    #     fsdp_model,
-    #     state_dict_type=StateDictType.SHARDED_STATE_DICT,
-    #     state_dict_config=ShardedStateDictConfig(),
-    # )
+    with torch.device("cuda"):
+        actor_model = AutoModelForCausalLM.from_pretrained(
+            model_name, trust_remote_code=True
+        )
+        actor_model.to(torch.bfloat16)
+    fsdp_model = FSDP(
+        actor_model,
+        use_orig_params=True,
+        auto_wrap_policy=None,
+        device_id=torch.cuda.current_device(),
+        sharding_strategy=ShardingStrategy.FULL_SHARD,
+        mixed_precision=mixed_precision,
+        cpu_offload=CPUOffload(offload_params=False),
+        sync_module_states=False,
+        device_mesh=device_mesh,
+    )
+    FSDP.set_state_dict_type(
+        fsdp_model,
+        state_dict_type=StateDictType.SHARDED_STATE_DICT,
+        state_dict_config=ShardedStateDictConfig(),
+    )
 
-    # state_dict = fsdp_model.state_dict()
-    "======================================================================================="
+    state_dict = fsdp_model.state_dict()
+    "============================================= FSDP ============================================="
     
+    "============================================= INIT PARALLEL ============================================="
     kwargs = dict(
         mesh_shape=(dp, tp, pp), 
         mesh_dim_names=["dp", "tp", "pp"]
@@ -101,23 +104,24 @@ def main():
     inference_device_mesh_cpu = init_device_mesh("cpu", **kwargs)
     tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
 
-    # NOTE: for each dp we have a TP0, within a TP group we need to have TP0's worker ip:port for 
+    # NOTE: for each dp we have a TP0, within a TP group we need ip:port from TP0's worker for rdzv
+    # see torch.distributed.init_process_group
     (ip, port) = (get_local_ip(), find_free_port()) if tp_rank == 0 else (None, None)
-    # port = find_free_port() if tp_rank == 0 and dp_rank==0 else None
+
     [ip, port] = broadcast_pyobj(
         [ip, port],
         rank=tp_rank,
         dist_group=inference_device_mesh_cpu.get_group("tp"),
         src=inference_device_mesh_cpu["tp"].mesh[0].item()
     )
-    
     # floor
     world_size = int(os.environ["WORLD_SIZE"])
     tp_size = tp
-    device_count = 2
     nnodes = -(-tp_size // device_count)
     print(f"RANK{rank}: {ip}:{port} nnodes:{nnodes}")
-    
+    "============================================= INIT PARALLEL ============================================="
+
+    # NOTE: otherwise would fail
     for k in ["TORCHELASTIC_USE_AGENT_STORE"]:
         if k in os.environ:
             del os.environ[k]
@@ -143,21 +147,22 @@ def main():
     llm.resume_memory_occupation()
 
     print("updating rollout weights")
-    # llm.update_weights_from_tensor([(k, v) for k, v in state_dict.items()])
+    llm.update_weights_from_tensor([(k, v) for k, v in state_dict.items()])
 
-    "=============================== Gen ==============================="
+    "============================================= GEN ============================================="
     sampling_params = dict(
         temperature=0, top_p=1, n=1, max_new_tokens=16, ignore_eos=True
     )
     outputs = llm.generate("Introduce yourself.", sampling_params=sampling_params)
 
-    if torch.distributed.get_rank() == 0:
+    if inference_device_mesh_cpu["tp"].get_local_rank() == 0:
         print("="*64)
         print(f'SGlang response: {outputs["text"]}')
         print("="*64)
-    "=============================== Gen ==============================="
+    "============================================= GEN ============================================="
     
 
 # torchrun --nnodes=2 --nproc_per_node=2 --master_addr=<NODE0 IP> --master_port=34567 --node_rank 0 torchrun_verlengine.py
+# torchrun --nnodes=2 --nproc_per_node=2 --master_addr=<NODE0 IP> --master_port=34567 --node_rank 1 torchrun_verlengine.py
 if __name__ == "__main__":
     main()

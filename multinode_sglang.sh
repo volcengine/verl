@@ -8,6 +8,17 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path']"
 test_files="['$gsm8k_test_path']"
 
+# some settings to go
+# 1. tp_size <= n_gpus_per_node
+#   tensor_model_parallel_size=4
+#   n_gpus_per_node=4
+#   nnodes=2
+# 2. tp_size > n_gpus_per_node
+#   tensor_model_parallel_size=4
+#   n_gpus_per_node=2
+#   nnodes=2
+
+
 python3 -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
@@ -28,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=sglang \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     critic.optim.lr=1e-5 \
@@ -40,11 +51,12 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=True \
     algorithm.kl_ctrl.kl_coef=0.0001 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_multinode' \
-    trainer.experiment_name='Qwen2-7B-SGLang-0.4.4' \
-    trainer.n_gpus_per_node=8 \
+    trainer.logger=['console'] \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=2 \
     trainer.save_freq=-1 \
     trainer.test_freq=10 \
     trainer.total_epochs=15 $@
+    # trainer.logger=['console','wandb'] \
+    # trainer.project_name='verl_multinode' \
+    # trainer.experiment_name='Qwen2-7B-SGLang-0.4.4' \
