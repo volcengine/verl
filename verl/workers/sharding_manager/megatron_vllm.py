@@ -390,8 +390,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # FIXME(sgm): the best practice is to delete the cuda tensor
         # rebind the model weights, can be any cpu tensor
         if self.origin_params is not None:
-            for name in self.origin_params.keys():
-                self.params[name] = self.origin_params[name]
+            for name, param in self.origin_params.items():
+                self.params[name] = param
 
         # self.inference_engine.sync_model_weights(params)
         self.inference_engine.offload_model_weights()
