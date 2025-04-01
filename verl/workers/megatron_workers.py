@@ -505,6 +505,7 @@ class CriticWorker(MegatronWorker):
         set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
+        self.config.ppo_mini_batch_size *= self.config.rollout_n
         self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
         if self.config.get('ppo_micro_batch_size', None):
             self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
