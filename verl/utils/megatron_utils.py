@@ -31,7 +31,7 @@ def get_model_config(model):
 
 
 def get_model(model_provider_func,
-              model_type,
+              model_type=None,
               wrap_with_ddp=True,
               use_distributed_optimizer=True):
     """Build the model."""
@@ -43,7 +43,7 @@ def get_model(model_provider_func,
     from megatron.core.transformer import TransformerConfig
     from megatron.core.transformer.module import Float16Module
     if model_type is None:
-        model_type = ModelType.encoder_and_decoder
+        model_type = ModelType.encoder_or_decoder
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
        mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
         assert model_type != ModelType.encoder_and_decoder, \

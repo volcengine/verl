@@ -29,7 +29,8 @@ from .parallel_attention import ParallelLlamaAttention, ParallelLlamaAttentionRm
 from .parallel_mlp import ParallelLlamaMLP
 from .parallel_rmsnorm import ParallelLlamaRMSNorm
 
-from verl.utils.megatron_utils import TransformerConfig, convert_config
+from verl.utils.megatron_utils import convert_config
+from megatron.core.transformer import TransformerConfig
 
 
 class ParallelLlamaDecoderLayer(nn.Module):

@@ -27,7 +27,7 @@ from verl.utils.fs import copy_to_local, is_non_local
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.models.weight_loader_registry import get_weight_loader
 from verl.utils.model import load_megatron_model_weights
-from verl.utils.megatron_utils import TransformerConfig, get_model_checkpoint_path, get_hf_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path, unwrap_model
+from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_checkpoint_path, get_optimizer_checkpoint_path, get_rng_states_checkpoint_path, unwrap_model
 
 from .checkpoint_manager import BaseCheckpointManager
 from transformers import AutoModelForCausalLM
@@ -36,7 +36,7 @@ from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.module import Float16Module
 from megatron.core.distributed import DistributedDataParallel as LocalDDP
-
+from megatron.core.transformer import TransformerConfig
 
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
