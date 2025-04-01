@@ -137,7 +137,6 @@ def main_task(config):
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
         Role.Critic: ray.remote(CriticWorker),
-        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     # NOTE: initialze two resource pool
@@ -157,8 +156,12 @@ def main_task(config):
     mapping = {
         Role.ActorRollout: actor_rollout_ref_pool_id,
         Role.Critic: critic_pool_id,
-        Role.RefPolicy: actor_rollout_ref_pool_id,
     }
+
+    #use reference model
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = actor_rollout_ref_pool_id
 
     # we should adopt a multi-source reward function here
     # - for rule-based rm, we directly call a reward score
