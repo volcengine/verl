@@ -23,7 +23,7 @@ python3 -m verl.trainer.main_generation \
     rollout.free_cache_engine=False
 
 python3 -m recipe.r1.main_eval \
-    data.path=$HOME/data/r1/test-output-k4.parquet \
+    data.path=$HOME/data/r1/test-output-k1.parquet \
     data.prompt_key=prompt \
     data.response_key=responses \
     custom_reward_function.path=recipe/r1/reward_score.py \
