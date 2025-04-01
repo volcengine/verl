@@ -135,6 +135,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         group=self.device_mesh["infer_tp"].get_group()
 
         all_gather_data_proto(data=data, process_group=group)
+        return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
