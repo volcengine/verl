@@ -10,14 +10,21 @@ Requirements
 verl supports various backends. Currently, the following configurations are available:
 
 - **FSDP** and **Megatron-LM** (optional) for training.
-- **SGLang**, **vLLM** and **TGI** for rollout generation.
+- **SGLang** (preview), **vLLM** and **TGI** for rollout generation.
 
-Training backends
-------------------
+Choices of Backend Engines
+----------------------------
+
+1. Training:
 
 We recommend using **FSDP** backend to investigate, research and prototype different models, datasets and RL algorithms. The guide for using FSDP backend can be found in :doc:`FSDP Workers<../workers/fsdp_workers>`.
 
 For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM v0.11 [1]_. The guide for using Megatron-LM backend can be found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
+
+2. Inference:
+
+For inference, the integration of both vllm v0.6.3 and v0.8.2 is stable. For huggingface TGI integration, it is usually used for debugging and single GPU exploration. Regarding sglang integration, it is blazing fast and under rapid development - we release it as a preview feature and please give us feedbacks.
+
 
 Install from docker image
 -------------------------
@@ -56,9 +63,9 @@ Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-
 
 
 Install verl-SGLang from scratch
--------------------------------------
+---------------------------------------------
 
-SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.
+If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.
 
 The following steps are quick installation guide for verl-SGLang.
 
@@ -80,7 +87,7 @@ The following steps are quick installation guide for verl-SGLang.
 Install from custom environment
 ---------------------------------------------
 
-To manage environment, we recommend using conda:
+If you do not want to use the official docker image, here is how to start from your own environment. To manage environment, we recommend using conda:
 
 .. code:: bash
 
@@ -111,14 +118,9 @@ Megatron is optional. It's dependencies can be setup as below:
 
    # transformer engine
    pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@stable
+   # megatron core
+   pip3 install megatron-core==0.11.0
 
-   git clone -b v0.11.0 https://github.com/NVIDIA/Megatron-LM
-   cd Megatron-LM
-   pip3 install -e .
-   
-   # megatron core v0.4.0: clone and apply the patch
-   # You can also get the patched Megatron code patch via
-   # git clone -b core_v0.4.0_verl https://github.com/eric-haibin-lin/Megatron-LM
 
 Install with AMD GPUs - ROCM kernel support
 ------------------------------------------------------------------
