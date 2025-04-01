@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import torch
+from torch.distributed.tensor import DTensor
 import time
 from typing import Dict, Any, Callable, Optional
 import torch.distributed as dist
@@ -131,7 +132,7 @@ def load_state_dict_to_megatron_qwen2(state_dict,
                 full_weight = mutate_func(full_weight)
             tensor_chunk = torch.chunk(full_weight, tp_size, dim=chunk_dim)
             if tensor is not None:
-                tensor = tensor.data.copy_(tensor_chunk[tp_rank], non_blocking=True)
+                tensor = tensor.data.copy_(tensor_chunk[tp_rank].full_tensor(), non_blocking=True)
         else:
             print(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
 
@@ -150,8 +151,8 @@ def load_state_dict_to_megatron_qwen2(state_dict,
                                              device=torch.cuda.current_device())
             for i in range(tp_size):
                 intermediate_size_tp = config.intermediate_size // tp_size
-                gate_weight_tp = gate_weight[i * intermediate_size_tp:(i + 1) * intermediate_size_tp]
-                up_weight_tp = up_weight[i * intermediate_size_tp:(i + 1) * intermediate_size_tp]
+                gate_weight_tp = gate_weight[i * intermediate_size_tp:(i + 1) * intermediate_size_tp].full_tensor()
+                up_weight_tp = up_weight[i * intermediate_size_tp:(i + 1) * intermediate_size_tp].full_tensor()
                 new_gate_up_weight[intermediate_size_tp * 2 * i:intermediate_size_tp * 2 * (i + 1)].copy_(
                     torch.cat([gate_weight_tp, up_weight_tp], dim=0))
 
@@ -188,9 +189,9 @@ def load_state_dict_to_megatron_qwen2(state_dict,
                                              dtype=params_dtype,
                                              device=torch.cuda.current_device())
             for i in range(tp_size):
-                q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp]
-                k_part = full_weight_k[i * kv_size_tp:(i + 1) * kv_size_tp]
-                v_part = full_weight_v[i * kv_size_tp:(i + 1) * kv_size_tp]
+                q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp].full_tensor()
+                k_part = full_weight_k[i * kv_size_tp:(i + 1) * kv_size_tp].full_tensor()
+                v_part = full_weight_v[i * kv_size_tp:(i + 1) * kv_size_tp].full_tensor()
                 new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part], dim=0))
 
         else:
@@ -207,11 +208,11 @@ def load_state_dict_to_megatron_qwen2(state_dict,
                                              dtype=params_dtype,
                                              device=torch.cuda.current_device())
             for i in range(tp_size):
-                q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp]
+                q_part = full_weight_q[i * q_size_tp:(i + 1) * q_size_tp].full_tensor()
                 start_idx = i * config.num_key_value_heads // tp_size * hidden_size_per_head
                 end_idx = (i * config.num_key_value_heads // tp_size + 1) * hidden_size_per_head
-                k_part = full_weight_k[start_idx:end_idx]
-                v_part = full_weight_v[start_idx:end_idx]
+                k_part = full_weight_k[start_idx:end_idx].full_tensor()
+                v_part = full_weight_v[start_idx:end_idx].full_tensor()
                 new_weight_qkv[i * total_size:(i + 1) * total_size].copy_(torch.cat([q_part, k_part, v_part], dim=0))
 
         tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)

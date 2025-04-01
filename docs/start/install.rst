@@ -63,7 +63,7 @@ Image and tag: ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0``. C
     
     The Docker image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` is built with the following configurations:
 
-    - **PyTorch**: 2.6.0+cu126
+    - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.6
     - **Megatron-LM**: v0.11.0
     - **vLLM**: 0.8.2
@@ -125,7 +125,7 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
    pip3 install flash-attn --no-build-isolation
    git clone https://github.com/volcengine/verl.git
    cd verl

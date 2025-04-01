@@ -34,8 +34,10 @@ from transformers.models.qwen2.modeling_qwen2 import CausalLMOutputWithPast
 
 from verl.utils.megatron import sequence_parallel as sp_utils
 from verl.utils.megatron import tensor_parallel as tp_utils
-from verl.utils.megatron_utils import TransformerConfig, convert_config
+from verl.utils.megatron_utils import convert_config
 from .layers import ParallelQwen2DecoderLayer, ParallelQwen2RMSNorm, ParallelQwen2DecoderLayerRmPad
+
+from megatron.core.transformer import TransformerConfig
 """
 TODO: 
 1. Add weight initialization. Here we need to be careful on TP weight init.

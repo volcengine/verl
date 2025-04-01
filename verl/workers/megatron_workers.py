@@ -266,13 +266,21 @@ class ActorRolloutRefWorker(MegatronWorker):
             params = normalize_pp_vpp_params(params=params,
                                              num_hidden_layers=self.actor_model_config.num_hidden_layers,
                                              layer_name='layers')
-            assert vllm_mode == 'customized', "Support for vllm>=0.7 for Megatron-LM backend has not been implemented yet."
             from megatron.core import mpu
-            rollout = vLLMRollout(actor_module=params,
-                                  config=self.config.rollout,
-                                  tokenizer=self.tokenizer,
-                                  model_hf_config=self.actor_model_config,
-                                  train_tp=mpu.get_tensor_model_parallel_world_size())
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            local_path = copy_to_local(self.config.model.path)
+            if vllm_mode == 'customized':
+                rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config,
+                                      train_tp=mpu.get_tensor_model_parallel_world_size())
+            elif vllm_mode == 'spmd':
+                rollout = vLLMRollout(model_path=local_path,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config,
+                                      train_tp=mpu.get_tensor_model_parallel_world_size())
             log_gpu_memory_usage('After building vllm rollout', logger=logger)
 
             # perform weight resharding between actor and rollout

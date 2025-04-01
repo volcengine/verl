@@ -29,7 +29,8 @@ from .parallel_attention import ParallelQwen2Attention, ParallelQwen2AttentionRm
 from .parallel_mlp import ParallelQwen2MLP
 from .parallel_rmsnorm import ParallelQwen2RMSNorm
 
-from verl.utils.megatron_utils import TransformerConfig, convert_config
+from verl.utils.megatron_utils import convert_config
+from megatron.core.transformer import TransformerConfig
 
 
 class ParallelQwen2DecoderLayer(nn.Module):

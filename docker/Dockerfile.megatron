@@ -1,8 +1,11 @@
-FROM hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+FROM whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2
+
+RUN cd /opt/nvidia && rm -rf apex && git clone https://github.com/NVIDIA/apex
+RUN cd /opt/nvidia/apex && pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
 
 RUN pip install git+https://github.com/NVIDIA/TransformerEngine.git@stable
 
-RUN cd /opt/nvidia && git clone --single-branch --branch v0.11.0 https://github.com/NVIDIA/Megatron-LM.git Megatron-LM
+RUN cd /opt/nvidia && rm -rf Megatron-LM && git clone --single-branch --branch v0.11.0 https://github.com/NVIDIA/Megatron-LM.git Megatron-LM
 
 # only config pip index with https://pypi.tuna.tsinghua.edu.cn/simple if needed
 # unset for now
