@@ -196,7 +196,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
             for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
                 # modify layer numbers
-                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
+                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).decoder.layers[0].layer_idx
 
                 state_dict_old = state_dict.copy()
                 old_keys = state_dict_old.keys()
@@ -245,7 +245,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 state_dict = model.state_dict()
 
                 # modify layer numbers
-                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).model.layers[0].layer_idx
+                offset = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)).decoder.layers[0].layer_idx
                 state_dict_old = state_dict.copy()
                 old_keys = state_dict_old.keys()
                 for k in old_keys:
