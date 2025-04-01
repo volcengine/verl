@@ -37,6 +37,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.megatron.pipeline_model_parallel_size=2 \
+    critic.megatron.virtual_pipeline_model_parallel_size=2 \
     critic.megatron.tensor_model_parallel_size=2 \
     critic.checkpoint.contents=['model','hf_model','optimizer','extra'] \
     algorithm.use_kl_in_reward=True \
