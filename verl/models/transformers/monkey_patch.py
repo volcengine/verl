@@ -114,9 +114,10 @@ def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
     num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     assert num_attention_heads % ulysses_sp_size == 0, \
         f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
-    assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, \
+    assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
-
+        f"or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
+        f"kv heads are repeated to ensure correctness.")
     # TODO: VLM models only, unify monkey patch to LLM models.
     if model.config.model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
         from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
