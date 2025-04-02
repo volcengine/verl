@@ -15,7 +15,7 @@
 import torch
 from transformers import PretrainedConfig
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "deepseek_v3"}
 
 
 def get_device_flops(unit="T"):
