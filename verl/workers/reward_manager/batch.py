@@ -1,7 +1,9 @@
 import torch
 from verl import DataProto
 
+
 class BatchRewardManager:
+
     def __init__(self, tokenizer, num_examine, compute_score):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
