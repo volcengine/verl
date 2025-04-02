@@ -182,7 +182,7 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
             id2sum[idx] = torch.sum(torch.tensor(id2score[idx]))
         for i in range(bsz):
             response_num = len(id2score[index[i]])
-            baseline = (id2sum[index[i]] - scores[i])  / (response_num - 1)
+            baseline = (id2sum[index[i]] - scores[i]) / (response_num - 1)
             scores[i] = scores[i] - baseline
 
         scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
