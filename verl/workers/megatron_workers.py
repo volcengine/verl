@@ -33,7 +33,7 @@ from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights
+from verl.utils.model import load_megatron_model_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.megatron_utils import init_model_parallel_config
@@ -142,7 +142,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config, get_generation_config
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from transformers import AutoConfig
 
         # Step 1: initialize the tokenizer
@@ -168,18 +168,17 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
         self.architectures = getattr(actor_model_config, "architectures", None)
 
-        tfconfig = convert_config(actor_model_config, megatron_config)
-        self.hf_config = actor_model_config
-        print(f'TF config: {tfconfig}')
-        self.hf_config = actor_model_config
-
         def megatron_actor_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(
-                tfconfig,
-                actor_model_config,
-                pre_process,
-                post_process,
+            from verl.utils.model import get_parallel_model_from_config
+            # vpp is not supported yet because it will hang for some reason. Need debugging
+            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
+            # this_megatron_config = copy.deepcopy(megatron_config)
+            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
+            parallel_model = get_parallel_model_from_config(
+                config=actor_model_config,
+                megatron_config=megatron_config,
+                pre_process=pre_process,
+                post_process=post_process,
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                 value=False)
             parallel_model.cuda()
@@ -200,11 +199,11 @@ class ActorRolloutRefWorker(MegatronWorker):
             actor_module = actor_modules_list
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
-                load_megatron_gptmodel_weights(self.config,
-                                               actor_model_config,
-                                               actor_module,
-                                               params_dtype=megatron_config.params_dtype,
-                                               is_value_model=False)
+                self.hf_config = load_megatron_model_weights(self.config,
+                                                             actor_model_config,
+                                                             actor_module,
+                                                             params_dtype=megatron_config.params_dtype,
+                                                             is_value_model=False)
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
@@ -220,11 +219,11 @@ class ActorRolloutRefWorker(MegatronWorker):
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print(f'load ref weight start')
-                load_megatron_gptmodel_weights(self.config,
-                                               actor_model_config,
-                                               ref_module,
-                                               params_dtype=megatron_config.params_dtype,
-                                               is_value_model=False)
+                self.hf_config = load_megatron_model_weights(self.config,
+                                                             actor_model_config,
+                                                             ref_module,
+                                                             params_dtype=megatron_config.params_dtype,
+                                                             is_value_model=False)
             log_gpu_memory_usage('After ref module init', logger=logger)
             return ref_module, actor_model_config
 
@@ -249,8 +248,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
             layer_name_mapping = {
-                "qkv_layer_name": "self_attention.linear_qkv.",
-                "gate_proj_layer_name": "linear_fc1.weight",
+                "qkv_layer_name":
+                    self.config.rollout.layer_name_map.get("qkv_layer_name", "qkv"),
+                "gate_proj_layer_name":
+                    self.config.rollout.layer_name_map.get("gate_proj_layer_name", "linear_fc1.weight"),
             }
 
             # reshard the weight partition from actor to rollout to initialize the rollout class
@@ -521,7 +522,7 @@ class CriticWorker(MegatronWorker):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config, convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer
@@ -541,19 +542,20 @@ class CriticWorker(MegatronWorker):
         update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(critic_model_config, "architectures", None)
         if self.rank == 0:
-            print(f'Model config after override: {critic_model_config}')
-        tfconfig = convert_config(critic_model_config, megatron_config)
-        self.hf_config = critic_model_config
-        print(f'TF config: {tfconfig}')
+            print(f'Model config after override: critic_model_config {critic_model_config}')
 
         def megatron_critic_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(tfconfig,
-                                                               critic_model_config,
-                                                               pre_process,
-                                                               post_process,
-                                                               share_embeddings_and_output_weights=False,
-                                                               value=True)
+            from verl.utils.model import get_parallel_model_from_config
+            # TODO: support vpp here
+            # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
+            # this_megatron_config = copy.deepcopy(megatron_config)
+            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
+            parallel_model = get_parallel_model_from_config(config=critic_model_config,
+                                                            megatron_config=megatron_config,
+                                                            pre_process=pre_process,
+                                                            post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
+                                                            value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -567,11 +569,11 @@ class CriticWorker(MegatronWorker):
         # critic_module = nn.ModuleList(critic_module)
 
         if self.config.load_weight:
-            load_megatron_gptmodel_weights(self.config,
-                                           critic_model_config,
-                                           critic_module,
-                                           params_dtype=megatron_config.params_dtype,
-                                           is_value_model=True)
+            self.hf_config = load_megatron_model_weights(self.config,
+                                                         critic_model_config,
+                                                         critic_module,
+                                                         params_dtype=megatron_config.params_dtype,
+                                                         is_value_model=True)
         if self.rank == 0:
             print_model_size(critic_module[0])
 
