@@ -277,6 +277,7 @@ class MegatronPPOActor(BasePPOActor):
 
             clip_ratio = meta_info['clip_ratio']
             entropy_coeff = meta_info['entropy_coeff']
+            clip_ratio_c = meta_info['clip_ratio_c']
 
             # compute policy loss
             logits = output.logits
@@ -284,11 +285,12 @@ class MegatronPPOActor(BasePPOActor):
             logits_back = logits.clone()
             log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
             logits = logits_back
-            pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
-                                                                          log_prob=log_prob,
-                                                                          advantages=advantages,
-                                                                          eos_mask=response_mask,
-                                                                          cliprange=clip_ratio)
+            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                             log_prob=log_prob,
+                                                                                             advantages=advantages,
+                                                                                             eos_mask=response_mask,
+                                                                                             cliprange=clip_ratio,
+                                                                                             clip_ratio_c=clip_ratio_c)
             entropy_loss = vocab_parallel_compute_entropy_loss(logits, eos_mask=response_mask)
             policy_loss = pg_loss - entropy_loss * entropy_coeff
 
@@ -310,7 +312,8 @@ class MegatronPPOActor(BasePPOActor):
                 'actor/entropy_loss': entropy_loss.detach().item(),
                 'actor/pg_loss': pg_loss.detach().item(),
                 'actor/pg_clipfrac': pg_clipfrac.detach().item(),
-                'actor/ppo_kl': ppo_kl.detach().item()
+                'actor/ppo_kl': ppo_kl.detach().item(),
+                'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
             }
             append_to_dict(stats, metrics)
             return policy_loss, stats
@@ -324,7 +327,12 @@ class MegatronPPOActor(BasePPOActor):
             if forward_only:
                 meta_info = None
             else:
-                meta_info = {'clip_ratio': self.config.clip_ratio, 'entropy_coeff': self.config.entropy_coeff}
+                clip_ratio_c = self.config.get('clip_ratio_c', 3.0)
+                meta_info = {
+                    'clip_ratio': self.config.clip_ratio,
+                    'entropy_coeff': self.config.entropy_coeff,
+                    'clip_ratio_c': clip_ratio_c
+                }
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 
         # batch should be a list of batches inside micro-batches
