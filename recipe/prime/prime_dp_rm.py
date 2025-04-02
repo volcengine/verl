@@ -97,7 +97,8 @@ class DataParallelPRIMERewardModel:
         else:
             rm_output_logits = self.reward_module(input_ids=micro_batch['input_ids'],
                                                   attention_mask=micro_batch['attention_mask'],
-                                                  position_ids=micro_batch['position_ids']).logits
+                                                  position_ids=micro_batch['position_ids'],
+                                                  use_cache=False).logits
             rm_log_prob = torch.nn.functional.log_softmax(rm_output_logits[:, :-1, :],
                                                           dim=-1)  # (batch_size, seq_length, vocab_size)
             rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch['input_ids'][:, 1:].unsqueeze(-1)).squeeze(
@@ -124,7 +125,8 @@ class DataParallelPRIMERewardModel:
                 else:
                     ref_output_logits = self.ref_module(input_ids=micro_batch['input_ids'],
                                                         attention_mask=micro_batch['attention_mask'],
-                                                        position_ids=micro_batch['position_ids']).logits
+                                                        position_ids=micro_batch['position_ids'],
+                                                        use_cache=False).logits
                     ref_log_prob = torch.nn.functional.log_softmax(ref_output_logits[:, :-1, :],
                                                                    dim=-1)  # (batch_size, seq_length, vocab_size)
                     ref_log_labels = ref_log_prob.gather(dim=-1,

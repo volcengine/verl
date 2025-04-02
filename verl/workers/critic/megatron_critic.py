@@ -66,16 +66,6 @@ class MegatronPPOCritic(BasePPOCritic):
             'reduce_grads_use_alltoall': False
         })
 
-        if self.config.kl_ctrl.type == 'fixed':
-            self.kl_ctrl = core_algos.FixedKLController(kl_coef=self.config.kl_ctrl.kl_coef)
-        elif self.config.kl_ctrl.type == 'adaptive':
-            assert self.config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {self.config.kl_ctrl.horizon}'
-            self.kl_ctrl = core_algos.AdaptiveKLController(init_kl_coef=self.config.kl_ctrl.kl_coef,
-                                                           target_kl=self.config.kl_ctrl.target_kl,
-                                                           horizon=self.config.kl_ctrl.horizon)
-        else:
-            raise NotImplementedError
-
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
@@ -140,7 +130,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
         def loss_func(output, data, meta_info):
             if forward_only:
-                return 1.0, {'vpreds': output.logits}
+                return 1.0, {'vpreds': output}
 
             responses = data['responses']
             attention_mask = data['attention_mask']
@@ -152,7 +142,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
             cliprange_value = self.config.cliprange_value
 
-            vpreds = output.logits  # (bs, sequence_length)
+            vpreds = output  # (bs, sequence_length)
             vpreds = vpreds[:, -response_length - 1:-1]
 
             vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
@@ -173,7 +163,15 @@ class MegatronPPOCritic(BasePPOCritic):
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            output = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+            from verl.models.mcore import gptmodel_forward
+
+            output = gptmodel_forward(model,
+                                      input_ids,
+                                      attention_mask,
+                                      position_ids,
+                                      sequence_parallel=self.megatron_config.sequence_parallel,
+                                      value_model=True)
+
             return output, partial(loss_func, data=batch, meta_info={})
 
         # batch should be a list of batches inside micro-batches

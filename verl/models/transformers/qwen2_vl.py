@@ -18,7 +18,8 @@ import torch
 import os
 from transformers.utils import is_flash_attn_greater_or_equal
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, get_ulysses_sequence_parallel_world_size
+from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, \
+    get_ulysses_sequence_parallel_world_size, validate_ulysses_config
 
 try:
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -236,6 +237,8 @@ def ulysses_flash_attn_forward(
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
     if ulysses_sp_size > 1:
+        validate_ulysses_config(self.num_heads, ulysses_sp_size)
+
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
         query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)

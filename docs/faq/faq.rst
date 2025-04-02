@@ -37,12 +37,14 @@ manager available on your cluster or use other container runtimes (e.g. through 
 
 2. Follow :doc:`GSM8K example<../examples/gsm8k_example>` to prepare the dataset and model checkpoints.
 
-3. Modify `examples/slurm/ray_on_slurm.slurm <https://github.com/volcengine/verl/blob/main/verl/examples/slurm/ray_on_slurm.slurm>`_ with your cluster's own information.
+3. Modify `examples/slurm/ray_on_slurm.slurm <https://github.com/volcengine/verl/blob/main/examples/slurm/ray_on_slurm.slurm>`_ with your cluster's own information.
 
 4. Submit the job script to the Slurm cluster with `sbatch`.
 
 Please note that Slurm cluster setup may vary. If you encounter any issues, please refer to Ray's
 `Slurm user guide <https://docs.ray.io/en/latest/cluster/vms/user-guides/community/slurm.html>`_ for common caveats.
+
+If you changed Slurm resource specifications, please make sure to update the environment variables in the job script if necessary.
 
 Illegal memory access
 ---------------------------------

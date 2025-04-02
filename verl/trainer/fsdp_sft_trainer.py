@@ -121,22 +121,17 @@ class FSDPSFTTrainer(object):
     def _build_dataloader(self):
         config = self.config
         # build dataset
-        self.train_dataset = SFTDataset(parquet_files=config.data.train_files,
-                                        tokenizer=self.tokenizer,
-                                        prompt_key=config.data.prompt_key,
-                                        prompt_dict_keys=config.data.get('prompt_dict_keys', None),
-                                        response_key=config.data.response_key,
-                                        response_dict_keys=config.data.get('response_dict_keys', None),
-                                        max_length=config.data.max_length,
-                                        truncation=config.data.truncation)
-        self.val_dataset = SFTDataset(parquet_files=config.data.val_files,
-                                      tokenizer=self.tokenizer,
-                                      prompt_key=config.data.prompt_key,
-                                      prompt_dict_keys=config.data.get('prompt_dict_keys', None),
-                                      response_key=config.data.response_key,
-                                      response_dict_keys=config.data.get('response_dict_keys', None),
-                                      max_length=config.data.max_length,
-                                      truncation=config.data.truncation)
+        from verl.utils.import_utils import load_extern_type
+        if config.data.custom_cls.get("path", None):
+            dataset_cls = load_extern_type(config.data.custom_cls.path, config.data.custom_cls.name)
+        else:
+            dataset_cls = SFTDataset
+        self.train_dataset = dataset_cls(parquet_files=config.data.train_files,
+                                         tokenizer=self.tokenizer,
+                                         config=config.data)
+        self.val_dataset = dataset_cls(parquet_files=config.data.val_files,
+                                       tokenizer=self.tokenizer,
+                                       config=config.data)
 
         # build dataloader
         # Use data parallel rank and size instead of global rank and world size
@@ -196,12 +191,6 @@ class FSDPSFTTrainer(object):
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(config.model_type)
-
-        if self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(config, verbose=True)
 
         # This may be very large
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings,
@@ -213,6 +202,10 @@ class FSDPSFTTrainer(object):
                                                                                torch_dtype=torch.float32,
                                                                                attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
+
+            if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=self.model, ulysses_sp_size=self.config.ulysses_sequence_parallel_size)
 
             # Apply Liger kernel if use_liger is enabled
             if self.config.model.get('use_liger', False):
@@ -376,7 +369,7 @@ class FSDPSFTTrainer(object):
                 else:
                     dp_size = 1
 
-                loss = torch.sum(loss) / valid_token_this_rank * dp_size
+                loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
 
                 if do_backward:
                     loss.backward()
@@ -398,11 +391,16 @@ class FSDPSFTTrainer(object):
             loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
             step_loss += loss.item()
 
-        self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
+        grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
         log_gpu_memory_usage('Before optimizer step', logger=logger)
 
-        self.optimizer.step()
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.optimizer.zero_grad()
+        else:
+            self.optimizer.step()
 
         log_gpu_memory_usage('After optimizer step', logger=logger)
 
