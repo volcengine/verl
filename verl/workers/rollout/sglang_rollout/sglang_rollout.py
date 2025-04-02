@@ -141,6 +141,8 @@ class SGLangRollout(BaseRollout):
                                             device_mesh_cpu.get_group("tp"))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
 
+        trust_remote_code = kwargs.get("trust_remote_code", False)
+
         self.inference_engine = VerlEngine(
             model_path=actor_module,
             dtype=config.dtype,
@@ -149,6 +151,7 @@ class SGLangRollout(BaseRollout):
             enable_memory_saver=True,
             base_gpu_id=0,
             gpu_id_step=1,
+            trust_remote_code=trust_remote_code,
             # NOTE(Chenyang): if you want to debug the sglang engine
             # please set the following parameters
             # Otherwise, it will make the engine run too slow
