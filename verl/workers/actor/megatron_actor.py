@@ -288,10 +288,10 @@ class MegatronPPOActor(BasePPOActor):
             pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                                              log_prob=log_prob,
                                                                                              advantages=advantages,
-                                                                                             eos_mask=response_mask,
+                                                                                             response_mask=response_mask,
                                                                                              cliprange=clip_ratio,
                                                                                              clip_ratio_c=clip_ratio_c)
-            entropy_loss = vocab_parallel_compute_entropy_loss(logits, eos_mask=response_mask)
+            entropy_loss = vocab_parallel_compute_entropy_loss(logits, response_mask=response_mask)
             policy_loss = pg_loss - entropy_loss * entropy_coeff
 
             metrics = {}

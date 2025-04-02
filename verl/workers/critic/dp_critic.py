@@ -217,7 +217,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     returns = data['returns']
                     response_length = responses.size(1)
 
-                    eos_mask = attention_mask[:, -response_length - 1:-1]
+                    response_mask = attention_mask[:, -response_length - 1:-1]
 
                     vpreds = self._forward_micro_batch(data)
 
@@ -226,7 +226,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
                                                                          values=values,
                                                                          returns=returns,
-                                                                         eos_mask=eos_mask,
+                                                                         response_mask=response_mask,
                                                                          cliprange_value=self.config.cliprange_value)
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
@@ -239,7 +239,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     data = {
                         'critic/vf_loss': vf_loss.detach().item(),
                         'critic/vf_clipfrac': vf_clipfrac.detach().item(),
-                        'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
+                        'critic/vpred_mean': masked_mean(vpreds, response_mask).detach().item(),
                     }
 
                     append_to_dict(metrics, data)

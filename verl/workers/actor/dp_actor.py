@@ -296,7 +296,7 @@ class DataParallelPPOActor(BasePPOActor):
                         old_log_prob=old_log_prob,
                         log_prob=log_prob,
                         advantages=advantages,
-                        eos_mask=response_mask,
+                        response_mask=response_mask,
                         cliprange=clip_ratio,
                         clip_ratio_c=clip_ratio_c)
                     # compute entropy loss from entropy

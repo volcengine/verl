@@ -170,13 +170,13 @@ def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mas
     return output
 
 
-def vocab_parallel_compute_entropy_loss(logits, eos_mask):
+def vocab_parallel_compute_entropy_loss(logits, response_mask):
     """Compute Categorical entropy loss
 
     Args:
         logits: `(torch.Tensor)`
             shape: (bs, response_length, vocab_size)
-        eos_mask: `(torch.Tensor)`
+        response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
 
     Returns:
@@ -185,5 +185,5 @@ def vocab_parallel_compute_entropy_loss(logits, eos_mask):
     """
     # compute entropy
     entropy = vocab_parallel_entropy(logits)
-    entropy_loss = verl_F.masked_mean(entropy, mask=eos_mask)
+    entropy_loss = verl_F.masked_mean(entropy, mask=response_mask)
     return entropy_loss
