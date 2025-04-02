@@ -40,6 +40,8 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from codetiming import Timer
+import nvtx
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -415,6 +417,8 @@ class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
+        torch.cuda.profiler.start()
+        nvtx_update_actor = nvtx.start_range(message="update_actor", color="red")
         data = data.to(torch.cuda.current_device())
 
         assert self._is_actor
@@ -455,11 +459,16 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             offload_fsdp_optimizer(optimizer=self.actor_optimizer)
         torch.cuda.empty_cache()
+        nvtx.end_range(nvtx_update_actor)
+        torch.cuda.profiler.stop()
+
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
+        torch.cuda.profiler.start()
+        nvtx_generate_sequences = nvtx.start_range(message="generate_sequences", color="green")
         prompts = prompts.to(torch.cuda.current_device())
 
         assert self._is_rollout
@@ -499,10 +508,14 @@ class ActorRolloutRefWorker(Worker):
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
+        nvtx.end_range(nvtx_generate_sequences)
+        torch.cuda.profiler.stop()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
+        torch.cuda.profiler.start()
+        nvtx_compute_log_prob = nvtx.start_range(message="compute_log_prob", color="red")
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -535,10 +548,14 @@ class ActorRolloutRefWorker(Worker):
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
+        nvtx.end_range(nvtx_compute_log_prob)
+        torch.cuda.profiler.stop()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
+        torch.cuda.profiler.start()
+        nvtx_compute_ref_log_prob = nvtx.start_range(message="compute_ref_log_prob", color="purple")
         assert self._is_ref
 
         # Support all hardwares
@@ -563,6 +580,8 @@ class ActorRolloutRefWorker(Worker):
             self.ref_policy.actor_module._handle.reshard(True)
 
         torch.cuda.empty_cache()
+        nvtx.end_range(nvtx_compute_ref_log_prob)
+        torch.cuda.profiler.stop()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -789,7 +808,8 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-
+        torch.cuda.profiler.start()
+        nvtx_compute_values = nvtx.start_range(message="compute_values", color="red")
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
 
@@ -809,10 +829,14 @@ class CriticWorker(Worker):
         output = output.to('cpu')
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
+        nvtx.end_range(nvtx_compute_values)
+        torch.cuda.profiler.stop()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
+        torch.cuda.profiler.start()
+        nvtx_update_critic = nvtx.start_range(message="update_critic", color="red")
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
         if self._is_offload_param:
@@ -845,6 +869,8 @@ class CriticWorker(Worker):
             offload_fsdp_optimizer(optimizer=self.critic_optimizer)
         torch.cuda.empty_cache()
         output = output.to('cpu')
+        nvtx.end_range(nvtx_update_critic)
+        torch.cuda.profiler.stop()
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

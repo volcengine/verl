@@ -25,6 +25,7 @@ from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
 import nvtx
+import pdb
 
 import ray
 import numpy as np
@@ -725,13 +726,13 @@ class RayPPOTrainer(object):
             self.resource_pool_to_cls[resource_pool]['actor_rollout'] = actor_rollout_cls
         else:
             raise NotImplementedError
-
+        # pdb.set_trace()
         # create critic
         if self.use_critic:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=self.config.critic)
             self.resource_pool_to_cls[resource_pool]['critic'] = critic_cls
-
+        # pdb.set_trace()
         # create reference policy if needed
         if self.use_reference_policy:
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
@@ -739,14 +740,14 @@ class RayPPOTrainer(object):
                                                   config=self.config.actor_rollout_ref,
                                                   role='ref')
             self.resource_pool_to_cls[resource_pool]['ref'] = ref_policy_cls
-
+        # pdb.set_trace()
         # create a reward model if reward_fn is None
         if self.use_rm:
             # we create a RM here
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
             self.resource_pool_to_cls[resource_pool]['rm'] = rm_cls
-
+        # pdb.set_trace()
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
@@ -757,10 +758,11 @@ class RayPPOTrainer(object):
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
+            # pdb.set_trace()
             all_wg.update(spawn_wg)
             # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
             self.wg_dicts.append(wg_dict)
-
+        # pdb.set_trace()
         if self.use_critic:
             self.critic_wg = all_wg['critic']
             self.critic_wg.init_model()
@@ -903,7 +905,7 @@ class RayPPOTrainer(object):
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
+        if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True) and self.config.trainer.get('val_after_train', True):
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=self.global_steps)
@@ -937,6 +939,7 @@ class RayPPOTrainer(object):
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 nvtx.end_range(nvtx_batch)
+                # pdb.set_trace()
                 with _timer('step', timing_raw):
                     # generate a batch
                     nvtx_gen = nvtx.start_range(message="gen", color="green")
@@ -1040,12 +1043,14 @@ class RayPPOTrainer(object):
 
 
                     # implement critic warmup
+                    nvtx_update_actor = nvtx.start_range(message="update_actor", color="blue")
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
+                    nvtx.end_range(nvtx_update_actor)
 
                     nvtx_testing = nvtx.start_range(message="testing", color="red")
                     # validate

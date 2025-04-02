@@ -24,7 +24,7 @@ from ray.experimental.state.api import get_actor
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
 
 __all__ = ['Worker']
-
+RAY_LOG_DIR='/home/haoyuan/workspace/sop_yang_workspace/rl_framework/ray_log_dir'
 
 def get_random_string(length: int) -> str:
     import random
@@ -275,13 +275,12 @@ class RayWorkerGroup(WorkerGroup):
                     'runtime_env': {'env_vars': env_vars,
                                     "nsight":
                                        {
-                                        #"t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
-                                        "t": "cuda,nvtx,cublas",
-                                        # "o": "/home/haoyuan/workspace/sop_yang_workspace/rl_framework/verl"
+                                        # "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,pengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+                                        "t": "cuda,nvtx,cublas,cudnn",
                                         "cuda-memory-usage": "true",
                                         "cuda-graph-trace": "graph",
                                         "capture-range": "cudaProfilerApi",
-                                        "capture-range-end": "repeat-shutdown:6",
+                                        "capture-range-end": "repeat-shutdown:18",
                                         "kill": "none"}
                                     },
                     'name': name})

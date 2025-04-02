@@ -19,6 +19,10 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import ray
 import hydra
 import nvtx
+import pdb
+
+
+RAY_LOG_DIR='/home/haoyuan/workspace/sop_yang_workspace/rl_framework/ray_log_dir'
 
 def get_custom_reward_fn(config):
     import importlib.util, os
@@ -67,12 +71,12 @@ def run_ppo(config) -> None:
     num_cpus=1,
     runtime_env={
         "nsight": {
-            "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+            # "t": "cuda,nvtx,cublas,cublas-verbose,cusparse,cusparse-verbose,cudnn,opengl,opengl-annotations,openacc,openmp,osrt,mpi,nvvideo,vulkan,vulkan-annotations,oshmem,ucx",
+            "t": "cuda,nvtx,cublas,cudnn",
             "cuda-memory-usage": "true",
             "cuda-graph-trace": "graph",
-            #"capture-range": "nvtx",
-            #"capture-range-end": "stop",
-            #"nvtx-capture": "main_task",
+            # "capture-range": "nvtx",
+            # "capture-range-end": "none",
             "kill": "none"}})
 def main_task(config):
     nvtx_main_task = nvtx.start_range(message="main_task", color="blue")
@@ -125,6 +129,7 @@ def main_task(config):
         Role.Critic: global_pool_id,
         Role.RefPolicy: global_pool_id,
     }
+    # pdb.set_trace()
 
     # we should adopt a multi-source reward function here
     # - for rule-based rm, we directly call a reward score
@@ -159,7 +164,7 @@ def main_task(config):
     val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
-
+    # pdb.set_trace()
     trainer = RayPPOTrainer(config=config,
                             tokenizer=tokenizer,
                             processor=processor,
