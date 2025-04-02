@@ -302,7 +302,10 @@ class PRIMERewardModelWorker(Worker):
             response_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
-            dpo_acc_before = compute_dpo_accuracy(rm_scores, acc, response_mask=response_mask, n_samples=data.meta_info['n'])
+            dpo_acc_before = compute_dpo_accuracy(rm_scores,
+                                                  acc,
+                                                  response_mask=response_mask,
+                                                  n_samples=data.meta_info['n'])
             dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, response_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc_before'] = dpo_acc_before.detach().item()

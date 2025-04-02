@@ -304,7 +304,8 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, response_mask, clipr
 
     pg_losses3 = -advantages * clip_ratio_c
     clip_pg_losses2 = torch.min(pg_losses3, clip_pg_losses1)
-    pg_clipfrac_lower = verl_F.masked_mean(torch.gt(clip_pg_losses2, pg_losses3) * (advantages < 0).float(), response_mask)
+    pg_clipfrac_lower = verl_F.masked_mean(
+        torch.gt(clip_pg_losses2, pg_losses3) * (advantages < 0).float(), response_mask)
     # We only apply the dual-clip when the advantage is negative.
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 

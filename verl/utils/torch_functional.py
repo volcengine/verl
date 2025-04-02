@@ -167,7 +167,7 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
                             [1, 1, 1, 1, 1, 0, 0]])
     '''
     eos_mask = torch.isin(response_id, torch.tensor(eos_token, device=response_id.device)).int()
-    return (eos_mask.cumsum(dim=1)-eos_mask).eq(0).to(dtype)
+    return (eos_mask.cumsum(dim=1) - eos_mask).eq(0).to(dtype)
 
 
 def compute_grad_norm(model: nn.Module):
