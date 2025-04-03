@@ -280,7 +280,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                            layer_name_mapping=layer_name_mapping)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
-            NotImplementedError('Only vllmRollout is supported with Megatron now')
+            raise NotImplementedError('Only vllmRollout is supported with Megatron now')
 
         return rollout, sharding_manager
 
