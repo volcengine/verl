@@ -462,10 +462,6 @@ Data
      data_source_key: data_source
      reward_model_key: reward_model
 
-   custom_reward_function:
-     path: null
-     name: compute_score
-
 - ``data.path``: Path to the dataset file (Parquet format).
 - ``data.prompt_key``: The field in the dataset where the prompt is located. Default is 'prompt'.
 - ``data.response_key``: The key holds the generated responses. This should be a list of strings representing the responses. Default is 'responses'.
@@ -473,7 +469,7 @@ Data
 - ``data.reward_model_key``: The key holds the reference answers. These reference answers typically serve as the ground truth or test cases for the task.
 
 Customized Reward Function
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
   
