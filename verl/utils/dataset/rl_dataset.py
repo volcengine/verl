@@ -18,6 +18,7 @@ from typing import List, Union, Optional
 import copy
 import pandas as pd
 from collections import defaultdict
+from jinja2 import Template
 
 import torch
 import numpy as np
@@ -82,6 +83,7 @@ class RLHFDataset(Dataset):
                  tokenizer: PreTrainedTokenizer,
                  processor: Optional[ProcessorMixin] = None,
                  prompt_key='prompt',
+                 last_user_msg_template: Optional[str] = None,
                  image_key='images',
                  max_prompt_length=1024,
                  filter_prompts=True,
@@ -100,6 +102,7 @@ class RLHFDataset(Dataset):
         self.processor = processor
 
         self.prompt_key = prompt_key
+        self.last_user_msg_template = last_user_msg_template
         self.image_key = image_key
         self.max_prompt_length = max_prompt_length
         self.filter_prompts = filter_prompts
@@ -160,6 +163,15 @@ class RLHFDataset(Dataset):
         row_dict: dict = self.dataframe.iloc[item].to_dict()
 
         chat = row_dict.pop(self.prompt_key)
+        # Find the last user message
+        last_user_msg = None
+        for msg in reversed(chat):
+            if msg['role'] == 'user':
+                last_user_msg = msg
+                break
+        assert last_user_msg is not None, f'No user message found in the {chat=}'
+        # Apply the template to the content
+        last_user_msg['content'] = Template(self.last_user_msg_template).render(**last_user_msg)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 

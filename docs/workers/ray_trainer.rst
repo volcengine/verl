@@ -24,6 +24,7 @@ then tokenize.
    self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                        tokenizer=self.tokenizer,
                                        prompt_key=self.config.data.prompt_key,
+                                       last_user_msg_template=self.config.data.last_user_msg_template,
                                        max_prompt_length=self.config.data.max_prompt_length,
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),

@@ -16,6 +16,7 @@ Data
      train_files: ~/data/rlhf/gsm8k/train.parquet
      val_files: ~/data/rlhf/gsm8k/test.parquet
      prompt_key: prompt
+     last_user_msg_template: null
      max_prompt_length: 512
      max_response_length: 512
      train_batch_size: 1024
@@ -38,6 +39,7 @@ Data
   file.
 - ``data.prompt_key``: The field in the dataset where the prompt is
   located. Default is 'prompt'.
+- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content }}\n\nLet's think step by step."
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
   left-padded to this length. An error will be reported if the length is
   too long
@@ -458,12 +460,14 @@ Data
    data:
      path: /tmp/math_Qwen2-7B-Instruct.parquet
      prompt_key: prompt
+     last_user_msg_template: null
      response_key: responses
      data_source_key: data_source
      reward_model_key: reward_model
 
 - ``data.path``: Path to the dataset file (Parquet format).
 - ``data.prompt_key``: The field in the dataset where the prompt is located. Default is 'prompt'.
+- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content }}\n\nLet's think step by step."
 - ``data.response_key``: The key holds the generated responses. This should be a list of strings representing the responses. Default is 'responses'.
 - ``data.data_source_key``: This is used to separate metric calculations for different data sources, ensuring that metrics are calculated independently for each source.
 - ``data.reward_model_key``: The key holds the reference answers. These reference answers typically serve as the ground truth or test cases for the task.

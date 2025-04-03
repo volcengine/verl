@@ -3,6 +3,7 @@ data:
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
+  last_user_msg_template: null # Jinja template with the message dict as input, e.g., "{{ content }}\n\nLet's think step by step."
   max_prompt_length: 512
   max_response_length: 512
   train_batch_size: 1024

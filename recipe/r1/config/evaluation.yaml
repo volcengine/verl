@@ -1,6 +1,7 @@
 data:
   path: /tmp/math_Qwen2-7B-Instruct.parquet
   prompt_key: prompt
+  last_user_msg_template: null # Jinja template with the message dict as input, e.g., "{{ content }}\n\nLet's think step by step."
   response_key: responses
   data_source_key: data_source
   reward_model_key: reward_model
