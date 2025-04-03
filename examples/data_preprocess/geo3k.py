@@ -23,7 +23,7 @@ import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--local_dir', default='~/data/geo3k')
+    parser.add_argument('--local_dir', default='/data/yiming/data/geometry3k', help='local directory to save the parquet files')
     parser.add_argument('--hdfs_dir', default=None)
 
     args = parser.parse_args()
@@ -62,7 +62,7 @@ if __name__ == '__main__':
                     "ground_truth": answer
                 },
                 "extra_info": {
-                    'split': split,
+                    'split': split, 
                     'index': idx,
                     'answer': answer,
                     "question": problem,

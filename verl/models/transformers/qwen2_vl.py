@@ -120,6 +120,11 @@ def get_rope_index(
             llm_pos_ids_list.append(torch.arange(text_len).view(1, -1).expand(3, -1) + st_idx)
 
         llm_positions = torch.cat(llm_pos_ids_list, dim=1).reshape(3, -1)
+        # if llm_positions.shape[1] > position_ids[..., attention_mask == 1].shape[1]:
+        #     # Truncate position IDs to match the attention mask
+        #     max_length = position_ids[..., attention_mask == 1].shape[1]
+        #     llm_positions = llm_positions[:, -max_length:]
+        #     print(f"Warning: Truncated position IDs from length {llm_positions.shape[1]} to {max_length}")
         position_ids[..., attention_mask == 1] = llm_positions.to(position_ids.device)
     else:
         if attention_mask is not None:

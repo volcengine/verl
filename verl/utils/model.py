@@ -21,7 +21,7 @@ from typing import Dict, Type, Optional
 import numpy as np
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification, GenerationConfig
+from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, GenerationConfig
 from verl.models.registry import ModelRegistry
 
 
@@ -307,17 +307,8 @@ def load_megatron_model_weights(config,
     if resume_path is None:
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if 'mistral7b-rm' in config.model.path:
-                model = MistralForSequenceClassification.from_pretrained(
-                    local_model_path)  # use score head instead of lm_head
-                state_dict = model.state_dict()
-                state_dict['lm_head.weight'] = state_dict['score.weight']
-                state_dict['model.embed_tokens.weight'] = state_dict[
-                    'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
-                is_value_model = True
-            else:
-                model = AutoModelForCausalLM.from_pretrained(local_model_path)
-                state_dict = model.state_dict()
+            model = AutoModelForCausalLM.from_pretrained(local_model_path)
+            state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
     print(f'before weight loader: architectures = {architectures}...')

@@ -136,10 +136,20 @@ class TaskRunner:
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == 'megatron':
                 from verl.workers.megatron_workers import RewardModelWorker
+            elif config.reward_model.strategy == 'verifier':
+                from verl.workers.verifier_workers import RewardModelWorker
             else:
                 raise NotImplementedError
+            if config.reward_model.n_gpus_per_node_for_rm > 0:
+                reward_pool_id = 'reward_pool'
+                resource_pool_spec[global_pool_id] = [config.trainer.n_gpus_per_node - config.reward_model.n_gpus_per_node_for_rm] * config.trainer.nnodes
+                resource_pool_spec[reward_pool_id] = [config.reward_model.n_gpus_per_node_for_rm] * config.trainer.nnodes
+            else:
+                reward_pool_id = global_pool_id
+
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
+            mapping[Role.RewardModel] = reward_pool_id
+
 
         reward_manager_name = config.reward_model.get("reward_manager", "naive")
         if reward_manager_name == 'naive':

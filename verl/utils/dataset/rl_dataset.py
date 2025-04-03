@@ -52,6 +52,7 @@ def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 
     import math
     from io import BytesIO
     from PIL import Image
+    
 
     if isinstance(image, dict):
         image = Image.open(BytesIO(image['bytes']))

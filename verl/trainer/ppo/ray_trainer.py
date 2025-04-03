@@ -442,6 +442,8 @@ class RayPPOTrainer(object):
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation=self.config.data.get('truncation', 'error'),
                                        filter_overlong_prompts=self.config.data.filter_overlong_prompts)
+        
+        
         assert self.val_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
@@ -517,7 +519,10 @@ class RayPPOTrainer(object):
                                            interleave=True)
 
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
+            # if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
+            #     return {}
+
+            if self.config.reward_model.enable:
                 return {}
 
             # Store original inputs
