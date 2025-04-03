@@ -18,10 +18,11 @@ from verl import DataProto
 
 class BatchRewardManager:
 
-    def __init__(self, tokenizer, num_examine, compute_score):
+    def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key='data_source'):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
         self.compute_score = compute_score
+        self.reward_fn_key = reward_fn_key
 
     def verify(self, data):
         prompt_ids = data.batch['prompts']
@@ -39,7 +40,7 @@ class BatchRewardManager:
             responses_str.append(response_str)
 
         ground_truths = [item.non_tensor_batch['reward_model'].get('ground_truth', None) for item in data]
-        data_sources = data.non_tensor_batch['data_source']
+        data_sources = data.non_tensor_batch[self.reward_fn_key]
         extras = data.non_tensor_batch.get('extra_info', [None] * len(data))
 
         try:
@@ -66,7 +67,7 @@ class BatchRewardManager:
         prompt_len = prompt_ids.shape[-1]
         attention_mask = data.batch['attention_mask']
         valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
-        data_sources = data.non_tensor_batch['data_source']
+        data_sources = data.non_tensor_batch[self.reward_fn_key]
 
         scores = self.verify(data)
 
