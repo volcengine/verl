@@ -128,7 +128,7 @@ def list_filename_info(
     return ret
 
 
-def parse_uri(uri: str, is_dir: bool) -> Tuple[str, str]:
+def parse_uri(uri: str, is_dir: Optional[bool]) -> Tuple[str, str, bool]:
     assert uri.startswith("s3://"), f"This is not a valid s3 uri: {uri}"
     uri = uri.replace("s3://", "")
     uri_parts = uri.split("/")
@@ -136,10 +136,15 @@ def parse_uri(uri: str, is_dir: bool) -> Tuple[str, str]:
 
     bucket_name, path_parts = uri_parts[0], uri_parts[1:]
     path = "/".join(path_parts)
-    if is_dir and path:
+    if is_dir is None:
+        # check if a file exists at that key
+        is_dir = not s3_key_exists(bucket_name, path)
+        
+    assert path is not None
+    if is_dir:
         path += "/"
 
-    return bucket_name, path
+    return bucket_name, path, is_dir
 
 def s3_key_exists(bucket: str, remote_path: str) -> bool:
     client = _get_s3_client()

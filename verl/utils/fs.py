@@ -105,15 +105,12 @@ def copy_local_path_from_remote(src: str, cache_dir=None, filelock='.file.lock',
                 if verbose:
                     print(f'Copy from {src} to {local_path}')
                 if src.startswith(_S3_PREFIX):
-                    bucket, prefix = parse_uri(src, is_dir=recursive)
-                    if recursive is None:
-                        # Check if the S3 key appears to be a file by checking for a file extension.
-                        recursive = not s3_key_exists(bucket, prefix[:-1])
-                    
+                    bucket, key_or_prefix, recursive = parse_uri(src, is_dir=recursive)
+
                     if recursive:
-                        bulk_download(bucket, prefix, local_path)
+                        bulk_download(bucket, key_or_prefix, local_path)
                     else:
-                        file_download(bucket, prefix, local_path)
+                        file_download(bucket, key_or_prefix, local_path)
                 else:
                     copy(src, local_path)
         return local_path
@@ -131,12 +128,11 @@ def upload_local_file_to_s3(s3_path: str, local_path: str, cache_dir=None, filel
     filelock = md5_encode(s3_path) + '.lock'
     lock_file = os.path.join(os.path.dirname(local_path), filelock)
     with FileLock(lock_file=lock_file):
-        bucket, prefix = parse_uri(s3_path, is_dir=False)
-        if not s3_key_exists(bucket, prefix):
+        bucket, key, _ = parse_uri(s3_path, is_dir=False)
+        if not s3_key_exists(bucket, key):
             if verbose:
                 print(f'Copy from {local_path} to {s3_path}')
 
-            file_upload(bucket, local_path, dest_path=prefix)
+            file_upload(bucket, local_path, dest_path=key)
         else:
             print(f"File {s3_path} already exists in S3, not uploading.")
-
