@@ -81,15 +81,15 @@ class RLHFDataset(Dataset):
                  parquet_files: Union[str, List[str]],
                  tokenizer: PreTrainedTokenizer,
                  processor: Optional[ProcessorMixin] = None,
-                 prompt_key: str='prompt',
-                 image_key: str='images',
-                 max_prompt_length: int=1024,
+                 prompt_key: str = 'prompt',
+                 image_key: str = 'images',
+                 max_prompt_length: int = 1024,
                  filter_prompts=True,
-                 cache_dir:str='~/.cache/verl/rlhf',
-                 chat_template_func: Optional[Callable]=None,
-                 return_raw_chat:bool=False,
-                 truncation: str='error',
-                 filter_overlong_prompts:bool=False,
+                 cache_dir: str = '~/.cache/verl/rlhf',
+                 chat_template_func: Optional[Callable] = None,
+                 return_raw_chat: bool = False,
+                 truncation: str = 'error',
+                 filter_overlong_prompts: bool = False,
                  num_workers: Optional[int] = None):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
@@ -141,10 +141,10 @@ class RLHFDataset(Dataset):
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
             self.dataframe = self.dataframe.filter(
-                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
+                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
+                               ) <= self.max_prompt_length,
                 num_proc=self.num_workers,
-                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens"
-            )
+                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens")
 
             print(f'filter dataset len: {len(self.dataframe)}')
 
