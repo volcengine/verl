@@ -76,6 +76,10 @@ def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 
 class RLHFDataset(Dataset):
     """
     We assume the dataset contains a column that contains prompts and other information
+
+    Args:
+        last_user_msg_template: str
+            Jinja template with the message dict as input, e.g., "{{ content }} Let's think step by step."
     """
 
     def __init__(self,
