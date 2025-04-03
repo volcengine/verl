@@ -138,7 +138,7 @@ class MegatronPPOCritic(BasePPOCritic):
             returns = data['returns']
             response_length = responses.size(1)
 
-            eos_mask = attention_mask[:, -response_length:]
+            response_mask = attention_mask[:, -response_length:]
 
             cliprange_value = self.config.cliprange_value
 
@@ -148,12 +148,12 @@ class MegatronPPOCritic(BasePPOCritic):
             vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
                                                                  values=values,
                                                                  returns=returns,
-                                                                 eos_mask=eos_mask,
+                                                                 response_mask=response_mask,
                                                                  cliprange_value=cliprange_value)
             stats = {
                 'critic/vf_loss': vf_loss.detach().item(),
                 'critic/vf_clipfrac': vf_clipfrac.detach().item(),
-                'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
+                'critic/vpred_mean': masked_mean(vpreds, response_mask).detach().item(),
             }
 
             return vf_loss, stats
