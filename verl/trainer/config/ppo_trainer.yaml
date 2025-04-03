@@ -14,6 +14,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
   truncation: error
   image_key: images
+  continue_final_message: False # will disable addition of assistant-begin-tokens to the tokens and continue the last given message instead of terminating it and starting a new one
 
 actor_rollout_ref:
   hybrid_engine: True
