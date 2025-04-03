@@ -137,12 +137,12 @@ from verl.utils.torch_functional import masked_mean
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
-    responses = data.batch['responses']
-    response_length = responses.size(1)
+    # Back-compatible with trainers that do not compute response mask in fit
+    if "response_mask" not in data.batch.keys():
+        data.batch['response_mask'] = compute_response_mask(data)
+    response_mask = data.batch['response_mask']
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
-    attention_mask = data.batch['attention_mask']
-    response_mask = attention_mask[:, -response_length:]
 
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
@@ -172,6 +172,30 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
+def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, num_dp_ranks: int) -> list[int]:
+    if "response_mask" not in batch.batch.keys():
+        batch.batch['response_mask'] = compute_response_mask(batch)
+    response_mask = batch.batch['response_mask']
+
+    traj_bsz = len(batch.batch)
+    num_mini_batches = (traj_bsz + traj_mini_bsz - 1) // traj_mini_bsz
+    traj_mini_bsz_per_rank = traj_mini_bsz // num_dp_ranks
+
+    mini_batch_loss_token_nums = []
+    for _ in range(num_mini_batches):
+        mini_batch_traj_idxs = []
+        for dp_rank in range(num_dp_ranks):
+            start_traj_idx = int(traj_bsz / num_dp_ranks * dp_rank)
+            next_start_traj_idx = int(traj_bsz / num_dp_ranks * (dp_rank + 1))
+            end_traj_idx = int(min(start_traj_idx + traj_mini_bsz_per_rank, next_start_traj_idx))
+            mini_batch_traj_idxs.extend(list(range(start_traj_idx, end_traj_idx)))
+        mini_batch_resp_mask = response_mask[mini_batch_traj_idxs]
+        mini_batch_loss_token_num = mini_batch_resp_mask.sum()
+        mini_batch_loss_token_nums.append(mini_batch_loss_token_num)
+
+    return mini_batch_loss_token_nums
+
+
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     # Back-compatible with trainers that do not compute response mask in fit
     if "response_mask" not in data.batch.keys():
@@ -179,7 +203,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
-        values = data.batch['values']
         advantages, returns = core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch['token_level_rewards'],
             values=data.batch['values'],
@@ -870,6 +893,12 @@ class RayPPOTrainer(object):
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+
+                    batch.meta_info["mini_batch_loss_token_nums"] = self.calc_mini_batch_loss_token_nums(
+                        batch,
+                        traj_mini_bsz=self.config.actor_rollout_ref.actor.ppo_mini_batch_size *
+                        self.config.actor_rollout_ref.rollout.n,
+                        num_dp_ranks=self.actor_rollout_wg.world_size)
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):

@@ -16,7 +16,7 @@ An naive implementation of split placment example
 """
 from pprint import pprint
 from verl import DataProto
-from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics, AdvantageEstimator
+from verl.trainer.ppo.ray_trainer import compute_advantage, apply_kl_penalty, reduce_metrics, compute_data_metrics, _timer, compute_timing_metrics, AdvantageEstimator, calc_mini_batch_loss_token_nums
 from copy import deepcopy
 import numpy as np
 import torch
@@ -100,6 +100,12 @@ def fit(self):
 
                 # compute global_valid tokens
                 batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+
+                    batch.meta_info["mini_batch_loss_token_nums"] = calc_mini_batch_loss_token_nums(
+                        batch,
+                        traj_mini_bsz=self.config.actor_rollout_ref.actor.ppo_mini_batch_size *
+                        self.config.actor_rollout_ref.rollout.n,
+                        num_dp_ranks=self.actor_rollout_wg.world_size)
 
                 # recompute old_log_probs
                 with _timer('old_log_prob', timing_raw):

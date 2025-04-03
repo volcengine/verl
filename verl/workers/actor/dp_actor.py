@@ -255,13 +255,11 @@ class DataParallelPPOActor(BasePPOActor):
 
         metrics = {}
         for epoch in range(self.config.ppo_epochs):
-            for batch_idx, data in enumerate(dataloader):
-                # split batch into micro_batches
-                mini_batch = data
+            for mini_idx, mini_batch in enumerate(dataloader):
                 if has_multi_modal_inputs:
                     self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                     num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
+                    micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
                 elif self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
@@ -272,18 +270,22 @@ class DataParallelPPOActor(BasePPOActor):
 
                 self.actor_optimizer.zero_grad()
 
-                for data in micro_batches:
+                for micro_batch in micro_batches:
                     # Support all hardwares
-                    if isinstance(data, DataProto):
-                        data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
+                    if isinstance(micro_batch, DataProto):
+                        micro_batch = {
+                            **micro_batch.batch.to(torch.cuda.current_device()),
+                            **micro_batch.non_tensor_batch
+                        }
                     else:
-                        data = data.to(torch.cuda.current_device())  # actor device is cpu when using offload
-                    responses = data['responses']
+                        micro_batch = micro_batch.to(
+                            torch.cuda.current_device())  # actor device is cpu when using offload
+                    responses = micro_batch['responses']
                     response_length = responses.size(1)
-                    attention_mask = data['attention_mask']
+                    attention_mask = micro_batch['attention_mask']
                     response_mask = attention_mask[:, -response_length:]
-                    old_log_prob = data['old_log_probs']
-                    advantages = data['advantages']
+                    old_log_prob = micro_batch['old_log_probs']
+                    advantages = micro_batch['advantages']
 
                     clip_ratio = self.config.clip_ratio
                     clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
@@ -293,7 +295,7 @@ class DataParallelPPOActor(BasePPOActor):
                     loss_agg_mode = self.config.loss_agg_mode
 
                     # all return: (bsz, response_length)
-                    entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
+                    entropy, log_prob = self._forward_micro_batch(micro_batch=micro_batch, temperature=temperature)
 
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                         old_log_prob=old_log_prob,
@@ -311,7 +313,7 @@ class DataParallelPPOActor(BasePPOActor):
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
 
                     if self.config.use_kl_loss:
-                        ref_log_prob = data['ref_log_prob']
+                        ref_log_prob = micro_batch['ref_log_prob']
                         # compute kl loss
                         kld = kl_penalty(logprob=log_prob,
                                          ref_logprob=ref_log_prob,
@@ -325,23 +327,28 @@ class DataParallelPPOActor(BasePPOActor):
                         metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
                     if self.config.use_dynamic_bsz:
-                        # relative to the dynamic bsz
-                        loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
+                        if self.config.loss_agg_mode == 'token-mean':
+                            mini_batch_loss_token_nums = data.meta_info['mini_batch_loss_token_nums']
+                            mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
+                            num_valid_toks = response_mask.sum()
+                            loss = policy_loss * num_valid_toks / mini_batch_loss_token_num
+                        else:  # seq-mean
+                            loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                     else:
                         loss = policy_loss / self.gradient_accumulation
                     loss.backward()
 
-                    data = {
+                    mini_metric_data = {
                         'actor/entropy': entropy_loss.detach().item(),
                         'actor/pg_loss': pg_loss.detach().item(),
                         'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                         'actor/ppo_kl': ppo_kl.detach().item(),
                         'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item(),
                     }
-                    append_to_dict(metrics, data)
+                    append_to_dict(metrics, mini_metric_data)
 
                 grad_norm = self._optimizer_step()
-                data = {'actor/grad_norm': grad_norm.detach().item()}
-            append_to_dict(metrics, data)
+                metric_data = {'actor/grad_norm': grad_norm.detach().item()}
+                append_to_dict(metrics, metric_data)
         self.actor_optimizer.zero_grad()
         return metrics
