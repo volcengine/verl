@@ -162,7 +162,7 @@ class MegatronPPOActor(BasePPOActor):
         def compute_logprobs_fn(output, data):
             response = data['responses']
             response_length = response.size(1)
-            logits = output['logits']
+            logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
             log_probs = vocab_parallel_log_probs_from_logits(logits, response)
             return {'log_probs': log_probs}
@@ -264,7 +264,7 @@ class MegatronPPOActor(BasePPOActor):
         def loss_func(output, data, meta_info):
             if forward_only:
                 if post_process_fn is None:
-                    return 1.0, {'logits': output.logits}
+                    return 1.0, {'logits': output}
                 else:
                     return 1.0, post_process_fn(output, data)
 
@@ -280,7 +280,7 @@ class MegatronPPOActor(BasePPOActor):
             clip_ratio_c = meta_info['clip_ratio_c']
 
             # compute policy loss
-            logits = output.logits
+            logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
             logits_back = logits.clone()
             log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
@@ -324,7 +324,13 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            output = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+            from verl.models.mcore import gptmodel_forward
+
+            output = gptmodel_forward(model,
+                                      input_ids,
+                                      attention_mask,
+                                      position_ids,
+                                      sequence_parallel=self.megatron_config.sequence_parallel)
             if forward_only:
                 meta_info = None
             else:
