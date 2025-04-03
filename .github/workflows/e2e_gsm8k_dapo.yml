@@ -1,4 +1,4 @@
-name: e2e_gsm8k_prime
+name: e2e_gsm8k_dapo
 
 on:
   # Trigger the workflow on push or pull request,
@@ -9,7 +9,7 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_gsm8k_prime.yml
+      - .github/workflows/e2e_gsm8k_dapo.yml
   pull_request:
     branches:
       - main
@@ -17,7 +17,7 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_gsm8k_prime.yml
+      - .github/workflows/e2e_gsm8k_dapo.yml
       - "tests/e2e/*.sh"
 
 # Declare permissions just read content.
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_prime:
+  e2e_gsm8k_dapo:
     runs-on: [self-hosted, l20-1]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -34,7 +34,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
-      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -48,7 +48,7 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e with prime alg
+      - name: Running gsm8k e2e with dapo alg
         run: | 
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_prime.sh
+          bash tests/e2e/run_qwen_gsm8k_dapo.sh

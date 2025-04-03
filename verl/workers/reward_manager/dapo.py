@@ -18,17 +18,28 @@ import torch
 from collections import defaultdict
 
 
-class NaiveRewardManager:
+class DAPORewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source') -> None:
+    def __init__(self,
+                 tokenizer,
+                 num_examine,
+                 compute_score=None,
+                 reward_fn_key='data_source',
+                 max_resp_len=None,
+                 overlong_buffer_cfg=None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
+        self.overlong_buffer_cfg = overlong_buffer_cfg
+        self.max_resp_len = max_resp_len
 
-    def __call__(self, data: DataProto, return_dict=False):
+        if self.overlong_buffer_cfg is not None:
+            assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
+
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -60,6 +71,9 @@ class NaiveRewardManager:
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+            eos_token = self.tokenizer.eos_token
+            if response_str.endswith(eos_token):
+                response_str = response_str[:-len(eos_token)]
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
@@ -67,20 +81,34 @@ class NaiveRewardManager:
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score(
+            result = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
 
-            if isinstance(score, dict):
-                reward = score["score"]
+            score: float
+            if isinstance(result, dict):
+                score = result["score"]
                 # Store the information including original reward
-                for key, value in score.items():
+                for key, value in result.items():
                     reward_extra_info[key].append(value)
             else:
-                reward = score
+                score = result
+
+            reward = score
+
+            if self.overlong_buffer_cfg.enable:
+                overlong_buffer_len = self.overlong_buffer_cfg.len
+                expected_len = self.max_resp_len - overlong_buffer_len
+                exceed_len = valid_response_length - expected_len
+                overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
+                overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
+                reward += overlong_reward
+                if self.overlong_buffer_cfg.log:
+                    reward_extra_info["overlong_reward"].append(overlong_reward)
+                    reward_extra_info["overlong"].append(overlong_reward < 0)
 
             reward_tensor[i, valid_response_length - 1] = reward
 
@@ -92,8 +120,8 @@ class NaiveRewardManager:
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)
                 print("[ground_truth]", ground_truth)
-                if isinstance(score, dict):
-                    for key, value in score.items():
+                if isinstance(result, dict):
+                    for key, value in result.items():
                         print(f"[{key}]", value)
                 else:
                     print(f"[score]", score)

@@ -122,7 +122,7 @@ class PrimeRewardManager:
         data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -155,4 +155,7 @@ class PrimeRewardManager:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
 
-        return reward_tensor
+        if return_dict:
+            return {"reward_tensor": reward_tensor}
+        else:
+            return reward_tensor
