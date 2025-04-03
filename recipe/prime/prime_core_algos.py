@@ -17,7 +17,7 @@ import verl
 import verl.utils.torch_functional as verl_F
 
 
-def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, n_samples, config):
+def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Tensor, n_samples, config):
     # calculate rloo reward on different reward sources, and sum again
     def masked_rloo(reward_tensor_original, mask_tensor):
         reward_tensor = reward_tensor_original.clone()
@@ -44,13 +44,13 @@ def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, 
 
         if 'rm_scores' in data.batch.keys() and config.algorithm.reward_dpo_coef != 0.:
             reward_tensor = data.batch['rm_scores']
-            reward_mask = eos_mask.bool()
+            reward_mask = response_mask.bool()
 
             reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_dpo_coef)
 
         if 'acc' in data.batch.keys() and config.algorithm.reward_gt_coef != 0.:
-            reward_tensor = torch.zeros_like(eos_mask, dtype=torch.float32)
-            reward_mask = torch.zeros_like(eos_mask, dtype=torch.bool)
+            reward_tensor = torch.zeros_like(response_mask, dtype=torch.float32)
+            reward_mask = torch.zeros_like(response_mask, dtype=torch.bool)
 
             prompt_ids = data.batch['prompts']
             prompt_length = prompt_ids.shape[-1]
@@ -67,25 +67,25 @@ def compute_rloo_advantage_return(data: verl.DataProto, eos_mask: torch.Tensor, 
 
         final_reward_tensor = sum(reward_tensors)
 
-        returns = (final_reward_tensor * eos_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
+        returns = (final_reward_tensor * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
 
         advantages = returns.clone()
-        advantages = verl_F.masked_whiten(advantages, eos_mask)
+        advantages = verl_F.masked_whiten(advantages, response_mask)
 
         return advantages, returns
 
 
-def compute_ce_dpo_loss_rm(token_level_scores, acc, eos_mask, beta):
-    cur_scores = ((token_level_scores * eos_mask).sum(dim=1) * beta).sigmoid()
+def compute_ce_dpo_loss_rm(token_level_scores, acc, response_mask, beta):
+    cur_scores = ((token_level_scores * response_mask).sum(dim=1) * beta).sigmoid()
     cur_dpo_loss = torch.nn.functional.binary_cross_entropy(cur_scores, acc)
     return cur_dpo_loss
 
 
-def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, beta, bon_mode='none'):
+def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_mask, beta, bon_mode='none'):
     # we always assume that the BoN size equals n_samples
     # mode1: use acc as rm
     # mode2: use Q as rm
-    cur_Q = (token_level_scores * eos_mask).sum(dim=1) * beta
+    cur_Q = (token_level_scores * response_mask).sum(dim=1) * beta
     other_Q = torch.zeros_like(cur_Q)
     for i in range(token_level_scores.shape[0]):
         if acc[i] > 0:
@@ -115,11 +115,11 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, eos_mask, 
     return dpo_loss
 
 
-def compute_dpo_accuracy(token_level_scores, acc, eos_mask, n_samples):
+def compute_dpo_accuracy(token_level_scores, acc, response_mask, n_samples):
     dpo_acc = []
     for start_id in range(0, token_level_scores.shape[0], n_samples):
         cur_scores = (token_level_scores[start_id:start_id + n_samples] *
-                      eos_mask[start_id:start_id + n_samples]).sum(dim=1)
+                      response_mask[start_id:start_id + n_samples]).sum(dim=1)
 
         def get_upper_triangle(tensor_x):
             diff_matrix = tensor_x.unsqueeze(1) - tensor_x.unsqueeze(0)
@@ -140,5 +140,5 @@ def compute_dpo_accuracy(token_level_scores, acc, eos_mask, n_samples):
     return torch.cat(dpo_acc, dim=0).mean()
 
 
-def compute_dpo_abs_accuracy(token_level_scores, acc, eos_mask, n_samples):
-    return (torch.sign((token_level_scores * eos_mask).sum(dim=-1)) == torch.sign(acc * 2 - 1)).float().mean()
+def compute_dpo_abs_accuracy(token_level_scores, acc, response_mask, n_samples):
+    return (torch.sign((token_level_scores * response_mask).sum(dim=-1)) == torch.sign(acc * 2 - 1)).float().mean()
