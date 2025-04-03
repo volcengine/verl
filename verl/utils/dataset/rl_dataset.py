@@ -79,7 +79,7 @@ class RLHFDataset(Dataset):
 
     Args:
         last_user_msg_template: str
-            Jinja template with the message dict as input, e.g., "{{ content }} Let's think step by step."
+            Jinja template with the message dict as input, e.g., "{{ content | trim }}\n\nLet's think step by step."
     """
 
     def __init__(self,

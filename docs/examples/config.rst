@@ -39,7 +39,7 @@ Data
   file.
 - ``data.prompt_key``: The field in the dataset where the prompt is
   located. Default is 'prompt'.
-- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content }} Let's think step by step." NOTE: Shell string resolving is tricky. Better to override with yaml. c.f. `print_hydra_config.py <https://github.com/volcengine/verl/blob/main/scripts/print_hydra_config.py>`_
+- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content | trim }}\n\nLet's think step by step." NOTE: Shell string resolving is tricky. Better to override with yaml. c.f. `print_hydra_config.py <https://github.com/volcengine/verl/blob/main/scripts/print_hydra_config.py>`_
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
   left-padded to this length. An error will be reported if the length is
   too long
@@ -467,7 +467,7 @@ Data
 
 - ``data.path``: Path to the dataset file (Parquet format).
 - ``data.prompt_key``: The field in the dataset where the prompt is located. Default is 'prompt'.
-- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content }} Let's think step by step." NOTE: Shell string resolving is tricky. Better to override with yaml. c.f. `print_hydra_config.py <https://github.com/volcengine/verl/blob/main/scripts/print_hydra_config.py>`_
+- ``data.last_user_msg_template``: Jinja template with the message dict as input, e.g., "{{ content | trim }}\n\nLet's think step by step." NOTE: Shell string resolving is tricky. Better to override with yaml. c.f. `print_hydra_config.py <https://github.com/volcengine/verl/blob/main/scripts/print_hydra_config.py>`_
 - ``data.response_key``: The key holds the generated responses. This should be a list of strings representing the responses. Default is 'responses'.
 - ``data.data_source_key``: This is used to separate metric calculations for different data sources, ensuring that metrics are calculated independently for each source.
 - ``data.reward_model_key``: The key holds the reference answers. These reference answers typically serve as the ground truth or test cases for the task.
