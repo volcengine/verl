@@ -445,3 +445,37 @@ Trainer
   checkpoints in the save directory. Default is False.
 - ``trainer.del_local_ckpt_after_load``: Whether to delete local
   checkpoints after loading them. Default is False.
+
+
+evaluation.yaml
+---------------
+
+Data
+~~~~
+
+.. code:: yaml
+
+   data:
+     path: /tmp/math_Qwen2-7B-Instruct.parquet
+     prompt_key: prompt
+     response_key: responses
+     data_source_key: data_source
+     reward_model_key: reward_model
+
+- ``data.path``: Path to the dataset file (Parquet format).
+- ``data.prompt_key``: The field in the dataset where the prompt is located. Default is 'prompt'.
+- ``data.response_key``: The key holds the generated responses. This should be a list of strings representing the responses. Default is 'responses'.
+- ``data.data_source_key``: This is used to separate metric calculations for different data sources, ensuring that metrics are calculated independently for each source.
+- ``data.reward_model_key``: The key holds the reference answers. These reference answers typically serve as the ground truth or test cases for the task.
+
+Customized Reward Function
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+  
+   custom_reward_function:
+     path: null
+     name: compute_score
+
+- ``custom_reward_function.path``: The path to the file containing your customized reward function. If not specified, pre-implemented reward functions will be used.
+- ``custom_reward_function.name`` (Optional) : The name of the reward function within the specified file. Default is 'compute_score'.
