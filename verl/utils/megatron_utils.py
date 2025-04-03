@@ -157,6 +157,10 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
+    if "Qwen2ForCausalLM" in hf_config.architectures:
+        qkv_bias = True
+    else:
+        qkv_bias = getattr(hf_config, 'attention_bias', False)
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
     ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
@@ -185,6 +189,9 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
+        attention_dropout=hf_config.attention_dropout,
+        hidden_dropout=getattr(hf_config, 'hidden_dropout', 0.0),
+        add_qkv_bias=qkv_bias,
         bf16=dt is torch.bfloat16)
 
     return transformer_config
