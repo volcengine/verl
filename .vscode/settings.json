@@ -1,0 +1,9 @@
+{
+    "pylint.enabled": true,
+    "[python]": {
+        "editor.defaultFormatter": "eeyore.yapf",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "never",
+        }
+    }
+}
