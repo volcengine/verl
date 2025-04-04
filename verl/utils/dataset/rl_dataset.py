@@ -143,7 +143,8 @@ class RLHFDataset(Dataset):
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
             self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-                tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
+                tokenizer.apply_chat_template(self.preprocess_msg_lst(doc[prompt_key]), add_generation_prompt=True)) <=
+                                                                 self.max_prompt_length,
                                                                  axis=1)]
 
             print(f'filter dataset len: {len(self.dataframe)}')
@@ -157,6 +158,23 @@ class RLHFDataset(Dataset):
         else:
             print(r'old dataloader ckpt file is used, please train from scratch for better ckpt performance')
 
+    def preprocess_msg_lst(self, msg_lst: list[dict]) -> list[dict[str, str]]:
+        """
+        Get the text sequence from the message list
+        """
+        if self.last_user_msg_template is not None:
+            # Find the last user message
+            last_user_msg = None
+            for msg in reversed(msg_lst):
+                if msg['role'] == 'user':
+                    last_user_msg = msg
+                    break
+            assert last_user_msg is not None, f'No user message found in the {msg_lst=}'
+            # Apply the template to the content
+            last_user_msg['content'] = Template(self.last_user_msg_template).render(**last_user_msg)
+
+        return msg_lst
+
     def __len__(self):
         return len(self.dataframe)
 
@@ -167,17 +185,8 @@ class RLHFDataset(Dataset):
         row_dict: dict = self.dataframe.iloc[item].to_dict()
 
         chat = row_dict.pop(self.prompt_key)
-        # Find the last user message
-        last_user_msg = None
-        for msg in reversed(chat):
-            if msg['role'] == 'user':
-                last_user_msg = msg
-                break
-        assert last_user_msg is not None, f'No user message found in the {chat=}'
-        # Apply the template to the content
-        last_user_msg['content'] = Template(self.last_user_msg_template).render(**last_user_msg)
-
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        preprocessed_msg_lst = self.preprocess_msg_lst(chat)
+        prompt_with_chat_template = self.get_text_prompt_from_msg_lst(preprocessed_msg_lst)
 
         is_multi_modal = self.image_key in row_dict
         if is_multi_modal:  # expand image token
