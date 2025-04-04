@@ -1,25 +1,22 @@
-#!/usr/bin/env python
-
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Diagnose script for checking OS/hardware/python/pip/verl/network.
 The output of this script can be a very good hint to issue/problem.
 """
+import subprocess
+import psutil
 import platform, subprocess, sys, os
 import socket, time
 try:
@@ -32,7 +29,6 @@ import argparse
 import importlib.metadata
 import torch
 
-
 URLS = {
     'PYPI': 'https://pypi.python.org/pypi/pip',
 }
@@ -43,6 +39,7 @@ REGIONAL_URLS = {
         'Conda(tsinghua)': 'https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/',
     }
 }
+
 
 def test_connection(name, url, timeout=10):
     """Simple connection test"""
@@ -71,6 +68,7 @@ def check_python():
     print('Build        :', platform.python_build())
     print('Arch         :', platform.architecture())
 
+
 def check_pip():
     print('------------Pip Info-----------')
     try:
@@ -91,6 +89,7 @@ def _get_current_git_commit():
     except FileNotFoundError:
         print("Did not find command: git")
         return None
+
 
 def check_verl():
     print('----------verl Info-----------')
@@ -116,7 +115,7 @@ def check_verl():
 
 
 def check_os():
-    print('----------System Info----------')
+    print('----------Platform Info----------')
     print('Platform     :', platform.platform())
     print('system       :', platform.system())
     print('node         :', platform.node())
@@ -160,9 +159,9 @@ def check_network(args):
 
 def check_environment():
     print('----------Environment----------')
-    for k,v in os.environ.items():
+    for k, v in os.environ.items():
         if k.startswith('VERL_') or k.startswith('OMP_') or k.startswith('KMP_') or k == 'CC' or k == 'CXX':
-            print('{}="{}"'.format(k,v))
+            print('{}="{}"'.format(k, v))
 
 
 def check_pip_package_versions():
@@ -187,32 +186,80 @@ def check_cuda_versions():
                 print(f"CUDA Compiler : {cuda_compiler_version.strip()}")
             else:
                 print("Could not determine CUDA compiler version.")
-        except FileNotFoundError:
-            print("NVCC (CUDA compiler) is not found. Please ensure CUDA is properly installed.")
+        except FileNotFoundError as e:
+            print(f"CUDA compiler : Not found: {e}")
         except Exception as e:
             print(f"An error occurred while checking CUDA versions: {e}")
     else:
         print("CUDA is not available.")
 
 
+def _get_cpu_memory():
+    """
+    Get the total CPU memory capacity in GB.
+    """
+    memory = psutil.virtual_memory()
+    return memory.total / (1024**3)
+
+
+def _get_gpu_info():
+    """
+    Get GPU type, GPU memory, and GPU count using nvidia-smi command.
+    """
+    try:
+        result = subprocess.run(['nvidia-smi', '--query-gpu=gpu_name,memory.total', '--format=csv,noheader,nounits'],
+                                capture_output=True,
+                                text=True,
+                                check=True)
+        gpu_lines = result.stdout.strip().split('\n')
+        gpu_count = len(gpu_lines)
+        gpu_info = []
+        for line in gpu_lines:
+            gpu_name, gpu_memory = line.split(', ')
+            gpu_info.append({
+                'type': gpu_name,
+                'memory': float(gpu_memory) / 1024  # Convert to GB
+            })
+        return gpu_count, gpu_info
+    except subprocess.CalledProcessError:
+        print("Failed to execute nvidia-smi command.")
+        return 0, []
+
+
+def _get_system_info():
+    """
+    Get CPU memory capacity, GPU type, GPU memory, and GPU count.
+    """
+    cpu_memory = _get_cpu_memory()
+    gpu_count, gpu_info = _get_gpu_info()
+    return {'cpu_memory': cpu_memory, 'gpu_count': gpu_count, 'gpu_info': gpu_info}
+
+
+def check_system_info():
+    print('----------System Info----------')
+    system_info = _get_system_info()
+    print(f"CPU Memory\t: {system_info['cpu_memory']:.2f} GB")
+    print(f"GPU Count\t: {system_info['gpu_count']}")
+    for i, gpu in enumerate(system_info['gpu_info']):
+        print(f"GPU {i + 1}\tType    : {gpu['type']}")
+        print(f"GPU {i + 1}\tMemory  : {gpu['memory']:.2f} GB")
+
+
 def parse_args():
     """Parse arguments."""
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='Diagnose script for checking the current system.')
-    choices = ['python', 'pip', 'verl', 'os', 'environment']
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                     description='Diagnose script for checking the current system.')
+    choices = ['python', 'pip', 'verl', 'system', 'os', 'environment']
     for choice in choices:
-        parser.add_argument('--' + choice, default=1, type=int,
-                            help='Diagnose {}.'.format(choice))
-    parser.add_argument('--network', default=0, type=int,
-                        help='Diagnose network.')
-    parser.add_argument('--hardware', default=0, type=int,
-                        help='Diagnose hardware.')
-    parser.add_argument('--region', default='', type=str,
+        parser.add_argument('--' + choice, default=1, type=int, help='Diagnose {}.'.format(choice))
+    parser.add_argument('--network', default=0, type=int, help='Diagnose network.')
+    parser.add_argument('--hardware', default=0, type=int, help='Diagnose hardware.')
+    parser.add_argument('--region',
+                        default='',
+                        type=str,
                         help="Additional sites in which region(s) to test. \
                         Specify 'cn' for example to test mirror sites in China.")
-    parser.add_argument('--timeout', default=10, type=int,
-                        help="Connection test timeout threshold, 0 to disable.")
+    parser.add_argument('--timeout', default=10, type=int, help="Connection test timeout threshold, 0 to disable.")
     args = parser.parse_args()
     return args
 
@@ -241,3 +288,6 @@ if __name__ == '__main__':
     if args.environment:
         check_environment()
         check_cuda_versions()
+
+    if args.system:
+        check_system_info()
