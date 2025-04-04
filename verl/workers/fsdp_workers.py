@@ -1146,12 +1146,12 @@ class RewardModelWorker(Worker):
             use_dynamic_bsz = self.config.use_dynamic_bsz
             if use_dynamic_bsz:
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, indices = get_uniform_data_chunks(batch=rm_data.batch, max_token_len=max_token_len)
+                micro_data_chunks, indices = get_uniform_data_chunks(data=rm_data, max_token_len=max_token_len)
             else:
-                micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
+                micro_data_chunks = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
             output = []
-            for micro_batch in micro_batches:
-                rm_score = self._forward_micro_batch(micro_batch)
+            for micro_data_chunk in micro_data_chunks:
+                rm_score = self._forward_micro_batch(micro_batch=micro_data_chunk.batch)
                 output.append(rm_score)
             scores = torch.cat(output, dim=0)  # (batch_size)
 

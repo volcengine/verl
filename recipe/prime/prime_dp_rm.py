@@ -202,22 +202,24 @@ class DataParallelPRIMERewardModel:
         self.ref_module.eval()
         micro_batch_size = data.meta_info['micro_batch_size']
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'acc']
-        batch = data.select(batch_keys=select_keys).batch
+        selected_data = data.select(batch_keys=select_keys)
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
-        prompt_length = data.batch['input_ids'].shape[-1] - data.batch['responses'].shape[-1]
+        batch = selected_data.batch
+        prompt_length = batch['input_ids'].shape[-1] - batch['responses'].shape[-1]
 
         if use_dynamic_bsz:
             # split using dynamic bsz
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = get_uniform_data_chunks(batch=batch, max_token_len=max_token_len)
+            micro_data_chunks, indices = get_uniform_data_chunks(data=selected_data, max_token_len=max_token_len)
         else:
-            micro_batches = batch.split(micro_batch_size)
+            num_micro_batches = len(batch) // micro_batch_size
+            micro_data_chunks = batch.chunk(num_micro_batches)
 
         rm_scores_lst = []
         q_lst = []
-        for micro_batch in micro_batches:
+        for micro_data_chunk in micro_data_chunks:
             with torch.no_grad():
-                rm_score, q = self._forward_micro_batch(micro_batch, prompt_length)
+                rm_score, q = self._forward_micro_batch(micro_batch=micro_data_chunk.batch, prompt_length=prompt_length)
             rm_scores_lst.append(rm_score)
             q_lst.append(q)
         rm_scores = torch.concat(rm_scores_lst, dim=0)
@@ -249,37 +251,38 @@ class DataParallelPRIMERewardModel:
             if key in data.batch.keys():
                 select_keys.append(key)
 
-        batch = data.select(batch_keys=select_keys).batch
+        selected_data = data.select(batch_keys=select_keys)
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        dataloader = batch.split(self.config.mini_batch_size)
+        num_mini_batches = len(selected_data) // self.config.mini_batch_size
+        mini_dataloader = selected_data.chunk(num_mini_batches)
 
         rm_scores_lst = []
         q_lst = []
 
-        for batch_idx, data in enumerate(dataloader):
-            # split batch into micro_batches
-            mini_batch = data
+        for mini_idx, mini_data_chunk in enumerate(mini_dataloader):
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, _ = get_uniform_data_chunks(batch=mini_batch, max_token_len=max_token_len)
+                micro_data_chunks, _ = get_uniform_data_chunks(data=mini_data_chunk, max_token_len=max_token_len)
             else:
-                micro_batches = mini_batch.split(self.config.micro_batch_size_per_gpu)
                 self.gradient_accumulation = self.config.mini_batch_size // self.config.micro_batch_size_per_gpu
+                num_micro_batches = len(mini_data_chunk) // self.config.micro_batch_size_per_gpu
+                micro_data_chunks = mini_data_chunk.chunk(num_micro_batches)
 
             self.reward_optimizer.zero_grad()
 
-            for data in micro_batches:
-                data = data.cuda()
-                attention_mask = data['attention_mask']
-                acc = data['acc']
+            for micro_data_chunk in micro_data_chunks:
+                micro_batch = micro_data_chunk.batch
+                micro_batch = micro_batch.cuda()
+                attention_mask = micro_batch['attention_mask']
+                acc = micro_batch['acc']
 
-                prompt_ids = data['prompts']
+                prompt_ids = micro_batch['prompts']
                 prompt_length = prompt_ids.shape[-1]
 
                 response_mask = attention_mask[:, prompt_length:]
 
-                rm_score, q = self._forward_micro_batch(data, prompt_length)
+                rm_score, q = self._forward_micro_batch(micro_batch=micro_batch, prompt_length=prompt_length)
 
                 rm_scores_lst.append(rm_score)
                 q_lst.append(q.detach())
@@ -318,7 +321,7 @@ class DataParallelPRIMERewardModel:
 
                 if self.config.use_dynamic_bsz:
                     # relative to the dynamic bsz
-                    loss = dpo_loss * (len(data) / self.config.ppo_mini_batch_size)
+                    loss = dpo_loss * (len(micro_data_chunk) / self.config.ppo_mini_batch_size)
                 else:
                     loss = dpo_loss / self.gradient_accumulation
 
