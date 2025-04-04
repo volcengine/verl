@@ -40,7 +40,7 @@ from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_througho
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.tracking import ValidationGenerationsLogger, RolloutLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -264,6 +264,8 @@ class RayPPOTrainer(object):
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
+        self.rollout_logger = RolloutLogger()
+        self.rollout_data_dir = config.trainer.get('rollout_data_dir', None)
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -466,6 +468,20 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
+    def _log_all_generations(self, inputs, outputs, scores):
+        """Log a table of rollout samples to the configured logger (upload to Hub preffered)"""
+
+        generations_to_log = self.config.trainer.log_rollout_generations
+
+        if generations_to_log == 0:
+            return
+
+        # Create tuples of (input, output, score) and sort by input text
+        samples = list(zip(inputs, outputs, scores))
+
+        self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, self.rollout_data_dir)
+        
+
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
@@ -488,7 +504,7 @@ class RayPPOTrainer(object):
         samples = samples[:generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, self.rollout_data_dir)
 
     def _validate(self):
         reward_tensor_lst = []
@@ -884,6 +900,15 @@ class RayPPOTrainer(object):
                         # we combine with rule-based rm
                         reward_tensor = self.reward_fn(batch)
                         batch.batch['token_level_scores'] = reward_tensor
+
+                        if self.config.trainer.log_rollout_generations > 0:
+                            # Extract inputs, outputs and scores from the batch
+                            input_ids = batch.batch['input_ids']
+                            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+                            output_ids = batch.batch['responses']
+                            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+                            scores = reward_tensor.sum(-1).cpu().tolist()
+                            self._log_all_generations(inputs=input_texts, outputs=output_texts, scores=scores)
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
