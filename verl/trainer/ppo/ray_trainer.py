@@ -409,7 +409,8 @@ class RayPPOTrainer(object):
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation=self.config.data.get('truncation', 'error'),
-                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts)
+                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts,
+                                         num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
         assert self.train_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
@@ -437,7 +438,8 @@ class RayPPOTrainer(object):
                                        filter_prompts=True,
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation=self.config.data.get('truncation', 'error'),
-                                       filter_overlong_prompts=self.config.data.filter_overlong_prompts)
+                                       filter_overlong_prompts=self.config.data.filter_overlong_prompts,
+                                       num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
         assert self.val_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
