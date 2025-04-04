@@ -168,6 +168,7 @@ def test_vllm_spmd():
         skip_tokenizer_init=False,
         enable_prefix_caching=True,
         trust_remote_code=True,
+        seed=0,
     )
 
     # Warmup iterations
