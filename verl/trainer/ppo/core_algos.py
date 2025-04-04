@@ -106,7 +106,7 @@ def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torc
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    response_mask: torch.Tensor,
-                                   index: torch.Tensor,
+                                   index: np.ndarray,
                                    epsilon: float = 1e-6):
     """
     Compute advantage for GRPO, operating only on Outcome reward 
@@ -123,7 +123,6 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -145,14 +144,14 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
             scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
 
 
 def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    response_mask: torch.Tensor,
-                                   index: torch.Tensor,
+                                   index: np.ndarray,
                                    epsilon: float = 1e-6):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
@@ -168,7 +167,6 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -190,7 +188,7 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
             if response_num > 1:
                 scores[i] = scores[i] * response_num / (response_num -
                                                         1) - id2mean[index[i]] * response_num / (response_num - 1)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
 
@@ -250,12 +248,10 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
-    scores = token_level_rewards.sum(dim=-1)
 
     with torch.no_grad():
         returns = (token_level_rewards * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
-        advantages = returns - reward_baselines.unsqueeze(-1).tile([1, response_length]) * response_mask
+        advantages = returns - reward_baselines.unsqueeze(-1) * response_mask
 
     return advantages, returns
 
