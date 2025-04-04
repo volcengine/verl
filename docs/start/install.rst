@@ -28,7 +28,9 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 
 2. Inference:
 
-For inference, the integration of both vllm v0.6.3 and v0.8.2 is stable. For huggingface TGI integration, it is usually used for debugging and single GPU exploration. Regarding sglang integration, it is blazing fast and under rapid development - we release it as a preview feature and please give us feedbacks.
+For inference, the integration of both vllm v0.6.3 and v0.8.2 is stable. Please avoid vllm v0.7 since it has known bugs.
+For huggingface TGI integration, it is usually used for debugging and single GPU exploration.
+Regarding sglang integration, it is blazing fast and under rapid development - we release it as a preview feature and please give us feedbacks.
 
 
 Install from docker image
