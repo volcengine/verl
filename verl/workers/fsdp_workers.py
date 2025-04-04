@@ -1148,7 +1148,8 @@ class RewardModelWorker(Worker):
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_data_chunks, indices = get_uniform_data_chunks(data=rm_data, max_token_len=max_token_len)
             else:
-                micro_data_chunks = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
+                num_micro_batches = len(rm_data) // self.config.micro_batch_size_per_gpu
+                micro_data_chunks = rm_data.chunk(num_micro_batches)
             output = []
             for micro_data_chunk in micro_data_chunks:
                 rm_score = self._forward_micro_batch(micro_batch=micro_data_chunk.batch)
