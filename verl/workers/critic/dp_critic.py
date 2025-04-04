@@ -26,6 +26,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
+from verl.trainer.ppo.ray_trainer import Role
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean, compute_response_mask
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
@@ -213,7 +214,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                                                                          cliprange_value=self.config.cliprange_value)
 
                     if self.config.loss_agg_mode == 'token-mean':
-                        mini_batch_loss_token_nums = data.meta_info['mini_batch_loss_token_nums']
+                        mini_batch_loss_token_nums = data.meta_info['role2mini_batch_loss_token_nums'][Role.Critic]
                         mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
                         num_valid_toks = response_mask.sum()
                         loss = vf_loss * num_valid_toks / mini_batch_loss_token_num

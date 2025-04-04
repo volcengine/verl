@@ -24,7 +24,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
-from verl.trainer.ppo.ray_trainer import compute_response_mask
+from verl.trainer.ppo.ray_trainer import compute_response_mask, Role
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits
@@ -311,7 +311,8 @@ class DataParallelPPOActor(BasePPOActor):
                         metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
                     if self.config.loss_agg_mode == 'token-mean':
-                        mini_batch_loss_token_nums = data.meta_info['mini_batch_loss_token_nums']
+                        mini_batch_loss_token_nums = data.meta_info['role2mini_batch_loss_token_nums'][
+                            Role.ActorRollout]
                         mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
                         num_valid_toks = response_mask.sum()
                         loss = policy_loss * num_valid_toks / mini_batch_loss_token_num

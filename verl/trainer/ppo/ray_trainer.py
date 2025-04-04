@@ -38,7 +38,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
+from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, process_validation_metrics
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
@@ -164,20 +164,20 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, num_dp_ranks: int) -> list[int]:
+def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, dp_size: int) -> list[int]:
     response_mask = compute_response_mask(response_ids=batch.batch['responses'],
                                           attention_mask=batch.batch['attention_mask'])
 
     traj_bsz = len(batch.batch)
     num_mini_batches = (traj_bsz + traj_mini_bsz - 1) // traj_mini_bsz
-    traj_mini_bsz_per_rank = traj_mini_bsz // num_dp_ranks
+    traj_mini_bsz_per_rank = traj_mini_bsz // dp_size
 
     mini_batch_loss_token_nums = []
     for _ in range(num_mini_batches):
         mini_batch_traj_idxs = []
-        for dp_rank in range(num_dp_ranks):
-            start_traj_idx = int(traj_bsz / num_dp_ranks * dp_rank)
-            next_start_traj_idx = int(traj_bsz / num_dp_ranks * (dp_rank + 1))
+        for dp_rank in range(dp_size):
+            start_traj_idx = int(traj_bsz / dp_size * dp_rank)
+            next_start_traj_idx = int(traj_bsz / dp_size * (dp_rank + 1))
             end_traj_idx = int(min(start_traj_idx + traj_mini_bsz_per_rank, next_start_traj_idx))
             mini_batch_traj_idxs.extend(list(range(start_traj_idx, end_traj_idx)))
         mini_batch_resp_mask = response_mask[mini_batch_traj_idxs]
@@ -790,6 +790,34 @@ class RayPPOTrainer(object):
                                                     prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
+    @property
+    def valid_role2train_dp_size(self) -> dict[Role, int]:
+        valid_roles = [Role.ActorRollout]
+        if self.use_critic:
+            valid_roles.append(Role.Critic)
+        if self.use_reference_policy:
+            valid_roles.append(Role.RefPolicy)
+        if self.use_rm:
+            valid_roles.append(Role.RewardModel)
+        # TODO: Unify with `role_worker_mapping`
+        role2train_sp_size = {
+            Role.ActorRollout: self.config.actor_rollout_ref.actor.ulysses_sequence_parallel_size,
+            Role.Critic: self.config.critic.ulysses_sequence_parallel_size,
+            Role.RefPolicy: self.config.actor_rollout_ref.ref.ulysses_sequence_parallel_size,
+            Role.RewardModel: self.config.reward_model.ulysses_sequence_parallel_size,
+        }
+        valid_role2train_dp_size = {
+            role: self.actor_rollout_wg.world_size // role2train_sp_size[role] for role in valid_roles
+        }
+        return valid_role2train_dp_size
+
+    def calc_role2mini_batch_loss_token_nums(self, batch: DataProto) -> dict[Role, list[int]]:
+        traj_mini_bsz = self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+        return {
+            role: calc_mini_batch_loss_token_nums(batch, traj_mini_bsz=traj_mini_bsz, dp_size=train_dp_size)
+            for role, train_dp_size in self.valid_role2train_dp_size.items()
+        }
+
     def fit(self):
         """
         The training loop of PPO.
@@ -882,11 +910,8 @@ class RayPPOTrainer(object):
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                    batch.meta_info["mini_batch_loss_token_nums"] = calc_mini_batch_loss_token_nums(
-                        batch,
-                        traj_mini_bsz=self.config.actor_rollout_ref.actor.ppo_mini_batch_size *
-                        self.config.actor_rollout_ref.rollout.n,
-                        num_dp_ranks=self.actor_rollout_wg.world_size)
+                    batch.meta_info["role2mini_batch_loss_token_nums"] = self.calc_role2mini_batch_loss_token_nums(
+                        batch)
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
