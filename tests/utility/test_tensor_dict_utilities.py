@@ -290,7 +290,8 @@ def test_seqlen_balancing():
                                         min_ratio_of_valid_token=0.5)
     data = {'input_ids': input_ids, 'attention_mask': attention_mask}
     dataproto = DataProto.from_single_dict(data)
-    micro_batches, micro_bsz_idx_lst = get_uniform_data_chunks(dataproto.batch, max_token_len=300)
+    micro_data_chunks, micro_bsz_idx_lst = get_uniform_data_chunks(dataproto.batch, max_token_len=300)
+    micro_batches = [micro_data_chunk.batch for micro_data_chunk in micro_data_chunks]
     batch = torch.cat(micro_batches)
     micro_bsz_idx = []
     for idx in micro_bsz_idx_lst:
