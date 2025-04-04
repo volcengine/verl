@@ -30,9 +30,39 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_megatron:
+  e2e_gsm8k_megatron-l20-0:
+    runs-on: [self-hosted, l20-0]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install hf_transfer
+          pip3 install -e .[test]
+      - name: Prepare gsm8k dataset
+        run: |
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running GRPO gsm8k e2e training tests with FSDP on 8 L20 GPUs (Qwen)
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_grpo.sh
+      - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_grpo_megatron.sh
+  e2e_gsm8k_megatron-l20-1:
     runs-on: [self-hosted, l20-1]
-    timeout-minutes: 60 # Increase this timeout value as needed
+    timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -60,11 +90,3 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_deepseek_grpo_megatron.sh
-      - name: Running GRPO gsm8k e2e training tests with FSDP on 8 L20 GPUs (Qwen)
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_grpo.sh
-      - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_grpo_megatron.sh

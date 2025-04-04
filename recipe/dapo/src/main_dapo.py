@@ -14,7 +14,7 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from .dapo_ray_trainer import RayDAPOTrainer
 
 import os
 import ray
@@ -49,7 +49,7 @@ def get_custom_reward_fn(config):
     return getattr(module, function_name)
 
 
-@hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
+@hydra.main(config_path='config', config_name='dapo_trainer', version_base=None)
 def main(config):
     run_ppo(config)
 
@@ -88,8 +88,7 @@ class TaskRunner:
 
         # instantiate tokenizer
         from verl.utils import hf_tokenizer, hf_processor
-        trust_remote_code = config.data.get('trust_remote_code', False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        tokenizer = hf_tokenizer(local_path)
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         # define worker classes
@@ -113,6 +112,7 @@ class TaskRunner:
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),
+            Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
         }
 
         global_pool_id = 'global_pool'
@@ -122,6 +122,7 @@ class TaskRunner:
         mapping = {
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,
+            Role.RefPolicy: global_pool_id,
         }
 
         # we should adopt a multi-source reward function here
@@ -140,7 +141,7 @@ class TaskRunner:
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
 
-        #use reference model
+        # reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
@@ -163,23 +164,27 @@ class TaskRunner:
         reward_fn = reward_manager_cls(tokenizer=tokenizer,
                                        num_examine=0,
                                        compute_score=compute_score,
-                                       reward_fn_key=config.data.reward_fn_key)
+                                       reward_fn_key=config.data.reward_fn_key,
+                                       max_resp_len=config.data.max_response_length,
+                                       overlong_buffer_cfg=config.reward_model.overlong_buffer)
 
         # Note that we always use function-based RM for validation
         val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
                                            num_examine=1,
                                            compute_score=compute_score,
-                                           reward_fn_key=config.data.reward_fn_key)
+                                           reward_fn_key=config.data.reward_fn_key,
+                                           max_resp_len=config.data.max_response_length,
+                                           overlong_buffer_cfg=config.reward_model.overlong_buffer)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
-        trainer = RayPPOTrainer(config=config,
-                                tokenizer=tokenizer,
-                                processor=processor,
-                                role_worker_mapping=role_worker_mapping,
-                                resource_pool_manager=resource_pool_manager,
-                                ray_worker_group_cls=ray_worker_group_cls,
-                                reward_fn=reward_fn,
-                                val_reward_fn=val_reward_fn)
+        trainer = RayDAPOTrainer(config=config,
+                                 tokenizer=tokenizer,
+                                 processor=processor,
+                                 role_worker_mapping=role_worker_mapping,
+                                 resource_pool_manager=resource_pool_manager,
+                                 ray_worker_group_cls=ray_worker_group_cls,
+                                 reward_fn=reward_fn,
+                                 val_reward_fn=val_reward_fn)
         trainer.init_workers()
         trainer.fit()
 

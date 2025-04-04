@@ -106,7 +106,7 @@ def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torc
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    response_mask: torch.Tensor,
-                                   index: torch.Tensor,
+                                   index: np.ndarray,
                                    epsilon: float = 1e-6):
     """
     Compute advantage for GRPO, operating only on Outcome reward 
@@ -123,7 +123,6 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -145,14 +144,14 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
             scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
 
 
 def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    response_mask: torch.Tensor,
-                                   index: torch.Tensor,
+                                   index: np.ndarray,
                                    epsilon: float = 1e-6):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
@@ -168,7 +167,6 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -190,7 +188,7 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor,
             if response_num > 1:
                 scores[i] = scores[i] * response_num / (response_num -
                                                         1) - id2mean[index[i]] * response_num / (response_num - 1)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
 
@@ -250,12 +248,10 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-    response_length = token_level_rewards.shape[-1]
-    scores = token_level_rewards.sum(dim=-1)
 
     with torch.no_grad():
         returns = (token_level_rewards * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
-        advantages = returns - reward_baselines.unsqueeze(-1).tile([1, response_length]) * response_mask
+        advantages = returns - reward_baselines.unsqueeze(-1) * response_mask
 
     return advantages, returns
 
@@ -265,9 +261,44 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, response_mask, cliprange, clip_ratio_c=3.0):
-    """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
+def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str):
+    """
+    Aggregate the loss matrix into a scalar.
+    Args:
+        loss_mat: `(torch.Tensor)`
+            shape: (bs, response_length)
+        loss_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+            "token-mean" is the default behavior
+    Returns:
+        loss: `a scalar torch.Tensor`
+            aggregated loss
+    """
+    if loss_agg_mode == "token-mean":
+        loss = verl_F.masked_mean(loss_mat, loss_mask)
+    elif loss_agg_mode == "seq-mean-token-sum":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)
+        loss = torch.mean(seq_losses)
+    elif loss_agg_mode == "seq-mean-token-mean":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)
+        loss = torch.mean(seq_losses)
+    else:
+        raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
+    return loss
+
+
+def compute_policy_loss(old_log_prob,
+                        log_prob,
+                        advantages,
+                        response_mask,
+                        cliprange=None,
+                        cliprange_low=None,
+                        cliprange_high=None,
+                        clip_ratio_c=3.0,
+                        loss_agg_mode="token-mean"):
+    """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
     Args:
         old_log_prob: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -279,16 +310,24 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, response_mask, clipr
             shape: (bs, response_length)
         cliprange: (float)
             The clip range used in PPO. See https://arxiv.org/abs/1707.06347
-        clip_ratio_c: (float)
-            THe lower bound of the ratio for dual-clip PPO, defalut 3. See https://arxiv.org/pdf/1912.09729
+        cliprange_low: (float)
+            The lower clip range used in PPO.
+        cliprange_high: (float)
+            The higher clip range used in PPO.
+        clip_ratio_c: (float) default: 3.0
+            The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
+        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+            "token-mean" is the default behavior        
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
             policy gradient loss computed via PPO
         pg_clipfrac: (float)
-            a float number indicating the fraction of policy gradient loss being clipped
+            the fraction of policy gradient loss being clipped
         ppo_kl: (float)
             the estimated KL divergence between the latest updating policy and the old sampling policy
+        pg_clipfrac_lower: (float)
+            the fraction of policy gradient loss being clipped when the advantage is negative
     """
     assert clip_ratio_c > 1.0, f"The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0, but get the value: {clip_ratio_c}."
 
@@ -296,20 +335,24 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, response_mask, clipr
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 
-    pg_losses = -advantages * ratio
-    pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
-
-    clip_pg_losses1 = torch.max(pg_losses, pg_losses2)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), response_mask)
+    pg_losses1 = -advantages * ratio
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+    pg_losses2 = -advantages * torch.clamp(ratio, 1 - cliprange_low,
+                                           1 + cliprange_high)  # - clip(ratio, 1-cliprange, 1+cliprange) * A
+    clip_pg_losses1 = torch.maximum(pg_losses1,
+                                    pg_losses2)  # max(-ratio * A, -clip(ratio, 1-cliprange, 1+cliprange) * A)
+    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), response_mask)
 
     pg_losses3 = -advantages * clip_ratio_c
     clip_pg_losses2 = torch.min(pg_losses3, clip_pg_losses1)
     pg_clipfrac_lower = verl_F.masked_mean(
         torch.gt(clip_pg_losses2, pg_losses3) * (advantages < 0).float(), response_mask)
-    # We only apply the dual-clip when the advantage is negative.
-    pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
 
-    pg_loss = verl_F.masked_mean(pg_losses, response_mask)
+    pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
