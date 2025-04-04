@@ -137,6 +137,8 @@ class vLLMRollout(BaseRollout):
 
         self.pad_token_id = tokenizer.pad_token_id
 
+        self.tokenizer = tokenizer
+
     @contextmanager
     def update_sampling_params(self, **kwargs):
         # update sampling params
@@ -159,7 +161,9 @@ class vLLMRollout(BaseRollout):
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
-        idx = prompts.batch['input_ids']  # (bs, prompt_length)
+        print(f"prompts: {len(prompts)}, {prompts}")
+
+        input_ids = prompts.batch['input_ids']  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch['attention_mask']
         position_ids = prompts.batch['position_ids']
@@ -167,12 +171,16 @@ class vLLMRollout(BaseRollout):
         # used to construct attention_mask
         eos_token_id = prompts.meta_info['eos_token_id']
 
-        batch_size = idx.size(0)
+        batch_size = input_ids.size(0)
+        
+        # with open("/workspace/lurui-yun/deep_research/verl/logs/init_input_ids.json", "w") as f:
+        #     import json
+        #     json.dump(input_ids.tolist(), f)
 
         idx_list = []
         # parse idx from torch.Tensor to List[List[str]]
         for i in range(batch_size):
-            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+            idx_list.append(_pre_process_inputs(self.pad_token_id, input_ids[i]))
 
         do_sample = prompts.meta_info.get('do_sample', True)
         is_validate = prompts.meta_info.get('validate', False)
@@ -195,7 +203,9 @@ class vLLMRollout(BaseRollout):
             }
 
         # users can customize different sampling_params at different run
+        
         with self.update_sampling_params(**kwargs):
+            print("Initial sampling_params: ", self.sampling_params)
             output = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -219,9 +229,10 @@ class vLLMRollout(BaseRollout):
                 batch_size = batch_size * self.sampling_params.n
             seq = torch.cat([idx, response], dim=-1)
 
-        response_length = response.size(1)
-        delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+            seq = torch.cat([input_ids, response], dim=-1)
+            response_length = response.size(1)
+            delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
+            delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
@@ -237,14 +248,41 @@ class vLLMRollout(BaseRollout):
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
             {
-                'prompts': idx,
+                'prompts': input_ids,
                 'responses': response,
                 'input_ids': seq,  # here input_ids become the whole sentences
                 # 'old_log_probs': log_probs, # we will recompute old log prob with actor
                 'attention_mask': attention_mask,
-                'position_ids': position_ids
+                'loss_mask': loss_mask,
+                'position_ids': position_ids,
+                'observations_times': observations_times
             },
             batch_size=batch_size)
+
+        import json
+        if self.config.get('multi_turn', False):
+            with open('logs/generate_sequences_call.json', 'w') as f:
+                f.write(json.dumps({
+                    'prompts': input_ids.tolist(),
+                    'responses': response.tolist(),
+                    'input_ids': seq.tolist(),
+                    'attention_mask': attention_mask.tolist(),
+                    'loss_mask': loss_mask.tolist(),
+                    'position_ids': position_ids.tolist(),
+                    'decoded_responses': decoded_responses,
+                    'batch_chat': batch_chat
+                }))
+                f.write("\n")
+        else:
+            with open('logs/generate_sequences_call_single.json', 'w') as f:
+                f.write(json.dumps({
+                    'prompts': input_ids.tolist(),
+                    'responses': response.tolist(),
+                    'input_ids': seq.tolist(),
+                    'attention_mask': attention_mask.tolist(),
+                    'position_ids': position_ids.tolist(),
+                }))
+                f.write("\n")
 
         # free vllm cache engine
         if self.config.free_cache_engine:

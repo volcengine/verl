@@ -168,6 +168,15 @@ class DataProtoItem:
     non_tensor_batch: Dict = field(default_factory=dict)
     meta_info: Dict = field(default_factory=dict)
 
+    def to_dict(self, with_meta_info=False):
+        ret = {
+            **self.batch.to_dict(),
+            **self.non_tensor_batch,
+        }
+        if with_meta_info:
+            ret["meta_info"] = self.meta_info
+        return ret
+
 
 @dataclass
 class DataProto:
@@ -505,6 +514,7 @@ class DataProto:
         non_tensors = {}
         # non tensor batch
         for key in non_tensor_batch_keys:
+            print(non_tensor_batch_keys, self.non_tensor_batch.keys())
             assert key in self.non_tensor_batch.keys()
             non_tensors[key] = self.non_tensor_batch.pop(key)
         meta_info = {}

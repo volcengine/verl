@@ -203,6 +203,24 @@ class RayWorkerGroup(WorkerGroup):
                  detached=False,
                  worker_names=None,
                  **kwargs) -> None:
+        """
+        This class allows placing one RayClassWithInitArgs on a resource pool.
+        steps:
+        1. create workers on resource pool, record their names.
+        2. bind the method of the worker to the WorkerGroup, with a dispatch function.
+        Only methods decorated with @register will be bound. Dispatch function is specified in args of @register
+
+        When initializing without specifying resource_pool arg, will be init with detached workers.
+        This means it will gather all workers by worker names.
+        Args:
+            resource_pool:
+            ray_cls_with_init:
+            bin_pack:
+            name_prefix:
+            detached:
+            worker_names:
+            **kwargs:
+        """
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -270,6 +288,8 @@ class RayWorkerGroup(WorkerGroup):
                 cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
                 name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
+                env_vars['VLLM_ATTENTION_BACKEND'] = 'XFORMERS'
+
                 ray_cls_with_init.update_options({'runtime_env': {'env_vars': env_vars}, 'name': name})
 
                 if detached:
@@ -312,7 +332,8 @@ class RayWorkerGroup(WorkerGroup):
     def spawn(self, prefix_set):
         """
         spawn to a dictionary of worker groups, each with a subset of method with prefix.
-
+        This method will create some new worker groups according to the prefix set.
+        Each worker group will re-bind all functions from the old wg with that prefix to this new wg without prefix.
         """
 
         def _rebind_actor_methods(worker_group, actor_name):
@@ -399,7 +420,7 @@ import os
 
 def _bind_workers_method_to_parent(cls, key, user_defined_cls):
     """
-    Binds the methods of each worker to the WorkerDict. 
+    Binds the methods of each worker to the WorkerDict.
     Note that we only bind public methods that are decorated by register
     """
     for method_name in dir(user_defined_cls):
@@ -439,8 +460,11 @@ def _unwrap_ray_remote(cls):
 
 def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     """
-    This function should return a class instance that delegates the calls to every 
+    This function should return a class instance that delegates the calls to every
     cls in cls_dict
+    This function aggregates multiple RayClassWithInitArgs into one RayClassWithInitArgs,
+    all methods are bound to this new cls with keys as prefixes respectively.
+    Only method decorated with @register is bound.
     """
     cls_dict = {}
     init_args_dict = {}

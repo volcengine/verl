@@ -15,3 +15,4 @@
 from .naive import NaiveRewardManager
 from .prime import PrimeRewardManager
 from .dapo import DAPORewardManager
+from .swedev import SWEDevRewardManager

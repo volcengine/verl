@@ -1,4 +1,4 @@
-# requirements.txt records the full set of dependencies for development
+# # requirements.txt records the full set of dependencies for development
 accelerate
 codetiming
 datasets
@@ -8,15 +8,13 @@ hydra-core
 liger-kernel
 numpy
 pandas
-datasets
 peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
-pylint==3.3.6
-ray[default]
-tensordict<=0.6.2
-torchdata
+ray[data,train,tune,serve]
+tensordict==0.5.0
+torchdata==0.11.0
 transformers
-# vllm==0.6.3.post1
+vllm<=0.6.3
 wandb

@@ -23,7 +23,8 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
-
+# from verl.utils.swedev_utils import *
+from verl.utils.agent_utils import *
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
 
@@ -72,6 +73,28 @@ def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 
     return image
 
 
+# TODO: maybe put base url here is more reasonable
+# TODO: maybe an unified protocol that supports automatically retrieving name and valid indices is better
+class AgenticDataset(Dataset):
+    def __init__(
+        self,
+        name: str,
+        index_start: int,
+        index_end: int,
+    ):
+        self.name = name
+        self.index_start = index_start
+        self.index_end = index_end
+
+    def __len__(self):
+        return self.index_end - self.index_start
+
+    def __getitem__(self, item):
+        return {
+            "index": torch.tensor(item + self.index_start),
+            "name": self.name,
+        }
+
 class RLHFDataset(Dataset):
     """
     We assume the dataset contains a column that contains prompts and other information
@@ -90,7 +113,8 @@ class RLHFDataset(Dataset):
                  return_raw_chat: bool = False,
                  truncation: str = 'error',
                  filter_overlong_prompts: bool = False,
-                 num_workers: Optional[int] = None):
+                 num_workers: Optional[int] = None,
+                 task_type: str ='default'):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
@@ -113,6 +137,11 @@ class RLHFDataset(Dataset):
             self.num_workers = max(1, os.cpu_count() // 4)
         else:
             self.num_workers = min(num_workers, os.cpu_count())
+            
+        self.task_type = task_type
+        if self.task_type != 'default':
+            self.preprocess_dataset = PREPROCESS_DATASET[self.task_type]
+            self.prompt_generator = PROMPT_GENERATOR[self.task_type]
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -164,9 +193,11 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        row_dict: dict = self.dataframe[item]
-
-        chat = row_dict.pop(self.prompt_key)
+        row_dict: dict = self.dataframe.iloc[item].to_dict()
+        if self.task_type == 'default':
+            chat = row_dict.pop(self.prompt_key)
+        else:
+            chat = self.prompt_generator(row_dict)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 
@@ -218,6 +249,8 @@ class RLHFDataset(Dataset):
         row_dict['attention_mask'] = attention_mask[0]
         row_dict['position_ids'] = position_ids[0]
         row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
+
+        # print(f"Row {len(row_dict['input_ids'])}")
 
         # encode prompts without chat template
         if self.return_raw_chat:

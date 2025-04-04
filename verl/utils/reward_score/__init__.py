@@ -14,7 +14,7 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, question="", tokenizer=None):
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
@@ -40,6 +40,26 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['codecontests', 'apps', 'codeforces', 'taco']:
         from . import prime_code
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+    elif data_source in ['hotpotqa', 'hotpotQA']:
+        from . import hotpotqa
+        res = hotpotqa.compute_score(
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            question=question,
+            # extractor_urls=["http://172.18.75.153:8000/v1"],
+            # checker_urls=["http://172.18.75.109:8000/v1"],
+            # extractor_urls=["http://172.20.68.119:8000/v1"],
+            # checker_urls=["http://172.20.69.226:8000/v1"],
+            extractor_urls=["http://172.21.1.152:8000/v1"],
+            checker_urls=["http://172.21.1.97:8000/v1"],
+            tokenizer=tokenizer
+        )
+        # lurui: must return a float
+        print(f"judgement by hotpotqa: {res}")
+        if isinstance(res, float):
+            return float(res)
+        else:
+            raise NotImplementedError
     elif data_source in ['hiyouga/geometry3k']:
         from . import geo3k
         res = geo3k.compute_score(solution_str, ground_truth)
