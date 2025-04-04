@@ -27,9 +27,9 @@ from verl import DataProto
 from verl.trainer.ppo import core_algos
 from verl.workers.critic import BasePPOCritic
 from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean, compute_response_mask
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
-from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+from verl.utils.seqlen_balancing import get_uniform_data_chunks, get_reverse_idx
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -130,27 +130,25 @@ class DataParallelPPOCritic(BasePPOCritic):
 
     def compute_values(self, data: DataProto) -> torch.Tensor:
         self.critic_module.eval()
-        micro_batch_size = data.meta_info['micro_batch_size']
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
-        batch = data.select(batch_keys=select_keys).batch
-        use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
-        has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
 
-        if has_multi_modal_inputs:
-            num_micro_batches = data.batch.batch_size[0] // micro_batch_size
-            non_tensor_select_keys = ['multi_modal_inputs']
-            micro_batches = data.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-        elif use_dynamic_bsz:
-            # split using dynamic bsz
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        non_tensor_select_keys = ["multi_modal_inputs"] if 'multi_modal_inputs' in data.non_tensor_batch.keys() else []
+
+        selected_data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+        use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
+
+        if use_dynamic_bsz:
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
-            micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
+            micro_data_chunks, indices = get_uniform_data_chunks(data=selected_data, max_token_len=max_token_len)
         else:
-            micro_batches = batch.split(micro_batch_size)
+            micro_batch_size = data.meta_info['micro_batch_size']
+            num_micro_batches = len(selected_data) // micro_batch_size
+            micro_data_chunks = selected_data.chunk(num_micro_batches)
 
         values_lst = []
-        for micro_batch in micro_batches:
-            if isinstance(micro_batch, DataProto):
-                micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+        for micro_data_chunk in micro_data_chunks:
+            micro_batch = {**micro_data_chunk.batch, **micro_data_chunk.non_tensor_batch}
 
             with torch.no_grad():
                 values = self._forward_micro_batch(micro_batch)
@@ -175,51 +173,34 @@ class DataParallelPPOCritic(BasePPOCritic):
         metrics = {}
 
         select_keys = ['input_ids', 'responses', 'attention_mask', 'position_ids', 'values', 'returns']
-        batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
+        non_tensor_select_keys = ["multi_modal_inputs"] if 'multi_modal_inputs' in data.non_tensor_batch.keys() else []
+
+        selected_data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        if has_multi_modal_inputs:
-            num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
-            non_tensor_select_keys = ['multi_modal_inputs']
-            dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
-        else:
-            dataloader = batch.split(self.config.ppo_mini_batch_size)
+        num_mini_batches = len(selected_data) // self.config.ppo_mini_batch_size
+        mini_dataloader = selected_data.chunk(num_mini_batches)  # TODO: `make_minibatch_iterator`` as in megatron
 
         for epoch in range(self.config.ppo_epochs):
-            for mini_idx, mini_batch in enumerate(dataloader):
-                if has_multi_modal_inputs:
-                    num_micro_batches = mini_batch.batch.batch_size[0] // self.config.ppo_micro_batch_size_per_gpu
-                    micro_batches = mini_batch.select(select_keys, non_tensor_select_keys).chunk(num_micro_batches)
-                elif self.config.use_dynamic_bsz:
+            for mini_idx, mini_data_chunk in enumerate(mini_dataloader):
+                if self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                    micro_batches, _ = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+                    micro_data_chunks, _ = get_uniform_data_chunks(data=mini_data_chunk, max_token_len=max_token_len)
                 else:
-                    micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
-                    self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                    num_micro_batches = len(mini_data_chunk) // self.config.ppo_micro_batch_size_per_gpu
+                    micro_data_chunks = mini_data_chunk.chunk(num_micro_batches)
 
                 self.critic_optimizer.zero_grad()
 
-                for micro_batch in micro_batches:
-                    #Support all devices
-                    if isinstance(micro_batch, DataProto):
-                        micro_batch = {
-                            **micro_batch.batch.to(torch.cuda.current_device()),
-                            **micro_batch.non_tensor_batch
-                        }
-                    else:
-                        micro_batch = micro_batch.to(
-                            torch.cuda.current_device())  # critic device is cpu when using offload
-                    input_ids = micro_batch['input_ids']
+                for micro_data_chunk in micro_data_chunks:
+                    micro_batch = {**micro_data_chunk.batch, **micro_data_chunk.non_tensor_batch}
+
                     responses = micro_batch['responses']
                     attention_mask = micro_batch['attention_mask']
-                    position_ids = micro_batch['position_ids']
                     values = micro_batch['values']
                     returns = micro_batch['returns']
-                    response_length = responses.size(1)
-
-                    response_mask = attention_mask[:, -response_length - 1:-1]
+                    response_mask = compute_response_mask(response_ids=responses, attention_mask=attention_mask)
 
                     vpreds = self._forward_micro_batch(micro_batch)
 
@@ -230,16 +211,15 @@ class DataParallelPPOCritic(BasePPOCritic):
                                                                          returns=returns,
                                                                          response_mask=response_mask,
                                                                          cliprange_value=self.config.cliprange_value)
-                    if self.config.use_dynamic_bsz:
-                        if self.config.loss_agg_mode == 'token-mean':
-                            mini_batch_loss_token_nums = data.meta_info['mini_batch_loss_token_nums']
-                            mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
-                            num_valid_toks = response_mask.sum()
-                            loss = vf_loss * num_valid_toks / mini_batch_loss_token_num
-                        else:  # seq-mean
-                            loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
-                    else:
-                        loss = vf_loss / self.gradient_accumulation
+
+                    if self.config.loss_agg_mode == 'token-mean':
+                        mini_batch_loss_token_nums = data.meta_info['mini_batch_loss_token_nums']
+                        mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
+                        num_valid_toks = response_mask.sum()
+                        loss = vf_loss * num_valid_toks / mini_batch_loss_token_num
+                    else:  # seq-mean
+                        loss = vf_loss * (len(micro_data_chunk) / self.config.ppo_mini_batch_size)
+
                     loss.backward()
 
                     mini_metric_data = {

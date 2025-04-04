@@ -43,6 +43,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.torch_functional import compute_response_mask
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -137,10 +138,8 @@ from verl.utils.torch_functional import masked_mean
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
-    # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
-        data.batch['response_mask'] = compute_response_mask(data)
-    response_mask = data.batch['response_mask']
+    response_mask = compute_response_mask(response_ids=data.batch['responses'],
+                                          attention_mask=data.batch['attention_mask'])
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
 
@@ -165,17 +164,9 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-def compute_response_mask(data: DataProto):
-    responses = data.batch['responses']
-    response_length = responses.size(1)
-    attention_mask = data.batch['attention_mask']
-    return attention_mask[:, -response_length:]
-
-
 def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, num_dp_ranks: int) -> list[int]:
-    if "response_mask" not in batch.batch.keys():
-        batch.batch['response_mask'] = compute_response_mask(batch)
-    response_mask = batch.batch['response_mask']
+    response_mask = compute_response_mask(response_ids=batch.batch['responses'],
+                                          attention_mask=batch.batch['attention_mask'])
 
     traj_bsz = len(batch.batch)
     num_mini_batches = (traj_bsz + traj_mini_bsz - 1) // traj_mini_bsz
@@ -198,15 +189,15 @@ def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, num_dp
 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
-        data.batch['response_mask'] = compute_response_mask(data)
+    response_mask = compute_response_mask(response_ids=data.batch['responses'],
+                                          attention_mask=data.batch['attention_mask'])
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
         advantages, returns = core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch['token_level_rewards'],
             values=data.batch['values'],
-            response_mask=data.batch['response_mask'],
+            response_mask=response_mask,
             gamma=gamma,
             lam=lam)
         data.batch['advantages'] = advantages
@@ -214,29 +205,27 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     elif adv_estimator == AdvantageEstimator.GRPO:
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
-            response_mask=data.batch['response_mask'],
+            response_mask=response_mask,
             index=data.non_tensor_batch['uid'])
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
-            token_level_rewards=data.batch['token_level_rewards'],
-            response_mask=data.batch['response_mask'],
-            gamma=gamma)
+            token_level_rewards=data.batch['token_level_rewards'], response_mask=response_mask, gamma=gamma)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.REMAX:
         advantages, returns = core_algos.compute_remax_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             reward_baselines=data.batch['reward_baselines'],
-            response_mask=data.batch['response_mask'])
+            response_mask=response_mask)
 
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.RLOO:
         advantages, returns = core_algos.compute_rloo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
-            response_mask=data.batch['response_mask'],
+            response_mask=response_mask,
             index=data.non_tensor_batch['uid'])
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
@@ -884,7 +873,6 @@ class RayPPOTrainer(object):
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-                    batch.batch['response_mask'] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
