@@ -154,7 +154,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
                                    index: torch.Tensor,
                                    epsilon: float = 1e-6):
     """
-    Compute advantage for GRPO, operating only on Outcome reward 
+    Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward 
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
