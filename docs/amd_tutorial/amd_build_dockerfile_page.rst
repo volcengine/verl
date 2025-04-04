@@ -48,6 +48,7 @@ docker/Dockerfile.rocm
         liger-kernel \
         numpy \
         pandas \
+        datasets \
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
