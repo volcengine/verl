@@ -77,7 +77,7 @@ class BatchRewardManager:
         for i in range(len(data)):
             length = valid_response_lengths[i].item()
             score = scores[i]
-            
+
             if isinstance(score, dict):
                 reward = score["score"]
                 for key, value in score.items():
@@ -102,9 +102,6 @@ class BatchRewardManager:
         data.batch['acc'] = torch.tensor(rewards, dtype=torch.float32, device=prompt_ids.device)
 
         if return_dict:
-            return {
-                "reward_tensor": reward_tensor,
-                "reward_extra_info": reward_extra_info
-            }
+            return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
         else:
             return reward_tensor
