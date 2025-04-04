@@ -172,6 +172,7 @@ Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcen
         liger-kernel \
         numpy \
         pandas \
+        datasets \
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
