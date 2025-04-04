@@ -4,8 +4,13 @@ data:
   micro_batch_size_per_gpu: 4  # this is also val batch size
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
+  # Single-turn settings
   prompt_key: question
   response_key: answer
+  # Multi-turn settings
+  multiturn:
+    enable: false  # Set to true to use multi-turn dataset
+    messages_key: messages  # Key for messages list in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
