@@ -882,7 +882,7 @@ class RayPPOTrainer(object):
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                    batch.meta_info["mini_batch_loss_token_nums"] = self.calc_mini_batch_loss_token_nums(
+                    batch.meta_info["mini_batch_loss_token_nums"] = calc_mini_batch_loss_token_nums(
                         batch,
                         traj_mini_bsz=self.config.actor_rollout_ref.actor.ppo_mini_batch_size *
                         self.config.actor_rollout_ref.rollout.n,
