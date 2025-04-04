@@ -423,7 +423,8 @@ class RayPPOTrainer(object):
             sampler = SequentialSampler(data_source=self.train_dataset)
 
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.train_batch_size,
+                                                   batch_size=self.config.data.get('gen_batch_size',
+                                                                                   self.config.data.train_batch_size),
                                                    num_workers=8,
                                                    drop_last=True,
                                                    collate_fn=collate_fn,
