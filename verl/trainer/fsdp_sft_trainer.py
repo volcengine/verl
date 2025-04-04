@@ -39,6 +39,7 @@ from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_fir
 
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
 from verl.utils.dataset import SFTDataset
+from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.fs import copy_to_local
 from verl.utils.tracking import Tracking
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, set_ulysses_sequence_parallel_group
@@ -122,10 +123,18 @@ class FSDPSFTTrainer(object):
         config = self.config
         # build dataset
         from verl.utils.import_utils import load_extern_type
+
+        # First check if a custom dataset class is specified
         if config.data.custom_cls.get("path", None):
             dataset_cls = load_extern_type(config.data.custom_cls.path, config.data.custom_cls.name)
+        # Then check if multi-turn dataset should be used
+        elif config.data.get('multiturn', {}).get('enable', False):
+            dataset_cls = MultiTurnSFTDataset
+        # Default to single-turn dataset
         else:
             dataset_cls = SFTDataset
+
+        # Create datasets based on the selected class
         self.train_dataset = dataset_cls(parquet_files=config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          config=config.data)
