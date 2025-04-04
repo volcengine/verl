@@ -14,6 +14,7 @@
 
 import torch
 from verl import DataProto
+from collections import defaultdict
 
 
 class BatchRewardManager:
@@ -43,26 +44,26 @@ class BatchRewardManager:
         data_sources = data.non_tensor_batch[self.reward_fn_key]
         extras = data.non_tensor_batch.get('extra_info', [None] * len(data))
 
-        try:
-            scores = self.compute_score(
-                data_sources=data_sources,
-                solution_strs=responses_str,
-                ground_truths=ground_truths,
-                extra_infos=extras,
-            )
-        except Exception as e:
-            print(f"[verify] Scoring failed: {e}")
-            scores = [0.0] * len(data)
+        scores = self.compute_score(
+            data_sources=data_sources,
+            solution_strs=responses_str,
+            ground_truths=ground_truths,
+            extra_infos=extras,
+        )
 
-        scores = [float(s) if isinstance(s, (float, int)) else 0.0 for s in scores]
-        data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict=False):
+
+        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
-            return data.batch['rm_scores']
+            if return_dict:
+                return {"reward": data.batch['rm_scores']}
+            else:
+                return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        reward_extra_info = defaultdict(list)
         prompt_ids = data.batch['prompts']
         prompt_len = prompt_ids.shape[-1]
         attention_mask = data.batch['attention_mask']
@@ -70,12 +71,22 @@ class BatchRewardManager:
         data_sources = data.non_tensor_batch[self.reward_fn_key]
 
         scores = self.verify(data)
-
+        rewards = []
         already_printed = {}
 
         for i in range(len(data)):
             length = valid_response_lengths[i].item()
-            reward_tensor[i, length - 1] = scores[i]
+            score = scores[i]
+            
+            if isinstance(score, dict):
+                reward = score["score"]
+                for key, value in score.items():
+                    reward_extra_info[key].append(value)
+            else:
+                reward = score
+
+            rewards.append(reward)
+            reward_tensor[i, length - 1] = reward
 
             data_source = data_sources[i]
             if already_printed.get(data_source, 0) < self.num_examine:
@@ -88,4 +99,12 @@ class BatchRewardManager:
                 print("[score]", scores[i])
                 already_printed[data_source] = already_printed.get(data_source, 0) + 1
 
-        return reward_tensor
+        data.batch['acc'] = torch.tensor(rewards, dtype=torch.float32, device=prompt_ids.device)
+
+        if return_dict:
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info
+            }
+        else:
+            return reward_tensor
