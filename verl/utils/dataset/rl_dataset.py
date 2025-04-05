@@ -193,7 +193,9 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
         preprocessed_msg_lst = self.preprocess_msg_lst(chat)
-        prompt_with_chat_template = self.get_text_prompt_from_msg_lst(preprocessed_msg_lst)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(preprocessed_msg_lst,
+                                                                       add_generation_prompt=True,
+                                                                       tokenize=False)
 
         is_multi_modal = self.image_key in row_dict
         if is_multi_modal:  # expand image token
