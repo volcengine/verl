@@ -31,7 +31,7 @@ def test_rl_dataset():
     from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
     local_path = get_gsm8k_data()
-    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
+    dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
 
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
 

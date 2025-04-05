@@ -21,7 +21,7 @@ then tokenize.
 
 .. code:: python
 
-   self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
+   self.train_dataset = RLHFDataset(data_files=self.config.data.train_files,
                                        tokenizer=self.tokenizer,
                                        prompt_key=self.config.data.prompt_key,
                                        max_prompt_length=self.config.data.max_prompt_length,
