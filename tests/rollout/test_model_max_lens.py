@@ -130,8 +130,4 @@ def test_vllm_rollout_with_yarn_position_embeddings():
 if __name__ == "__main__":
     import os 
     os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
-    try:
-        test_vllm_rollout_with_yarn_position_embeddings()
-        print("vLLM rollout with yarn position embeddings test passed.")
-    except Exception as e:
-        print(f"vLLM rollout with yarn position embeddings test failed: {e}")
+    test_vllm_rollout_with_yarn_position_embeddings()
