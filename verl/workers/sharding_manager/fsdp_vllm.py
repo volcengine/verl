@@ -29,6 +29,7 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
 
 from .base import BaseShardingManager
+from .patch import patched_ds_v3_load_weights
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -94,8 +95,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.wake_up()
             world_size = torch.distributed.get_world_size()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            loaded_params = model.load_weights(
-                ((name, param.full_tensor() if world_size != 1 else param) for name, param in params.items()))
+            if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
+                loaded_params = patched_ds_v3_load_weights(
+                    model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
+                            for name, param in params.items()))
+            else:
+                loaded_params = model.load_weights(
+                    ((name, param.full_tensor() if world_size != 1 else param) for name, param in params.items()))
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
 
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
