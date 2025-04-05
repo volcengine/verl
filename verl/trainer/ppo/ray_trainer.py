@@ -18,6 +18,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import os
 import uuid
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -450,6 +451,13 @@ class RayPPOTrainer(object):
             for arg_name, arg_value in all_possible_params.items():
                 if arg_name not in kwargs:
                     kwargs[arg_name] = arg_value
+
+        if "data_files" not in kwargs:
+            warnings.warn("The custom dataset should use 'data_files' to receive passed train_files or val_files, "
+                          "but this parameter is missing from your Custom Dataset's init function. This may prevent "
+                          "your training/test sets from loading data correctly. To fix this, please add 'data_files' "
+                          "to your custom dataset's __init__ function and load the data files properly. "
+                          "If this is intentional, please ensure you know what you're doing.")
 
         return dataset_cls(**kwargs)
 
