@@ -1,4 +1,4 @@
-# Copyright 2024 PRIME team and/or its affiliates
+# Copyright 2025 Individual Contributor: Mert Unsal
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .naive import NaiveRewardManager
-from .prime import PrimeRewardManager
-from .batch import BatchRewardManager
-from .dapo import DAPORewardManager
+from .math import compute_score
+
+
+def compute_score_batched(data_sources, solution_strs, ground_truths, extra_infos):
+    """
+    This is a demonstration of how the batched reward function should look like.
+    Typically, you want to use batched reward to speed up the process with parallelization
+    """
+    return [
+        compute_score(solution_str, ground_truth) for solution_str, ground_truth in zip(solution_strs, ground_truths)
+    ]
