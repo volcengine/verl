@@ -25,8 +25,6 @@ from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_sh
 from verl import DataProto
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
 from verl.workers.reward_model.base import BasePPORewardModel
-from megatron.core import parallel_state as mpu
-from megatron.core.pipeline_parallel import get_forward_backward_func
 
 
 class MegatronRewardModel(BasePPORewardModel):
@@ -116,6 +114,7 @@ class MegatronRewardModel(BasePPORewardModel):
 
     @torch.no_grad()
     def compute_reward(self, data: DataProto) -> DataProto:
+        from megatron.core import parallel_state as mpu
         if self.config.param_offload:
             self.load_params_to_cuda()
 
@@ -185,6 +184,7 @@ class MegatronRewardModel(BasePPORewardModel):
         """
         # broadcast from last pp rank to all other pp ranks
         # TODO: actually, we just need to control the sampling order.
+        from megatron.core import parallel_state as mpu
         data.batch = data.batch.contiguous()
         broadcast_dict_tensor(data.batch,
                               src=mpu.get_pipeline_model_parallel_last_rank(),
@@ -209,6 +209,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 'hidden_size': self.model_config.hidden_size
             })
         # compute input shapes for pp stages
+        from megatron.core.pipeline_parallel import get_forward_backward_func
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output):

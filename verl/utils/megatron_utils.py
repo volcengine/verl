@@ -19,15 +19,6 @@ from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from megatron.core import ModelParallelConfig
-from megatron.core import mpu, tensor_parallel
-from megatron.core.distributed import DistributedDataParallel as DDP
-from megatron.core.distributed import DistributedDataParallelConfig
-from megatron.core.enums import ModelType
-from megatron.core.optimizer import OptimizerConfig
-from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.module import Float16Module
-from megatron.core.utils import get_attr_wrapped_model
 from omegaconf import DictConfig
 
 from verl.utils.memory_buffer import build_memory_reference_from_module
@@ -35,15 +26,21 @@ from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):
+    from megatron.core.utils import get_attr_wrapped_model
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
-def get_model(model_provider_func,
-              model_type=ModelType.encoder_or_decoder,
-              wrap_with_ddp=True,
-              use_distributed_optimizer=True):
+def get_model(model_provider_func, model_type=None, wrap_with_ddp=True, use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
+    from megatron.core import mpu, tensor_parallel
+    from megatron.core.distributed import DistributedDataParallel as DDP
+    from megatron.core.distributed import DistributedDataParallelConfig
+    from megatron.core.enums import ModelType
+    from megatron.core.transformer import TransformerConfig
+    from megatron.core.transformer.module import Float16Module
+    if model_type is None:
+        model_type = ModelType.encoder_or_decoder
     if mpu.get_pipeline_model_parallel_world_size() > 1 and \
        mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
         assert model_type != ModelType.encoder_and_decoder, \
@@ -132,10 +129,7 @@ def get_model(model_provider_func,
     return model
 
 
-ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
-
-
-def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
+def unwrap_model(model, module_instances):
     return_list = True
     if not isinstance(model, list):
         model = [model]
@@ -153,7 +147,7 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
 from transformers import PretrainedConfig
 
 
-def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
+def convert_config(hf_config: PretrainedConfig, megatron_config):
     print(f'megatron config {megatron_config}')
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f'pipeline_dtype=megatron_config {dt}')
@@ -161,9 +155,11 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         qkv_bias = True
     else:
         qkv_bias = getattr(hf_config, 'attention_bias', False)
+    from megatron.core import mpu
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
     ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
+    from megatron.core.transformer import TransformerConfig
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
@@ -197,7 +193,8 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     return transformer_config
 
 
-def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
+def init_megatron_optim_config(optim_config: Dict):
+    from megatron.core.optimizer import OptimizerConfig
     config = OptimizerConfig(
         optimizer='adam',
         lr=optim_config.get('lr'),
@@ -210,9 +207,10 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     return config
 
 
-def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
+def init_model_parallel_config(config: DictConfig):
     # TODO(sgm): check how to disable megatron timers
     timers = None
+    from megatron.core import ModelParallelConfig
     return ModelParallelConfig(tensor_model_parallel_size=config.get('tensor_model_parallel_size'),
                                pipeline_model_parallel_size=config.get('pipeline_model_parallel_size'),
                                virtual_pipeline_model_parallel_size=config.get('virtual_pipeline_model_parallel_size'),
@@ -225,6 +223,7 @@ def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
 
 
 def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
+    from megatron.core import mpu
     if hybrid_engine is not None:
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         for buffer in hybrid_engine.memory_buffers[pp_rank].values():
@@ -240,6 +239,7 @@ def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=Fal
 
 
 def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_grad=False, hybrid_engine=None):
+    from megatron.core import mpu
     if hybrid_engine is not None:
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         for buffer in hybrid_engine.memory_buffers[pp_rank].values():
@@ -277,6 +277,7 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
     os.makedirs(os.path.join(checkpoint_path, "optim"), exist_ok=True)
     if not use_distributed_optimizer:
         return os.path.join(checkpoint_path, "optim", "optim.pt")
+    from megatron.core import mpu
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     tp_rank = mpu.get_tensor_model_parallel_rank()
     #TODO: support ep
@@ -287,5 +288,132 @@ def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=Fa
     os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
     if not data_parallel_random_init:
         return os.path.join(checkpoint_path, f'rng_states', "rng_states.pt")
+    from megatron.core import mpu
     dp_rank = mpu.get_data_parallel_rank()
     return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")
+
+
+def convert_megatron_model_to_transformers_model(params,
+                                                 config: PretrainedConfig,
+                                                 tp_size: int,
+                                                 num_query_groups: int,
+                                                 convert_qkv_gate_up=True):
+    """Convert megatron model to transformers model."""
+    new_params = {}
+
+    def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
+        nonlocal config
+        nonlocal tp_size
+        nonlocal num_query_groups
+        nonlocal new_params
+
+        q_shard_list = []
+        k_shard_list = []
+        v_shard_list = []
+        hidden_size_per_head = config.hidden_size // config.num_attention_heads
+
+        if config.num_key_value_heads >= tp_size:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
+            total_size = q_size_tp + 2 * kv_size_tp
+            for i in range(tp_size):
+                num_query_groups_per_partition = num_query_groups // tp_size
+                qkv_part = full_tensor[i * total_size:(i + 1) * total_size]
+                q_size_chunk = q_size_tp // num_query_groups_per_partition
+                kv_size_chunk = kv_size_tp // num_query_groups_per_partition
+                for qkv_part_chunk in qkv_part.chunk(num_query_groups_per_partition):
+                    q_part = qkv_part_chunk[:q_size_chunk]
+                    k_part = qkv_part_chunk[q_size_chunk:q_size_chunk + kv_size_chunk]
+                    v_part = qkv_part_chunk[q_size_chunk + kv_size_chunk:]
+                    q_shard_list.append(q_part)
+                    k_shard_list.append(k_part)
+                    v_shard_list.append(v_part)
+        else:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head
+            total_size = q_size_tp + 2 * kv_size_tp
+            for i in range(tp_size):
+                num_query_groups_per_partition = num_query_groups // tp_size
+                qkv_part = full_tensor[i * total_size:(i + 1) * total_size]
+                q_size_chunk = q_size_tp // num_query_groups_per_partition
+                kv_size_chunk = kv_size_tp // num_query_groups_per_partition
+                for qkv_part_chunk in qkv_part.chunk(num_query_groups_per_partition):
+                    q_part = qkv_part_chunk[:q_size_chunk]
+                    k_part = qkv_part_chunk[q_size_chunk:q_size_chunk + kv_size_chunk]
+                    v_part = qkv_part_chunk[q_size_chunk + kv_size_chunk:]
+                    q_shard_list.append(q_part)
+                    if i * config.num_key_value_heads % tp_size == 0:
+                        k_shard_list.append(k_part)
+                        v_shard_list.append(v_part)
+
+        new_params[q_name] = torch.cat(q_shard_list, dim=0)
+        new_params[k_name] = torch.cat(k_shard_list, dim=0)
+        new_params[v_name] = torch.cat(v_shard_list, dim=0)
+
+    def convert_gate_up_shard(full_tensor, gate_name, up_name):
+        nonlocal config
+        nonlocal tp_size
+        nonlocal new_params
+
+        intermediate_size_tp = config.intermediate_size // tp_size
+        gate_weight_list = []
+        up_weight_list = []
+        for i in range(tp_size):
+            gate_up_weight_tp = full_tensor[intermediate_size_tp * 2 * i:intermediate_size_tp * 2 * (i + 1)]
+            gate_weight_tp = gate_up_weight_tp[:intermediate_size_tp]
+            up_weight_tp = gate_up_weight_tp[intermediate_size_tp:]
+            gate_weight_list.append(gate_weight_tp)
+            up_weight_list.append(up_weight_tp)
+        new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
+        new_params[up_name] = torch.cat(up_weight_list, dim=0)
+
+    for name, param in params.items():
+        if name == 'embedding.word_embeddings.weight':
+            new_params['model.embed_tokens.weight'] = param
+        # elif name == 'lm_head.weight':
+        #     new_params['lm_head.weight'] = param
+        # elif name == 'rm_head.weight':
+        #     new_params['rm_head.weight'] = param
+        elif 'self_attention' in name:
+            splitted_name = name.split('.')
+            layer_number = splitted_name[2]
+            component = splitted_name[4]
+            param_type = splitted_name[5]
+            if component == 'linear_proj':
+                new_params[f'model.layers.{layer_number}.self_attn.o_proj.weight'] = param
+            elif component == 'linear_qkv':
+                if param_type == 'layer_norm_weight':
+                    new_params[f'model.layers.{layer_number}.input_layernorm.weight'] = param
+                elif param_type == 'weight':
+                    if convert_qkv_gate_up:
+                        convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.weight',
+                                          f'model.layers.{layer_number}.self_attn.k_proj.weight',
+                                          f'model.layers.{layer_number}.self_attn.v_proj.weight')
+                    else:
+                        new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.weight'] = param
+                elif param_type == 'bias':
+                    if convert_qkv_gate_up:
+                        convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.bias',
+                                          f'model.layers.{layer_number}.self_attn.k_proj.bias',
+                                          f'model.layers.{layer_number}.self_attn.v_proj.bias')
+                    else:
+                        new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.bias'] = param
+                else:
+                    raise ValueError(f"Unknown param type {param_type} for {name}")
+        elif 'mlp' in name:
+            splitted_name = name.split('.')
+            layer_number = splitted_name[2]
+            component = splitted_name[4]
+            param_type = splitted_name[5]
+            if component == 'linear_fc1':
+                if param_type == 'layer_norm_weight':
+                    new_params[f'model.layers.{layer_number}.post_attention_layernorm.weight'] = param
+                elif param_type == 'weight':
+                    if convert_qkv_gate_up:
+                        convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
+                                              f'model.layers.{layer_number}.mlp.up_proj.weight')
+                    else:
+                        new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
+            elif component == 'linear_fc2':
+                new_params[f'model.layers.{layer_number}.mlp.down_proj.weight'] = param
+    return new_params
