@@ -423,7 +423,7 @@ class RayPPOTrainer(object):
             "num_workers": self.config.data.get('filter_overlong_prompts_workers', None),
         }
         # add the rest data configs into all possible params
-        for key, value in self.config.data:
+        for key, value in self.config.data.items():
             if key not in all_possible_params:
                 all_possible_params[key] = value
 
