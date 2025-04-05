@@ -193,7 +193,7 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        row_dict: dict = self.dataframe.iloc[item].to_dict()
+        row_dict: dict = self.dataframe[item]
         if self.task_type == 'default':
             chat = row_dict.pop(self.prompt_key)
         else:

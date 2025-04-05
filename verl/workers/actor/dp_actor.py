@@ -242,8 +242,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        # select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'loss_mask', 'position_ids', 'old_log_probs', 'advantages']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        if self.config.get('multi_turn', False):
+            select_keys.append('loss_mask')
+            
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch
@@ -286,7 +288,9 @@ class DataParallelPPOActor(BasePPOActor):
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
-
+                    old_log_prob = data['old_log_probs']
+                    advantages = data['advantages']
+                    
                     # assert self.config.get('multi_turn') == True
                     if self.config.get('multi_turn', False):
                         # loss mask like 1,1,1,0,0,1,1,0,0,0,1,1,1,0,...
@@ -295,12 +299,10 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         # only align single-turn
                         response_mask = attention_mask[:, -response_length:]
-                    old_log_prob = data['old_log_probs']
-                    advantages = data['advantages']
 
                     clip_ratio = self.config.clip_ratio
-                    clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
-                    clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
+                    clip_ratio_low = self.config.get('clip_ratio_low', clip_ratio)
+                    clip_ratio_high = self.config.get('clip_ratio_high', clip_ratio)
                     clip_ratio_c = self.config.get('clip_ratio_c', 3.0)
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
@@ -308,7 +310,7 @@ class DataParallelPPOActor(BasePPOActor):
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
-                    print(f"inside dp actor {loss_mask.shape=} {response_mask.shape=} {response_length=} {responses.shape=} {old_log_prob.shape=} {log_prob.shape=}")
+                    print(f"inside dp actor {response_mask.shape=} {response_length=} {responses.shape=} {old_log_prob.shape=} {log_prob.shape=}")
 
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                         old_log_prob=old_log_prob,

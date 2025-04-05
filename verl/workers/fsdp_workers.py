@@ -341,7 +341,24 @@ class ActorRolloutRefWorker(Worker):
                                                                full_params='hf' in self.config.rollout.load_format,
                                                                device_mesh=rollout_device_mesh)
             log_gpu_memory_usage('After building sharding manager', logger=None)
-
+        elif self.config.rollout.name == "async":
+            from verl.workers.agentic.async_rollout import AsyncRollout
+            from verl.workers.agentic.fsdp_sgl import FSDPSGLShardingManager
+            local_path = copy_to_local(self.config.model.path)
+            # print(f"nodedup creating async rollout instance, {torch.distributed.get_rank()=} {rollout_device_mesh.get_rank()=} {rollout_device_mesh.shape=}")
+            rollout = AsyncRollout(model_path=local_path, config=self.config.rollout, device_mesh=rollout_device_mesh)
+            rollout_sharding_manager = FSDPSGLShardingManager(
+                module=self.actor_module_fsdp,
+                inference_engine=rollout.engine,
+                model_config=self.actor_model_config,
+                full_params='hf' in self.config.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+                role=self.role,
+                rollout_count=self.config.get("rollout_count"),
+                exchange_size=self.config.get("exchange_size"),
+            )
+        else:
+            raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
         return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

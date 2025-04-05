@@ -18,13 +18,12 @@ import os
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
-import os
 import ray
 import hydra
 
 
 def get_custom_reward_fn(config):
-    import importlib.util, os
+    import importlib.util
 
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
@@ -50,7 +49,6 @@ def get_custom_reward_fn(config):
 
     return getattr(module, function_name)
 
-
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
     run_ppo(config)
@@ -71,7 +69,6 @@ def run_ppo(config) -> None:
                 }
             })
 
-
     main_task(config)
 
 
@@ -85,10 +82,9 @@ def main_task(config):
 
         # download the checkpoint from hdfs
     local_path = copy_to_local(config.actor_rollout_ref.model.path)
-
     # instantiate tokenizer
     from verl.utils import hf_tokenizer, hf_processor
-    trust_remote_code = config.data.get('trust_remote_code', False)
+    trust_remote_code = config.data.get('trust_remote_code', True)
     tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
     processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
@@ -116,7 +112,6 @@ def main_task(config):
             Role.Critic: ray.remote(CriticWorker),
             Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
         }
-
         global_pool_id = 'global_pool'
         print(f'config.trainer.nnodes: {config.trainer.nnodes}')
         print(f'config.trainer.n_gpus_per_node: {config.trainer.n_gpus_per_node}')
@@ -151,67 +146,66 @@ def main_task(config):
             Role.Rollout: "rollout_pool",
         }
 
-        # we should adopt a multi-source reward function here
-        # - for rule-based rm, we directly call a reward score
-        # - for model-based rm, we call a model
-        # - for code related prompt, we send to a sandbox if there are test cases
-        # - finally, we combine all the rewards together
-        # - The reward type depends on the tag of the data
-        if config.reward_model.enable:
-            if config.reward_model.strategy == 'fsdp':
-                from verl.workers.fsdp_workers import RewardModelWorker
-            elif config.reward_model.strategy == 'megatron':
-                from verl.workers.megatron_workers import RewardModelWorker
-            else:
-                raise NotImplementedError
-            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            mapping[Role.RewardModel] = global_pool_id
-
-        #use reference model
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
-            mapping[Role.RefPolicy] = global_pool_id
-
-        reward_manager_name = config.reward_model.get("reward_manager", "naive")
-        if reward_manager_name == 'naive':
-            from verl.workers.reward_manager import NaiveRewardManager
-            reward_manager_cls = NaiveRewardManager
-        elif reward_manager_name == 'prime':
-            from verl.workers.reward_manager import PrimeRewardManager
-            reward_manager_cls = PrimeRewardManager
-        elif reward_manager_name == 'dapo':
-            from verl.workers.reward_manager import DAPORewardManager
-            reward_manager_cls = DAPORewardManager
-        elif reward_manager_name == "swedev":
-            from verl.workers.reward_manager import SWEDevRewardManager
-            reward_manager_cls = SWEDevRewardManager
+    # we should adopt a multi-source reward function here
+    # - for rule-based rm, we directly call a reward score
+    # - for model-based rm, we call a model
+    # - for code related prompt, we send to a sandbox if there are test cases
+    # - finally, we combine all the rewards together
+    # - The reward type depends on the tag of the data
+    if config.reward_model.enable:
+        if config.reward_model.strategy == 'fsdp':
+            from verl.workers.fsdp_workers import RewardModelWorker
+        elif config.reward_model.strategy == 'megatron':
+            from verl.workers.megatron_workers import RewardModelWorker
         else:
-
             raise NotImplementedError
+        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+        mapping[Role.RewardModel] = global_pool_id
 
-        compute_score = get_custom_reward_fn(config)
-        reward_fn = reward_manager_cls(tokenizer=tokenizer,
-                                       num_examine=0,
-                                       compute_score=compute_score,
-                                       reward_fn_key=config.data.reward_fn_key)
+    #use reference model
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = global_pool_id
 
-        # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
-                                           num_examine=1,
-                                           compute_score=compute_score,
-                                           reward_fn_key=config.data.reward_fn_key)
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+    reward_manager_name = config.reward_model.get("reward_manager", "naive")
+    if reward_manager_name == 'naive':
+        from verl.workers.reward_manager import NaiveRewardManager
+        reward_manager_cls = NaiveRewardManager
+    elif reward_manager_name == 'prime':
+        from verl.workers.reward_manager import PrimeRewardManager
+        reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == 'dapo':
+        from verl.workers.reward_manager import DAPORewardManager
+        reward_manager_cls = DAPORewardManager
+    elif reward_manager_name == "swedev":
+        from verl.workers.reward_manager import SWEDevRewardManager
+        reward_manager_cls = SWEDevRewardManager
+    else:
+        raise NotImplementedError
 
-        trainer = RayPPOTrainer(config=config,
-                                tokenizer=tokenizer,
-                                processor=processor,
-                                role_worker_mapping=role_worker_mapping,
-                                resource_pool_manager=resource_pool_manager,
-                                ray_worker_group_cls=ray_worker_group_cls,
-                                reward_fn=reward_fn,
-                                val_reward_fn=val_reward_fn)
-        trainer.init_workers()
-        trainer.fit()
+    compute_score = get_custom_reward_fn(config)
+    reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                    num_examine=0,
+                                    compute_score=compute_score,
+                                    reward_fn_key=config.data.reward_fn_key)
+
+    # Note that we always use function-based RM for validation
+    val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                        num_examine=1,
+                                        compute_score=compute_score,
+                                        reward_fn_key=config.data.reward_fn_key)
+    resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+
+    trainer = RayPPOTrainer(config=config,
+                            tokenizer=tokenizer,
+                            processor=processor,
+                            role_worker_mapping=role_worker_mapping,
+                            resource_pool_manager=resource_pool_manager,
+                            ray_worker_group_cls=ray_worker_group_cls,
+                            reward_fn=reward_fn,
+                            val_reward_fn=val_reward_fn)
+    trainer.init_workers()
+    trainer.fit()
 
 
 if __name__ == '__main__':

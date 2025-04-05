@@ -24,7 +24,7 @@ from transformers import AutoModelForCausalLM, AutoModelForTokenClassification, 
 import sys
 sys.path.append("/data/o1-cloud/lurui/checkpoint/9b_simple_hf_epoch_1_0218")
 from configuration_chatglm import ChatGLMConfig
-from modeling_chatglm import ChatGLMForConditionalGeneration  # 确保导入模型类
+from modeling_chatglm import ChatGLMForConditionalGeneration
 AutoModelForCausalLM.register(ChatGLMConfig, ChatGLMForConditionalGeneration)
 
 # TODO(sgm): add more models for test
@@ -33,8 +33,7 @@ test_configs = [
     LlamaConfig(num_hidden_layers=1),
     MistralConfig(num_hidden_layers=1),
     GemmaConfig(num_hidden_layers=1),
-    Qwen2Config(num_hidden_layers=1),
-    # ChatGLMConfig(num_hidden_layers=1)
+    Qwen2Config(num_hidden_layers=1)
 ]
 
 
@@ -49,7 +48,6 @@ def test_hf_casual_models():
             model = AutoModelForCausalLM.from_config(config=config,
                                                      torch_dtype=torch.bfloat16,
                                                      attn_implementation='flash_attention_2')
-                                                    #  attn_implementation='sdpa')
             model = model.to(device='cuda')
         input_ids = torch.randint(low=0, high=config.vocab_size, size=(batch_size, seqlen), device='cuda')
         attention_mask = create_random_mask(input_ids=input_ids,

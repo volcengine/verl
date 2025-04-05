@@ -43,6 +43,7 @@ from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_througho
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, AgenticDataset, collate_fn
+from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -142,7 +143,6 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
 
-    assert multi_turn == True
     if multi_turn:
         loss_mask = data.batch['loss_mask']
         response_mask = loss_mask[:, -response_length:]
@@ -152,10 +152,14 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
-    kld = core_algos.kl_penalty(data.batch['old_log_probs'], data.batch['ref_log_prob'],
-                                kl_penalty=kl_penalty)  # (batch_size, response_length)
-    kld = kld * response_mask
-    beta = kl_ctrl.value
+    if 'ref_log_prob' in data.batch.keys():
+        kld = core_algos.kl_penalty(data.batch['old_log_probs'], data.batch['ref_log_prob'],
+                                    kl_penalty=kl_penalty)  # (batch_size, response_length)
+        kld = kld * response_mask
+        beta = kl_ctrl.value
+    else:
+        beta = 0
+        kld = torch.zeros_like(response_mask, dtype=torch.float32)
 
     token_level_rewards = token_level_scores - beta * kld
 
@@ -226,117 +230,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     else:
         raise NotImplementedError
     return data
-
-def compute_data_metrics(batch, use_critic=True):
-    # TODO: add response length
-    sequence_score = batch.batch['token_level_scores'].sum(-1)
-    sequence_reward = batch.batch['token_level_rewards'].sum(-1)
-
-    advantages = batch.batch['advantages']
-    returns = batch.batch['returns']
-
-    max_response_length = batch.batch['responses'].shape[-1]
-
-    prompt_mask = batch.batch['attention_mask'][:, :-max_response_length].bool()
-    response_mask = batch.batch['attention_mask'][:, -max_response_length:].bool()
-
-    max_prompt_length = prompt_mask.size(-1)
-
-    response_info = _compute_response_info(batch)
-    prompt_length = response_info['prompt_length']
-    response_length = response_info['response_length']
-
-    valid_adv = torch.masked_select(advantages, response_mask)
-    valid_returns = torch.masked_select(returns, response_mask)
-
-    if use_critic:
-        values = batch.batch['values']
-        valid_values = torch.masked_select(values, response_mask)
-        return_diff_var = torch.var(valid_returns - valid_values)
-        return_var = torch.var(valid_returns)
-
-    metrics = {
-        # score
-        'critic/score/mean':
-            torch.mean(sequence_score).detach().item(),
-        'critic/score/max':
-            torch.max(sequence_score).detach().item(),
-        'critic/score/min':
-            torch.min(sequence_score).detach().item(),
-        # reward
-        'critic/rewards/mean':
-            torch.mean(sequence_reward).detach().item(),
-        'critic/rewards/max':
-            torch.max(sequence_reward).detach().item(),
-        'critic/rewards/min':
-            torch.min(sequence_reward).detach().item(),
-        # adv
-        'critic/advantages/mean':
-            torch.mean(valid_adv).detach().item(),
-        'critic/advantages/max':
-            torch.max(valid_adv).detach().item(),
-        'critic/advantages/min':
-            torch.min(valid_adv).detach().item(),
-        # returns
-        'critic/returns/mean':
-            torch.mean(valid_returns).detach().item(),
-        'critic/returns/max':
-            torch.max(valid_returns).detach().item(),
-        'critic/returns/min':
-            torch.min(valid_returns).detach().item(),
-        **({
-            # values
-            'critic/values/mean': torch.mean(valid_values).detach().item(),
-            'critic/values/max': torch.max(valid_values).detach().item(),
-            'critic/values/min': torch.min(valid_values).detach().item(),
-            # vf explained var
-            'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
-        } if use_critic else {}),
-
-        # response length
-        'response_length/mean':
-            torch.mean(response_length).detach().item(),
-        'response_length/max':
-            torch.max(response_length).detach().item(),
-        'response_length/min':
-            torch.min(response_length).detach().item(),
-        'response_length/clip_ratio':
-            torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
-        # prompt length
-        'prompt_length/mean':
-            torch.mean(prompt_length).detach().item(),
-        'prompt_length/max':
-            torch.max(prompt_length).detach().item(),
-        'prompt_length/min':
-            torch.min(prompt_length).detach().item(),
-        'prompt_length/clip_ratio':
-            torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
-    }
-    return metrics
-
-
-def compute_timing_metrics(batch, timing_raw):
-    response_info = _compute_response_info(batch)
-    num_prompt_tokens = torch.sum(response_info['prompt_length']).item()
-    num_response_tokens = torch.sum(response_info['response_length']).item()
-    num_overall_tokens = num_prompt_tokens + num_response_tokens
-
-    num_tokens_of_section = {
-        'gen': num_response_tokens,
-        **{
-            name: num_overall_tokens for name in ['ref', 'values', 'adv', 'update_critic', 'update_actor']
-        },
-    }
-
-    return {
-        **{
-            f'timing_s/{name}': value for name, value in timing_raw.items()
-        },
-        **{
-            f'timing_per_token_ms/{name}': timing_raw[name] * 1000 / num_tokens_of_section[name] for name in set(num_tokens_of_section.keys(
-            )) & set(timing_raw.keys())
-        },
-    }
 
 
 @contextmanager
@@ -480,9 +373,10 @@ class RayPPOTrainer(object):
                 assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
-        assert config.actor_rollout_ref.actor.loss_agg_mode in [
-            "token-mean", "seq-mean-token-sum", "seq-mean-token-mean"
-        ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
+        if config.actor_rollout_ref.actor.get('loss_agg_mode', None) is not None:
+            assert config.actor_rollout_ref.actor.loss_agg_mode in [
+                "token-mean", "seq-mean-token-sum", "seq-mean-token-mean"
+            ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
         if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
             print(f"NOTICE: You have both enabled in-reward kl and kl loss.")
@@ -545,7 +439,7 @@ class RayPPOTrainer(object):
                                             filter_prompts=True,
                                             return_raw_chat=self.config.data.get('return_raw_chat', False),
                                             truncation=self.config.data.get('truncation', 'error'),
-                                            filter_overlong_prompts=self.config.data.filter_overlong_prompts,
+                                            filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False),
                                             num_workers=self.config.data.get('filter_overlong_prompts_workers', None),
                                             task_type=self.task_type,
                                             )
@@ -563,7 +457,7 @@ class RayPPOTrainer(object):
                                         filter_prompts=True,
                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
                                         truncation=self.config.data.get('truncation', 'error'),
-                                        filter_overlong_prompts=self.config.data.filter_overlong_prompts,
+                                        filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False),
                                         num_workers=self.config.data.get('filter_overlong_prompts_workers', None),
                                         task_type=self.task_type,
                                         )
@@ -909,25 +803,25 @@ class RayPPOTrainer(object):
                                               self.global_steps,
                                               max_ckpt_to_keep=max_actor_ckpt_to_keep)
 
-            if self.use_critic:
-                critic_local_path = os.path.join(local_global_step_folder, 'critic')
-                critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
-                    self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
-                self.critic_wg.save_checkpoint(critic_local_path,
-                                            critic_remote_path,
-                                            self.global_steps,
-                                            max_ckpt_to_keep=max_critic_ckpt_to_keep)
+        if self.use_critic:
+            critic_local_path = os.path.join(local_global_step_folder, 'critic')
+            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
+            self.critic_wg.save_checkpoint(critic_local_path,
+                                        critic_remote_path,
+                                        self.global_steps,
+                                        max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
-            # save dataloader
-            dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
-            dataloader_state_dict = self.train_dataloader.state_dict()
-            torch.save(dataloader_state_dict, dataloader_local_path)
+        # save dataloader
+        dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
+        dataloader_state_dict = self.train_dataloader.state_dict()
+        torch.save(dataloader_state_dict, dataloader_local_path)
 
-            # latest checkpointed iteration tracker (for atomic usage)
-            local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
-                                                            'latest_checkpointed_iteration.txt')
-            with open(local_latest_checkpointed_iteration, 'w') as f:
-                f.write(str(self.global_steps))
+        # latest checkpointed iteration tracker (for atomic usage)
+        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir,
+                                                        'latest_checkpointed_iteration.txt')
+        with open(local_latest_checkpointed_iteration, 'w') as f:
+            f.write(str(self.global_steps))
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == 'disable':
@@ -1101,7 +995,7 @@ class RayPPOTrainer(object):
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
-                    if self.config.trainer.balance_batch:
+                    if self.config.trainer.get('balance_batch', False):
                         self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
@@ -1214,7 +1108,7 @@ class RayPPOTrainer(object):
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic, tokenizer=self.tokenizer))
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
