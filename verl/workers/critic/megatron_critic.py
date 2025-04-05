@@ -37,8 +37,8 @@ from verl.utils.megatron import sequence_parallel as sp_utils
 
 class MegatronPPOCritic(BasePPOCritic):
 
-    def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
-                 critic_optimizer, critic_optimizer_config):
+    def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList, critic_optimizer,
+                 critic_optimizer_config):
         """
         Args:
             ``critic_optimizer``: megatron.core.optimizers.DistributedOptimizer

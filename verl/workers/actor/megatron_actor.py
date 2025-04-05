@@ -43,8 +43,8 @@ __all__ = ['MegatronPPOActor']
 
 class MegatronPPOActor(BasePPOActor):
 
-    def __init__(self, config, model_config, megatron_config, actor_module: nn.ModuleList,
-                 actor_optimizer, actor_optimizer_config):
+    def __init__(self, config, model_config, megatron_config, actor_module: nn.ModuleList, actor_optimizer,
+                 actor_optimizer_config):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:

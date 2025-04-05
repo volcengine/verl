@@ -300,7 +300,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     _MICRO_DATA_PARALLEL_GROUP = group
         else:
             _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
-            
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config):
         """
@@ -392,7 +391,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __enter__(self):
         from megatron.core import mpu
-        
+
         log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=logger)
         # create a new cuda space for parameters not in this pp rank
         self.module.load_params_to_cuda()
@@ -413,9 +412,13 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         else:
             self.inference_engine.wake_up()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            to_load_params = convert_megatron_model_to_transformers_model(self.params, self.model_config, mpu.get_tensor_model_parallel_world_size(), self.module.pp_models[0][0].config.num_query_groups, convert_qkv_gate_up=True)
-            loaded_params = model.load_weights(
-                ((name, param) for name, param in to_load_params.items()))
+            to_load_params = convert_megatron_model_to_transformers_model(
+                self.params,
+                self.model_config,
+                mpu.get_tensor_model_parallel_world_size(),
+                self.module.pp_models[0][0].config.num_query_groups,
+                convert_qkv_gate_up=True)
+            loaded_params = model.load_weights(((name, param) for name, param in to_load_params.items()))
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
         del params

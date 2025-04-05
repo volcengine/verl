@@ -20,6 +20,7 @@ from functools import cache
 from typing import List, Optional
 import importlib
 
+
 @cache
 def is_megatron_core_available():
     mcore_spec = importlib.util.find_spec('megatron.core')

@@ -38,6 +38,7 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.core.transformer import TransformerConfig
 
+
 class MegatronCheckpointManager(BaseCheckpointManager):
     """
     A checkpoint manager that saves and loads
