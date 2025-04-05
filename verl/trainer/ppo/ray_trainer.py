@@ -467,7 +467,7 @@ class RayPPOTrainer(object):
         self.train_dataset = self._initialize_customized_dataset(dataset_cls, self.config.data.train_files)
 
         config_truncation = self.config.data.get('truncation', 'error')
-        if hasattr(self.train_dataset, 'truncation') and self.train_dataset.truncation != config_truncation:
+        if isinstance(self.train_dataset, RLHFDataset) and self.train_dataset.truncation != config_truncation:
             raise ValueError(
                 f"train dataset truncation {self.train_dataset.truncation} must be the same as config {config_truncation}"
             )
@@ -489,10 +489,9 @@ class RayPPOTrainer(object):
                                                    sampler=sampler)
 
         self.val_dataset = self._initialize_customized_dataset(dataset_cls, self.config.data.val_files)
-        if hasattr(self.val_dataset, 'truncation') and self.val_dataset.truncation != config_truncation:
+        if isinstance(self.val_dataset, RLHFDataset) and self.val_dataset.truncation != config_truncation:
             raise ValueError(
-                f"val dataset truncation {self.train_dataset.truncation} must be the same as config {config_truncation}"
-            )
+                f"val dataset truncation {self.val_dataset.truncation} must be the same as config {config_truncation}")
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
