@@ -20,8 +20,13 @@ import argparse
 import numpy as np
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 from concurrent.futures import ThreadPoolExecutor
-from torch.distributed._tensor import DTensor, Shard, Placement
 from safetensors.torch import load_file
+from torch.distributed._tensor import Shard, Placement
+try:
+    # for torch 2.5+
+    from torch.distributed.tensor import DTensor
+except ImportError:
+    from torch.distributed._tensor import DTensor
 
 from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_checkpoint_path
 
@@ -87,7 +92,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
 
-    if isinstance(weight, torch.distributed._tensor.DTensor):
+    if isinstance(weight, DTensor):
         # get sharding info
         device_mesh = weight.device_mesh
         mesh = device_mesh.mesh
@@ -136,7 +141,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
             except:
                 print("-" * 30)
                 print(model_state_dict)
-            if isinstance(tensor, torch.distributed._tensor.DTensor):
+            if isinstance(tensor, DTensor):
                 state_dict[key].append(tensor._local_tensor.bfloat16())
                 placements = tuple(tensor.placements)
                 # replicated placement at dp dimension can be discarded
