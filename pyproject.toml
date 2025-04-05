@@ -107,7 +107,6 @@ disable = [
     "notimplemented-raised",
     "pointless-exception-statement",
     "pointless-string-statement",
-    "pointless-statement",
     "possibly-used-before-assignment",
     "protected-access",
     "raise-missing-from",
