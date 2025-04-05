@@ -96,7 +96,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             world_size = torch.distributed.get_world_size()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
-                patched_ds_v3_load_weights(
+                loaded_params = patched_ds_v3_load_weights(
                     model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
                             for name, param in params.items()))
             else:
