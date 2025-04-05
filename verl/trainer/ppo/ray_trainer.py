@@ -571,8 +571,9 @@ class RayPPOTrainer(object):
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
+
+            reward_extra_infos_dict["reward"].extend(scores)
             if "reward_extra_info" in result:
-                reward_extra_infos_dict["final_reward"].extend(scores)
                 for key, lst in result["reward_extra_info"].items():
                     reward_extra_infos_dict[key].extend(lst)
 
@@ -580,16 +581,15 @@ class RayPPOTrainer(object):
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        for lst in reward_extra_infos_dict.values():
-            assert len(lst) == 0 or len(lst) == len(sample_scores)
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
-
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "final_reward"
+            core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
