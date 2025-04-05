@@ -18,6 +18,7 @@ from typing import List, Union, Optional, Callable
 import copy
 import datasets
 from collections import defaultdict
+from jinja2 import Template
 
 import torch
 import numpy as np
@@ -75,6 +76,10 @@ def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 
 class RLHFDataset(Dataset):
     """
     We assume the dataset contains a column that contains prompts and other information
+
+    Args:
+        last_user_msg_template: str
+            Jinja template with the message dict as input, e.g., "{{ content | trim }}\n\nLet's think step by step."
     """
 
     def __init__(self,
@@ -82,6 +87,7 @@ class RLHFDataset(Dataset):
                  tokenizer: PreTrainedTokenizer,
                  processor: Optional[ProcessorMixin] = None,
                  prompt_key: str = 'prompt',
+                 last_user_msg_template: Optional[str] = None,
                  image_key: str = 'images',
                  max_prompt_length: int = 1024,
                  cache_dir: str = '~/.cache/verl/rlhf',
@@ -100,6 +106,7 @@ class RLHFDataset(Dataset):
         self.processor = processor
 
         self.prompt_key = prompt_key
+        self.last_user_msg_template = last_user_msg_template
         self.image_key = image_key
         self.max_prompt_length = max_prompt_length
 
@@ -139,8 +146,9 @@ class RLHFDataset(Dataset):
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
             self.dataframe = self.dataframe.filter(
-                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
-                               ) <= self.max_prompt_length,
+                lambda doc: len(
+                    tokenizer.apply_chat_template(self.preprocess_msg_lst(doc[prompt_key]), add_generation_prompt=True)
+                ) <= self.max_prompt_length,
                 num_proc=self.num_workers,
                 desc=f"Filtering prompts longer than {self.max_prompt_length} tokens")
 
@@ -155,6 +163,23 @@ class RLHFDataset(Dataset):
         else:
             print(r'old dataloader ckpt file is used, please train from scratch for better ckpt performance')
 
+    def preprocess_msg_lst(self, msg_lst: list[dict]) -> list[dict[str, str]]:
+        """
+        Get the text sequence from the message list
+        """
+        if self.last_user_msg_template is not None:
+            # Find the last user message
+            last_user_msg = None
+            for msg in reversed(msg_lst):
+                if msg['role'] == 'user':
+                    last_user_msg = msg
+                    break
+            assert last_user_msg is not None, f'No user message found in the {msg_lst=}'
+            # Apply the template to the content
+            last_user_msg['content'] = Template(self.last_user_msg_template).render(**last_user_msg)
+
+        return msg_lst
+
     def __len__(self):
         return len(self.dataframe)
 
@@ -165,8 +190,10 @@ class RLHFDataset(Dataset):
         row_dict: dict = self.dataframe[item]
 
         chat = row_dict.pop(self.prompt_key)
-
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        preprocessed_msg_lst = self.preprocess_msg_lst(chat)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(preprocessed_msg_lst,
+                                                                       add_generation_prompt=True,
+                                                                       tokenize=False)
 
         is_multi_modal = self.image_key in row_dict
         if is_multi_modal:  # expand image token
