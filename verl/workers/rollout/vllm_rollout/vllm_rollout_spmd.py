@@ -90,9 +90,7 @@ class vLLMRollout(BaseRollout):
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             train_tp = kwargs.get('train_tp', None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size,
-                                              num_tp_per_train_tp=num_tp_per_train_tp)
+            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"

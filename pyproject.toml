@@ -50,6 +50,7 @@ verl = [
 
 [tool.pylint.message_control]
 disable = [
+    "abstract-class-instantiated",
     "abstract-method",
     "anomalous-backslash-in-string",
     "arguments-differ",
@@ -100,6 +101,7 @@ disable = [
     "no-else-raise",
     "no-else-return",
     "no-member",
+    "no-name-in-module",
     "no-self-argument",
     "no-value-for-parameter",
     "not-an-iterable",
@@ -129,6 +131,7 @@ disable = [
     "too-many-instance-attributes",
     "too-many-lines",
     "too-many-locals",
+    "too-many-function-args",
     "too-many-positional-arguments",
     "too-many-return-statements",
     "too-many-statements",
@@ -138,6 +141,7 @@ disable = [
     "unbalanced-tuple-unpacking",
     "undefined-loop-variable",
     "undefined-variable",
+    "unexpected-keyword-arg",
     "ungrouped-imports",
     "unidiomatic-typecheck",
     "unnecessary-comprehension",

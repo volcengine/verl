@@ -77,10 +77,10 @@ class ModelRunner(ModelRunner):
             load_config,
             lora_config,
             kv_cache_dtype,
-            is_driver_worker=True,  # a hack
-            prompt_adapter_config=prompt_adapter_config,
-            multimodal_config=multimodal_config,
-            return_hidden_states=return_hidden_states)
+            True,  # a hack
+            prompt_adapter_config,
+            multimodal_config,
+            return_hidden_states)
 
         # NOTE(sgm): add for verl
         self.model = model  # this will be replaced by get_model()
