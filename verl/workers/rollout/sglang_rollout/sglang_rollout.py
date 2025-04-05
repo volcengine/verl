@@ -40,11 +40,8 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 from verl.third_party.sglang import parallel_state as sglang_ps
 import torch.distributed
 from torch.nn.utils.rnn import pad_sequence
-import socket
-from contextlib import closing
-from sglang.srt.utils import broadcast_pyobj
+from sglang.srt.utils import broadcast_pyobj, get_ip
 from sglang.srt.server_args import PortArgs, ServerArgs
-
 
 if TYPE_CHECKING:
     from torch import nn
@@ -58,16 +55,6 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
-def get_local_ip():
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    return local_ip
-
-def find_free_port():
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
 
 # NOTE(linjunrong): adhoc
 def _post_process_outputs(tokenizer, output):
@@ -151,33 +138,21 @@ class SGLangRollout(BaseRollout):
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
         # get tp_rank of this process in this tp group
+        tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
         torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"],
                                             device_mesh_cpu.get_group("tp"))
         visible_devices_set = set(visible_devices)
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
-        # NOTE: for each dp we have a TP0, within a TP group we need to have TP0's worker ip:port for 
-        tp_rank = device_mesh_cpu["tp"].get_local_rank()
-
-        # (ip, port) = (get_local_ip(), find_free_port()) if tp_rank == 0 else (None, None)
-        # [ip, port] = broadcast_pyobj(
-        #     [ip, port],
-        #     rank=tp_rank,
-        #     dist_group=device_mesh_cpu.get_group("tp"),
-        #     src=device_mesh_cpu["tp"].mesh[0].item()
-        # )
         nnodes = -(-tp_size // len(visible_devices_set))
-        ip = get_local_ip() if tp_rank == 0 else None
-        server_args = ServerArgs(model_path=actor_module, nnodes=nnodes) if tp_rank == 0 else None
-        port_args = PortArgs.init_new(server_args) if tp_rank == 0 else None
-        [ip, port_args] = broadcast_pyobj(
-            [ip, port_args],
-            rank=tp_rank,
-            dist_group=device_mesh_cpu.get_group("tp"),
-            src=device_mesh_cpu["tp"].mesh[0].item()
-        )
-        port = port_args.nccl_port
+        server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
+        ip, port_args = get_ip(), PortArgs.init_new(server_args)
+        [ip, port_args] = broadcast_pyobj([ip, port_args],
+                                          rank=tp_rank,
+                                          dist_group=device_mesh_cpu.get_group("tp"),
+                                          src=device_mesh_cpu["tp"].mesh[0].item())
+        dist_init_addr = f"{ip}:{port_args.nccl_port}"
 
         self.inference_engine = VerlEngine(
             model_path=actor_module,
@@ -187,7 +162,7 @@ class SGLangRollout(BaseRollout):
             enable_memory_saver=True,
             base_gpu_id=0,
             gpu_id_step=1,
-            dist_init_addr=f'{ip}:{port}',
+            dist_init_addr=dist_init_addr,
             nnodes=nnodes
             # NOTE(Chenyang): if you want to debug the sglang engine
             # please set the following parameters
@@ -279,11 +254,11 @@ class SGLangRollout(BaseRollout):
         out = _post_process_outputs(self.tokenizer, output)
 
         response = out[0].to(idx.device)
-        log_probs = out[1].to(idx.device)
+        # log_probs = out[1].to(idx.device)
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+            # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
@@ -301,9 +276,7 @@ class SGLangRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(response_id=response,
-                                                    eos_token=eos_token_id,
-                                                    dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -320,10 +293,8 @@ class SGLangRollout(BaseRollout):
         )
 
         # free cache engine
-        if (self.config.free_cache_engine 
-            and self.inference_engine._engine is not None
-            and self.inference_engine._engine.tokenizer_manager is not None
-        ):
+        if (self.config.free_cache_engine and self.inference_engine._engine is not None and
+                self.inference_engine._engine.tokenizer_manager is not None):
             self.inference_engine._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch)
