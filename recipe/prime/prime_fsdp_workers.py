@@ -127,7 +127,7 @@ class PRIMERewardModelWorker(Worker):
 
             if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=reward_module)
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
@@ -261,11 +261,11 @@ class PRIMERewardModelWorker(Worker):
             rm_scores, q, metrics = self.rm.compute_rm_score(data=data)
 
             prompt_length = data.batch['prompts'].shape[-1]
-            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            response_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
-            dpo_acc = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
-            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc = compute_dpo_accuracy(rm_scores, acc, response_mask=response_mask, n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, response_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc'] = dpo_acc.detach().item()
             metrics['reward_model/dpo_acc_abs'] = dpo_acc_abs.detach().item()
@@ -299,11 +299,14 @@ class PRIMERewardModelWorker(Worker):
             metrics['rm/lr'] = lr
 
             prompt_length = data.batch['prompts'].shape[-1]
-            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            response_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
-            dpo_acc_before = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
-            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc_before = compute_dpo_accuracy(rm_scores,
+                                                  acc,
+                                                  response_mask=response_mask,
+                                                  n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, response_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc_before'] = dpo_acc_before.detach().item()
             metrics['reward_model/dpo_acc_abs_before'] = dpo_acc_abs.detach().item()

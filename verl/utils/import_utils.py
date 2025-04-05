@@ -17,7 +17,7 @@ We assume package availability won't change during runtime.
 """
 
 from functools import cache
-from typing import List
+from typing import List, Optional
 
 
 @cache
@@ -55,3 +55,26 @@ def import_external_libs(external_libs=None):
     import importlib
     for external_lib in external_libs:
         importlib.import_module(external_lib)
+
+
+def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
+    """Load a external data type based on the file path and type name"""
+    import importlib.util, os
+
+    if not file_path:
+        return None
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
+
+    spec = importlib.util.spec_from_file_location("custom_module", file_path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+
+    if not hasattr(module, type_name):
+        raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")
+
+    return getattr(module, type_name)

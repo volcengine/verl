@@ -204,7 +204,7 @@ class ActorRolloutRefWorker(Worker):
 
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=actor_module)
+                apply_monkey_patch(model=actor_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
@@ -518,7 +518,7 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -646,6 +646,7 @@ class CriticWorker(Worker):
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
 
         # normalize config
+        self.config.ppo_mini_batch_size *= self.config.rollout_n
         self.config.ppo_mini_batch_size //= (torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size)
         if self.config.ppo_micro_batch_size is not None:
             self.config.ppo_micro_batch_size //= (torch.distributed.get_world_size() //
@@ -711,7 +712,7 @@ class CriticWorker(Worker):
             use_remove_padding = config.model.get('use_remove_padding', False)
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=critic_module)
+                apply_monkey_patch(model=critic_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             critic_module.to(torch_dtype)
@@ -969,7 +970,7 @@ class RewardModelWorker(Worker):
 
             if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
-                apply_monkey_patch(model=reward_module)
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             reward_module.to(torch.bfloat16)
 

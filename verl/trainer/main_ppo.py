@@ -88,7 +88,8 @@ class TaskRunner:
 
         # instantiate tokenizer
         from verl.utils import hf_tokenizer, hf_processor
-        tokenizer = hf_tokenizer(local_path)
+        trust_remote_code = config.data.get('trust_remote_code', False)
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
 
         # define worker classes
@@ -112,7 +113,6 @@ class TaskRunner:
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),
-            Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
         }
 
         global_pool_id = 'global_pool'
@@ -122,7 +122,6 @@ class TaskRunner:
         mapping = {
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,
-            Role.RefPolicy: global_pool_id,
         }
 
         # we should adopt a multi-source reward function here
@@ -141,6 +140,11 @@ class TaskRunner:
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
 
+        #use reference model
+        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            mapping[Role.RefPolicy] = global_pool_id
+
         reward_manager_name = config.reward_model.get("reward_manager", "naive")
         if reward_manager_name == 'naive':
             from verl.workers.reward_manager import NaiveRewardManager
@@ -148,15 +152,24 @@ class TaskRunner:
         elif reward_manager_name == 'prime':
             from verl.workers.reward_manager import PrimeRewardManager
             reward_manager_cls = PrimeRewardManager
+        elif reward_manager_name == 'dapo':
+            from verl.workers.reward_manager import DAPORewardManager
+            reward_manager_cls = DAPORewardManager
         else:
+
             raise NotImplementedError
 
         compute_score = get_custom_reward_fn(config)
-        reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
+        reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                       num_examine=0,
+                                       compute_score=compute_score,
+                                       reward_fn_key=config.data.reward_fn_key)
 
         # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score)
-
+        val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                           num_examine=1,
+                                           compute_score=compute_score,
+                                           reward_fn_key=config.data.reward_fn_key)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RayPPOTrainer(config=config,

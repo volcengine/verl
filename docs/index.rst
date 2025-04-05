@@ -73,7 +73,6 @@ verl is fast with:
    :caption: Performance Tuning Guide
    
    perf/perf_tuning
-   README_vllm0.7.md
    README_vllm0.8.md
 
 .. toctree::

@@ -3,12 +3,12 @@
 Algorithm Baselines
 ===================
 
-GSM8k 
+Datasets 
 ------------------
 
-Assuming GSM8k dataset is preprocess via ``python3 examples/data_preprocess/gsm8k.py``
+Assuming GSM8k/math dataset is preprocess via ``python3 examples/data_preprocess/*.py``
 
-Refer to the table below to reproduce PPO training from different pre-trained models.
+Refer to the table below to reproduce RL training from different pre-trained models.
 
 NVIDIA GPUs
 --------------------------------
@@ -26,6 +26,7 @@ NVIDIA GPUs
 .. _Qwen7b ReMax Wandb: https://wandb.ai/liziniu1997/verl_remax_example_gsm8k/runs/vxl10pln
 .. _Qwen0.5b PRIME Script: https://github.com/volcengine/verl/blob/main/recipe/prime/run_prime_qwen.sh
 .. _Qwen0.5b PRIME Wandb: https://api.wandb.ai/links/zefan-wang-thu-tsinghua-university/rxd1btvb
+.. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
@@ -42,9 +43,11 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-0.5B-Instruct       | PRIME                  | 58.7       |   `Qwen0.5b PRIME Script`_, `Qwen0.5b PRIME Wandb`_                                           |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| deepseek-ai/deepseek-llm-7b-chat | PPO                    | 69.5 [1]_  |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
+| deepseek-ai/deepseek-llm-7b-chat | PPO (Megatron)         | 69.5 [1]_  |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+| Qwen/Qwen2-7B-Instruct           | GRPO (Megatron)        | 89.6       |   `Megatron Qwen2 7b GRPO Script with Math and GSM8k`_                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-7B-Instruct         | ReMax                  | 97         |   `Qwen7b ReMax Script`_, `Qwen7b ReMax Wandb`_                                               |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+

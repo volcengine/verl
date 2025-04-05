@@ -29,6 +29,18 @@ from verl.utils.ulysses import (
 )
 
 
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
+    seqlen, num_key_value_heads, head_dim) to (batch, seqlen, num_attention_heads, head_dim)
+    """
+    batch, slen, num_key_value_heads, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, :, None, :].expand(batch, slen, num_key_value_heads, n_rep, head_dim)
+    return hidden_states.reshape(batch, slen, num_key_value_heads * n_rep, head_dim)
+
+
 def _ulysses_flash_attention_forward(
     query_states: torch.Tensor,
     key_states: torch.Tensor,
@@ -54,6 +66,17 @@ def _ulysses_flash_attention_forward(
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
         assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(2), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
         # (bsz, seq_len/n, n_head, head_dim) -> (bsz, seq_len, n_head/n, head_dim)
         query_states = gather_seq_scatter_heads(query_states, seq_dim=1, head_dim=2)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=1, head_dim=2)
@@ -84,10 +107,17 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def apply_monkey_patch(model: PreTrainedModel):
+def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
+    num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    assert num_attention_heads % ulysses_sp_size == 0, \
+        f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
+    assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
+        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
+        f"or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
+        f"kv heads are repeated to ensure correctness.")
     # TODO: VLM models only, unify monkey patch to LLM models.
     if model.config.model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
         from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
