@@ -49,6 +49,8 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install -e .[test,gpu,sglang] --no-deps
+          pip uninstall sglang
+          pip install "sglang[all] @ git+https://github.com/sgl-project/sglang.git@9eb49e878bae21fa4e798ac6737da7b3f6a0c8fd#egg=sglang&subdirectory=python" --no-cache-dir
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

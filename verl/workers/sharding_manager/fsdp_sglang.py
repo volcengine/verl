@@ -33,6 +33,7 @@ from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig,
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.protocol import all_gather_data_proto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.utils.debug import log_gpu_memory_usage
 from sglang.srt.entrypoints.verl_engine import VerlEngine
@@ -126,11 +127,14 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def preprocess_data(self, data: DataProto) -> DataProto:
+        """All gather across tp group to make each rank has identical input."""
+        if self.device_mesh["infer_tp"].mesh.size()[0] == 1:
+            return data
+
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                            size=self.device_mesh["infer_tp"].mesh.size()[0],
-                                            group=self.device_mesh["infer_tp"].get_group(),
-                                            dim=0)
+        group = self.device_mesh["infer_tp"].get_group()
+
+        all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
