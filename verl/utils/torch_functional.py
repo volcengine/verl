@@ -526,3 +526,8 @@ def get_unpad_data(attention_mask):
         cu_seqlens,
         max_seqlen_in_batch,
     )
+
+
+def compute_response_mask(response_ids: torch.Tensor, attention_mask: torch.Tensor):
+    response_length = response_ids.size(-1)
+    return attention_mask[:, -response_length:]
