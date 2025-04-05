@@ -38,7 +38,6 @@ from verl.utils.megatron_utils import convert_config
 from .layers import ParallelLlamaDecoderLayer, ParallelLlamaRMSNorm, ParallelLlamaDecoderLayerRmPad
 
 from megatron.core.transformer import TransformerConfig
-
 """
 TODO: 
 1. Add weight initialization. Here we need to be careful on TP weight init.

@@ -30,10 +30,7 @@ def get_model_config(model):
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
 
-def get_model(model_provider_func,
-              model_type=None,
-              wrap_with_ddp=True,
-              use_distributed_optimizer=True):
+def get_model(model_provider_func, model_type=None, wrap_with_ddp=True, use_distributed_optimizer=True):
     """Build the model."""
     # Build model.
     from megatron.core import mpu, tensor_parallel
@@ -305,21 +302,25 @@ def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=Fa
     return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")
 
 
-def convert_megatron_model_to_transformers_model(params, config: PretrainedConfig, tp_size: int, num_query_groups: int, convert_qkv_gate_up=True):
+def convert_megatron_model_to_transformers_model(params,
+                                                 config: PretrainedConfig,
+                                                 tp_size: int,
+                                                 num_query_groups: int,
+                                                 convert_qkv_gate_up=True):
     """Convert megatron model to transformers model."""
     new_params = {}
-    
+
     def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
         nonlocal config
         nonlocal tp_size
         nonlocal num_query_groups
         nonlocal new_params
-        
+
         q_shard_list = []
         k_shard_list = []
         v_shard_list = []
         hidden_size_per_head = config.hidden_size // config.num_attention_heads
-        
+
         if config.num_key_value_heads >= tp_size:
             q_size_tp = config.hidden_size // tp_size
             kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
@@ -353,17 +354,16 @@ def convert_megatron_model_to_transformers_model(params, config: PretrainedConfi
                     if i * config.num_key_value_heads % tp_size == 0:
                         k_shard_list.append(k_part)
                         v_shard_list.append(v_part)
-        
+
         new_params[q_name] = torch.cat(q_shard_list, dim=0)
         new_params[k_name] = torch.cat(k_shard_list, dim=0)
         new_params[v_name] = torch.cat(v_shard_list, dim=0)
-    
-    
+
     def convert_gate_up_shard(full_tensor, gate_name, up_name):
         nonlocal config
         nonlocal tp_size
         nonlocal new_params
-        
+
         intermediate_size_tp = config.intermediate_size // tp_size
         gate_weight_list = []
         up_weight_list = []
@@ -375,8 +375,7 @@ def convert_megatron_model_to_transformers_model(params, config: PretrainedConfi
             up_weight_list.append(up_weight_tp)
         new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
         new_params[up_name] = torch.cat(up_weight_list, dim=0)
-    
-    
+
     for name, param in params.items():
         if name == 'embedding.word_embeddings.weight':
             new_params['model.embed_tokens.weight'] = param
@@ -421,7 +420,7 @@ def convert_megatron_model_to_transformers_model(params, config: PretrainedConfi
                 elif param_type == 'weight':
                     if convert_qkv_gate_up:
                         convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
-                                          f'model.layers.{layer_number}.mlp.up_proj.weight')
+                                              f'model.layers.{layer_number}.mlp.up_proj.weight')
                     else:
                         new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
             elif component == 'linear_fc2':

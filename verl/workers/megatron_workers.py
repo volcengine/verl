@@ -70,7 +70,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def __init__(self, config: DictConfig, role: str):
         super().__init__()
         self.config = config
-        
+
         from megatron.core import mpu
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -255,7 +255,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 "qkv_layer_name": "self_attention.linear_qkv.",
                 "gate_proj_layer_name": "linear_fc1.weight",
             }
-            
+
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
             assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
@@ -312,7 +312,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.torch_dtypes import PrecisionType
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
-        
+
         from megatron.core import mpu
 
         megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.actor.megatron.get(
@@ -491,7 +491,7 @@ class CriticWorker(MegatronWorker):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        
+
         from megatron.core import mpu
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
@@ -693,7 +693,7 @@ class RewardModelWorker(MegatronWorker):
         self.config = config
 
         from megatron.core import mpu
-        
+
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
         # Therefore, we only require one distribute initialization.
