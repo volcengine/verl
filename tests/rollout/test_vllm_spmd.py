@@ -103,7 +103,7 @@ def test_vllm_spmd():
     print('start generation')
     input_ids = input_ids.cuda()
     attention_mask = attention_mask.cuda()
-    
+
     temperature = 0
     top_p = 1
     kwargs = dict(n=1,
@@ -162,7 +162,7 @@ def test_vllm_spmd():
     model = llm.llm_engine.model_executor.driver_worker.worker.model_runner.model
     model.load_weights(
         ((name, param.full_tensor() if world_size != 1 else param) for name, param in state_dict.items()))
-    
+
     outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
     verl_vllm_response_tokens = []
     for output in outputs:
