@@ -23,7 +23,6 @@ import hydra
 
 def get_custom_reward_fn(config):
     import importlib.util, sys
-
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
     if not file_path:
@@ -41,13 +40,18 @@ def get_custom_reward_fn(config):
         raise RuntimeError(f"Error loading module from '{file_path}': {e}")
 
     function_name = reward_fn_config.get("name")
-
     if not hasattr(module, function_name):
         raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
 
     print(f"using customized reward function '{function_name}' from '{file_path}'")
+    raw_fn = getattr(module, function_name)
 
-    return getattr(module, function_name)
+    reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
+
+    def wrapped_fn(*args, **kwargs):
+        return raw_fn(*args, **kwargs, **reward_kwargs)
+
+    return wrapped_fn
 
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
@@ -164,10 +168,12 @@ class TaskRunner:
             raise NotImplementedError
 
         compute_score = get_custom_reward_fn(config)
+        reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
         reward_fn = reward_manager_cls(tokenizer=tokenizer,
                                        num_examine=0,
                                        compute_score=compute_score,
-                                       reward_fn_key=config.data.reward_fn_key)
+                                       reward_fn_key=config.data.reward_fn_key,
+                                       **reward_kwargs)
 
         # Note that we always use function-based RM for validation
         val_reward_fn = reward_manager_cls(tokenizer=tokenizer,

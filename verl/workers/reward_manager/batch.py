@@ -19,11 +19,12 @@ from collections import defaultdict
 
 class BatchRewardManager:
 
-    def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key='data_source'):
+    def __init__(self, tokenizer, num_examine, compute_score, reward_fn_key='data_source', **reward_kwargs):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
         self.compute_score = compute_score
         self.reward_fn_key = reward_fn_key
+        self.reward_kwargs = reward_kwargs
 
     def verify(self, data):
         prompt_ids = data.batch['prompts']
@@ -44,12 +45,11 @@ class BatchRewardManager:
         data_sources = data.non_tensor_batch[self.reward_fn_key]
         extras = data.non_tensor_batch.get('extra_info', [None] * len(data))
 
-        scores = self.compute_score(
-            data_sources=data_sources,
-            solution_strs=responses_str,
-            ground_truths=ground_truths,
-            extra_infos=extras,
-        )
+        scores = self.compute_score(data_sources=data_sources,
+                                    solution_strs=responses_str,
+                                    ground_truths=ground_truths,
+                                    extra_infos=extras,
+                                    **self.reward_kwargs)
 
         return scores
 
