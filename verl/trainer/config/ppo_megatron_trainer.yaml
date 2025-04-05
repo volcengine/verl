@@ -15,6 +15,9 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
+  custom_cls:
+      path: null
+      name: null
 
 actor_rollout_ref:
   hybrid_engine: True

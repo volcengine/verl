@@ -18,6 +18,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import os
 import uuid
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -43,7 +44,8 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import RandomSampler, SequentialSampler
+from verl.utils.dataset.customer_dataset_utils import get_customized_dataset_init_params
+from torch.utils.data import Dataset, RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 WorkerType = Type[Worker]
@@ -406,21 +408,78 @@ class RayPPOTrainer(object):
 
         print("[validate_config] All configuration checks passed successfully!")
 
+    def _initialize_customized_dataset(self, dataset_cls, data_files):
+        required_params, has_kwargs = get_customized_dataset_init_params(dataset_cls.__init__)
+
+        all_possible_params = {
+            "config": self.config.data,
+            "data_files": data_files,
+            "tokenizer": self.tokenizer,
+            "processor": self.processor,
+            "prompt_key": self.config.data.prompt_key,
+            # the following params may not in the config, but we set the default value here
+            "image_key": self.config.data.get('image_key', 'images'),
+            "return_raw_chat": self.config.data.get('return_raw_chat', False),
+            "truncation": self.config.data.get('truncation', 'error'),
+            "num_workers": self.config.data.get('filter_overlong_prompts_workers', None),
+        }
+        # add the rest data configs into all possible params
+        for key, value in self.config.data.items():
+            if key not in all_possible_params:
+                all_possible_params[key] = value
+
+        kwargs = {}
+        for param_name, param_info in required_params.items():
+            is_required = param_info['required']
+            default_value = param_info['default']
+
+            if param_name in all_possible_params:
+                # If the parameter is available in our possible arguments, use it
+                kwargs[param_name] = all_possible_params[param_name]
+            elif is_required:
+                # If it's required but we don't have it, raise an error
+                raise ValueError(
+                    f"Cannot initialize custom dataset {self.config.data.custom_cls.name} ({self.config.data.custom_cls.path}). "
+                    f"Required parameter '{param_name}' is not available. "
+                    f"Available parameters: {all_possible_params}")
+            else:
+                # Otherwise, use the default value (which will happen automatically when calling the constructor)
+                # so we don't need to add this into kwargs here
+                pass
+
+        if has_kwargs:
+            for arg_name, arg_value in all_possible_params.items():
+                if arg_name not in kwargs:
+                    kwargs[arg_name] = arg_value
+
+        if "data_files" not in kwargs:
+            warnings.warn("The custom dataset should use 'data_files' to receive passed train_files or val_files, "
+                          "but this parameter is missing from your Custom Dataset's init function. This may prevent "
+                          "your training/test sets from loading data correctly. To fix this, please add 'data_files' "
+                          "to your custom dataset's __init__ function and load the data files properly. "
+                          "If this is intentional, please ensure you know what you're doing.")
+
+        return dataset_cls(**kwargs)
+
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
-                                         tokenizer=self.tokenizer,
-                                         processor=self.processor,
-                                         prompt_key=self.config.data.prompt_key,
-                                         image_key=self.config.data.get('image_key', 'images'),
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation=self.config.data.get('truncation', 'error'),
-                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts,
-                                         num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
-        assert self.train_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        from verl.utils.import_utils import load_extern_type
+        if self.config.data.custom_cls.get("path", None):
+            dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
+            if not issubclass(dataset_cls, Dataset):
+                raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from "
+                                f"'{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+        else:
+            dataset_cls = RLHFDataset
+
+        self.train_dataset = self._initialize_customized_dataset(dataset_cls, self.config.data.train_files)
+
+        config_truncation = self.config.data.get('truncation', 'error')
+        if isinstance(self.train_dataset, RLHFDataset) and self.train_dataset.truncation != config_truncation:
+            raise ValueError(
+                f"train dataset truncation {self.train_dataset.truncation} must be the same as config {config_truncation}"
+            )
+
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -437,19 +496,10 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                       tokenizer=self.tokenizer,
-                                       processor=self.processor,
-                                       prompt_key=self.config.data.prompt_key,
-                                       image_key=self.config.data.get('image_key', 'images'),
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation=self.config.data.get('truncation', 'error'),
-                                       filter_overlong_prompts=self.config.data.filter_overlong_prompts,
-                                       num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
-        assert self.val_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        self.val_dataset = self._initialize_customized_dataset(dataset_cls, self.config.data.val_files)
+        if isinstance(self.val_dataset, RLHFDataset) and self.val_dataset.truncation != config_truncation:
+            raise ValueError(
+                f"val dataset truncation {self.val_dataset.truncation} must be the same as config {config_truncation}")
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,

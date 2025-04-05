@@ -78,7 +78,7 @@ class RLHFDataset(Dataset):
     """
 
     def __init__(self,
-                 parquet_files: Union[str, List[str]],
+                 data_files: Union[str, List[str]],
                  tokenizer: PreTrainedTokenizer,
                  processor: Optional[ProcessorMixin] = None,
                  prompt_key: str = 'prompt',
@@ -90,11 +90,11 @@ class RLHFDataset(Dataset):
                  truncation: str = 'error',
                  filter_overlong_prompts: bool = False,
                  num_workers: Optional[int] = None):
-        if not isinstance(parquet_files, (List, ListConfig)):
-            parquet_files = [parquet_files]
+        if not isinstance(data_files, (List, ListConfig)):
+            data_files = [data_files]
 
-        self.parquet_files = copy.deepcopy(parquet_files)
-        self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
+        self.data_files = copy.deepcopy(data_files)
+        self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.cache_dir = os.path.expanduser(cache_dir)
         self.tokenizer = tokenizer
         self.processor = processor
@@ -120,13 +120,13 @@ class RLHFDataset(Dataset):
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
-        parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
-        for i, parquet_file in enumerate(parquet_files):
-            self.parquet_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
+        data_files = self.data_files if not use_origin_parquet else self.original_data_files
+        for i, parquet_file in enumerate(data_files):
+            self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
 
     def _read_files_and_tokenize(self):
         dataframes = []
-        for parquet_file in self.parquet_files:
+        for parquet_file in self.data_files:
             # read parquet files and cache
             dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
@@ -147,7 +147,7 @@ class RLHFDataset(Dataset):
             print(f'filter dataset len: {len(self.dataframe)}')
 
     def resume_dataset_state(self):
-        self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
+        self.serialize_dataset = False if hasattr(self, 'original_data_files') else True
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
             self._download(use_origin_parquet=True)  # download and resume from original parquet files

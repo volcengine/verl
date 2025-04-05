@@ -177,7 +177,7 @@ class RayPRIMETrainer(RayPPOTrainer):
     def _create_dataloader(self):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
+        self.train_dataset = RLHFDataset(data_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          prompt_key=self.config.data.prompt_key,
                                          max_prompt_length=self.config.data.max_prompt_length,
@@ -200,7 +200,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                                            collate_fn=collate_fn,
                                            sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+        self.val_dataset = RLHFDataset(data_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
                                        prompt_key=self.config.data.prompt_key,
                                        max_prompt_length=self.config.data.max_prompt_length,
