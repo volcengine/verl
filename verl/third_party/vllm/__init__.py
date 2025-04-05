@@ -59,6 +59,7 @@ elif vs.parse(package_version) >= vs.parse('0.7.0'):
 
     from vllm import LLM
     from vllm.distributed import parallel_state
+    vllm_version = package_version
 else:
     if not is_sglang_available():
         raise ValueError(

@@ -16,6 +16,8 @@ This file contains a Megatron style Hybrid Engine that shares the weights of the
 """
 
 import importlib
+import logging
+import os
 from packaging.version import Version
 import torch
 import torch.distributed as dist
@@ -28,6 +30,12 @@ from verl.utils.memory_buffer import (
     build_memory_reference_from_module,
     get_weight_buffer_meta_from_module,
 )
+from verl.utils.debug import log_gpu_memory_usage
+from verl.third_party.vllm import vllm_version
+from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 
 class AllGatherPPModel:
@@ -255,6 +263,8 @@ from verl.third_party.vllm import LLM
 from verl.utils.model import normalize_pp_vpp_params
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
+# NOTICE: in new version of vLLM, We need to all-gather all tp rank's model weights
+# For code reuse, we directly assign Megatron's TENSOR_MODEL_PARALLEL_GROUP to this
 _MICRO_DATA_PARALLEL_GROUP = None
 
 
@@ -269,24 +279,28 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # initialize micro_dp group for vllm inference
         global _MICRO_DATA_PARALLEL_GROUP
-        world_size = torch.distributed.get_world_size()
-        rank = torch.distributed.get_rank()
-        train_tensor_parallel_size = mpu.get_tensor_model_parallel_world_size()
-        infer_tensor_parallel_size = vllm_ps.get_tensor_model_parallel_world_size()
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            train_tensor_parallel_size = mpu.get_tensor_model_parallel_world_size()
+            infer_tensor_parallel_size = vllm_ps.get_tensor_model_parallel_world_size()
 
-        # TODO(sgm): this may not be true for FSDP -> vLLM
-        assert infer_tensor_parallel_size <= train_tensor_parallel_size, \
-            'Not implemented for infer_tp > train_tp'
-        assert train_tensor_parallel_size % infer_tensor_parallel_size == 0
+            # TODO(sgm): this may not be true for FSDP -> vLLM
+            assert infer_tensor_parallel_size <= train_tensor_parallel_size, \
+                'Not implemented for infer_tp > train_tp'
+            assert train_tensor_parallel_size % infer_tensor_parallel_size == 0
 
-        micro_dp_size = train_tensor_parallel_size // infer_tensor_parallel_size
-        num_micro_dp_groups = world_size // micro_dp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, ("micro data parallel group is already initialized")
-        for i in range(num_micro_dp_groups):
-            ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-            group = new_group(ranks=ranks)
-            if rank in ranks:
-                _MICRO_DATA_PARALLEL_GROUP = group
+            micro_dp_size = train_tensor_parallel_size // infer_tensor_parallel_size
+            num_micro_dp_groups = world_size // micro_dp_size
+            assert _MICRO_DATA_PARALLEL_GROUP is None, ("micro data parallel group is already initialized")
+            for i in range(num_micro_dp_groups):
+                ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
+                group = new_group(ranks=ranks)
+                if rank in ranks:
+                    _MICRO_DATA_PARALLEL_GROUP = group
+        else:
+            _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
+            
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config):
         """
@@ -298,6 +312,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         definition so that it is model-agnostic. If the model doesn't implement this function, 
         we can throw an error to force user disable TP HybridEngine.
         """
+        from megatron.core import mpu
 
         if self.layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
             # if the tensor is qkv, for each param on tp, split into q, k, v
@@ -370,13 +385,18 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config)
                 # replace with original param
                 params[name] = infer_params
+            # swap param with the original param, and offload to CPU to avoid store 2 copies
             origin_params[name] = param
 
         return origin_params
 
     def __enter__(self):
+        from megatron.core import mpu
+        
+        log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=logger)
         # create a new cuda space for parameters not in this pp rank
         self.module.load_params_to_cuda()
+        log_gpu_memory_usage('After load_params_to_cuda sharding manager memory', logger=logger)
         # broadcast the parameters from pp rank to other ranks
         self.module.allgather_params()
         # obtain name to parameters in pp/vpp
@@ -386,10 +406,23 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.params = normalize_pp_vpp_params(params=params,
                                               num_hidden_layers=self.model_config.num_hidden_layers,
                                               layer_name='layers')
+        log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
         self.origin_params = self._post_process_params(self.params)
-        self.inference_engine.sync_model_weights(self.params, load_format='megatron')
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            self.inference_engine.sync_model_weights(self.params, load_format='megatron')
+        else:
+            self.inference_engine.wake_up()
+            model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            to_load_params = convert_megatron_model_to_transformers_model(self.params, self.model_config, mpu.get_tensor_model_parallel_world_size(), self.module.pp_models[0][0].config.num_query_groups, convert_qkv_gate_up=True)
+            loaded_params = model.load_weights(
+                ((name, param) for name, param in to_load_params.items()))
+            logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+        log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
+        del params
+        log_gpu_memory_usage('After delete params sharding manager memory', logger=logger)
 
     def __exit__(self, exc_type, exc_value, traceback):
+        log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # offload parameters doesn't belong to this pp rank
         self.module.offload_params_to_cpu()
 
@@ -400,7 +433,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.params[name] = param
 
         # self.inference_engine.sync_model_weights(params)
-        self.inference_engine.offload_model_weights()
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            self.inference_engine.offload_model_weights()
+        else:
+            self.inference_engine.sleep(level=1)
+        log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
         self.module.train()
 

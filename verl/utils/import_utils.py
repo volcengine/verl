@@ -22,20 +22,20 @@ import importlib
 
 @cache
 def is_megatron_core_available():
-    mcore_loader = importlib.find_loader('megatron.core')
-    return mcore_loader is not None
+    mcore_spec = importlib.util.find_spec('megatron.core')
+    return mcore_spec is not None
 
 
 @cache
 def is_vllm_available():
-    vllm_loader = importlib.find_loader('vllm')
-    return vllm_loader is not None
+    vllm_spec = importlib.util.find_spec('vllm')
+    return vllm_spec is not None
 
 
 @cache
 def is_sglang_available():
-    sglang_loader = importlib.find_loader('sglang')
-    return sglang_loader is not None
+    sglang_spec = importlib.util.find_spec('sglang')
+    return sglang_spec is not None
 
 
 def import_external_libs(external_libs=None):

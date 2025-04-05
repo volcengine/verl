@@ -87,12 +87,12 @@ class ModelRunner(ModelRunner):
             load_config,
             lora_config,
             kv_cache_dtype,
-            is_driver_worker=True,  # a hack
-            prompt_adapter_config=prompt_adapter_config,
-            return_hidden_states=return_hidden_states,
-            observability_config=observability_config,
-            input_registry=input_registry,
-            mm_registry=mm_registry,
+            True,  # a hack
+            prompt_adapter_config,
+            return_hidden_states,
+            observability_config,
+            input_registry,
+            mm_registry,
         )
 
         # NOTE(sgm): add for verl

@@ -30,7 +30,7 @@ import torch.distributed as dist
 
 
 def init_fn(x: torch.nn.Module):
-    if not torch.distributed.get_rank() == 0:
+    if torch.distributed.get_rank() != 0:
         x = x.to_empty(device=torch.cuda.current_device(), recurse=False)
         torch.cuda.empty_cache()
     return x
