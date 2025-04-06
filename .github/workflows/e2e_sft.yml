@@ -11,9 +11,8 @@ on:
       - "**/*.py"
       - .github/workflows/e2e_sft.yml
       - "tests/e2e/*.sh"
-    paths-ignore:
-      - "verl/trainer/main_ppo.py"
-      - "recipe/*"
+      - "!verl/trainer/main_ppo.py"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

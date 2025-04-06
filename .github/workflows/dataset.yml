@@ -9,10 +9,9 @@ on:
     paths:
       - "verl/utils/dataset/*.py"
       - .github/workflows/dataset.yml
-    paths-ignore:
-      - "verl/workers/fsdp_workers.py"
-      - "verl/workers/megatron_workers.py"
-      - "recipe/*"
+      - "!verl/workers/fsdp_workers.py"
+      - "!verl/workers/megatron_workers.py"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

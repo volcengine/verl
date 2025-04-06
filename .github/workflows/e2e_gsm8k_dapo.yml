@@ -12,10 +12,9 @@ on:
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k_dapo.yml
       - "tests/e2e/*dapo.sh"
-    paths-ignore:
-      - "verl/trainer/main_ppo.py"
-      - "verl/trainer/fsdp_sft_trainer.py"
-      - "verl/workers/megatron_workers.py"
+      - "!verl/trainer/main_ppo.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      - "!verl/workers/megatron_workers.py"
 
 # Declare permissions just read content.
 permissions:

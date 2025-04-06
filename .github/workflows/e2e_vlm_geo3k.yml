@@ -11,8 +11,7 @@ on:
       - "**/*.py"
       - .github/workflows/e2e_vlm_geo3k.yml
       - "tests/e2e/*vl*.sh"
-    paths-ignore:
-      - "recipe/*"
+      - "!recipe/**"
 
 # Declare permissions just read content.
 permissions: 

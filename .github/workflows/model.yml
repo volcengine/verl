@@ -11,8 +11,7 @@ on:
       - "**/*.py"
       - "tests/model/*"
       - .github/workflows/model.yml
-    paths-ignore:
-      - "recipe/*"
+      - "!recipe/**"
 
 # Declare permissions just read content.
 permissions: 
