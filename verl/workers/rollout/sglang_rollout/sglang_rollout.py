@@ -40,6 +40,8 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 from verl.third_party.sglang import parallel_state as sglang_ps
 import torch.distributed
 from torch.nn.utils.rnn import pad_sequence
+from sglang.srt.utils import broadcast_pyobj, get_ip
+from sglang.srt.server_args import PortArgs, ServerArgs
 
 if TYPE_CHECKING:
     from torch import nn
@@ -136,10 +138,21 @@ class SGLangRollout(BaseRollout):
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
         # get tp_rank of this process in this tp group
+        tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
         torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"],
                                             device_mesh_cpu.get_group("tp"))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
+        visible_devices_set = set(visible_devices)
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
+
+        nnodes = -(-tp_size // len(visible_devices_set))
+        server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
+        ip, port_args = get_ip(), PortArgs.init_new(server_args)
+        [ip, port_args] = broadcast_pyobj([ip, port_args],
+                                          rank=tp_rank,
+                                          dist_group=device_mesh_cpu.get_group("tp"),
+                                          src=device_mesh_cpu["tp"].mesh[0].item())
+        dist_init_addr = f"{ip}:{port_args.nccl_port}"
 
         self.inference_engine = VerlEngine(
             model_path=actor_module,
@@ -149,6 +162,8 @@ class SGLangRollout(BaseRollout):
             enable_memory_saver=True,
             base_gpu_id=0,
             gpu_id_step=1,
+            dist_init_addr=dist_init_addr,
+            nnodes=nnodes
             # NOTE(Chenyang): if you want to debug the sglang engine
             # please set the following parameters
             # Otherwise, it will make the engine run too slow
@@ -212,13 +227,6 @@ class SGLangRollout(BaseRollout):
 
         do_sample = prompts.meta_info.get("do_sample", True)
         if not do_sample:
-            # kwargs = {
-            #     'top_p': 1.0,
-            #     'top_k': -1,
-            #     'min_p': 0.0,
-            #     'temperature': 0,
-            #     'n': 1  # if greedy, only 1 response
-            # }
             kwargs = dict(
                 n=1,
                 presence_penalty=0.0,
@@ -246,11 +254,11 @@ class SGLangRollout(BaseRollout):
         out = _post_process_outputs(self.tokenizer, output)
 
         response = out[0].to(idx.device)
-        log_probs = out[1].to(idx.device)
+        # log_probs = out[1].to(idx.device)
 
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+            # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
         if self.config.n > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
@@ -287,7 +295,8 @@ class SGLangRollout(BaseRollout):
         )
 
         # free cache engine
-        if self.config.free_cache_engine and self.inference_engine._engine is not None:
+        if (self.config.free_cache_engine and self.inference_engine._engine is not None and
+                self.inference_engine._engine.tokenizer_manager is not None):
             self.inference_engine._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch)
