@@ -11,8 +11,7 @@ on:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/vllm.yml
-    paths-ignore:
-      - "recipe/*"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
