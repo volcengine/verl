@@ -103,24 +103,6 @@ def test_vllm_spmd():
     print('start generation')
     input_ids = input_ids.cuda()
     attention_mask = attention_mask.cuda()
-    batch_size = input_ids.size(0)
-
-    generation_config = GenerationConfig(do_sample=False)
-    actor_model.cuda()
-    output = actor_model.generate(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_new_tokens=max_response_length,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-        generation_config=generation_config,
-        output_scores=False,  # this is potentially very large
-        return_dict_in_generate=True,
-        use_cache=False)  # may OOM when use_cache = True
-    seq = output.sequences
-    response = seq[:, max_prompt_length:]
-
-    hf_response_tokens = tokenizer.batch_decode(response)
 
     temperature = 0
     top_p = 1
@@ -170,23 +152,27 @@ def test_vllm_spmd():
         trust_remote_code=True,
     )
 
-    # Warmup iterations
+    outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
+    vllm_response_tokens = []
+    for output in outputs:
+        generated_text = output.outputs[0].text
+        vllm_response_tokens.append(generated_text)
+
     world_size = torch.distributed.get_world_size()
     model = llm.llm_engine.model_executor.driver_worker.worker.model_runner.model
     model.load_weights(
         ((name, param.full_tensor() if world_size != 1 else param) for name, param in state_dict.items()))
 
     outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
-    vllm_response_tokens = []
+    verl_vllm_response_tokens = []
     for output in outputs:
-        prompt = output.prompt
         generated_text = output.outputs[0].text
-        vllm_response_tokens.append(generated_text)
+        verl_vllm_response_tokens.append(generated_text)
 
     if torch.distributed.get_rank() == 0:
-        print(f'hf response: {hf_response_tokens}')
         print(f'vllm response: {vllm_response_tokens}')
-    assert are_lists_similar(hf_response_tokens, vllm_response_tokens), \
+        print(f'verl-vllm response: {verl_vllm_response_tokens}')
+    assert are_lists_similar(vllm_response_tokens, verl_vllm_response_tokens), \
         f'Strings differ more than 10%:\n'
     print('Check Pass')
     torch.distributed.destroy_process_group()
