@@ -49,7 +49,7 @@ class _DataProtoConfigMeta(type):
     def auto_padding(self):
         enabled_by_env = os.getenv("VERL_AUTO_PADDING", "FALSE").upper() in ["TRUE", "1"]
         return enabled_by_env or self._config.get(self._verl_auto_padding, False)
-    
+
     @auto_padding.setter
     def auto_padding(self, enabled: bool):
         assert isinstance(enabled, bool), f"enabled must be a boolean, got {enabled} as {type(enabled)}"
@@ -60,9 +60,7 @@ class DataProtoConfig(metaclass=_DataProtoConfigMeta):
     pass
 
 
-
 _padding_size_key = "_padding_size_key_x123d"
-
 
 
 def pad_dataproto_to_divisor(data: 'DataProto', size_divisor: int):
@@ -341,10 +339,18 @@ class DataProto:
             else:
                 raise ValueError(f'Unsupported type in data {type(val)}')
 
-        return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
+        return DataProto.from_dict(tensors=tensors,
+                                   non_tensors=non_tensors,
+                                   meta_info=meta_info,
+                                   auto_padding=auto_padding)
 
     @classmethod
-    def from_dict(cls, tensors: Dict[str, torch.Tensor], non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
+    def from_dict(cls,
+                  tensors: Dict[str, torch.Tensor],
+                  non_tensors=None,
+                  meta_info=None,
+                  num_batch_dims=1,
+                  auto_padding=False):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
@@ -626,11 +632,11 @@ class DataProto:
                     yield d
 
         return iter(get_data())
-    
+
     def is_padding_enabled(self):
         dataproto_specific_padding = self.meta_info.get(DataProtoConfig._verl_auto_padding, False)
         return dataproto_specific_padding or DataProtoConfig.auto_padding
-    
+
     def padding(self, padding_size, padding_candidate=""):
         """Pad the DataProto by concating with padding_candidate.repeat(padding_size)
 
@@ -677,7 +683,7 @@ class DataProto:
                 DataProto(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
 
         return output
-    
+
     def index_select(self, index):
         """index select along the batch dimension
 
