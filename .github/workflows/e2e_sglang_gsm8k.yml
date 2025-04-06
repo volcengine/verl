@@ -11,8 +11,7 @@ on:
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_sglang_gsm8k.yml
       - "tests/e2e/*.sh"
-    paths-ignore:
-      - "recipe/*"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
