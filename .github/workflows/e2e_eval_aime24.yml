@@ -3,22 +3,16 @@ name: e2e_eval_aime24
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_eval_aime24.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_eval_aime24.yml
-      - "tests/e2e/*.sh"
+      - "tests/e2e/run_r1_distill_qwen_aime24_eval.sh"
+      - "!verl/trainer/main_ppo.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
 
 # Declare permissions just read content.
 permissions:

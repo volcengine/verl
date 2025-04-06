@@ -3,20 +3,15 @@ name: dataset
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/dataset.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
     paths:
-      - "**/*.py"
+      - "verl/utils/dataset/*.py"
       - .github/workflows/dataset.yml
+      - "!verl/workers/fsdp_workers.py"
+      - "!verl/workers/megatron_workers.py"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
