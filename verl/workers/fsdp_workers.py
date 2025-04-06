@@ -1118,7 +1118,11 @@ class RewardModelWorker(Worker):
             rm_input_ids = data.batch['input_ids']
             rm_attention_mask = data.batch['attention_mask']
             rm_position_ids = data.batch['position_ids']
-            rm_inputs = {'input_ids': rm_input_ids, 'attention_mask': rm_attention_mask, 'position_ids': rm_position_ids}
+            rm_inputs = {
+                'input_ids': rm_input_ids,
+                'attention_mask': rm_attention_mask,
+                'position_ids': rm_position_ids
+            }
             rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
