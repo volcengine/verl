@@ -150,7 +150,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
 
 
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor,
-                                                           eos_mask: torch.Tensor,
+                                                           response_mask: torch.Tensor,
                                                            index: torch.Tensor,
                                                            epsilon: float = 1e-6):
     """
@@ -159,7 +159,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
-        eos_mask: `(torch.Tensor)`
+        response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
     
     Returns:
@@ -188,8 +188,8 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
         for i in range(bsz):
             scores[i] = scores[i] - id2mean[index[i]]
 
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
-        scores = verl_F.masked_whiten(scores, eos_mask)
+        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = verl_F.masked_whiten(scores, response_mask)
 
     return scores, scores
 
