@@ -36,8 +36,8 @@ RUN pip config set global.index-url "${PIP_INDEX}" && \
     pip config set global.extra-index-url "${PIP_INDEX}" && \
     python -m pip install --upgrade pip
 
-# Install sglang-0.4.4.post3 and torch-memory-saver
-RUN pip install "sglang[all]==0.4.4.post3" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+# Install sglang-0.4.4.post4 and torch-memory-saver
+RUN pip install "sglang[all]==0.4.4.post4" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 
 # Install torch-2.5.1
 RUN pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 tensordict torchdata \
