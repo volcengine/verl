@@ -64,6 +64,9 @@ class SFTDataset(Dataset):
         self.prompt_dict_keys = [] if not prompt_dict_keys else prompt_dict_keys
         self.response_dict_keys = [] if not response_dict_keys else response_dict_keys
 
+        self.prompt_key = self.prompt_key[0]
+        self.response_key = self.response_key[0]
+
         self.max_length = max_length
 
         self._download()
