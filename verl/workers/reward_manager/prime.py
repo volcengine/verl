@@ -103,7 +103,7 @@ class PrimeRewardManager:
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
         extra_info = [data_item.non_tensor_batch.get('extra_info', None) for data_item in data]
-        
+
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
             scores = asyncio.run(
