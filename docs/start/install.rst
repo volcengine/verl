@@ -98,16 +98,16 @@ The following steps are quick installation guide for verl-SGLang.
 
     - **PyTorch**: 2.5.1+cu124
     - **CUDA**: 12.4
-    - **SGLang**: 0.4.4.post3
+    - **SGLang**: 0.4.4.post4
     - **torch-memory-saver**: 0.0.5
 
 
 2. use docker image
 
-We also provide a pre-built imgae ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post3`` for SGLang backend.
+We also provide a pre-built imgae ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` for SGLang backend.
 
 .. note::
-    As we are fast moving integrating SGLang into verl, sometimes we may use a specific commit from SGLang main branch for installation but not stable release from Pypi. If you encounter any issues, feel free to contact https://github.com/ocss884.
+    As we are fast moving integrating SGLang into verl, sometimes we may use a specific commit from SGLang main branch for installation but not stable release from Pypi. If you encounter any issues, feel free to contact @ocss884.
 
 
 Install from custom environment
