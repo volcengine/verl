@@ -46,14 +46,14 @@ class _DataProtoConfigMeta(type):
     _verl_auto_padding = "_verl_auto_padding"
 
     @property
-    def auto_padding(self):
+    def auto_padding(cls):
         enabled_by_env = os.getenv("VERL_AUTO_PADDING", "FALSE").upper() in ["TRUE", "1"]
-        return enabled_by_env or self._config.get(self._verl_auto_padding, False)
+        return enabled_by_env or cls._config.get(cls._verl_auto_padding, False)
 
     @auto_padding.setter
-    def auto_padding(self, enabled: bool):
+    def auto_padding(cls, enabled: bool):
         assert isinstance(enabled, bool), f"enabled must be a boolean, got {enabled} as {type(enabled)}"
-        self._config[self._verl_auto_padding] = enabled
+        cls._config[cls._verl_auto_padding] = enabled
 
 
 class DataProtoConfig(metaclass=_DataProtoConfigMeta):
