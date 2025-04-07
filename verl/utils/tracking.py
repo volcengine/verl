@@ -265,14 +265,16 @@ class ValidationGenerationsLogger:
         """Log the rollout samples to a parquet file at data_dir"""
         import os
         from datasets import Dataset
-
+        
+        num_samples = len(samples)
+        
         # Create a Dataset from the samples
         data = {
             "input": [sample[0] for sample in samples],
             "output": [sample[1] for sample in samples],
             "score": [sample[2] for sample in samples],
-            "epoch": epoch,
-            "step": step
+            "epoch": [epoch] * num_samples,
+            "step": [step] * num_samples
         }
         dataset = Dataset.from_dict(data)
 
@@ -374,13 +376,14 @@ class RolloutLogger:
         import os
         from datasets import Dataset
 
+        num_samples = len(samples)
         # Create a Dataset from the samples
         data = {
             "input": [sample[0] for sample in samples],
             "output": [sample[1] for sample in samples],
             "score": [sample[2] for sample in samples],
-            "epoch": epoch,
-            "step": step
+            "epoch": [epoch] * num_samples,
+            "step": [step] * num_samples
         }
         dataset = Dataset.from_dict(data)
 
