@@ -422,20 +422,33 @@ class RayPPOTrainer(object):
             'truncation', 'error'
         ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
         # use sampler for better ckpt resume
-        if self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
-        else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
+        # if self.config.data.shuffle:
+        #     train_dataloader_generator = torch.Generator()
+        #     train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+        #     sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
+        # else:
+        #     sampler = SequentialSampler(data_source=self.train_dataset)
 
-        self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.get('gen_batch_size',
-                                                                                   self.config.data.train_batch_size),
-                                                   num_workers=8,
-                                                   drop_last=True,
-                                                   collate_fn=collate_fn,
-                                                   sampler=sampler)
+        # self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+        #                                            batch_size=self.config.data.get('gen_batch_size',
+        #                                                                            self.config.data.train_batch_size),
+        #                                            num_workers=8,
+        #                                            drop_last=True,
+        #                                            collate_fn=collate_fn,
+        #                                            sampler=sampler)
+
+        # Use CurriculumSampler
+        from .custom_sampler import CurriculumSampler
+        self.sampler = CurriculumSampler(
+            data_source=self.train_dataset,
+            batch_size=self.config.data.train_batch_size,
+            target_difficulty=0
+        )       
+        self.train_dataloader = DataLoader(
+            dataset=self.train_dataset,
+            collate_fn=collate_fn,
+            batch_sampler=self.sampler  # Custom batch sampler providing batches of indices
+        )
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
@@ -938,6 +951,13 @@ class RayPPOTrainer(object):
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
+
+                    sequence_reward = batch.batch['token_level_rewards'].sum(-1)
+                    current_reward = torch.mean(sequence_reward).detach().item()
+                    new_target_difficulty = self.sampler.target_difficulty + 50 * np.tanh(2 * (current_reward - 0.5))
+                    new_target_difficulty = np.clip(new_target_difficulty, 0, 100)
+                    self.sampler.update_target_difficulty(new_target_difficulty)
+                    batch.meta_info['target_difficulty'] = new_target_difficulty
 
                     # update critic
                     if self.use_critic:
