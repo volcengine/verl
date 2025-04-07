@@ -3,12 +3,13 @@ data:
   max_prompt_length: 512
   batch_size: 8
   shuffle: True
-  drop_last: True
+  drop_last: False
+  
 
 actor_rollout_ref:
   model:
     hf_model_path: "Qwen/Qwen2.5-3B"
-    actor_fsdp_model_path: None
+    actor_fsdp_model_path: null
   rollout:
     micro_batch_size: 1
     do_sample: False

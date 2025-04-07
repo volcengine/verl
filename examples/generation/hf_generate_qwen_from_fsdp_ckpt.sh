@@ -10,7 +10,7 @@ export CUDA_VISIBLE_DEVICES=0
 python3 -m verl.trainer.main_generation \
     trainer.n_gpus_per_node=1 \
     data.path='/data/countdown/test.parquet' \
-    data.output_path='out_test.parquet' \
+    data.output_path='./out_test.parquet' \
     data.batch_size=8 \
     data.n_samples=1 \
     model.path='Qwen/Qwen2.5-3B' \

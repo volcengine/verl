@@ -75,7 +75,11 @@ class HFRollout(BaseRollout):
 
         temperature = prompts.meta_info.get('temperature', self.config.temperature)
 
-        generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
+        if do_sample:
+            # these flags is only used in sample-based generation modes
+            generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
+        else:
+            generation_config = None
 
         if isinstance(self.module, FSDP):
             # recurse need to set to False according to https://github.com/pytorch/pytorch/issues/100069

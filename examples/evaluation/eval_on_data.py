@@ -38,16 +38,16 @@ def initialize_model_and_tokenizer(
     return tokenizer, actor_module
 
 
-@hydra.main(config_path='config', config_name='eval_on_data', version_base=None)
+@hydra.main(config_path='./', config_name='eval_on_data', version_base=None)
 def main(config):
     # Loading huggingface-style checkpoint, for example "Qwen/Qwen2.5-3B" or local_ckpt_path
     model_path = config.actor_rollout_ref.model.hf_model_path
     tokenizer, actor_module = initialize_model_and_tokenizer(model_path)
 
     # Loading FSDP checkpoint (optional: these three lines can be skipped. Prerequisite: actor_module must be preloaded)
-    fsdp_checkpoint_path = config.actor_rollout_ref.model.get("fsdp_checkpoint_path", None)
-    if fsdp_checkpoint_path is not None:
-        state_dict = load_sharded_model(fsdp_checkpoint_path)
+    actor_fsdp_model_path = config.actor_rollout_ref.model.get("actor_fsdp_model_path", None)
+    if actor_fsdp_model_path is not None:
+        state_dict = load_sharded_model(actor_fsdp_model_path)
         actor_module.load_state_dict(state_dict)
 
     actor_module.to(torch.bfloat16)
@@ -59,7 +59,6 @@ def main(config):
         tokenizer=tokenizer,
         prompt_key="prompt",
         max_prompt_length=config.data.max_prompt_length,
-        filter_prompts=True,
         return_raw_chat=False,
         truncation="error",
     )
@@ -71,13 +70,11 @@ def main(config):
         collate_fn=collate_fn,
     )
 
-    assert len(val_dataloader) >= 1
-
     val_reward_fn = NaiveRewardManager(
         tokenizer=tokenizer, num_examine=1, compute_score=None
     )
 
-    hfrollout = HFRollout(module=actor_module, config=config)
+    hfrollout = HFRollout(module=actor_module, config=config.actor_rollout_ref.rollout)
 
     sample_inputs = []
     sample_outputs = []

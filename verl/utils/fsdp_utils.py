@@ -376,7 +376,7 @@ def load_sharded_model(fsdp_checkpoint_path):
             raise ValueError(f"Missing shard file: {filepath}")
 
         print(f"Loading shard: {filepath}")
-        shard_dict = torch.load(filepath)
+        shard_dict = torch.load(filepath, weights_only=False)
 
         for key, value in shard_dict.items():
             if hasattr(value, "to_local"):
