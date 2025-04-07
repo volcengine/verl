@@ -41,7 +41,7 @@ python3 -m recipe.prime.main_prime \
     reward_model.model.optim.grad_clip=10.0 \
     reward_model.model.input_tokenizer=null \
     reward_model.mini_batch_size=32 \
-    reward_model.reward_manager=naive \
+    reward_model.reward_manager=prime \
     trainer.val_before_train=False \
     trainer.logger=['console'] \
     trainer.project_name='verl_example' \

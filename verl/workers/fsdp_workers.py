@@ -518,7 +518,7 @@ class ActorRolloutRefWorker(Worker):
         output = output.to('cpu')
 
         # clear kv cache
-        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -1134,6 +1134,16 @@ class RewardModelWorker(Worker):
         data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
+        else:
+            rm_input_ids = data.batch['input_ids']
+            rm_attention_mask = data.batch['attention_mask']
+            rm_position_ids = data.batch['position_ids']
+            rm_inputs = {
+                'input_ids': rm_input_ids,
+                'attention_mask': rm_attention_mask,
+                'position_ids': rm_position_ids
+            }
+            rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
         rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
