@@ -4,15 +4,19 @@ Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <http
 
 介绍
 ----
-SGLang 是开源 SOTA 的推理服务引擎，被 xAI 全面采用，支持了 grok 在研究和 serving 过程中的所有推理需求。veRL 目前全面支持 SGLang 在 rollout 阶段作为推理引擎，以生成 response。目前支持的功能和 vllm 推理引擎一致，包括 memory save 和 multi-node rollout。安装完成 veRL 和 SGLang 后，在启动时添加 ``actor_rollout_ref.rollout.name=sglang``，即可在两个推理框架之间顺利切换。
+`SGLang <https://github.com/sgl-project/sglang>`_ 是开源 SOTA 的推理服务引擎，被 xAI 全面采用，用于支持 grok 在研究和 serving 过程中的所有推理需求。
+
+目前，veRL 全面支持采用 SGLang 作为 rollout 阶段的推理引擎。作为 rollout engine，目前 SGLang 和 vllm 完全一致，包括 memory save 和 multi-node rollout。安装完成 veRL 和 SGLang 后，在启动时添加 ``actor_rollout_ref.rollout.name=sglang``，即可在两个推理框架之间顺利切换。
+
+此外，SGLang 团队正在全力支持 Multi-Turn Agentic RL，VLM RLHF，Sever-Based RLHF 以及 Partial Rollout 等功能，相关的开发进度可以参考此处的 `Tracking Roadmap <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/74>`_。
 
 安装
 ----
-首先需要按照 `Install SGLang as rollout backend 文档 <https://verl.readthedocs.io/en/latest/start/install.html#install-sglang-as-rollout-backend>`_ 里的要求进行安装，并且注意版本要求是否匹配。
+首先需要按照 `Install SGLang as rollout backend <https://verl.readthedocs.io/en/latest/start/install.html#install-sglang-as-rollout-backend>`_ 里的要求进行安装，并且注意版本要求是否匹配。基本上，采用 main branch 最新的 `SGLang <https://github.com/sgl-project/sglang>`_ 就可以稳定启动训练，不用追求特定的版本。
 
 .. code-block:: bash
-
-    pip install "sglang[all]>=0.4.4.post4" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+    # 目前是 0.4.5，随时可能更新，请参考最新的版本
+    pip install "sglang[all]>=0.4.5" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
 
 SGLang 在单机运行
 ------------------
@@ -93,7 +97,3 @@ SGLang 同样支持在 IPv4 和 IPv6 的场景下运行 verl 中基于 RAY 的�
         rollout.response_length=1024 \
         rollout.tensor_model_parallel_size=16 \
         rollout.gpu_memory_utilization=0.8
-
-TODO
-----
-veRL-SGLang 项目目前正在快速推进，有多个功能正在支持中，相关开发可以查看 `[链接]()`。
