@@ -14,7 +14,7 @@ SGLang 是一个用于大型语言模型和视觉语言模型的快速服务框�
 
 .. code-block:: bash
 
-    pip install -e "pip install "sglang[all]>=0.4.4.post4" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+    pip install "sglang[all]>=0.4.4.post4" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
 
 SGLang 在单机运行
 ------------------
