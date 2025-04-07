@@ -14,16 +14,39 @@
 """
 Sharding manager to implement HybridEngine
 """
+import abc
 
 from verl import DataProto
 
 
-class BaseShardingManager:
+class BaseShardingManager(metaclass=abc.ABCMeta):
 
-    def __enter__(self):
+    def __enter__(self) -> None:
+        return self.enter_sharding_context()
+
+    # Put type hints.
+    def __exit__(self,
+                 exc_type: type,
+                 exc_value: Exception,
+                 traceback: object) -> None:
+
+        return self.exit_sharding_context(exc_type, exc_value, traceback)
+
+    @abc.abstractmethod
+    def enter_sharding_context(self) -> None:
+        """
+        For explicitly entering sharding context, e.g., DAPO rollout.
+        """
         pass
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    @abc.abstractmethod
+    def exit_sharding_context(self, 
+                              exc_type: type,
+                              exc_value: Exception,
+                              traceback: object) -> None:
+        """
+        For explicitly exiting sharding context, e.g., DAPO rollout.
+        """
         pass
 
     def preprocess_data(self, data: DataProto) -> DataProto:
