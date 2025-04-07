@@ -214,7 +214,7 @@ class ParallelQwen2ForCausalLM(nn.Module):
         )
 
 
-from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+from verl.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
 
 
 class ParallelQwen2ModelRmPad(nn.Module):
