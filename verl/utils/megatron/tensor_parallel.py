@@ -149,7 +149,7 @@ def vocab_parallel_entropy(vocab_parallel_logits: torch.Tensor) -> torch.Tensor:
 
 def vocab_parallel_log_probs_from_logits(logits, labels):
     """TODO(zhangchi.usc1992): We may change the implementation later"""
-    from megatron.core import parallel_state as tensor_parallel
+    from megatron.core import tensor_parallel
     return -tensor_parallel.vocab_parallel_cross_entropy(vocab_parallel_logits=logits, target=labels)
 
 
