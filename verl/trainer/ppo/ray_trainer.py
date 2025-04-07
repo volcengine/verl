@@ -484,7 +484,7 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
-    def _log_all_generations(self, inputs, outputs, scores, epoch = None):
+    def _log_all_generations(self, inputs, outputs, scores, epoch=None):
         """Log a table of rollout samples to the configured logger (upload to Hub preffered)"""
 
         generations_to_log = self.config.trainer.log_rollout_generations
@@ -496,7 +496,6 @@ class RayPPOTrainer(object):
         samples = list(zip(inputs, outputs, scores))
 
         self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch, self.rollout_data_dir)
-        
 
     def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
@@ -520,9 +519,10 @@ class RayPPOTrainer(object):
         samples = samples[:generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, self.validation_data_dir)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps,
+                                               self.validation_data_dir)
 
-    def _validate(self, epoch = None):
+    def _validate(self, epoch=None):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -596,7 +596,7 @@ class RayPPOTrainer(object):
 
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores, epoch = epoch)
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores, epoch=epoch)
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
@@ -826,7 +826,7 @@ class RayPPOTrainer(object):
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
-            val_metrics = self._validate(epoch = -1)
+            val_metrics = self._validate(epoch=-1)
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
@@ -943,8 +943,11 @@ class RayPPOTrainer(object):
                             output_ids = batch.batch['responses']
                             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
                             scores = reward_tensor.sum(-1).cpu().tolist()
-                            self._log_all_generations(inputs=input_texts, outputs=output_texts, scores=scores, epoch = epoch)
-                            
+                            self._log_all_generations(inputs=input_texts,
+                                                      outputs=output_texts,
+                                                      scores=scores,
+                                                      epoch=epoch)
+
                         print(f'{list(reward_extra_infos_dict.keys())=}')
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})

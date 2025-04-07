@@ -180,7 +180,7 @@ def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
 @dataclasses.dataclass
 class ValidationGenerationsLogger:
 
-    def log(self, loggers, samples, step, epoch = None, data_dir=None):
+    def log(self, loggers, samples, step, epoch=None, data_dir=None):
         if 'wandb' in loggers:
             self.log_generations_to_wandb(samples, step)
         if 'swanlab' in loggers:
@@ -260,7 +260,7 @@ class ValidationGenerationsLogger:
                 mlflow.log_artifact(validation_gen_step_file)
         except Exception as e:
             print(f"WARNING: save validation generation file to mlflow failed with error {e}")
-        
+
     def log_generations_to_database(self, samples, step, epoch, data_dir):
         """Log the rollout samples to a parquet file at data_dir"""
         import os
@@ -271,8 +271,8 @@ class ValidationGenerationsLogger:
             "input": [sample[0] for sample in samples],
             "output": [sample[1] for sample in samples],
             "score": [sample[2] for sample in samples],
-            "epoch" : epoch,
-            "step" : step
+            "epoch": epoch,
+            "step": step
         }
         dataset = Dataset.from_dict(data)
 
@@ -282,10 +282,11 @@ class ValidationGenerationsLogger:
         # Write the Dataset to a parquet file
         dataset.to_parquet(file_path)
 
+
 @dataclasses.dataclass
 class RolloutLogger:
 
-    def log(self, loggers, samples, step, epoch = None, data_dir = None):
+    def log(self, loggers, samples, step, epoch=None, data_dir=None):
         if 'wandb' in loggers:
             self.log_generations_to_wandb(samples, step)
         if 'swanlab' in loggers:
@@ -378,7 +379,7 @@ class RolloutLogger:
             "input": [sample[0] for sample in samples],
             "output": [sample[1] for sample in samples],
             "score": [sample[2] for sample in samples],
-            "epoch" : epoch,
+            "epoch": epoch,
             "step": step
         }
         dataset = Dataset.from_dict(data)
@@ -388,4 +389,3 @@ class RolloutLogger:
 
         # Write the Dataset to a parquet file
         dataset.to_parquet(file_path)
-
