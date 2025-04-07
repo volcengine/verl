@@ -16,6 +16,8 @@
 
 📦 **Preprocessed difficulty data:** [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
 
+🗂️ **Preprocessed training data**: [Data](https://github.com/uscnlp-lime/verl/tree/main/verl/data)
+
 ✉️ Feel free to reach out to **Taiwei Shi (taiweish@usc.edu)** or **Jieyu Zhao (jieyuz@usc.edu)** with questions or collaborations!
 
 ---
