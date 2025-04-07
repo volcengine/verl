@@ -93,7 +93,7 @@ class vLLMRollout(BaseRollout):
                 train_tp = kwargs.get('train_tp', None)
                 num_tp_per_train_tp = train_tp // tensor_parallel_size
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                num_tp_per_train_tp=num_tp_per_train_tp)
+                                                  num_tp_per_train_tp=num_tp_per_train_tp)
             else:
                 vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
@@ -195,7 +195,9 @@ class vLLMRollout(BaseRollout):
         print(f'batch_size: {batch_size}')
         print(f'len(non_tensor_batch["raw_prompt_ids"]: {len(non_tensor_batch["raw_prompt_ids"])}')
         if batch_size != len(non_tensor_batch['raw_prompt_ids']):
-            raise RuntimeError(f'vllm sharding manager is not work properly. {batch_size} vs {len(non_tensor_batch["raw_prompt_ids"])}')
+            raise RuntimeError(
+                f'vllm sharding manager is not work properly. {batch_size} vs {len(non_tensor_batch["raw_prompt_ids"])}'
+            )
 
         if 'multi_modal_data' in non_tensor_batch:
             vllm_inputs = []

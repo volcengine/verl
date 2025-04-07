@@ -462,12 +462,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     def preprocess_data(self, data: DataProto) -> DataProto:
         if self.tp_size == 1:
             return data
-    
+
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
             group = vllm_ps.get_tensor_model_parallel_group()
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
-        
+
         all_gather_data_proto(data=data, process_group=group)
         return data
 
