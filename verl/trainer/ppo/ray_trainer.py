@@ -497,7 +497,7 @@ class RayPPOTrainer(object):
 
         self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch, self.rollout_data_dir)
 
-    def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None, data_dir = None):
+    def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None, data_dir=None):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
         generations_to_log = self.config.trainer.log_val_generations
@@ -519,8 +519,7 @@ class RayPPOTrainer(object):
         samples = samples[:generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps,
-                                               epoch, data_dir)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch, data_dir)
 
     def _validate(self, epoch=-1):
         data_source_lst = []
@@ -596,8 +595,11 @@ class RayPPOTrainer(object):
 
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores, 
-                                        epoch=epoch, data_dir = self.validation_data_dir)
+        self._maybe_log_val_generations(inputs=sample_inputs,
+                                        outputs=sample_outputs,
+                                        scores=sample_scores,
+                                        epoch=epoch,
+                                        data_dir=self.validation_data_dir)
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"

@@ -265,9 +265,9 @@ class ValidationGenerationsLogger:
         """Log the rollout samples to a parquet file at data_dir"""
         import os
         from datasets import Dataset
-        
+
         num_samples = len(samples)
-        
+
         # Create a Dataset from the samples
         data = {
             "input": [sample[0] for sample in samples],
