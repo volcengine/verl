@@ -16,6 +16,8 @@
 
 📦 **Preprocessed difficulty data:** [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
 
+✉️ Feel free to reach out to **Taiwei Shi (taiweish@usc.edu)** or **Jieyu Zhao (jieyuz@usc.edu)** with questions or collaborations!
+
 ---
 
 <h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLMs</h1>
