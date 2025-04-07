@@ -297,7 +297,7 @@ def load_megatron_model_weights(config,
     else:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-        model = AutoModelForCausalLM.from_pretrained(local_model_path)
+        model = AutoModelForCausalLM.from_pretrained(local_model_path, torch_dtype="auto")
         state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader

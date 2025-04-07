@@ -9,7 +9,8 @@ import math
 
 import os
 MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", 14000)) - 1024
-print(f"MAX_RESPONSE_LENGTH for reward: {MAX_RESPONSE_LENGTH}")
+UNIT_LENGTH = max(MAX_RESPONSE_LENGTH//4 * 3, MAX_RESPONSE_LENGTH-3702)
+MAX_LENGTH_CONTROL = int(os.getenv("MAX_LENGTH_CONTROL", UNIT_LENGTH))
 
 url = "https://verifier.yuewu.ml/api"
 headers = {
@@ -159,7 +160,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
 
     split, ground_truth = ground_truth.split("######")
 
-    tool_count = solution_str.count("<tool>")
+    tool_count = min(solution_str.count("<tool>"), solution_str.count("</tool>"))
 
     # Remove the prompt from the completion.
     if "<|im_start|>assistant<|im_sep|>" in solution_str:
@@ -179,27 +180,38 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
     if split == "test":
         # Try to extract \boxed{...} from the completion.
         solution_str = last_boxed_only_string(solution_str)
-        return compute_acc_reward(solution_str, ground_truth), {"no_wandb_ans": solution_str, "no_wandb_sol": ground_truth}
+        if solution_str is not None:
+            return compute_acc_reward(solution_str, ground_truth), {"no_wandb_ans": solution_str, "no_wandb_sol": ground_truth}
+        else:
+            # If the completion does not contain \boxed{...}, return 0.
+            return 0., {"no_wandb_ans": solution_str, "no_wandb_sol": ground_truth}
 
     # if there are more than one think tags, return -1 to prevent reward hacking of regex
     invalid_think = solution_str.count("<think>") > 1 or solution_str.count("</think>") > 1
     no_think = "<think>" not in solution_str or "</think>" not in solution_str
     progress = 0.
-    weights = [2., 0.25, 0.5, 0.25]
+    weights = [2., 0.25, 0.5, 0.25, 0.25]
 
     # Apply repetition penalty
     repetition_penalty_score = compute_repetition_penalty(solution_str)
 
+    tool_reward = 0.
+    # set tool reward to 1 if <tool> is used inside <think> tag
+    if "<think>" in solution_str:
+        # check if <tool> is used inside <think> tag
+        inside_think_tag = solution_str.split("<think>")[-1].split("</think>")[0]
+        if "<tool>" in inside_think_tag and "</tool>" in inside_think_tag:
+            tool_reward = 1.
+
     # Bail out if the completion is invalid or incomplete.
     if incomplete:
-        tool_reward = 1. if tool_count > 0 else 0. # Give a reward if the model uses a tool.
-        rwds = [-0.7, repetition_penalty_score, soft_format_reward, xml_reward, tool_reward] # -0.7 is a penalty for incomplete answers, at least an incomplete attempt is better than a wrong one I guess.
-        weights.append(0.25)  # Add weight for tool use
+        rwds = [-0.5, repetition_penalty_score, soft_format_reward, xml_reward, tool_reward] # -0.5 is a penalty for incomplete answers, at least an incomplete attempt is better than a wrong one I guess.
         rwd = sum([r*w for r, w in zip(rwds, weights)]) / sum(weights)
         return rwd, {"acc_reward_raw": 0., "acc_reward_scaled": -1., "repetition_penalty_score": repetition_penalty_score, "soft_format_reward": soft_format_reward, "xml_reward": xml_reward, "response_length": response_length, "progress": progress, "tool_use": tool_count}
 
     if invalid_think or no_think:
-        rwds = [-1., repetition_penalty_score, soft_format_reward, xml_reward]
+        tool_reward = 0. # If the model does not use the think tag, we don't want to reward it for using a tool.
+        rwds = [-1., repetition_penalty_score, soft_format_reward, xml_reward, tool_reward]
         rwd = sum([r*w for r, w in zip(rwds, weights)]) / sum(weights)
         return rwd, {"acc_reward_raw": 0., "acc_reward_scaled": -1., "repetition_penalty_score": repetition_penalty_score, "soft_format_reward": soft_format_reward, "xml_reward": xml_reward, "response_length": response_length, "progress": progress, "tool_use": tool_count}
 
@@ -207,11 +219,10 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         acc_reward = -1.
         acc_reward_raw = 0.
     else:
-        UNIT_LENGTH = min(MAX_RESPONSE_LENGTH//4, 3702)
         min_value_wrong = -1.0
-        max_value_wrong = -0.7
+        max_value_wrong = -0.5
         # min_value_wrong = max_value_wrong = - 0.5
-        min_value_correct = 0.7
+        min_value_correct = 0.5
         max_value_correct = 1.0
 
         # Remove the think tag from the completion only for training
@@ -219,20 +230,37 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
 
         acc_reward_raw = compute_acc_reward(solution_str, ground_truth)
 
+        # if acc_reward_raw>0.5:
+        #     # If the completion is CORRECT, use the correct min/max values.
+        #     min_value = min_value_correct
+        #     max_value = max_value_correct
+        #     progress = min(1, max(max_response_length - response_length, 0) / UNIT_LENGTH)
+        # else:
+        #     # Swap min/max for incorrect answers
+        #     min_value = max_value_wrong
+        #     max_value = min_value_wrong
+        #     min_response_length = UNIT_LENGTH
+        #     progress = min(1, max(max_response_length - response_length - min_response_length, 0) / (max_response_length - min_response_length))
+
+        # # linear reward
+        # acc_reward = min_value + progress * (max_value - min_value)
+
+        # Apply cosine scaling based on length
+        # progress = response_length / max_response_length
+
         if acc_reward_raw>0.5:
-            # If the completion is CORRECT, use the correct min/max values.
             min_value = min_value_correct
             max_value = max_value_correct
-            progress = min(1, max(max_response_length - response_length, 0) / UNIT_LENGTH)
+            progress = min(1, max(response_length - MAX_LENGTH_CONTROL, 0) / (max_response_length - MAX_LENGTH_CONTROL))
         else:
             # Swap min/max for incorrect answers
             min_value = max_value_wrong
             max_value = min_value_wrong
-            min_response_length = UNIT_LENGTH
-            progress = min(1, max(max_response_length - response_length - min_response_length, 0) / (max_response_length - min_response_length))
+            progress = min(1, response_length / (max_response_length - UNIT_LENGTH))
 
-        # linear reward
-        acc_reward = min_value + progress * (max_value - min_value)
+        cosine = math.cos(progress * math.pi)
+        acc_reward = min_value + 0.5 * (max_value - min_value) * (1.0 + cosine)
+
 
     metric = {
         "acc_reward_raw": acc_reward_raw,
@@ -245,7 +273,7 @@ def compute_score(solution_str, ground_truth, response_length, max_response_leng
         "tool_use": tool_count
     }
 
-    return sum([r*w for r, w in zip([acc_reward, repetition_penalty_score, soft_format_reward, xml_reward], weights)]) / sum(weights), metric
+    return sum([r*w for r, w in zip([acc_reward, repetition_penalty_score, soft_format_reward, xml_reward, tool_reward], weights)]) / sum(weights), metric
 
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates

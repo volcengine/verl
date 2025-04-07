@@ -7,33 +7,13 @@ export RUN_NAME=$AMLT_JOB_NAME
 huggingface-cli login --token $HF_TOKEN --add-to-git-credential
 wandb login $WANDB_TOKEN
 
-SWAP_SIZE=1T
-SWAP_FILE=/myswap
-
-if [ ! -f "$SWAP_FILE" ]; then
-    echo "Creating swapfile of size $SWAP_SIZE..."
-    sudo fallocate -l $SWAP_SIZE $SWAP_FILE
-    sudo chmod 600 $SWAP_FILE
-    sudo mkswap $SWAP_FILE
-fi
-
-# Enable swap if not already enabled
-if ! swapon -s | grep -q "$SWAP_FILE"; then
-    echo "Enabling swapfile..."
-    sudo swapon $SWAP_FILE
-fi
-
-# Verify swap is active
-echo "Current swap status:"
-swapon -s
-
 # Set run variables
 CMD="python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/mnt/data/data/$DATASET_NAME/train.parquet \
     data.val_files=/mnt/data/data/$DATASET_NAME/test.parquet \
     data.train_batch_size=$((TRAIN_BATCH_SIZE)) \
-    data.val_batch_size=$((NODES*8)) \
+    data.val_batch_size=$((2*NODES*8)) \
     data.max_prompt_length=1024 \
     data.max_response_length=$((MAX_RESPONSE_LENGTH-1024)) \
     reward_model.reward_manager=prime \
@@ -43,6 +23,7 @@ CMD="python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=$((PPO_BATCH_SIZE)) \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=$((ULYSSES_PARALLEL_SIZE)) \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$((PPO_MAX_TOKEN_LENGTH)) \
     actor_rollout_ref.actor.use_kl_loss=True \
@@ -66,12 +47,12 @@ CMD="python -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.val_generations_to_log_to_wandb=90 \
-    trainer.project_name="reasoning_AOPS" \
+    trainer.project_name="reasoning_NEW" \
     trainer.experiment_name=$RUN_NAME \
     trainer.n_gpus_per_node=$((GPUS)) \
     trainer.nnodes=$((NODES)) \
-    trainer.save_freq=25 \
-    trainer.test_freq=25 \
+    trainer.save_freq=$((SAVE_FREQ)) \
+    trainer.test_freq=$((SAVE_FREQ)) \
     trainer.default_local_dir=$AMLT_OUTPUT_DIR/checkpoints \
     trainer.total_epochs=1"
 
