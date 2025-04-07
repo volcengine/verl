@@ -287,7 +287,9 @@ class MegatronPPOActor(BasePPOActor):
             logits = logits[:, -response_length - 1:-1].contiguous()
             logits_back = logits.clone()
             log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+            del logits
             logits = logits_back
+            logits_back = logits.clone()
             pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
                                                                                   log_prob=log_prob,
                                                                                   advantages=advantages,
@@ -297,6 +299,8 @@ class MegatronPPOActor(BasePPOActor):
                                                                                   cliprange_high=clip_ratio_high,
                                                                                   clip_ratio_c=clip_ratio_c,
                                                                                   loss_agg_mode=loss_agg_mode)
+            del logits
+            logits = logits_back
             entropy = vocab_parallel_entropy(logits)
             entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
             policy_loss = pg_loss - entropy_loss * entropy_coeff

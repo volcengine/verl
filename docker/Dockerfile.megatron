@@ -1,5 +1,8 @@
 FROM whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2
 
+RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
+    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
 RUN cd /opt/nvidia && rm -rf apex && git clone https://github.com/NVIDIA/apex
 RUN cd /opt/nvidia/apex && pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
 

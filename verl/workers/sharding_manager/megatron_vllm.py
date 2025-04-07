@@ -301,7 +301,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         else:
             _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
 
-    def default_tp_concat_fn(self, name, param, infer_params, model_config):
+    def default_tp_concat_fn(self, name, param, infer_params, model_config,
+                    convert_qkv_gate_up_by_simple_split=False):
         """
         name: name of the parameter
         param: training parameters
@@ -340,8 +341,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             q = torch.cat(q_lst, dim=0)
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
-
-            infer_params = torch.cat((q, k, v), dim=0)
+            if not convert_qkv_gate_up_by_simple_split:
+                infer_params = torch.cat((q, k, v), dim=0)
+            else:
+                infer_params = [q, k, v]
 
         elif self.layer_name_mapping.get("gate_proj_layer_name") in name:
             # if the tensor is gate and proj
@@ -353,7 +356,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 up_lst.append(up)
             gate = torch.cat(gate_lst, dim=0)
             up = torch.cat(up_lst, dim=0)
-            infer_params = torch.cat((gate, up), dim=0)
+            if not convert_qkv_gate_up_by_simple_split:
+                infer_params = torch.cat((gate, up), dim=0)
+            else:
+                infer_params = [gate, up]
 
         else:
             # concat tensor
@@ -361,7 +367,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         return infer_params
 
-    def _post_process_params(self, params):
+    def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
         """
         For each param, if it is a tp-splited param, we all-gather from micro_dp group.
         """
@@ -381,8 +387,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 else:
                     infer_params = [torch.empty_like(param) for _ in range(micro_dp_size)]
                     torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
-                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config)
+                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split)
                 # replace with original param
+                # NOTE(gaoziyuan.955@bytedance.com) params can be a list of tensors, handled in convert functions
                 params[name] = infer_params
             # swap param with the original param, and offload to CPU to avoid store 2 copies
             origin_params[name] = param
@@ -406,10 +413,13 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                               num_hidden_layers=self.model_config.num_hidden_layers,
                                               layer_name='layers')
         log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
-        self.origin_params = self._post_process_params(self.params)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            self.origin_params = self._post_process_params(self.params,
+                    convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(self.params, load_format='megatron')
         else:
+            self.origin_params = self._post_process_params(self.params,
+                    convert_qkv_gate_up_by_simple_split=True)
             self.inference_engine.wake_up()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             to_load_params = convert_megatron_model_to_transformers_model(
@@ -417,9 +427,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.model_config,
                 mpu.get_tensor_model_parallel_world_size(),
                 self.module.pp_models[0][0].config.num_query_groups,
-                convert_qkv_gate_up=True)
+                convert_qkv_gate_up_by_trunk_concat=False)
+            print(f'to_load_params:')
+            for name, param in to_load_params.items():
+                print(f'{name}: {param.shape}')
             loaded_params = model.load_weights(((name, param) for name, param in to_load_params.items()))
-            logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+            print(f"vLLM load weights, loaded_params: {len(loaded_params)}")
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
         del params
         log_gpu_memory_usage('After delete params sharding manager memory', logger=logger)
