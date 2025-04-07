@@ -1,0 +1,64 @@
+name: checkpoints
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - "verl/trainer/config/*.yaml"
+      - .github/workflows/checkpoints.yml
+      - "tests/checkpoint/*.sh"
+
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
+jobs:
+  e2e_gsm8k_megatron:
+    runs-on: [self-hosted, l20-0]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install hf_transfer
+          pip3 install -e .[test]
+      - name: Prepare gsm8k dataset
+        run: |
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running Checkpoint Integration Test (Qwen Megatron)
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/checkpoint/run_qwen_megatron_ckpt.sh
+      - name: Running Checkpoint Integration Test (Deepseek Megatron)
+        run: |
+          ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
+          bash tests/checkpoint/run_deepseek_megatron_ckpt.sh
+      - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
+        run: |
+          python scripts/model_merger.py --backend megatron --tie-word-embedding --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor/huggingface
+          python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/critic --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/critic/huggingface
+      - name: Test Megatron checkpoints merging function (Deepseek Actor and Critic)
+        run: |
+          python scripts/model_merger.py --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/actor --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/actor/huggingface
+          python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/critic --test --test_hf_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/critic/huggingface

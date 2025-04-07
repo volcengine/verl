@@ -28,7 +28,7 @@ from tests.e2e.envs.digit_completion import CharTokenizer
 
 def make_reward_function(tokenizer, num_examine):
 
-    def arithmetic_sequence_reward_function(data: DataProto):
+    def arithmetic_sequence_reward_function(data: DataProto, return_dict: bool = False):
         from tests.e2e.envs.digit_completion.task import compute_reward
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
@@ -77,7 +77,10 @@ def make_reward_function(tokenizer, num_examine):
             dense_reward = torch.as_tensor(dense_reward, dtype=torch.float32, device=reward_tensor.device)
             reward_tensor[i] = dense_reward * response_mask
 
-        return reward_tensor
+        if return_dict:
+            return {"reward_tensor": reward_tensor}
+        else:
+            return reward_tensor
 
     return arithmetic_sequence_reward_function
 
@@ -128,6 +131,11 @@ def main(config):
         Role.ActorRollout: global_pool_id,
         Role.Critic: global_pool_id,
     }
+
+    # use reward model
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = global_pool_id
 
     reward_fn = make_reward_function(tokenizer=tokenizer, num_examine=1)
 

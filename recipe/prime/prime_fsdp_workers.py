@@ -114,15 +114,6 @@ class PRIMERewardModelWorker(Worker):
         reward_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
         reward_model_config.num_labels = 1
 
-        use_remove_padding = config.model.get('use_remove_padding', False)
-        if use_remove_padding:
-            from verl.models.registry import check_model_support_rmpad
-            check_model_support_rmpad(reward_model_config.model_type)
-
-        if use_remove_padding and self.ulysses_sequence_parallel_size > 1:
-            from verl.models.transformers.monkey_patch import apply_monkey_patch
-            apply_monkey_patch(reward_model_config, verbose=True)
-
         init_context = get_init_weight_context_manager(use_meta_tensor=not reward_model_config.tie_word_embeddings)
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -133,6 +124,10 @@ class PRIMERewardModelWorker(Worker):
                                                                  config=reward_model_config,
                                                                  attn_implementation='flash_attention_2',
                                                                  trust_remote_code=trust_remote_code)
+
+            if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
@@ -266,11 +261,11 @@ class PRIMERewardModelWorker(Worker):
             rm_scores, q, metrics = self.rm.compute_rm_score(data=data)
 
             prompt_length = data.batch['prompts'].shape[-1]
-            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            response_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
-            dpo_acc = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
-            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc = compute_dpo_accuracy(rm_scores, acc, response_mask=response_mask, n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, response_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc'] = dpo_acc.detach().item()
             metrics['reward_model/dpo_acc_abs'] = dpo_acc_abs.detach().item()
@@ -304,11 +299,14 @@ class PRIMERewardModelWorker(Worker):
             metrics['rm/lr'] = lr
 
             prompt_length = data.batch['prompts'].shape[-1]
-            eos_mask = data.batch['attention_mask'][:, prompt_length:]
+            response_mask = data.batch['attention_mask'][:, prompt_length:]
             acc = data.batch['acc']
 
-            dpo_acc_before = compute_dpo_accuracy(rm_scores, acc, eos_mask=eos_mask, n_samples=data.meta_info['n'])
-            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, eos_mask, n_samples=data.meta_info['n'])
+            dpo_acc_before = compute_dpo_accuracy(rm_scores,
+                                                  acc,
+                                                  response_mask=response_mask,
+                                                  n_samples=data.meta_info['n'])
+            dpo_acc_abs = compute_dpo_abs_accuracy(rm_scores, acc, response_mask, n_samples=data.meta_info['n'])
 
             metrics['reward_model/dpo_acc_before'] = dpo_acc_before.detach().item()
             metrics['reward_model/dpo_acc_abs_before'] = dpo_acc_abs.detach().item()
@@ -325,7 +323,7 @@ class PRIMERewardModelWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, remove_previous_ckpt=False):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         import torch
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.reward_module)
@@ -333,19 +331,19 @@ class PRIMERewardModelWorker(Worker):
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
                                                 global_step=global_step,
-                                                remove_previous_ckpt=remove_previous_ckpt)
+                                                max_ckpt_to_keep=max_ckpt_to_keep)
 
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.reward_module)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, path, del_local_after_load=True):
+    def load_checkpoint(self, local_path, del_local_after_load=True):
         import torch
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.reward_module)
 
-        self.checkpoint_manager.load_checkpoint(path=path, del_local_after_load=del_local_after_load)
+        self.checkpoint_manager.load_checkpoint(local_path=local_path, del_local_after_load=del_local_after_load)
 
         torch.distributed.barrier()
         if self._is_offload_param:

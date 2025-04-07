@@ -3,13 +3,6 @@ name: e2e_lora
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_lora.yml
   pull_request:
     branches:
       - main
@@ -17,7 +10,9 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/e2e_lora.yml
-      - "tests/e2e/*.sh"
+      - "tests/sft/*"
+      - "!verl/trainer/main_ppo.py"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

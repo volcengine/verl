@@ -13,7 +13,7 @@
 # limitations under the License.
 """Utilities for distributed training."""
 import os
-from verl.utils.device import is_cuda_available
+from verl.utils.device import is_cuda_available, get_torch_device
 
 
 def initialize_global_process_group(timeout_second=36000):
@@ -26,5 +26,5 @@ def initialize_global_process_group(timeout_second=36000):
     world_size = int(os.environ["WORLD_SIZE"])
 
     if torch.distributed.is_initialized():
-        torch.cuda.set_device(local_rank) if is_cuda_available else torch.npu.set_device(local_rank)
+        get_torch_device().set_device(local_rank)
     return local_rank, rank, world_size

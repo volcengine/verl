@@ -36,7 +36,7 @@ class RewardManager():
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
 
-    def __call__(self, data: DataProto):
+    def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
@@ -81,7 +81,10 @@ class RewardManager():
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
 
-        return reward_tensor
+        if return_dict:
+            return {"reward_tensor": reward_tensor}
+        else:
+            return reward_tensor
 
 
 import ray
@@ -137,7 +140,6 @@ def main_task(config):
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
         Role.Critic: ray.remote(CriticWorker),
-        Role.RefPolicy: ray.remote(ActorRolloutRefWorker)
     }
 
     # NOTE: initialze two resource pool
@@ -157,8 +159,12 @@ def main_task(config):
     mapping = {
         Role.ActorRollout: actor_rollout_ref_pool_id,
         Role.Critic: critic_pool_id,
-        Role.RefPolicy: actor_rollout_ref_pool_id,
     }
+
+    #use reference model
+    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+        mapping[Role.RefPolicy] = actor_rollout_ref_pool_id
 
     # we should adopt a multi-source reward function here
     # - for rule-based rm, we directly call a reward score

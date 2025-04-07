@@ -159,7 +159,6 @@ def unpad_input_for_concatenated_sequences(hidden_states, attention_mask_in_leng
     """
     Supports concatenating short samples in one sequence. The attention_mask_in_length is utilized to mask other short samples. It helps efficient training of variant lengths-based samples (e.g., the supervised fine-tuning task in large language model).
     The motivation for this function is explained [here](https://github.com/Dao-AILab/flash-attention/issues/432#issuecomment-1668822286).
-
     For example, if batch = 3 and seqlen = 6, the attention_mask_in_length is:
         ```
         [
@@ -197,7 +196,6 @@ def unpad_input_for_concatenated_sequences(hidden_states, attention_mask_in_leng
           ]
         ]
         ```.
-
     Arguments:
         hidden_states: (batch, seqlen, ...)
         attention_mask_in_length: (batch, seqlen), int, a nonzero number (e.g., 1, 2, 3, etc.) means length of concatenated sequence in b-th batch, and 0 means none.

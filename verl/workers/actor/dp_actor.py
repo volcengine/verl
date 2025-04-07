@@ -16,22 +16,22 @@ Single Process Actor
 """
 
 import itertools
-from typing import Tuple
+from typing import Iterable, Tuple
 
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
+from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
 from verl.workers.actor import BasePPOActor
-from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
-from verl.trainer.ppo import core_algos
-from verl.utils.device import get_device_name, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits, masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
+from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
 
 __all__ = ['DataParallelPPOActor']
@@ -100,8 +100,9 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                        input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
+                                                                                                position_ids_rmpad, \
+                                                                                                sp_size=self.ulysses_sequence_parallel_size)
                     input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None,
                                                                                 self.ulysses_sequence_parallel_size)
 
@@ -166,7 +167,13 @@ class DataParallelPPOActor(BasePPOActor):
             grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
-        self.actor_optimizer.step()
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.actor_optimizer.zero_grad()
+        else:
+            self.actor_optimizer.step()
         return grad_norm
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
@@ -271,13 +278,10 @@ class DataParallelPPOActor(BasePPOActor):
                     # Support all hardwares
                     if isinstance(data, DataProto):
                         data = {
-                            **data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device(
-                                            )),
-                            **data.non_tensor_batch
+                            **data.batch.to(get_torch_device().current_device()), **data.non_tensor_batch
                         }
                     else:
-                        data = data.to(torch.npu.current_device() if is_npu_available else
-                                       torch.cuda.current_device())  # actor device is cpu when using offload
+                        data = data.to(get_torch_device().current_device())  # actor device is cpu when using offload
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
@@ -286,18 +290,26 @@ class DataParallelPPOActor(BasePPOActor):
                     advantages = data['advantages']
 
                     clip_ratio = self.config.clip_ratio
+                    clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
+                    clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
+                    clip_ratio_c = self.config.get('clip_ratio_c', 3.0)
                     entropy_coeff = self.config.entropy_coeff
+                    loss_agg_mode = self.config.loss_agg_mode
 
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
-                    pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                  log_prob=log_prob,
-                                                                                  advantages=advantages,
-                                                                                  eos_mask=response_mask,
-                                                                                  cliprange=clip_ratio)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        cliprange=clip_ratio,
+                        cliprange_low=clip_ratio_low,
+                        cliprange_high=clip_ratio_high,
+                        clip_ratio_c=clip_ratio_c)
                     # compute entropy loss from entropy
-                    entropy_loss = verl_F.masked_mean(entropy, response_mask)
+                    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -305,10 +317,12 @@ class DataParallelPPOActor(BasePPOActor):
                     if self.config.use_kl_loss:
                         ref_log_prob = data['ref_log_prob']
                         # compute kl loss
-                        kld = core_algos.kl_penalty(logprob=log_prob,
-                                                    ref_logprob=ref_log_prob,
-                                                    kl_penalty=self.config.kl_loss_type)
-                        kl_loss = masked_mean(kld, response_mask)
+                        kld = kl_penalty(logprob=log_prob,
+                                         ref_logprob=ref_log_prob,
+                                         kl_penalty=self.config.kl_loss_type)
+                        kl_loss = agg_loss(loss_mat=kld,
+                                           loss_mask=response_mask,
+                                           loss_agg_mode=self.config.loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics['actor/kl_loss'] = kl_loss.detach().item()
@@ -322,10 +336,11 @@ class DataParallelPPOActor(BasePPOActor):
                     loss.backward()
 
                     data = {
-                        'actor/entropy_loss': entropy_loss.detach().item(),
+                        'actor/entropy': entropy_loss.detach().item(),
                         'actor/pg_loss': pg_loss.detach().item(),
                         'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                         'actor/ppo_kl': ppo_kl.detach().item(),
+                        'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item(),
                     }
                     append_to_dict(metrics, data)
 

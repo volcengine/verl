@@ -18,7 +18,7 @@ import os
 import socket
 from dataclasses import dataclass
 from .decorator import register, Dispatch, Execute
-from verl.utils.device import is_npu_available
+from verl.utils.device import get_torch_device
 
 
 @dataclass
@@ -124,7 +124,7 @@ class Worker(WorkerHelper):
         # [SUPPORT AMD: torch]
         import torch
         ###
-        device_name = torch.npu.get_device_name() if is_npu_available else torch.cuda.get_device_name()
+        device_name = get_torch_device().get_device_name()
         ###
         # [SUPPORT AMD: torch]
         if "AMD" in device_name:

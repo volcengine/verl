@@ -16,52 +16,12 @@ name = "verl"
 # We'll mark the version as "dynamic" because it's read from the file "verl/version/version" 
 # (PEP 621 calls this "dynamic version"). 
 # The actual version is specified in the [tool.setuptools.dynamic] section below.
-dynamic = ["version"]
+dynamic = ["version", "dependencies", "optional-dependencies", "authors", "urls"]
 
 description = "verl: Volcano Engine Reinforcement Learning for LLM"
 license = {file = "LICENSE"}  # or "Apache-2.0", if you prefer an SPDX identifier
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
-
-authors = [
-  { name = "Bytedance - Seed - MLSys", email = "zhangchi.usc1992@bytedance.com" },
-  { name = "Bytedance - Seed - MLSys", email = "gmsheng@connect.hku.hk" },
-]
-
-# Dependencies corresponding to install_requires in setup.py
-dependencies = [
-    "accelerate",
-    "codetiming",
-    "datasets",
-    "dill",
-    "hydra-core",
-    "math-verify",
-    "numpy",
-    "pandas",
-    "peft",
-    "pyarrow>=15.0.0",
-    "pybind11",
-    "pylatexenc",
-    "ray>=2.10",
-    "tensordict<0.6",
-    "torchdata",
-    "transformers",
-    "vllm<=0.7.3",
-    'wandb',
-]
-
-# Optional dependencies (extras_require in setup.py)
-[project.optional-dependencies]
-test = [
-  "pytest", "yapf", "py-spy",
-]
-prime = ["pyext"]
-gpu = ["liger-kernel", "flash-attn"]
-sglang = ["sglang[all]==0.4.3.post3"]
-
-# URLs
-[project.urls]
-Homepage = "https://github.com/volcengine/verl"
 
 # -------------------------------
 # tool.setuptools - Additional config
@@ -85,4 +45,117 @@ version = {file = "verl/version/version"}
 verl = [
   "version/*",
   "trainer/config/*.yaml"
+]
+
+
+[tool.pylint.message_control]
+disable = [
+    "abstract-method",
+    "anomalous-backslash-in-string",
+    "arguments-differ",
+    "arguments-renamed",
+    "assignment-from-none",
+    "attribute-defined-outside-init",
+    "bad-str-strip-call",
+    "bare-except",
+    "broad-exception-caught",
+    "broad-exception-raised",
+    "cell-var-from-loop",
+    "chained-comparison",
+    "consider-iterating-dictionary",
+    "consider-using-enumerate",
+    "consider-using-f-string",
+    "consider-using-from-import",
+    "consider-using-generator",
+    "consider-using-in",
+    "consider-using-max-builtin",
+    "consider-using-set-comprehension",
+    "consider-using-sys-exit",
+    "consider-using-with",
+    "cyclic-import",
+    "dangerous-default-value",
+    "duplicate-code",
+    "eval-used",
+    "expression-not-assigned",
+    "f-string-without-interpolation",
+    "fixme",
+    "function-redefined",
+    "global-statement",
+    "global-variable-not-assigned",
+    "import-error",
+    "import-outside-toplevel",
+    "import-self",
+    "inconsistent-return-statements",
+    "invalid-character-zero-width-space",
+    "invalid-name",
+    "line-too-long",
+    "logging-fstring-interpolation",
+    "logging-not-lazy",
+    "missing-class-docstring",
+    "missing-final-newline",
+    "missing-function-docstring",
+    "missing-module-docstring",
+    "multiple-imports",
+    "no-else-continue",
+    "no-else-raise",
+    "no-else-return",
+    "no-member",
+    "no-self-argument",
+    "no-value-for-parameter",
+    "not-an-iterable",
+    "not-callable",
+    "notimplemented-raised",
+    "pointless-exception-statement",
+    "pointless-string-statement",
+    "pointless-statement",
+    "possibly-used-before-assignment",
+    "protected-access",
+    "raise-missing-from",
+    "raising-format-tuple",
+    "redefined-argument-from-local",
+    "redefined-builtin",
+    "redefined-outer-name",
+    "redundant-u-string-prefix",
+    "reimported",
+    "simplifiable-if-expression",
+    "simplifiable-if-statement",
+    "singleton-comparison",
+    "super-init-not-called",
+    "superfluous-parens",
+    "too-few-public-methods",
+    "too-many-arguments",
+    "too-many-boolean-expressions",
+    "too-many-branches",
+    "too-many-instance-attributes",
+    "too-many-lines",
+    "too-many-locals",
+    "too-many-positional-arguments",
+    "too-many-return-statements",
+    "too-many-statements",
+    "trailing-newlines",
+    "trailing-newlines",
+    "trailing-whitespace",
+    "unbalanced-tuple-unpacking",
+    "undefined-loop-variable",
+    "undefined-variable",
+    "ungrouped-imports",
+    "unidiomatic-typecheck",
+    "unnecessary-comprehension",
+    "unnecessary-lambda",
+    "unnecessary-lambda-assignment",
+    "unnecessary-pass",
+    "unspecified-encoding",
+    "unused-argument",
+    "unused-import",
+    "unused-variable",
+    "unused-wildcard-import",
+    "use-a-generator",
+    "use-dict-literal",
+    "used-before-assignment",
+    "useless-object-inheritance",
+    "useless-parent-delegation",
+    "useless-return",
+    "wildcard-import",
+    "wrong-import-order",
+    "wrong-import-position",
 ]

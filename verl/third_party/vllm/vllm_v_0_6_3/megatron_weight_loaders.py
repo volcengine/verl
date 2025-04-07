@@ -179,67 +179,6 @@ def _replace_name(megatron_name, name_mapping):
             return param_name
 
 
-def llama_megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
-    params_mapping = [
-        # (megatron core gpt model name, vllm model name)
-        ("embedding.word_embeddings", "model.embed_tokens"),
-        ("self_attention.linear_qkv.layer_norm_weight", "input_layernorm.weight"),
-        ("self_attention.linear_qkv.layer_norm_bias", "input_layernorm.bias"),
-        ("self_attention.linear_qkv", "self_attn.qkv_proj"),
-        ("self_attention.linear_qkv", "self_attn.qkv_proj"),
-        ("self_attention.linear_proj", "self_attn.o_proj"),
-        ("pre_mlp_layernorm", "post_attention_layernorm"),
-        ("mlp.linear_fc1.layer_norm_weight", "post_attention_layernorm.weight"),
-        ("mlp.linear_fc1.layer_norm_bias", "post_attention_layernorm.bias"),
-        ("mlp.linear_fc1", "mlp.gate_up_proj"),
-        ("mlp.linear_fc2", "mlp.down_proj"),
-        ("decoder.final_layernorm", "model.norm"),
-        ("output_layer", "lm_head"),
-    ]
-    # NOTE(shengguangming): the megatron llama may have this prefix
-    params_dict = dict(vllm_model.named_parameters())
-    for name, loaded_weight in actor_weights.items():
-        name = _replace_name(name, params_mapping)
-        if name.endswith(".bias") and name not in params_dict:
-            continue
-        if "rotary_emb.inv_freq" in name:
-            continue
-        else:
-            param = params_dict[name]
-            weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, loaded_weight)
-
-
-def llama_megatron_core_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
-    params_mapping = [
-        # (megatron core gpt model name, vllm model name)
-        ("embedding.word_embeddings", "model.embed_tokens"),
-        ("self_attention.linear_qkv", "self_attn.qkv_proj"),
-        ("self_attention.linear_proj", "self_attn.o_proj"),
-        (
-            "input_layernorm",
-            "input_layernorm",
-        ),
-        ("pre_mlp_layernorm", "post_attention_layernorm"),
-        ("mlp.linear_fc1", "mlp.gate_up_proj"),
-        ("mlp.linear_fc2", "mlp.down_proj"),
-        ("decoder.final_layernorm", "model.norm"),
-        ("output_layer", "lm_head"),
-    ]
-    # NOTE(shengguangming): the megatron llama may have this prefix
-    params_dict = dict(vllm_model.named_parameters())
-    for name, loaded_weight in actor_weights.items():
-        name = _replace_name(name, params_mapping)
-        if name.endswith(".bias") and name not in params_dict:
-            continue
-        if "rotary_emb.inv_freq" in name:
-            continue
-        else:
-            param = params_dict[name]
-            weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, loaded_weight)
-
-
 def _replace_name(megatron_name, name_mapping):
     for m_name, v_name in name_mapping:
         if m_name not in megatron_name:
@@ -275,6 +214,38 @@ def mistral_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -
             weight_loader(param, loaded_weight)
 
 
+def megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+    params_mapping = [
+        # (megatron core gpt model name, vllm model name)
+        ("self_attention.linear_qkv.layer_norm_weight", "input_layernorm.weight"),
+        ("self_attention.linear_qkv.layer_norm_bias", "input_layernorm.bias"),
+        ("embedding.word_embeddings", "model.embed_tokens"),
+        ("self_attention.linear_qkv", "self_attn.qkv_proj"),
+        ("self_attention.linear_proj", "self_attn.o_proj"),
+        ("pre_mlp_layernorm", "post_attention_layernorm"),
+        ("mlp.linear_fc1.layer_norm_weight", "post_attention_layernorm.weight"),
+        ("mlp.linear_fc1.layer_norm_bias", "post_attention_layernorm.bias"),
+        ("mlp.linear_fc1", "mlp.gate_up_proj"),
+        ("mlp.linear_fc2", "mlp.down_proj"),
+        ("decoder.final_layernorm", "model.norm"),
+        ("output_layer", "lm_head"),
+    ]
+    # NOTE(shengguangming): the megatron llama may have this prefix
+    params_dict = dict(vllm_model.named_parameters())
+    for original_name, loaded_weight in actor_weights.items():
+        name = _replace_name(original_name, params_mapping)
+        if not name or name.endswith(".bias") and name not in params_dict:
+            continue
+        if "rotary_emb.inv_freq" in name:
+            continue
+        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
+            continue
+        else:
+            param = params_dict[name]
+            weight_loader = getattr(param, "weight_loader", default_weight_loader)
+            weight_loader(param, loaded_weight)
+
+
 __LAYER_WEIGHT_MEGATRON_LOADER_REGISTRY__ = {
     ColumnParallelLinear: parallel_weight_loader,
     MergedColumnParallelLinear: parallel_weight_loader,
@@ -292,10 +263,10 @@ __LAYER_WEIGHT_MEGATRON_LOADER_REGISTRY__ = {
 
 __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__ = {
     "GPT2LMHeadModel": gpt2_weight_loader,
-    "LlamaForCausalLM": llama_megatron_weight_loader,  # use te backend for open-source megatron
-    "LLaMAForCausalLM": llama_megatron_weight_loader,
+    "LlamaForCausalLM": megatron_core_te_weight_loader,  # use te backend for open-source megatron
+    "LLaMAForCausalLM": megatron_core_te_weight_loader,
     "MistralForCausalLM": mistral_megatron_weight_loader,
-    'Qwen2ForCausalLM': qwen2_megatron_weight_loader,
+    'Qwen2ForCausalLM': megatron_core_te_weight_loader,
 }
 
 

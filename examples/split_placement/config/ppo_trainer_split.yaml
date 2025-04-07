@@ -148,6 +148,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
     type: fixed
@@ -159,13 +160,13 @@ trainer:
   project_name: verl_examples
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
-  val_generations_to_log_to_wandb: 0
+  log_val_generations: 0
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1
   # auto: find the last ckpt to resume. If can't find, start from scratch
-  resume_mode: auto # or auto or resume_path if 
-  resume_from_path: False
+  resume_mode: auto # or disable or resume_path if resume_from_path is set
+  resume_from_path: null
   test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null

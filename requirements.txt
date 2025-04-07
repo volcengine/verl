@@ -6,15 +6,16 @@ dill
 flash-attn
 hydra-core
 liger-kernel
-math-verify[antlr4_9_3]
 numpy
 pandas
+datasets
 peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
+pylint==3.3.6
 ray[default]
-tensordict<0.6
+tensordict<=0.6.2
 torchdata
 transformers
 # vllm==0.6.3.post1

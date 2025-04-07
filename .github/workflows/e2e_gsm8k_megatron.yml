@@ -4,22 +4,17 @@ name: e2e_gsm8k_megatron
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_gsm8k_megatron.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.3.x
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k_megatron.yml
-      - "tests/e2e/*.sh"
+      - "tests/e2e/*megatron*.sh"
+      - "!verl/workers/fsdp_workers.py"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -40,7 +35,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
-      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.5
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -56,10 +51,8 @@ jobs:
       - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
-          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
           bash tests/e2e/run_deepseek_megatron_parallelism.sh
       - name: Running gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          export PYTHONPATH=$PYTHONPATH:/opt/nvidia/Megatron-LM
           bash tests/e2e/run_qwen_megatron_parallelism.sh

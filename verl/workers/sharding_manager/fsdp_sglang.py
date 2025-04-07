@@ -33,6 +33,7 @@ from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig,
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.protocol import all_gather_data_proto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.utils.debug import log_gpu_memory_usage
 from sglang.srt.entrypoints.verl_engine import VerlEngine
@@ -80,11 +81,13 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             self.gen_random_states = None
 
     def __enter__(self):
+        torch.cuda.empty_cache()
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
         params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = None if self.full_params else 'dtensor'
+        self.inference_engine.resume_memory_occupation()
 
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
         log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
@@ -106,7 +109,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
-        self.inference_engine.release_memory_occupation
+        self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
 
         # self.module.to('cuda')
@@ -124,11 +127,14 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def preprocess_data(self, data: DataProto) -> DataProto:
+        """All gather across tp group to make each rank has identical input."""
+        if self.device_mesh["infer_tp"].mesh.size()[0] == 1:
+            return data
+
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                            size=self.device_mesh["infer_tp"].mesh.size()[0],
-                                            group=self.device_mesh["infer_tp"].get_group(),
-                                            dim=0)
+        group = self.device_mesh["infer_tp"].get_group()
+
+        all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:

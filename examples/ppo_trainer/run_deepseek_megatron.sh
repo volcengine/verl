@@ -12,6 +12,7 @@ huggingface-cli download deepseek-ai/deepseek-coder-6.7b-instruct
 # tested on L20-16 GPUs per nodes, for other machines please adjust the n_gpus_per_node config accordingly
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
+    algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=1024 \
@@ -41,6 +42,8 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.megatron.pipeline_model_parallel_size=2 \
     critic.megatron.virtual_pipeline_model_parallel_size=2 \
     critic.megatron.tensor_model_parallel_size=4 \
+    algorithm.use_kl_in_reward=True \
+    algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
@@ -50,4 +53,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.total_epochs=15 \
-    +trainer.val_before_train=False $@
+    trainer.val_before_train=False $@

@@ -30,7 +30,7 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-from verl.utils.device import get_device_name, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device, is_npu_available, is_cuda_available
 
 from verl.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
 
@@ -121,7 +121,13 @@ class DataParallelPPOCritic(BasePPOCritic):
             grad_norm = self.critic_module.clip_grad_norm_(self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.critic_module.parameters(), max_norm=self.config.grad_clip)
-        self.critic_optimizer.step()
+
+        # if grad_norm is not finite, skip the update
+        if not torch.isfinite(grad_norm):
+            print(f"WARN: grad_norm is not finite: {grad_norm}")
+            self.critic_optimizer.zero_grad()
+        else:
+            self.critic_optimizer.step()
         return grad_norm
 
     def compute_values(self, data: DataProto) -> torch.Tensor:
@@ -203,13 +209,10 @@ class DataParallelPPOCritic(BasePPOCritic):
                     #Support all devices
                     if isinstance(data, DataProto):
                         data = {
-                            **data.batch.to(torch.npu.current_device() if is_npu_available else torch.cuda.current_device(
-                                            )),
-                            **data.non_tensor_batch
+                            **data.batch.to(get_torch_device().current_device()), **data.non_tensor_batch
                         }
                     else:
-                        data = data.to(torch.npu.current_device() if is_npu_available else
-                                       torch.cuda.current_device())  # critic device is cpu when using offload
+                        data = data.to(get_torch_device().current_device())  # critic device is cpu when using offload
                     input_ids = data['input_ids']
                     responses = data['responses']
                     attention_mask = data['attention_mask']
@@ -218,7 +221,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     returns = data['returns']
                     response_length = responses.size(1)
 
-                    eos_mask = attention_mask[:, -response_length - 1:-1]
+                    response_mask = attention_mask[:, -response_length - 1:-1]
 
                     vpreds = self._forward_micro_batch(data)
 
@@ -227,7 +230,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
                                                                          values=values,
                                                                          returns=returns,
-                                                                         eos_mask=eos_mask,
+                                                                         response_mask=response_mask,
                                                                          cliprange_value=self.config.cliprange_value)
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
@@ -240,7 +243,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     data = {
                         'critic/vf_loss': vf_loss.detach().item(),
                         'critic/vf_clipfrac': vf_clipfrac.detach().item(),
-                        'critic/vpred_mean': masked_mean(vpreds, eos_mask).detach().item(),
+                        'critic/vpred_mean': masked_mean(vpreds, response_mask).detach().item(),
                     }
 
                     append_to_dict(metrics, data)
