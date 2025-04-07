@@ -421,6 +421,45 @@ class RayPPOTrainer(object):
         else:
             sampler = SequentialSampler(data_source=self.train_dataset)
 
+        # Check if we should use dynamic sampler for curriculum learning
+        if self.config.data.get('use_dynamic_sampler', False):
+            try:
+                from lean_reward.rl_sampler import DynamicSampler
+                
+                difficulties = []
+                for item in self.train_dataset:
+                    if 'extra_info' in item and isinstance(item['extra_info'], dict) and 'difficulty' in item['extra_info']:
+                        difficulties.append(item['extra_info']['difficulty'])
+                    elif 'difficulty' in item:
+                        difficulties.append(item['difficulty'])
+                    else:
+                        difficulties.append(1)  # Default difficulty
+                
+                print(f"Using DynamicSampler with {len(difficulties)} examples")
+                
+                dynamic_sampler_params = self.config.data.get('dynamic_sampler', {})
+                dynamic_sampler = DynamicSampler(
+                    data_source=self.train_dataset,
+                    difficulties=difficulties,
+                    total_steps=len(self.train_dataset) // self.config.data.train_batch_size,
+                    batch_size=self.config.data.train_batch_size,
+                    init_level=dynamic_sampler_params.get('init_level', 0),
+                    mix_harder_samples=dynamic_sampler_params.get('mix_harder_samples', 0.2),
+                    smooth_window=dynamic_sampler_params.get('smooth_window', 3),
+                    threshold_for_next_level=dynamic_sampler_params.get('threshold_for_next_level', 0.55),
+                    threshold_for_prev_level=dynamic_sampler_params.get('threshold_for_prev_level', 0.2),
+                    min_samples_per_level=dynamic_sampler_params.get('min_samples_per_level', 100),
+                    auto_merge_sparse_levels=dynamic_sampler_params.get('auto_merge_sparse_levels', True),
+                    seed=42
+                )
+                
+                sampler = dynamic_sampler
+                print("Using DynamicSampler for curriculum learning")
+                
+            except Exception as e:
+                print(f"Failed to set up DynamicSampler: {e}")
+                print("Falling back to normal sampler")
+        
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
                                                    batch_size=self.config.data.get('gen_batch_size',
                                                                                    self.config.data.train_batch_size),
