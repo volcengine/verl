@@ -224,7 +224,7 @@ def check_megatron_checkpoint_path(model_path):
     return sharded_dirs, tp_size, pp_size
 
 
-def convert_megatron_checkpoints_to_hfmodes():
+def convert_megatron_checkpoints_to_hfmodels():
     from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_checkpoint_path
 
     local_path = args.local_dir
