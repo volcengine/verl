@@ -420,6 +420,7 @@ Trainer
      resume_from_path: null
      remove_previous_ckpt_in_save: False
      del_local_ckpt_after_load: False
+     ray_wait_register_center_timeout: 300
 
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab, mlflow
@@ -445,6 +446,8 @@ Trainer
   checkpoints in the save directory. Default is False.
 - ``trainer.del_local_ckpt_after_load``: Whether to delete local
   checkpoints after loading them. Default is False.
+- ``trainer.ray_wait_register_center_timeout``: The timeout for waiting
+  for the ray register center to be ready. Default is 300 seconds.
 
 
 evaluation.yaml
