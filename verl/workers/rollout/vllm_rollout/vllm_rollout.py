@@ -98,6 +98,12 @@ class vLLMRollout(BaseRollout):
             raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
                              please increase max_num_batched_tokens or disable chunked prefill')
 
+        vllm_kwargs = {}
+        if config.get('swap_space', None) is not None:
+            # vLLM has its own default swap_space value, which can change in the future versions.
+            # So let's leave the defalut value to vLLM by not setting it, or just explicitly set it via config.
+            vllm_kwargs['swap_space'] = config.get('swap_space')
+
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -112,6 +118,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            **vllm_kwargs
         )
 
         # Offload vllm model to reduce peak memory usage
