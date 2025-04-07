@@ -101,6 +101,15 @@ def get_task_prompt(environment_endpoint: str, env_id: str) -> str:
     assert 'task_prompt' in prompt_obj, f"Failed to get task prompt: {prompt_obj} as task_prompt is not present"
     return prompt_obj['task_prompt']
 
+def get_allow_parallel_tool_call(environment_endpoint: str, env_id: str) -> bool:
+    """Retrieve the allow_parallel_tool_call for a given environment ID."""
+    prompt_response = requests.get(f"{environment_endpoint}/api/environment/{env_id}/allow-parallel-tool-call")
+    prompt_obj = prompt_response.json()
+    if 'allow_parallel_tool_call' in prompt_obj:
+        return prompt_obj['allow_parallel_tool_call']
+    else:
+        # By default, it does not support parallel tool call.
+        return False
 
 def get_tools_schema(environment_endpoint: str, env_id: str) -> dict:
     """
@@ -115,23 +124,34 @@ def get_tools_schema(environment_endpoint: str, env_id: str) -> dict:
 ## Utils for llm specific chat template
 
 def get_agent_system_prompt(
-    agent_prompt_style: Literal['qwen2_5'] = 'qwen2_5',
-    task_prompt: str = None,
-    tools_schema: dict = None,
+    agent_prompt_style: Literal['qwen2_5'],
+    task_prompt: str,
+    tools_schema: dict,
+    allow_parallel_tool_call: bool,
     ) -> str:
     """
     Get the system prompt for the agent.
     """
     if agent_prompt_style == 'qwen2_5':
         # See https://qwen.readthedocs.io/en/latest/framework/function_call.html#qwen2-5-function-calling-templates
-        system_prompt = task_prompt.rstrip() + "\n" + textwrap.dedent("""
-        # Tools
+        if allow_parallel_tool_call:
+            system_prompt = task_prompt.rstrip() + "\n" + textwrap.dedent("""
+            # Tools
 
-        You may call one or more functions to assist with the user query.
+            You may call one or more functions to assist with the user query.
 
-        You are provided with function signatures within <tools></tools> XML tags:
-        <tools>
-        """).rstrip()
+            You are provided with function signatures within <tools></tools> XML tags:
+            <tools>
+            """).rstrip()
+        else:
+            system_prompt = task_prompt.rstrip() + "\n" + textwrap.dedent("""
+            # Tools
+
+            You may call one function at a time to assist with the user query. When you decide to call a function, you can ONLY call one function at a time.
+
+            You are provided with function signatures within <tools></tools> XML tags:
+            <tools>
+            """).rstrip()
         for tool in tools_schema:
             system_prompt += '\n' + json.dumps(tool)
         system_prompt += textwrap.dedent("""
@@ -229,7 +249,6 @@ class RLAgentDataset(Dataset):
                  processor: Optional[ProcessorMixin] = None,
                  max_prompt_length=4096,
                  cache_dir='~/.cache/verl/rlhf',
-                 return_raw_chat=True,
                  truncation='error',
                  agent_prompt_style: Literal['qwen2_5'] = 'qwen2_5'):
         self.environment_endpoint = environment_endpoint
@@ -252,7 +271,6 @@ class RLAgentDataset(Dataset):
         self.max_prompt_length = max_prompt_length
         self.truncation = truncation
         self.agent_prompt_style = agent_prompt_style
-        self.return_raw_chat = return_raw_chat # is usually required for agent loop
         # TODO: implement the resume feature
         # whether to store the dataset in state_dict()
         # default not store
@@ -297,21 +315,27 @@ class RLAgentDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe.iloc[item].to_dict()
-        env_id = self.env_ids.get(row_dict['env_name'], None)
+        env_id = self.env_ids.get(item, None)
+        env_kwargs = row_dict['env_kwargs']
+        if isinstance(env_kwargs, str):
+            env_kwargs = json.loads(env_kwargs)
+            
         if env_id is None:
-            env_meta_data = initialize_env(self.environment_endpoint, row_dict['env_name'], row_dict['seed'], row_dict['env_kwargs'])
+            env_meta_data = initialize_env(self.environment_endpoint, row_dict['env_name'], row_dict['seed'], env_kwargs)
             env_id = env_meta_data['env_id']
-            self.env_ids[row_dict['env_name']] = env_id
-        env_meta_data = reset_env(self.environment_endpoint, env_id, row_dict['seed'], row_dict['env_kwargs'])
+            self.env_ids[item] = env_id
+        env_meta_data = reset_env(self.environment_endpoint, env_id, row_dict['seed'], env_kwargs)
         row_dict['env_id'] = env_id
         
         # get the initial observation
         observation = env_meta_data['observation']
         # get the task prompt
         task_prompt = get_task_prompt(self.environment_endpoint, env_id)
+        # get the allow parallel tool call
+        allow_parallel_tool_call = get_allow_parallel_tool_call(self.environment_endpoint, env_id)
         # get the tools schema
         tools_schema = get_tools_schema(self.environment_endpoint, env_id)
-        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema)
+        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema, allow_parallel_tool_call)
         chat = [
             {"role": "system", "content": system_prompt},
             *observation
@@ -336,8 +360,7 @@ class RLAgentDataset(Dataset):
         row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
         # encode prompts without chat template
-        if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat # the raw prompt is the chat message list in openai format
+        row_dict['raw_prompt'] = chat # the raw prompt is the chat message list in openai format
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
