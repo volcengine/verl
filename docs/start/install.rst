@@ -75,26 +75,39 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     Now verl has been **compatible to Megatron-LM core_r0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM core_r0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
 
 
-Install verl-SGLang from scratch
+Install SGLang as rollout backend
 ---------------------------------------------
 
-If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.
+If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. SGLang support native API for RLHF, do not need to patch a single line of code.
 
 The following steps are quick installation guide for verl-SGLang.
 
+1. Install from source
+
 .. code:: bash
-
-    # Create a virtual environment and use uv for quick installation
-    python3 -m venv ~/.python/verl-sglang && source ~/.python/verl-sglang/bin/activate
-    python3 -m pip install --upgrade pip && python3 -m pip install --upgrade uv
-
-    # Install verl-SGLang
+    # clone from github
     git clone https://github.com/volcengine/verl verl-sglang && cd verl-sglang
-    python3 -m uv pip install .
-    
-    # Install the latest stable version of sglang with verl support, currently, the latest version is 0.4.4.post3
-    # For SGLang installation, you can also refer to https://docs.sglang.ai/start/install.html
-    python3 -m uv pip install "sglang[all]==0.4.4.post3" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+
+    # Create a virtual environment and install dependencies
+    python3 -m venv .venv --upgrade-deps && source .venv/bin/activate
+    python3 -m pip install .[sglang]
+    python3 -m pip install .[gpu]
+
+.. note::
+    Chekc that you have the following dependencies installed:
+
+    - **PyTorch**: 2.5.1+cu124
+    - **CUDA**: 12.4
+    - **SGLang**: 0.4.4.post4
+    - **torch-memory-saver**: 0.0.5
+
+
+2. use docker image
+
+We also provide a pre-built imgae ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` for SGLang backend.
+
+.. note::
+    As we are fast moving integrating SGLang into verl, sometimes we may use a specific commit from SGLang main branch for installation but not stable release from Pypi. If you encounter any issues, feel free to contact @ocss884.
 
 
 Install from custom environment

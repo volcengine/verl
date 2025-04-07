@@ -150,7 +150,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
 
 
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor,
-                                                           eos_mask: torch.Tensor,
+                                                           response_mask: torch.Tensor,
                                                            index: torch.Tensor,
                                                            epsilon: float = 1e-6):
     """
@@ -159,7 +159,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
-        eos_mask: `(torch.Tensor)`
+        response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
     
     Returns:
@@ -188,8 +188,8 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
         for i in range(bsz):
             scores[i] = scores[i] - id2mean[index[i]]
 
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
-        scores = verl_F.masked_whiten(scores, eos_mask)
+        scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
+        scores = verl_F.masked_whiten(scores, response_mask)
 
     return scores, scores
 
@@ -323,11 +323,11 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     if loss_agg_mode == "token-mean":
         loss = verl_F.masked_mean(loss_mat, loss_mask)
     elif loss_agg_mode == "seq-mean-token-sum":
-        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)
-        loss = torch.mean(seq_losses)
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
+        loss = torch.mean(seq_losses)  # seq-mean
     elif loss_agg_mode == "seq-mean-token-mean":
-        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)
-        loss = torch.mean(seq_losses)
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)  # token-mean
+        loss = torch.mean(seq_losses)  # seq-mean
     else:
         raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 

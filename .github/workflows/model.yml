@@ -3,20 +3,15 @@ name: model_rmpad
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/model.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.3.x
     paths:
       - "**/*.py"
+      - "tests/model/*"
       - .github/workflows/model.yml
+      - "!recipe/**"
 
 # Declare permissions just read content.
 permissions: 

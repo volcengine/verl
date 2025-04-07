@@ -1,4 +1,4 @@
-# Copyright 2024 PRIME team and/or its affiliates
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .naive import NaiveRewardManager
-from .prime import PrimeRewardManager
-from .batch import BatchRewardManager
-from .dapo import DAPORewardManager
+from .fsdp_vllm_patch import patched_ds_v3_load_weights
