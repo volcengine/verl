@@ -46,7 +46,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
         if padding_count > 0:
             if isinstance(output, DataProto):
                 indices = [i for i in range(len(output))][:-padding_count]
-                output = output.index_select(indices)
+                output = output.select_idxs(indices)
             elif isinstance(output, list):
                 output = output[:-padding_count]
         return output

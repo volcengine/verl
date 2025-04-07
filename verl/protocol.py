@@ -662,18 +662,25 @@ class DataProto:
         Returns:
             List[DataProto]: a list of DataProto after splitting
         """
-        assert len(
-            self) % chunks == 0, f'only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}.'
+        if not self.is_padding_enabled():
+            assert len(
+                self) % chunks == 0, f'only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}.'
 
+        bsz_in_batch = None
         if self.batch is not None:
             batch_lst = self.batch.chunk(chunks=chunks, dim=0)
+            bsz_in_batch = np.array([batch.batch_size[0] for batch in batch_lst])
+            chunk_indices = np.cumsum(bsz_in_batch)[:-1]
         else:
             batch_lst = [None for _ in range(chunks)]
 
         non_tensor_batch_lst = [{} for _ in range(chunks)]
         for key, val in self.non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
-            non_tensor_lst = np.array_split(val, chunks)
+            if bsz_in_batch is not None:
+                non_tensor_lst = np.array_split(val, chunk_indices.tolist())
+            else:
+                non_tensor_lst = np.array_split(val, chunks)
             assert len(non_tensor_lst) == chunks
             for i in range(chunks):
                 non_tensor_batch_lst[i][key] = non_tensor_lst[i]
