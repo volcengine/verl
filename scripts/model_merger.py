@@ -17,10 +17,16 @@ import re
 import os
 import torch
 import argparse
+import numpy as np
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 from concurrent.futures import ThreadPoolExecutor
-from torch.distributed._tensor import DTensor, Shard, Placement
 from safetensors.torch import load_file
+from torch.distributed._tensor import Shard, Placement
+try:
+    # for torch 2.5+
+    from torch.distributed.tensor import DTensor
+except ImportError:
+    from torch.distributed._tensor import DTensor
 
 from verl.utils.megatron_utils import get_model_checkpoint_path, get_hf_model_checkpoint_path
 
@@ -85,11 +91,16 @@ def convert_fsdp_checkpoints_to_hfmodels():
                             map_location='cpu')
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
-    assert isinstance(weight, torch.distributed._tensor.DTensor)
-    # get sharding info
-    device_mesh = weight.device_mesh
-    mesh = device_mesh.mesh
-    mesh_dim_names = device_mesh.mesh_dim_names
+
+    if isinstance(weight, DTensor):
+        # get sharding info
+        device_mesh = weight.device_mesh
+        mesh = device_mesh.mesh
+        mesh_dim_names = device_mesh.mesh_dim_names
+    else:
+        # for non-DTensor
+        mesh = np.array([int(world_size)], dtype=np.int64)
+        mesh_dim_names = ('fsdp',)
 
     print(f'Got device mesh {mesh}, mesh_dim_names {mesh_dim_names}')
 
@@ -141,7 +152,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
                 else:
                     assert param_placements[key] == placements
             else:
-                state_dict[key] = tensor.bfloat16()
+                state_dict[key].append(tensor.bfloat16())
 
     del model_state_dict_lst
 
@@ -149,16 +160,19 @@ def convert_fsdp_checkpoints_to_hfmodels():
         if not isinstance(state_dict[key], list):
             print(f"No need to merge key {key}")
             continue
-        # merge shards
-        placements: Tuple[Shard] = param_placements[key]
-        if len(mesh_shape) == 1:
-            # 1-D list, FSDP without TP
-            assert len(placements) == 1
-            shards = state_dict[key]
-            state_dict[key] = merge_by_placement(shards, placements[0])
+        if key in param_placements:
+            # merge shards
+            placements: Tuple[Shard] = param_placements[key]
+            if len(mesh_shape) == 1:
+                # 1-D list, FSDP without TP
+                assert len(placements) == 1
+                shards = state_dict[key]
+                state_dict[key] = merge_by_placement(shards, placements[0])
+            else:
+                # 2-D list, FSDP + TP
+                raise NotImplementedError("FSDP + TP is not supported yet")
         else:
-            # 2-D list, FSDP + TP
-            raise NotImplementedError("FSDP + TP is not supported yet")
+            state_dict[key] = torch.cat(state_dict[key], dim=0)
 
     print('Writing to local disk')
     if args.target_dir is None:
@@ -212,7 +226,7 @@ def check_megatron_checkpoint_path(model_path):
     return sharded_dirs, tp_size, pp_size
 
 
-def convert_megatron_checkpoints_to_hfmodes():
+def convert_megatron_checkpoints_to_hfmodels():
     local_path = args.local_dir
 
     model_ckpt_path = get_model_checkpoint_path(local_path)
@@ -422,6 +436,6 @@ if __name__ == '__main__':
     if args.backend == "fsdp":
         convert_fsdp_checkpoints_to_hfmodels()
     elif args.backend == "megatron":
-        convert_megatron_checkpoints_to_hfmodes()
+        convert_megatron_checkpoints_to_hfmodels()
     else:
         raise NotImplementedError(f"{args.backend} not supported")
