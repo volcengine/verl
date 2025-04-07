@@ -15,16 +15,16 @@
 The main entry point to run the PPO algorithm
 """
 
-import logging
 import os
+import logging
 import warnings
 import psutil
 
 import torch
 import torch.distributed
-from torch.distributed.device_mesh import init_device_mesh
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
+from torch.distributed.device_mesh import init_device_mesh
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
@@ -33,7 +33,7 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
 from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_model_to_cpu, load_fsdp_optimizer, \
-    load_fsdp_model_to_gpu
+    load_fsdp_model_to_gpu, load_sharded_model
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
@@ -140,6 +140,7 @@ class ActorRolloutRefWorker(Worker):
 
     def _build_model_optimizer(self,
                                model_path,
+                               fsdp_model_path,
                                fsdp_config,
                                optim_config,
                                override_model_config,
@@ -251,6 +252,12 @@ class ActorRolloutRefWorker(Worker):
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == 'actor' else CPUOffload(offload_params=True)
+        
+        if fsdp_model_path:
+            print("loading fsdp_model_path")
+            consolidated_state_dict = load_sharded_model(fsdp_model_path)
+            actor_module.load_state_dict(consolidated_state_dict)
+
         actor_module_fsdp = FSDP(
             actor_module,
             cpu_offload=cpu_offload,
@@ -383,6 +390,7 @@ class ActorRolloutRefWorker(Worker):
                 fsdp_config = OmegaConf.create()
             self.actor_module_fsdp, self.actor_optimizer, self.actor_lr_scheduler, self.actor_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
+                fsdp_model_path=self.config.model.get("fsdp_model_path", None),
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
