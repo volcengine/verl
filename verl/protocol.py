@@ -43,17 +43,17 @@ except:
 class _DataProtoConfigMeta(type):
     _config = {}
 
-    _verl_auto_padding = "_verl_auto_padding"
+    auto_padding_key = "_verl_auto_padding"
 
     @property
     def auto_padding(cls):
         enabled_by_env = os.getenv("VERL_AUTO_PADDING", "FALSE").upper() in ["TRUE", "1"]
-        return enabled_by_env or cls._config.get(cls._verl_auto_padding, False)
+        return enabled_by_env or cls._config.get(cls.auto_padding_key, False)
 
     @auto_padding.setter
     def auto_padding(cls, enabled: bool):
         assert isinstance(enabled, bool), f"enabled must be a boolean, got {enabled} as {type(enabled)}"
-        cls._config[cls._verl_auto_padding] = enabled
+        cls._config[cls.auto_padding_key] = enabled
 
 
 class DataProtoConfig(metaclass=_DataProtoConfigMeta):
@@ -75,13 +75,14 @@ def pad_dataproto_to_divisor(data: 'DataProto', size_divisor: int):
     """
     assert isinstance(data, DataProto), 'data must be a DataProto'
     if len(data) % size_divisor != 0:
-        pad_size = 0
-        data_padded = data
-        while len(data_padded) * 2 < size_divisor:
-            pad_size += len(data_padded)
-            data_padded = DataProto.concat([data_padded, data_padded])
-        pad_size += size_divisor - len(data_padded) % size_divisor
-        data_padded = DataProto.concat([data_padded, data_padded[:pad_size]])
+        pad_size = size_divisor - len(data) % size_divisor
+        padding_protos = []
+        remaining_pad = pad_size
+        while remaining_pad > 0:
+            take_size = min(remaining_pad, len(data))
+            padding_protos.append(data[:take_size])
+            remaining_pad -= take_size
+        data_padded = DataProto.concat([data] + padding_protos)
     else:
         if len(data) == 0:
             logging.warning(f"padding a DataProto with no item, no changed made")
@@ -384,7 +385,7 @@ class DataProto:
 
         tensor_dict = TensorDict(source=tensors, batch_size=batch_size)
         if auto_padding:
-            meta_info[DataProtoConfig._verl_auto_padding] = True
+            meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
     def to(self, device) -> 'DataProto':
@@ -634,7 +635,7 @@ class DataProto:
         return iter(get_data())
 
     def is_padding_enabled(self):
-        dataproto_specific_padding = self.meta_info.get(DataProtoConfig._verl_auto_padding, False)
+        dataproto_specific_padding = self.meta_info.get(DataProtoConfig.auto_padding_key, False)
         return dataproto_specific_padding or DataProtoConfig.auto_padding
 
     def padding(self, padding_size, padding_candidate=""):
@@ -646,7 +647,7 @@ class DataProto:
         """
         if padding_size == 0:
             return
-        padding_candidate = self.index_select([0 if padding_candidate == "first" else self.__len__() - 1])
+        padding_candidate = self.select_idxs([0 if padding_candidate == "first" else len(self) - 1])
         padding_part = padding_candidate.repeat(padding_size)
         padded_dp = DataProto.concat([self, padding_part])
         self.batch = padded_dp.batch
@@ -683,48 +684,6 @@ class DataProto:
                 DataProto(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
 
         return output
-
-    def index_select(self, index):
-        """index select along the batch dimension
-
-        Args:
-            index (list): index tensor
-
-        Returns:
-            DataProto: index selected DataProto
-        """
-        if isinstance(index, tuple):
-            index = list(index)
-        elif isinstance(index, torch.Tensor):
-            assert len(index.shape) == 1
-            index = index.tolist()
-        elif isinstance(index, np.ndarray):
-            assert len(index.shape) == 1
-            index = index.tolist()
-        else:
-            assert isinstance(index,
-                              list), f'index type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(index)}'
-
-        tensor_index = torch.tensor(index)
-
-        index_selected_tensors = {
-            key: tensor.index_select(dim=0, index=tensor_index) for key, tensor in self.batch.items()
-        }
-        index_selected_batch = TensorDict(
-            source=index_selected_tensors,
-            batch_size=(len(index),),
-            device=self.batch.device,
-        )
-
-        index_selected_non_tensor_batch = {}
-        for key, val in self.non_tensor_batch.items():
-            index_selected_non_tensor_batch[key] = val[index]
-
-        return DataProto(
-            batch=index_selected_batch,
-            non_tensor_batch=index_selected_non_tensor_batch,
-            meta_info=self.meta_info,
-        )
 
     @staticmethod
     def concat(data: List['DataProto']) -> 'DataProto':
