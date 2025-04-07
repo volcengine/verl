@@ -203,13 +203,12 @@ class RayWorkerGroup(WorkerGroup):
                  name_prefix: str = None,
                  detached=False,
                  worker_names=None,
-                 ray_wait_register_center_timeout: Optional[int] = None,
+                 ray_wait_register_center_timeout: int = 300,
                  **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
-        # Set the default timeout to wait for the register center actor to be ready as 300s.
-        self._ray_wait_register_center_timeout = ray_wait_register_center_timeout or 300
+        self._ray_wait_register_center_timeout = ray_wait_register_center_timeout
 
         if worker_names is not None:
             assert self._is_init_with_detached_workers
