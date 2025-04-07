@@ -34,11 +34,12 @@ def gptmodel_forward(model,
         batch_size, seq_len = attention_mask.shape[:2]
         input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(input_ids, attention_mask, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
-        output = model(input_ids=input_ids_rmpad,
-                       attention_mask=None,
-                       position_ids=position_ids,
-                       packed_seq_params=packed_seq_params)
-        output = postprocess_packed_seqs(output,
+        output_orig = model(input_ids=input_ids_rmpad,
+                            attention_mask=None,
+                            position_ids=position_ids,
+                            packed_seq_params=packed_seq_params)
+
+        output = postprocess_packed_seqs(output_orig,
                                          packed_seq_params,
                                          attention_mask,
                                          batch_size,
@@ -72,7 +73,14 @@ def preprocess_packed_seqs(input_ids: torch.Tensor,
 
     seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
     tp_size = mpu.get_tensor_model_parallel_world_size()
-    pad_size = (tp_size - seqlens_in_batch % tp_size) % tp_size
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_rank = mpu.get_context_parallel_rank()
+    if cp_size > 1:
+        align_size = tp_size * cp_size * 2
+    else:
+        align_size = tp_size
+
+    pad_size = (align_size - seqlens_in_batch % align_size) % align_size
     seqlens_in_batch_padded = seqlens_in_batch + pad_size
     cu_seqlens = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
     cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
@@ -81,12 +89,13 @@ def preprocess_packed_seqs(input_ids: torch.Tensor,
     max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
 
     shape = list(input_ids.shape[1:])
-    shape[0] = seqlens_in_batch_padded.sum().item()
+    shape[0] = seqlens_in_batch_padded.sum().item() // cp_size
     if pre_process:
         input_ids_rmpad = torch.zeros(shape, dtype=input_ids.dtype, device=input_ids.device)
         for i in range(batch_size):
-            seqlen = seqlens_in_batch[i]
-            input_ids_rmpad[cu_seqlens_padded[i]:cu_seqlens_padded[i] + seqlen] = input_ids[i, attention_mask[i]]
+            seqlen = seqlens_in_batch[i] // cp_size
+            input_ids_rmpad[cu_seqlens_padded[i] // cp_size:cu_seqlens_padded[i] // cp_size +
+                            seqlen] = input_ids[i, attention_mask[i]][seqlen * cp_rank:seqlen * (cp_rank + 1)]
 
     packed_seq_params = PackedSeqParams(qkv_format='thd',
                                         cu_seqlens_q=cu_seqlens_padded,
@@ -114,11 +123,31 @@ def postprocess_packed_seqs(output: torch.Tensor,
         return output
     shape = [batch_size, seq_len] + list(output.shape[2:])  # 1,packed, dim -> batch_size, seq_len, dim
     output_new = torch.zeros(shape, dtype=output.dtype, device=output.device)
+
+    cp_size = mpu.get_context_parallel_world_size()
+    # all gather output across context parallel group
+    if cp_size > 1:
+        # output shape: [1, packed_len, hidden_dim]
+        # need to gather across cp group and concatenate in sequence dimension
+        output_list = [torch.empty_like(output) for _ in range(cp_size)]
+        torch.distributed.all_gather(output_list, output.detach(), group=mpu.get_context_parallel_group())
+        output_list[mpu.get_context_parallel_rank()] = output
+    else:
+        output_list = [output]
     for i in range(batch_size):
-        s = attention_mask[i].sum().item()
-        output_new[i,
-                   attention_mask[i]] = output[0][packed_seq_params.
-                                                  cu_seqlens_q_padded[i]:packed_seq_params.cu_seqlens_q_padded[i] + s]
+        s_len_padded_chunk = (packed_seq_params.cu_seqlens_q_padded[i + 1] -
+                              packed_seq_params.cu_seqlens_q_padded[i]) // cp_size
+        s_len = attention_mask[i].sum().item()
+        tmp = []
+        for j in range(cp_size):
+            o = output_list[j][0]
+            seq_chunk_len_if_last = min(s_len, s_len_padded_chunk * (j + 1)) - s_len_padded_chunk * j
+            if seq_chunk_len_if_last <= 0:
+                break
+            packed_start_idx = packed_seq_params.cu_seqlens_q_padded[i] // cp_size
+            packed_end_idx = packed_start_idx + seq_chunk_len_if_last
+            tmp.append(o[packed_start_idx:packed_end_idx])
+        output_new[i, attention_mask[i]] = torch.cat(tmp, dim=0)
 
     return output_new
 
@@ -134,7 +163,8 @@ def remove_left_padding(input_ids: torch.Tensor,
     """
     assert attention_mask.ndim == 2
     assert position_ids.ndim == 2
-
+    cp_size = mpu.get_context_parallel_world_size()
+    assert cp_size == 1, 'Context parallel size without seq_pack is not supported'
     batch_size = input_ids.shape[0]
     shape = list(input_ids.shape)  # batch_size, seq_len,...
     seq_lens = attention_mask.sum(dim=1)
