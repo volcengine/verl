@@ -1,3 +1,23 @@
+<h1 style="text-align: center;">AdaRFT: Adaptive Curriculum Reinforcement Finetuning</h1>
+
+📢 **New extension to `verl`!** We propose an adaptive curriculum learning method for efficient and scalable reinforcement finetuning (RFT) of LLMs — now implemented as an extension to this repo.
+
+> **Efficient Reinforcement Finetuning via Adaptive Curriculum Learning**  
+> Taiwei Shi†, Yiyang Wu†, Linxin Song†, Tianyi Zhou▽, Jieyu Zhao†  
+> †University of Southern California, ▽University of Maryland  
+> [[Paper]](https://arxiv.org/abs/TBD) | [[BibTeX]](#citation)
+
+🧠 **Highlights**:
+- Dynamically adapts training difficulty using a lightweight curriculum scheduler
+- Compatible with standard RFT algorithms like PPO, GRPO, REINFORCE++
+- Improves both **sample efficiency** and **final accuracy** on math reasoning benchmarks
+- Up to **2× faster convergence** vs PPO baseline
+- Seamlessly integrated into `verl` without modifying reward functions or model internals
+
+📦 **Preprocessed difficulty data:** [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
+
+---
+
 <h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLMs</h1>
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/volcengine/verl)](https://github.com/volcengine/verl/stargazers)
