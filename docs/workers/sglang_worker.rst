@@ -1,12 +1,10 @@
 SGLang Backend
 ==============
-Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_
+Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_
 
 介绍
 ----
-SGLang 是一个用于大型语言模型和视觉语言模型的快速服务框架。它通过协同设计后端运行时和前端语言，让用户与模型的交互更快、更可控。
-我们目前支持 SGLang 后端用于实现 rollout 阶段的 response 生成。目前也基于 `FSDPSGLangShardingManager <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/fsdp_sglang.py>`_ 实现了 SGLang 与 FSDP 之间的 resharding 功能。这表明我们可以在 verl 上基于 FSDP 和 SGLang 来进行 RL 训练任务。
-目前的 SGLang 已经支持 memory save 和多机推理，并且在 verl 中对于推理框架参数的设置与 vLLM 相同，因此在两个推理框架之间的无缝切换仅需要修改 ``actor_rollout_ref.rollout.name=sglang`` 即可。
+SGLang 是开源 SOTA 的推理服务引擎，被 xAI 全面采用，支持了 grok 在研究和 serving 过程中的所有推理需求。veRL 目前全面支持 SGLang 在 rollout 阶段作为推理引擎，以生成 response。目前支持的功能和 vllm 推理引擎一致，包括 memory save 和 multi-node rollout。安装完成 veRL 和 SGLang 后，在启动时添加 ``actor_rollout_ref.rollout.name=sglang``，即可在两个推理框架之间顺利切换。
 
 安装
 ----
