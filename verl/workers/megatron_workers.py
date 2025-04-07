@@ -210,7 +210,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
-            log_gpu_memory_usage('After AllGatherPPModel init', logger=logger)
+            log_gpu_memory_usage('After AllGatherPPModel init', logger=None)
         elif self._is_ref:
             print(f'self.config.ref.load_weight: {self.config.ref.load_weight}')
             ref_module = get_model(model_provider_func=megatron_actor_model_provider,
@@ -227,7 +227,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                ref_module,
                                                params_dtype=megatron_config.params_dtype,
                                                is_value_model=False)
-            log_gpu_memory_usage('After ref module init', logger=logger)
+            log_gpu_memory_usage('After ref module init', logger=None)
             return ref_module, actor_model_config
 
         # TODO: add more optimizer args into config
@@ -238,7 +238,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             optim_config = None
             actor_optimizer = None
 
-        log_gpu_memory_usage('After actor optimizer init', logger=logger)
+        log_gpu_memory_usage('After actor optimizer init', logger=None)
 
         return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
 
@@ -262,22 +262,11 @@ class ActorRolloutRefWorker(MegatronWorker):
             rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
             log_gpu_memory_usage(f'Before building vllm rollout', logger=None)
 
-            # reshard the weight partition from actor to rollout to initialize the rollout class
-            # create a new cuda space for parameters not in this pp rank
-            self.hybrid_engine.load_params_to_cuda()
-            # broadcast the parameters from pp rank to other ranks
-            self.hybrid_engine.allgather_params()
-            # obtain name to parameters in pp/vpp
-            params = self.hybrid_engine.get_all_params()
-            # update the param name for the
-            params = normalize_pp_vpp_params(params=params,
-                                             num_hidden_layers=self.actor_model_config.num_hidden_layers,
-                                             layer_name='layers')
             from megatron.core import mpu
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             local_path = copy_to_local(self.config.model.path)
             if vllm_mode == 'customized':
-                rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
+                rollout = vLLMRollout(actor_module=self.actor_module,
                                       config=self.config.rollout,
                                       tokenizer=self.tokenizer,
                                       model_hf_config=self.actor_model_config)
@@ -288,14 +277,14 @@ class ActorRolloutRefWorker(MegatronWorker):
                                       model_hf_config=self.actor_model_config,
                                       device_mesh=rollout_device_mesh,
                                       trust_remote_code=trust_remote_code)
-            log_gpu_memory_usage('After building vllm rollout', logger=logger)
+            log_gpu_memory_usage('After building vllm rollout', logger=None)
 
             # perform weight resharding between actor and rollout
             sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
                                                            inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
                                                            layer_name_mapping=layer_name_mapping)
-            log_gpu_memory_usage('After building sharding manager', logger=logger)
+            log_gpu_memory_usage('After building sharding manager', logger=None)
         else:
             raise NotImplementedError('Only vllmRollout is supported with Megatron now')
 
@@ -385,7 +374,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         data.batch = data.batch.cuda()
 
-        log_gpu_memory_usage('Before update policy', logger=logger)
+        log_gpu_memory_usage('Before update policy', logger=None)
 
         dataloader = self.actor.make_minibatch_iterator(data=data)
         with Timer(name='update_policy', logger=None) as timer:
@@ -395,7 +384,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics['perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
 
-        log_gpu_memory_usage('After update policy', logger=logger)
+        log_gpu_memory_usage('After update policy', logger=None)
 
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={'metrics': metrics})
@@ -418,19 +407,19 @@ class ActorRolloutRefWorker(MegatronWorker):
         }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
-            log_gpu_memory_usage('After entering sharding manager', logger=logger)
+            log_gpu_memory_usage('After entering sharding manager', logger=None)
 
             prompts = self.sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
 
-            log_gpu_memory_usage('After rollout generation', logger=logger)
+            log_gpu_memory_usage('After rollout generation', logger=None)
 
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After generate_sequences', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=None)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -465,7 +454,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After generate_sequences', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=None)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

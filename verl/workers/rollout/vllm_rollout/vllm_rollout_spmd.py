@@ -89,8 +89,13 @@ class vLLMRollout(BaseRollout):
             # deployed with megatron
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
-            train_tp = kwargs.get('train_tp', None)
-            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
+            if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
+                train_tp = kwargs.get('train_tp', None)
+                num_tp_per_train_tp = train_tp // tensor_parallel_size
+                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
+                                                num_tp_per_train_tp=num_tp_per_train_tp)
+            else:
+                vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
@@ -187,8 +192,10 @@ class vLLMRollout(BaseRollout):
             non_tensor_batch['raw_prompt_ids'] = np.array(
                 [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
 
+        print(f'batch_size: {batch_size}')
+        print(f'len(non_tensor_batch["raw_prompt_ids"]: {len(non_tensor_batch["raw_prompt_ids"])}')
         if batch_size != len(non_tensor_batch['raw_prompt_ids']):
-            raise RuntimeError('vllm sharding manager is not work properly.')
+            raise RuntimeError(f'vllm sharding manager is not work properly. {batch_size} vs {len(non_tensor_batch["raw_prompt_ids"])}')
 
         if 'multi_modal_data' in non_tensor_batch:
             vllm_inputs = []

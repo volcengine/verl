@@ -256,6 +256,7 @@ import torch.distributed
 from torch.distributed import new_group
 
 from verl import DataProto
+from verl.protocol import all_gather_data_proto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.third_party.vllm import parallel_state as vllm_ps
@@ -300,6 +301,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     _MICRO_DATA_PARALLEL_GROUP = group
         else:
             _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
+        self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
+        self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
@@ -399,10 +402,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     def __enter__(self):
         from megatron.core import mpu
 
-        log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=logger)
+        log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=None)
         # create a new cuda space for parameters not in this pp rank
         self.module.load_params_to_cuda()
-        log_gpu_memory_usage('After load_params_to_cuda sharding manager memory', logger=logger)
+        log_gpu_memory_usage('After load_params_to_cuda sharding manager memory', logger=None)
         # broadcast the parameters from pp rank to other ranks
         self.module.allgather_params()
         # obtain name to parameters in pp/vpp
@@ -412,7 +415,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.params = normalize_pp_vpp_params(params=params,
                                               num_hidden_layers=self.model_config.num_hidden_layers,
                                               layer_name='layers')
-        log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
+        log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=None)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.origin_params = self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(self.params, load_format='megatron')
@@ -426,17 +429,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 mpu.get_tensor_model_parallel_world_size(),
                 self.module.pp_models[0][0].config.num_query_groups,
                 convert_qkv_gate_up_by_trunk_concat=False)
-            print(f'to_load_params:')
-            for name, param in to_load_params.items():
-                print(f'{name}: {param.shape}')
             loaded_params = model.load_weights(((name, param) for name, param in to_load_params.items()))
-            print(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-        log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
+            logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+        log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
         del params
-        log_gpu_memory_usage('After delete params sharding manager memory', logger=logger)
+        del to_load_params
+        log_gpu_memory_usage('After delete params sharding manager memory', logger=None)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
+        log_gpu_memory_usage('Before vllm offload in sharding manager', logger=None)
         # offload parameters doesn't belong to this pp rank
         self.module.offload_params_to_cpu()
 
@@ -451,7 +452,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
-        log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
+        log_gpu_memory_usage('After vllm offload in sharding manager', logger=None)
 
         self.module.train()
 
@@ -459,40 +460,30 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
-        from megatron.core import parallel_state as mpu
-        # prompts are identical for each training tp. We select for each inference tp
-        micro_dp_size = get_micro_data_parallel_world_size()
-        micro_dp_rank = get_micro_data_parallel_rank()
-
-        # broadcast from tp=0 to other tp ranks
-        broadcast_dict_tensor(data.batch,
-                              src=mpu.get_tensor_model_parallel_src_rank(),
-                              group=mpu.get_tensor_model_parallel_group())
-
-        if micro_dp_size > 1:
-            local_prompts = data.chunk(chunks=micro_dp_size)
-            data = local_prompts[micro_dp_rank]
-
+        if self.tp_size == 1:
+            return data
+    
+        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
+            group = vllm_ps.get_tensor_model_parallel_group()
+        else:
+            group = vllm_ps.get_tensor_model_parallel_group().device_group
+        
+        all_gather_data_proto(data=data, process_group=group)
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
-        from megatron.core import parallel_state as mpu
-        meta_info = data.meta_info
-        # all gather batch among micro-dp groups
-        micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=get_micro_data_parallel_world_size(),
-                                                group=get_micro_data_parallel_group(),
-                                                dim=0)
+        if self.tp_size == 1:
+            return data
 
         # all gather batch among pp group
+        from megatron.core import mpu
+        meta_info = data.meta_info
         if meta_info.get('allgather_pp_output', True):
             data.batch = allgather_dict_tensors(data.batch.contiguous(),
                                                 size=mpu.get_pipeline_model_parallel_world_size(),
                                                 group=mpu.get_pipeline_model_parallel_group(),
                                                 dim=0)
-        return data
+        return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
 
 """
