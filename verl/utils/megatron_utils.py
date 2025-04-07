@@ -310,7 +310,7 @@ def convert_megatron_model_to_transformers_model(params,
                                                  config: PretrainedConfig,
                                                  tp_size: int,
                                                  num_query_groups: int,
-                                                convert_qkv_gate_up_by_trunk_concat=False):
+                                                 convert_qkv_gate_up_by_trunk_concat=False):
     """Convert megatron model to transformers model."""
     new_params = {}
 

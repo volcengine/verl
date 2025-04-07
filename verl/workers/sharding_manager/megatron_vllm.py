@@ -301,8 +301,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         else:
             _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
 
-    def default_tp_concat_fn(self, name, param, infer_params, model_config,
-                    convert_qkv_gate_up_by_simple_split=False):
+    def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
         name: name of the parameter
         param: training parameters
@@ -387,7 +386,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 else:
                     infer_params = [torch.empty_like(param) for _ in range(micro_dp_size)]
                     torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
-                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split)
+                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config,
+                                                         convert_qkv_gate_up_by_simple_split)
                 # replace with original param
                 # NOTE(gaoziyuan.955@bytedance.com) params can be a list of tensors, handled in convert functions
                 params[name] = infer_params
@@ -414,12 +414,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                               layer_name='layers')
         log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            self.origin_params = self._post_process_params(self.params,
-                    convert_qkv_gate_up_by_simple_split=False)
+            self.origin_params = self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(self.params, load_format='megatron')
         else:
-            self.origin_params = self._post_process_params(self.params,
-                    convert_qkv_gate_up_by_simple_split=True)
+            self.origin_params = self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=True)
             self.inference_engine.wake_up()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             to_load_params = convert_megatron_model_to_transformers_model(
