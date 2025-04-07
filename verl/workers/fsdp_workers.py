@@ -522,7 +522,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def setup_generate_sequences_efficient(self, prompts: DataProto):
+    def setup_generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
         logger.info("Setting up efficient sequence generation.")
         assert self._is_rollout
         if self._is_offload_param:
@@ -539,14 +539,14 @@ class ActorRolloutRefWorker(Worker):
         return prompts  # Dummy return to match the interface
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def teardown_generate_sequences_efficient(self, prompts: DataProto):
+    def teardown_generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
         logger.info("Tearing down efficient sequence generation.")
         self.rollout_sharding_manager.exit_sharding_context()
         log_gpu_memory_usage('After exiting rollout sharding manager', logger=logger)
         return prompts  # Dummy return to match the interface
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def generate_sequences_efficient(self, prompts: DataProto):
+    def generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
         # Support all hardwares
         prompts = prompts.to(torch.cuda.current_device())
         meta_info = {
