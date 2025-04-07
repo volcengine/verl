@@ -11,7 +11,7 @@ data:
 
 model:
   path: ~/models/Qwen2-7B-Instruct
-  fsdp_model_path: null
+  actor_fsdp_model_path: null
   external_lib: null
 
 rollout:

@@ -14,6 +14,6 @@ python3 -m verl.trainer.main_generation \
     data.batch_size=8 \
     data.n_samples=1 \
     model.path='Qwen/Qwen2.5-3B' \
-    model.fsdp_model_path='/checkpoints/grpo-countdown-qwen2.5-3b/global_step_200/actor' \
+    model.actor_fsdp_model_path='/checkpoints/grpo-countdown-qwen2.5-3b/global_step_200/actor' \
     rollout.do_sample=False \
     rollout.response_length=1024

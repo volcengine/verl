@@ -140,7 +140,6 @@ class ActorRolloutRefWorker(Worker):
 
     def _build_model_optimizer(self,
                                model_path,
-                               fsdp_model_path,
                                fsdp_config,
                                optim_config,
                                override_model_config,
@@ -148,7 +147,9 @@ class ActorRolloutRefWorker(Worker):
                                enable_gradient_checkpointing=False,
                                trust_remote_code=False,
                                use_liger=False,
-                               role='actor'):
+                               role='actor',
+                               actor_fsdp_model_path=None,
+                               ):
         from verl.utils.model import print_model_size, update_model_config, get_generation_config
         from verl.utils.torch_dtypes import PrecisionType
         from transformers import AutoModelForCausalLM, AutoConfig, AutoModelForVision2Seq
@@ -253,9 +254,9 @@ class ActorRolloutRefWorker(Worker):
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == 'actor' else CPUOffload(offload_params=True)
         
-        if fsdp_model_path:
-            print("loading fsdp_model_path")
-            consolidated_state_dict = load_sharded_model(fsdp_model_path)
+        if actor_fsdp_model_path:
+            print("loading actor_fsdp_model_path")
+            consolidated_state_dict = load_sharded_model(actor_fsdp_model_path)
             actor_module.load_state_dict(consolidated_state_dict)
 
         actor_module_fsdp = FSDP(
@@ -390,7 +391,6 @@ class ActorRolloutRefWorker(Worker):
                 fsdp_config = OmegaConf.create()
             self.actor_module_fsdp, self.actor_optimizer, self.actor_lr_scheduler, self.actor_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
-                fsdp_model_path=self.config.model.get("fsdp_model_path", None),
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
@@ -398,7 +398,9 @@ class ActorRolloutRefWorker(Worker):
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False),
                 use_liger=self.config.model.get('use_liger', False),
-                role='actor')
+                role='actor',
+                actor_fsdp_model_path=self.config.model.get("actor_fsdp_model_path", None),
+                )
 
             # get the original unwrapped module
             self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module

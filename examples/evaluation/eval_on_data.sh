@@ -12,4 +12,4 @@ python3 -m verl.trainer.eval_on_data \
     actor_rollout_ref.rollout.top_k=0 \
     actor_rollout_ref.rollout.temperature=0 \
     actor_rollout_ref.model.hf_model_path='Qwen/Qwen2.5-3B' \
-    actor_rollout_ref.model.fsdp_model_path='/checkpoints/grpo-countdown-qwen2.5-3b/global_step_200/actor'
+    actor_rollout_ref.model.actor_fsdp_model_path='/checkpoints/grpo-countdown-qwen2.5-3b/global_step_200/actor'
