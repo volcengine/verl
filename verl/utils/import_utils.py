@@ -23,19 +23,28 @@ import importlib
 
 @cache
 def is_megatron_core_available():
-    mcore_spec = importlib.util.find_spec('megatron.core')
+    try:
+        mcore_spec = importlib.util.find_spec('megatron.core')
+    except ModuleNotFoundError:
+        mcore_spec = None
     return mcore_spec is not None
 
 
 @cache
 def is_vllm_available():
-    vllm_spec = importlib.util.find_spec('vllm')
+    try:
+        vllm_spec = importlib.util.find_spec('vllm')
+    except ModuleNotFoundError:
+        vllm_spec = None
     return vllm_spec is not None
 
 
 @cache
 def is_sglang_available():
-    sglang_spec = importlib.util.find_spec('sglang')
+    try:
+        sglang_spec = importlib.util.find_spec('sglang')
+    except ModuleNotFoundError:
+        sglang_spec = None
     return sglang_spec is not None
 
 
