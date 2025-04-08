@@ -379,7 +379,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         micro_dp_size = get_micro_data_parallel_world_size()
         micro_dp_group = get_micro_data_parallel_group()
 
-        origin_params = {}
         for name in params.keys():
             param = params[name]
             if tp_utils.is_tensor_parallel_param(param):
@@ -394,10 +393,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 # replace with original param
                 # NOTE(gaoziyuan.955@bytedance.com) params can be a list of tensors, handled in convert functions
                 params[name] = infer_params
-            # swap param with the original param, and offload to CPU to avoid store 2 copies
-            origin_params[name] = param
-
-        return origin_params
 
     def __enter__(self):
         from megatron.core import mpu
@@ -415,12 +410,14 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.params = normalize_pp_vpp_params(params=params,
                                               num_hidden_layers=self.model_config.num_hidden_layers,
                                               layer_name='layers')
+        del params
         log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=None)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            self.origin_params = self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=False)
+            self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(self.params, load_format='megatron')
+            del self.params
         else:
-            self.origin_params = self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=True)
+            self._post_process_params(self.params, convert_qkv_gate_up_by_simple_split=True)
             self.inference_engine.wake_up()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             to_load_params = convert_megatron_model_to_transformers_model(
@@ -429,23 +426,17 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 mpu.get_tensor_model_parallel_world_size(),
                 self.module.pp_models[0][0].config.num_query_groups,
                 convert_qkv_gate_up_by_trunk_concat=False)
+            del self.params
             loaded_params = model.load_weights(((name, param) for name, param in to_load_params.items()))
+            del to_load_params
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
-        del params
-        del to_load_params
         log_gpu_memory_usage('After delete params sharding manager memory', logger=None)
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=None)
         # offload parameters doesn't belong to this pp rank
         self.module.offload_params_to_cpu()
-
-        # FIXME(sgm): the best practice is to delete the cuda tensor
-        # rebind the model weights, can be any cpu tensor
-        if self.origin_params is not None:
-            for name, param in self.origin_params.items():
-                self.params[name] = param
 
         # self.inference_engine.sync_model_weights(params)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
