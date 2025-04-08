@@ -18,7 +18,7 @@ import os
 import torch
 import argparse
 import numpy as np
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq, AutoTokenizer
 from concurrent.futures import ThreadPoolExecutor
 from safetensors.torch import load_file
 from torch.distributed._tensor import Shard, Placement
@@ -28,8 +28,9 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--backend', type=str, required=True, help="The backend of the model", choices=["fsdp", "megatron"])
+parser.add_argument('--backend', type=str, required=True, help="The backend of the model")
 parser.add_argument('--tie-word-embedding', action='store_true', help="Whether to tie word embedding weights")
 parser.add_argument('--is-value-model', action='store_true', help="Whether the model loaded as value model")
 parser.add_argument('--hf_model_path', type=str, required=True, help="The path for the huggingface model")
@@ -102,7 +103,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
 
     print(f'Got device mesh {mesh}, mesh_dim_names {mesh_dim_names}')
 
-    assert mesh_dim_names in (('fsdp',),), f'Unsupported mesh_dim_names {mesh_dim_names}'
+    assert mesh_dim_names in (('fsdp',), ('ddp', 'fsdp')), f'Unsupported mesh_dim_names {mesh_dim_names}'
 
     if 'tp' in mesh_dim_names:
         # fsdp * tp
@@ -144,6 +145,8 @@ def convert_fsdp_checkpoints_to_hfmodels():
                 placements = tuple(tensor.placements)
                 # replicated placement at dp dimension can be discarded
                 if mesh_dim_names[0] == 'dp':
+                    placements = placements[1:]
+                elif mesh_dim_names[0] == 'ddp':
                     placements = placements[1:]
                 if key not in param_placements:
                     param_placements[key] = placements
