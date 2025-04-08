@@ -1,4 +1,4 @@
-Device needed In verl RLHF
+Device Needed for Verl RLHF
 ==========================
 
 Since RL requires more resources compared to regular training, 
