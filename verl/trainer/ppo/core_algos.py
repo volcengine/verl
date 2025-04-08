@@ -449,7 +449,7 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
 
 def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
-    Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
+    reference from https://github.com/OpenRLHF/OpenRLHF/blob/main/openrlhf/models/utils.py#L7
 
     Args:
         logprob:
