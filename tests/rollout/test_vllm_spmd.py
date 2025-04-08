@@ -168,7 +168,7 @@ def test_vllm_spmd():
         skip_tokenizer_init=False,
         enable_prefix_caching=True,
         trust_remote_code=True,
-        seed=0,
+        seed=int(os.getenv("RANK", "0")) // tensor_parallel_size,
     )
 
     # Warmup iterations
