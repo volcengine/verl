@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from omegaconf import ListConfig
 import os
 from typing import List, Union, Optional, Literal
@@ -68,7 +69,6 @@ def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwar
         'env_id': env_id, # the environment id
         'observation': init_obj['observation'], # a chat message list as the initial observation
     }
-    
 
 def reset_env(environment_endpoint: str, env_id: str, seed: int, options: Optional[Union[dict, str]] = None):
     """Reset the environment and get the initial observation."""
@@ -87,7 +87,6 @@ def reset_env(environment_endpoint: str, env_id: str, seed: int, options: Option
         'observation': reset_obj['observation'], # a chat message list as the initial observation
         'info': reset_obj['info'] # info is only for the gymnasium convention
     }
-    
 
 def close_env(environment_endpoint: str, env_id: str):
     """Close the environment."""
@@ -97,6 +96,23 @@ def close_env(environment_endpoint: str, env_id: str):
     close_response = requests.post(f"{environment_endpoint}/api/environment/{env_id}/close", json=payload)
     close_obj = close_response.json()
 
+def step_env(environment_endpoint: str, env_id: str, action: dict):
+    """
+    Step the environment with the action.
+    
+    The step response is a dictionary with the following keys:
+    - observation: list of chat messages
+    - reward: float
+    - done: bool
+    - truncated: bool
+    - info: dict
+    """
+    payload = {
+        "action": action
+    }
+    step_response = requests.post(f"{environment_endpoint}/api/environment/{env_id}/step", json=payload)
+    step_obj = step_response.json()
+    return step_obj
 
 def get_task_prompt(environment_endpoint: str, env_id: str) -> str:
     """Retrieve the task prompt for a given environment ID."""
@@ -172,7 +188,6 @@ def get_agent_system_prompt(
 
     return system_prompt
 
-
 def convert_chat_message_from_openai(
     agent_prompt_style: Literal['qwen2_5'],
     chat: list[dict],
@@ -222,6 +237,40 @@ def convert_chat_message_from_openai(
         raise ValueError(f"Agent prompt style {agent_prompt_style} is not supported")
     return new_chat
 
+def convert_assistant_message_to_openai(
+    agent_prompt_style: Literal['qwen2_5'],
+    assistant_message_str: str,
+) -> list[dict]:
+    """
+    Convert the one single chat message from the agent prompt style to the openai format.
+    """
+    assistant_message = {
+        "role": "assistant",
+    }
+    if agent_prompt_style == 'qwen2_5':
+        content = ""
+        if not assistant_message_str.startswith('<tool_call>'):
+            content = assistant_message_str.split('<tool_call>',1)[0]
+        assistant_message['content'] = content
+        tool_calls = []
+        while '<tool_call>' and '</tool_call>' in assistant_message_str:
+            tool_obj = json.loads(assistant_message_str.split('<tool_call>',1)[1].split('</tool_call>',1)[0].strip())
+            assert 'name' in tool_obj and 'arguments' in tool_obj, f"Tool call must contain name and arguments, got {tool_obj}"
+            tool_obj = {
+                "type": "function_call",
+                "id": str(uuid.uuid4()),
+                "function": {
+                    "name": tool_obj['name'],
+                    "arguments": json.dumps(tool_obj['arguments'])
+                }
+            }
+            tool_calls.append(tool_obj)
+            assistant_message_str = assistant_message_str.split('<tool_call>',1)[1].split('</tool_call>',1)[1]
+        if tool_calls:
+            assistant_message['tool_calls'] = tool_calls
+    else:
+        raise ValueError(f"Agent prompt style {agent_prompt_style} is not supported")
+    return assistant_message
 
 # Environment class
 class AgentEnv:
@@ -250,9 +299,10 @@ class AgentEnv:
 
         self.chat = []
         self.env_id = None
+        self.action_turn = []
+        self.reward_by_action_turn = []
 
     def initialize(self):
-        print(f"initialize env {self.env_name} with seed {self.seed} and kwargs {self.env_kwargs}")
         env_meta_data = initialize_env(self.environment_endpoint, self.env_name, self.seed, self.env_kwargs)
         if self.env_id is not None:
             close_env(self.environment_endpoint, self.env_id)
@@ -291,6 +341,41 @@ class AgentEnv:
         return_dict['position_ids'] = position_ids[0]
         return_dict['raw_prompt_ids'] = self.tokenizer.encode(prompt_with_chat_template, add_special_tokens=False)
         return return_dict
+    
+    def step(self, assistant_message_str: str, tool_parsing_error_reward: float):
+        """
+        Step the environment with the assistant message.
+        """
+        try:
+            assistant_message = convert_assistant_message_to_openai(self.agent_prompt_style, assistant_message_str)
+            self.chat.append(assistant_message)
+            self.action_turn.append(len(self.chat) - 1)
+            step_obj = step_env(self.environment_endpoint, self.env_id, assistant_message)
+            observation = step_obj['observation']
+            reward = step_obj['reward']
+            done = step_obj['done']
+            truncated = step_obj['truncated']
+            info = step_obj['info']
+            self.reward_by_action_turn.append(reward)
+            return observation, reward, done, truncated, info
+        except Exception as e:
+            self.chat.append({
+                "role": "assistant",
+                "content": assistant_message_str
+            })
+            reward = tool_parsing_error_reward
+            done = True
+            truncated = False
+            info = {}
+            self.action_turn.append(len(self.chat) - 1)
+            self.reward_by_action_turn.append(reward)
+            error_message = f"Failed to parse the assistant message: {assistant_message_str}, error: {e}"
+            observation = [{
+                "role": "user",
+                "content": error_message
+            }]
+            self.chat += observation
+            return observation, reward, done, truncated, info
         
     def __del__(self):
         if self.env_id is not None:
