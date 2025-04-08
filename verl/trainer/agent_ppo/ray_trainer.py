@@ -237,39 +237,45 @@ class AgentPPOTrainer(RayPPOTrainer):
         gen_rollout_batch = gen_batch.select(batch_keys=['index'], non_tensor_batch_keys=['env'])
         env_list = gen_rollout_batch.non_tensor_batch['env']
         # initialize the environment
+        # TODO: make this asyncio
         for env in env_list:
             env.initialize()
 
-        gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
-        gen_tokenized_batch.meta_info = {
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
-            'recompute_log_prob': False,
-            'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-            'validate': True,
-        }
+        for turn_idx in range(self.config.env.max_turn):
+            gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
+            gen_tokenized_batch.meta_info = {
+                'eos_token_id': self.tokenizer.eos_token_id,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'recompute_log_prob': False,
+                'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                'validate': True,
+            }
 
-        gen_tokenized_batch_padded, pad_size = pad_dataproto_to_divisor(gen_tokenized_batch, self.actor_rollout_wg.world_size)
-        output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(gen_tokenized_batch_padded)
-        output_gen_batch = unpad_dataproto(output_gen_batch_padded, pad_size=pad_size)
+            gen_tokenized_batch_padded, pad_size = pad_dataproto_to_divisor(gen_tokenized_batch, self.actor_rollout_wg.world_size)
+            output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(gen_tokenized_batch_padded)
+            output_gen_batch = unpad_dataproto(output_gen_batch_padded, pad_size=pad_size)
 
-        gen_rollout_batch = gen_rollout_batch.union(output_gen_batch)
+            # TODO: make this asyncio
+            new_env_list = []
+            for i in range(len(output_gen_batch.batch)):
+                sample = output_gen_batch[i]
+                response_tokens = sample.batch['responses']
+                response = self.tokenizer.decode(response_tokens, skip_special_tokens=True)
+                env = env_list[i]
+                _, reward, done, truncated, info = env.step(response, tool_parsing_error_reward=self.config.env.tool_parsing_error_reward)
+                if not done and not truncated:
+                    # only keep the envs that are not done or truncated
+                    new_env_list.append(env)
+            
+            if len(new_env_list) == 0:
+                break
+            env_list = new_env_list
 
-        # response_tokens = gen_rollout_batch.batch[0,...]['responses']
-        # response = self.tokenizer.decode(response_tokens, skip_special_tokens=True)
-        # print("response: ", response)
-
-        for i in range(len(gen_rollout_batch.batch)):
-            sample = gen_rollout_batch[i]
-            response_tokens = sample['responses']
-            response = self.tokenizer.decode(response_tokens, skip_special_tokens=True)
-            env = sample.non_tensor_batch['env']
-            env.step(response, tool_parsing_error_reward=self.config.data.tool_parsing_error_reward)
-
-        print("Chat of last env:")
+        env = gen_rollout_batch.non_tensor_batch['env'][0]
+        print("Chat of first env:")
         print(json.dumps(env.chat, indent=2))
-        print(f'Reward by action turn of last env: {env.reward_by_action_turn}')
-        print(f'Action turn of last env: {env.action_turn}')
+        print(f'Reward by action turn of first env: {env.reward_by_action_turn}')
+        print(f'Action turn of first env: {env.action_turn}')
         print(f'gen_rollout_batch batch keys: {gen_rollout_batch.batch.keys()}')
         print(f'gen_rollout_batch non_tensor_batch keys: {gen_rollout_batch.non_tensor_batch.keys()}')
         print(f'gen_rollout_batch meta_info: {gen_rollout_batch.meta_info}')
@@ -278,17 +284,18 @@ class AgentPPOTrainer(RayPPOTrainer):
     def _validate(self):
         reward_tensor_lst = []
         data_source_lst = []
+        # Lists to collect samples for the table
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
 
         for test_data in self.val_dataloader:
-            # print(f'test_data.keys(): {test_data.keys()}')
             test_batch = DataProto.from_single_dict(test_data)
 
             # repeat test batch
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
                                            interleave=True)
             
-            # print(f'test_batch: {test_batch}')
-            # print(f"{test_batch[0]=}")
             env_list = [AgentEnv(
                 environment_endpoint=self.config.env.environment_endpoint,
                 env_name=sample.non_tensor_batch['env_name'],
@@ -304,79 +311,18 @@ class AgentPPOTrainer(RayPPOTrainer):
             test_batch.check_consistency()
 
             test_batch = self._run_agent_rollout(test_batch)
-
-            # print(f'test_batch: {test_batch}')
-
-            # test_gen_batch = test_batch.pop(
-            #     batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-            #     non_tensor_batch_keys=['raw_prompt_ids'],
-            # )
-
-            # test_gen_batch.meta_info = {
-            #     'eos_token_id': self.tokenizer.eos_token_id,
-            #     'pad_token_id': self.tokenizer.pad_token_id,
-            #     'recompute_log_prob': False,
-            #     'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-            #     'validate': True,
-            # }
-            # print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
-
-            # # pad to be divisible by dp_size
-            # test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
-            # test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-
-            # # unpad
-            # test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-            # print('validation generation end')
-
-            # test_batch = test_batch.union(test_output_gen_batch)
-            
-            # TODO: Remove the debug print
-            # print("test_batch batch: ", test_batch.batch[0, ...])
-            # print("test_batch non_tensor_batch: ", {
-            #     k: v[0] for k, v in test_batch.non_tensor_batch.items()
-            # })
-            # print("test_batch meta_info: ", test_batch.meta_info)
-            # print("test_gen_batch batch: ", test_gen_batch.batch[0, ...])
-            # print("test_gen_batch non_tensor_batch: ", {
-            #     k: v[0] for k, v in test_gen_batch.non_tensor_batch.items()
-            # })
-            # print("test_output_gen_batch batch: ", test_output_gen_batch.batch[0, ...])
-            # print("test_output_gen_batch non_tensor_batch: ", {
-            #     k: v[0] for k, v in test_output_gen_batch.non_tensor_batch.items()
-            # })
-            # response_tokens = test_output_gen_batch.batch[0,...]['responses']
-            # response = self.tokenizer.decode(response_tokens, skip_special_tokens=True)
-            # print("response: ", response)
-            # print("input: ", self.tokenizer.decode(test_output_gen_batch.batch[0,...]['input_ids'], skip_special_tokens=True))
-            return {}
-
-            # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
-
-            # Store scores
-            scores = reward_tensor.sum(-1).cpu().tolist()
-            sample_scores.extend(scores)
-
-            reward_tensor_lst.append(reward_tensor)
-            data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+            for env in env_list:
+                sample_inputs.append(json.dumps(env.chat, indent=2))
+                sample_outputs.append(json.dumps({
+                    "action_turn": env.action_turn,
+                    "reward_by_action_turn": env.reward_by_action_turn,
+                }, indent=2))
+                sample_scores.append(sum(env.reward_by_action_turn))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
-        data_sources = np.concatenate(data_source_lst, axis=0)
-
-        # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
-
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        metric_dict[f'val/test_score'] = np.mean(sample_scores)
 
         return metric_dict
     

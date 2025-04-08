@@ -348,34 +348,31 @@ class AgentEnv:
         """
         try:
             assistant_message = convert_assistant_message_to_openai(self.agent_prompt_style, assistant_message_str)
-            self.chat.append(assistant_message)
-            self.action_turn.append(len(self.chat) - 1)
             step_obj = step_env(self.environment_endpoint, self.env_id, assistant_message)
             observation = step_obj['observation']
             reward = step_obj['reward']
             done = step_obj['done']
             truncated = step_obj['truncated']
             info = step_obj['info']
-            self.reward_by_action_turn.append(reward)
-            return observation, reward, done, truncated, info
         except Exception as e:
-            self.chat.append({
+            assistant_message = {
                 "role": "assistant",
                 "content": assistant_message_str
-            })
+            }
             reward = tool_parsing_error_reward
             done = True
             truncated = False
             info = {}
-            self.action_turn.append(len(self.chat) - 1)
-            self.reward_by_action_turn.append(reward)
             error_message = f"Failed to parse the assistant message: {assistant_message_str}, error: {e}"
             observation = [{
                 "role": "user",
                 "content": error_message
             }]
-            self.chat += observation
-            return observation, reward, done, truncated, info
+        self.chat.append(assistant_message)
+        self.action_turn.append(len(self.chat) - 1)
+        self.reward_by_action_turn.append(reward)
+        self.chat += observation
+        return observation, reward, done, truncated, info
         
     def __del__(self):
         if self.env_id is not None:
