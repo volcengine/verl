@@ -58,7 +58,8 @@ class AgentPPOTrainer(RayPPOTrainer):
             val_reward_fn = None    # Reward is provided by the environment
         )
         assert self.use_rm is False, "Reward model is not needed for agent PPO. The reward is provided by the environment"      
-    
+        assert self.config.actor_rollout_ref.rollout.n == 1, "The number of rollout supported right now is 1"
+
     def _validate_config(self):
         config = self.config
         # number of GPUs total
@@ -238,7 +239,7 @@ class AgentPPOTrainer(RayPPOTrainer):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
         
-    def _run_agent_rollout(self, gen_batch: DataProto) -> DataProto:
+    def _run_agent_rollout(self, gen_batch: DataProto, do_sample: Optional[bool] = None, validate: bool = True) -> DataProto:
         gen_rollout_batch = gen_batch.select(batch_keys=['index'], non_tensor_batch_keys=['env'])
         env_list = gen_rollout_batch.non_tensor_batch['env']
         # initialize the environment
@@ -247,14 +248,18 @@ class AgentPPOTrainer(RayPPOTrainer):
             env.initialize()
 
         for turn_idx in range(self.config.env.max_turn):
+            # TODO: tokenize in parallel
             gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
-            gen_tokenized_batch.meta_info = {
-                'eos_token_id': self.tokenizer.eos_token_id,
-                'pad_token_id': self.tokenizer.pad_token_id,
-                'recompute_log_prob': False,
-                'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-                'validate': True,
-            }
+            if validate:
+                gen_tokenized_batch.meta_info = {
+                    'eos_token_id': self.tokenizer.eos_token_id,
+                    'pad_token_id': self.tokenizer.pad_token_id,
+                    'recompute_log_prob': False,
+                    'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                    'validate': True,
+                }
+            if do_sample is not None:
+                gen_tokenized_batch.meta_info['do_sample'] = do_sample
 
             gen_tokenized_batch_padded, pad_size = pad_dataproto_to_divisor(gen_tokenized_batch, self.actor_rollout_wg.world_size)
             output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(gen_tokenized_batch_padded)
@@ -276,6 +281,21 @@ class AgentPPOTrainer(RayPPOTrainer):
                 break
             env_list = new_env_list
 
+        # store chat, action_turn, reward_by_action_turn in gen_rollout_batch
+        env_list = gen_rollout_batch.non_tensor_batch['env']
+        chat_list = np.array([env.chat for env in env_list], dtype=object)
+        action_turn_list = np.array([env.action_turn for env in env_list], dtype=object)
+        reward_by_action_turn_list = np.array([env.reward_by_action_turn for env in env_list], dtype=object)
+        gen_rollout_batch.non_tensor_batch['chat'] = chat_list
+        gen_rollout_batch.non_tensor_batch['action_turn'] = action_turn_list
+        gen_rollout_batch.non_tensor_batch['reward_by_action_turn'] = reward_by_action_turn_list
+
+        # Tokenize the chat
+        # TODO: tokenize in parallel
+        gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
+        gen_rollout_batch.union(gen_tokenized_batch)
+
+        # Debug
         env = gen_rollout_batch.non_tensor_batch['env'][0]
         print("Chat of first env:")
         print(json.dumps(env.chat, indent=2))
@@ -284,6 +304,7 @@ class AgentPPOTrainer(RayPPOTrainer):
         print(f'gen_rollout_batch batch keys: {gen_rollout_batch.batch.keys()}')
         print(f'gen_rollout_batch non_tensor_batch keys: {gen_rollout_batch.non_tensor_batch.keys()}')
         print(f'gen_rollout_batch meta_info: {gen_rollout_batch.meta_info}')
+
         return gen_rollout_batch
 
     def _validate(self):
@@ -313,14 +334,13 @@ class AgentPPOTrainer(RayPPOTrainer):
 
             test_batch.check_consistency()
 
-            test_batch = self._run_agent_rollout(test_batch)
-            for env in env_list:
-                sample_inputs.append(json.dumps(env.chat, indent=2))
-                sample_outputs.append(json.dumps({
-                    "action_turn": env.action_turn,
-                    "reward_by_action_turn": env.reward_by_action_turn,
-                }, indent=2))
-                sample_scores.append(sum(env.reward_by_action_turn))
+            gen_rollout_batch = self._run_agent_rollout(test_batch)
+            sample_inputs = [json.dumps(gen_rollout_batch[i].non_tensor_batch['chat'], indent=2) for i in range(len(gen_rollout_batch))]
+            sample_outputs = [json.dumps({
+                "action_turn": gen_rollout_batch[i].non_tensor_batch['action_turn'],
+                "reward_by_action_turn": gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn'],
+            }, indent=2) for i in range(len(gen_rollout_batch))]
+            sample_scores = [sum(gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn']) for i in range(len(gen_rollout_batch))]
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -354,5 +374,84 @@ class AgentPPOTrainer(RayPPOTrainer):
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
+                return
+        
+        # add tqdm
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+
+        # we start from step 1
+        self.global_steps += 1
+        last_val_metrics = None
+
+        for epoch in range(self.config.trainer.total_epochs):
+            for batch_dict in self.train_dataloader:
+                metrics = {}
+                timing_raw = {}
+
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
+
+                is_last_step = self.global_steps >= self.total_training_steps
+
+                with _timer('step', timing_raw):
+                    # create a batch of envs
+                    with _timer('env_creation', timing_raw):
+                        env_list = [AgentEnv(
+                            environment_endpoint=self.config.env.environment_endpoint,
+                            env_name=sample.non_tensor_batch['env_name'],
+                            seed=sample.non_tensor_batch['seed'],
+                            env_kwargs=sample.non_tensor_batch['env_kwargs'],
+                            agent_prompt_style=self.config.data.agent_prompt_style,
+                            tokenizer=self.tokenizer,
+                            max_prompt_length=self.config.data.max_prompt_length,
+                            truncation=self.config.data.get('truncation', 'error')
+                        ) for sample in batch]
+                        batch.non_tensor_batch['env'] = np.array(env_list, dtype=object)
+
+                        batch.check_consistency()
+
+                    # agent rollout with stateful envs
+                    with _timer('agent_rollout', timing_raw):
+                        gen_rollout_batch = self._run_agent_rollout(batch)
+                    
+
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                        # TODO: The implementation of REMAX is completed and needs better understanding of the baseline algorithm under agent context
+                        raise NotImplementedError("REMAX is not implemented yet")
+                        with _timer('gen_max', timing_raw):
+                            baseline_batch = batch.select(batch_keys=['index'], non_tensor_batch_keys=['env_name', 'seed', 'env_kwargs'])
+                            baseline_env_list = [AgentEnv(
+                                environment_endpoint=self.config.env.environment_endpoint,
+                                env_name=sample.non_tensor_batch['env_name'],
+                                seed=sample.non_tensor_batch['seed'],
+                                env_kwargs=sample.non_tensor_batch['env_kwargs'],
+                                agent_prompt_style=self.config.data.agent_prompt_style,
+                                tokenizer=self.tokenizer,
+                                max_prompt_length=self.config.data.max_prompt_length,
+                                truncation=self.config.data.get('truncation', 'error')
+                            ) for sample in baseline_batch]
+                            baseline_batch.non_tensor_batch['env'] = np.array(baseline_env_list, dtype=object)
+                            baseline_batch.check_consistency()
+
+                            baseline_gen_rollout_batch = self._run_agent_rollout(baseline_batch, do_sample=False)
+
+                            reward_baseline_tensor = baseline_gen_rollout_batch.non_tensor_batch['reward_by_action_turn']
+                            reward_baseline_tensor = [sum(reward) for reward in reward_baseline_tensor]
+                            reward_baseline_tensor = torch.Tensor(reward_baseline_tensor, dtype=torch.float32)
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
+
+                            del baseline_batch, baseline_env_list
+                    
+
+                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                                                             dtype=object)
+                    # repeat to align with repeated responses in rollout
+                    # TODO: check the logic if n > 1
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    batch = batch.union(gen_rollout_batch)
+
+                    print(f'batch batch keys: {batch.batch.keys()}')
+                    print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
+                    print(f'batch meta_info: {batch.meta_info}')
+
                 return
         
