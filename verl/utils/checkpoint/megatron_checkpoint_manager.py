@@ -176,7 +176,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
         rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
         print(f"Loading rng states from {rng_state_path}")
-        rng_state = torch.load(rng_state_path)
+        rng_state = torch.load(rng_state_path, weights_only=False)
         # access rng_state for data parallel rank
         if not use_dist_ckpt:
             if data_parallel_random_init:
