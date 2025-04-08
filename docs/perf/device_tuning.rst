@@ -12,6 +12,12 @@ However, due to limited manpower and equipment resources, we also hope for more
 assistance from the open-source community. When submitting a PR, it is necessary 
 to provide a script to be added to the example/tuning scripts.
 
+We need two types of scripts: one is the configuration that can run with the minimum 
+resources(min), and the other is the configuration that runs with best resources(best). For the former, 
+it can be understood as a script that can run after applying all memory optimization techniques 
+(e.g., offload, gradient checkpointing). For the latter, it can be understood as a script that 
+can run while avoiding operations that incur additional time overhead as much as possible.
+
 When defining script names, please follow this format: 
 ``[model]_[task]_[gpunums]_[device]_[train]_[infer].sh``. This will effectively improve 
 the script's recognizability. You can place the script under the ``examples/tuning directory``.
@@ -27,11 +33,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ======== ====== ====== ======
-   model  task   resource train  infer  link
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
+   tag    model  task   resource train  infer  link
+   ====== ====== ====== ======== ====== ====== ======
    \      \      \        \      \      \
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
 
 
 32B
@@ -40,11 +46,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ======== ====== ====== ======
-   model  task   resource train  infer  link
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
+   tag    model  task   resource train  infer  link
+   ====== ====== ====== ======== ====== ====== ======
    \      \      \        \      \      \
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
 
 70B
 ~~~
@@ -52,11 +58,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ============= ====== ======== ====== ========= ================================== ==============
-   model         task   resource train  infer     link                               Author                   
-   ============= ====== ======== ====== ========= ================================== ==============
-   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 qwen2-70b_grpo_32_h20_fsdp_vllm_   Xiangyonagn_
-   ============= ====== ======== ====== ========= ================================== ==============
+   ====== ============= ====== ======== ====== ========= ================================== ==============
+   tag    model         task   resource train  infer     link                               Author                   
+   ====== ============= ====== ======== ====== ========= ================================== ==============
+   MIN    Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 qwen2-70b_grpo_32_h20_fsdp_vllm_   Xiangyonagn_
+   ====== ============= ====== ======== ====== ========= ================================== ==============
 
 .. _qwen2-_70b_grpo_32_h20_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh
 
@@ -68,11 +74,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ======== ====== ====== ======
-   model  task   resource train  infer  link
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
+   tag    model  task   resource train  infer  link
+   ====== ====== ====== ======== ====== ====== ======
    \      \      \        \      \      \
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
 
 
 671B
@@ -81,8 +87,8 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ====== ======== ====== ====== ======
-   model  task   resource train  infer  link
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
+   tag    model  task   resource train  infer  link
+   ====== ====== ====== ======== ====== ====== ======
    \      \      \        \      \      \
-   ====== ====== ======== ====== ====== ======
+   ====== ====== ====== ======== ====== ====== ======
