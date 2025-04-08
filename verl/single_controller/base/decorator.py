@@ -187,7 +187,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
             #  0 | A C E G |   0 | AB CD EF GH |     ABCDEFGH
             #  1 | B D F H |   1 | AB CD EF GH |
             #    +---------+     +-------------+
-            dp_cp_rank = local_dp_rank * cp_size + local_cp_rank
+            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
             arg_rank = dp_cp_rank * pp_size + local_pp_rank
 
             transformed_args.append(arg[arg_rank])
@@ -203,7 +203,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
             local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
             local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
             # compute the rank in arg. Note that the order is dp then cp then pp
-            dp_cp_rank = local_dp_rank * cp_size + local_cp_rank
+            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
             arg_rank = dp_cp_rank * pp_size + local_pp_rank
             transformed_v.append(v[arg_rank])
         all_kwargs[k] = transformed_v

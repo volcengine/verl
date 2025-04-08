@@ -68,6 +68,8 @@ def preprocess_packed_seqs(input_ids: torch.Tensor,
                            pre_process: bool = True) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
+    CP splits sequence into CP*2 chunks, and each GPU gets 2 chunks (GPU0 gets first and last chunks, GPU1 gets second and second last chunks, and so on), this is for load balancing with causal masking.
+    See https://github.com/NVIDIA/TransformerEngine/issues/1368
     """
     batch_size = input_ids.shape[0]
 
@@ -93,9 +95,24 @@ def preprocess_packed_seqs(input_ids: torch.Tensor,
     if pre_process:
         input_ids_rmpad = torch.zeros(shape, dtype=input_ids.dtype, device=input_ids.device)
         for i in range(batch_size):
-            seqlen = seqlens_in_batch[i] // cp_size
-            input_ids_rmpad[cu_seqlens_padded[i] // cp_size:cu_seqlens_padded[i] // cp_size +
-                            seqlen] = input_ids[i, attention_mask[i]][seqlen * cp_rank:seqlen * (cp_rank + 1)]
+            if cp_size <= 1:
+                seqlen = seqlens_in_batch[i]
+                input_ids_rmpad[cu_seqlens_padded[i]:cu_seqlens_padded[i] + seqlen] = input_ids[i, attention_mask[i]]
+                continue
+            seqlen = seqlens_in_batch_padded[i] // cp_size
+            half_seqlen = seqlen // 2
+            start_idx = cu_seqlens_padded[i] // cp_size
+            # split to 2 chunks
+            d = input_ids[i, attention_mask[i]]
+            input_ids_rmpad[start_idx:start_idx + half_seqlen] = d[half_seqlen * cp_rank:half_seqlen * (cp_rank + 1)]
+
+            remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
+            remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
+            remain_end = min(remain_end, d.shape[0])
+            remain_len = remain_end - remain_start
+            if remain_len > 0:
+                input_ids_rmpad[start_idx + half_seqlen:start_idx + half_seqlen +
+                                remain_len] = d[remain_start:remain_end]
 
     packed_seq_params = PackedSeqParams(qkv_format='thd',
                                         cu_seqlens_q=cu_seqlens_padded,
@@ -135,19 +152,28 @@ def postprocess_packed_seqs(output: torch.Tensor,
     else:
         output_list = [output]
     for i in range(batch_size):
+        if cp_size <= 1:
+            s = attention_mask[i].sum().item()
+            output_new[i,
+                       attention_mask[i]] = output[0][packed_seq_params.
+                                                      cu_seqlens_q_padded[i]:packed_seq_params.cu_seqlens_q_padded[i] +
+                                                      s]
+            continue
         s_len_padded_chunk = (packed_seq_params.cu_seqlens_q_padded[i + 1] -
                               packed_seq_params.cu_seqlens_q_padded[i]) // cp_size
+        half_seqlen = s_len_padded_chunk // 2
         s_len = attention_mask[i].sum().item()
-        tmp = []
+        s_len_padded = s_len_padded_chunk * cp_size
+        tmp = torch.empty(s_len_padded, *output.shape[2:], device=output.device)
         for j in range(cp_size):
             o = output_list[j][0]
-            seq_chunk_len_if_last = min(s_len, s_len_padded_chunk * (j + 1)) - s_len_padded_chunk * j
-            if seq_chunk_len_if_last <= 0:
-                break
+            # split to 2 chunks
             packed_start_idx = packed_seq_params.cu_seqlens_q_padded[i] // cp_size
-            packed_end_idx = packed_start_idx + seq_chunk_len_if_last
-            tmp.append(o[packed_start_idx:packed_end_idx])
-        output_new[i, attention_mask[i]] = torch.cat(tmp, dim=0)
+            o0, o1 = o[packed_start_idx:packed_start_idx +
+                       half_seqlen], o[packed_start_idx + half_seqlen:packed_start_idx + s_len_padded_chunk]
+            tmp[j * half_seqlen:(j + 1) * half_seqlen] = o0
+            tmp[s_len_padded - (j + 1) * half_seqlen:s_len_padded - j * half_seqlen] = o1
+        output_new[i, attention_mask[i]] = tmp[:s_len]
 
     return output_new
 
