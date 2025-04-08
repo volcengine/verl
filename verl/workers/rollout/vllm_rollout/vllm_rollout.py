@@ -25,8 +25,9 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 from typing import List
+from copy import deepcopy
 from contextlib import contextmanager
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.distributed
 from tensordict import TensorDict
@@ -98,12 +99,13 @@ class vLLMRollout(BaseRollout):
             raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
                              please increase max_num_batched_tokens or disable chunked prefill')
 
-        vllm_kwargs = {}
-        if config.get('swap_space', None) is not None:
-            # vLLM has its own default swap_space value, which can change in the future versions.
-            # So let's leave the defalut value to vLLM by not setting it, or just explicitly set it via config.
-            vllm_kwargs['swap_space'] = config.get('swap_space')
-
+        # copy it to avoid secretly modifying the engine config
+        engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        if engine_kwargs.get('swap_space', None) is None:
+            # vLLM has its own default `swap_space` value, which can change in the future versions.
+            # Not setting it means leave it to vLLM default value, 
+            # while setting it explicitly in config means the swap space in GB you want.
+            engine_kwargs.pop('swap_space')
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -118,7 +120,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            **vllm_kwargs
+            **engine_kwargs
         )
 
         # Offload vllm model to reduce peak memory usage
