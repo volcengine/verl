@@ -42,12 +42,11 @@ If you happen to have a configuration that has already been tested, we welcome y
 .. table::
    :widths: auto
 
-   ============= ====== ======== ====== ========= ================================================= ======
+   ============= ====== ======== ====== ========= ================================================= =====
    model         task   resource train  infer     link                                              Author
-   ============= ====== ======== ====== ========= ================================================= ======
-   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `tuning script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_ `BearBiscuit<https://github.com/BearBiscuit05>`_
-   ============= ====== ======== ====== ========= ================================================= ======
-
+   ============= ====== ======== ====== ========= ================================================= =====
+   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_  `BearBiscuit <https://github.com/BearBiscuit05>`_
+   ============= ====== ======== ====== ========= ================================================= =====
 
 405B
 ~~~~
