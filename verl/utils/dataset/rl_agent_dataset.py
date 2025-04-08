@@ -134,7 +134,8 @@ def get_agent_system_prompt(
     """
     if agent_prompt_style == 'qwen2_5':
         # See https://qwen.readthedocs.io/en/latest/framework/function_call.html#qwen2-5-function-calling-templates
-        if allow_parallel_tool_call:
+        if True:
+            # TODO: The single function call prompt is not working on qwen 2.5 7b instruction model. Will fix it in the future.
             system_prompt = task_prompt.rstrip() + "\n" + textwrap.dedent("""
             # Tools
 
@@ -147,7 +148,7 @@ def get_agent_system_prompt(
             system_prompt = task_prompt.rstrip() + "\n" + textwrap.dedent("""
             # Tools
 
-            You may call one function at a time to assist with the user query. When you decide to call a function, you can ONLY call one function at a time.
+            You may call one functions to assist with the user query.
 
             You are provided with function signatures within <tools></tools> XML tags:
             <tools>
@@ -216,6 +217,75 @@ def convert_chat_message_from_openai(
     else:
         raise ValueError(f"Agent prompt style {agent_prompt_style} is not supported")
     return new_chat
+
+
+# Environment class
+class AgentEnv:
+    def __init__(
+            self, 
+            environment_endpoint: str, 
+            env_name: str, 
+            seed: int, 
+            env_kwargs: dict, 
+            agent_prompt_style: Literal['qwen2_5'],
+            tokenizer: PreTrainedTokenizer,
+            max_prompt_length: int,
+            truncation: Literal['error', 'ignore', 'max_length']
+            ):
+        self.environment_endpoint = environment_endpoint
+        self.env_name = env_name
+        self.seed = seed
+        self.env_kwargs = env_kwargs
+        self.agent_prompt_style = agent_prompt_style
+        self.tokenizer = tokenizer
+        self.max_prompt_length = max_prompt_length
+        self.truncation = truncation
+        self.chat = []
+        
+    def initialize(self):
+        env_meta_data = initialize_env(self.environment_endpoint, self.env_name, self.seed, self.env_kwargs)
+        self.env_id = env_meta_data['env_id']
+        self.observation = env_meta_data['observation']
+        env_meta_data = reset_env(self.environment_endpoint, self.env_id, self.seed, self.env_kwargs)
+        
+        # get the initial observation
+        observation = env_meta_data['observation']
+        # get the task prompt
+        task_prompt = get_task_prompt(self.environment_endpoint, self.env_id)
+        # get the allow parallel tool call
+        allow_parallel_tool_call = get_allow_parallel_tool_call(self.environment_endpoint, self.env_id)
+        # get the tools schema
+        tools_schema = get_tools_schema(self.environment_endpoint, self.env_id)
+        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema, allow_parallel_tool_call)
+        self.chat = [
+            {"role": "system", "content": system_prompt},
+            *observation
+        ]
+
+    def get_generation_ids(self):
+        return_dict = {}
+        prompt = convert_chat_message_from_openai(self.agent_prompt_style, self.chat)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False)
+        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
+                                                                         tokenizer=self.tokenizer,
+                                                                         max_length=self.max_prompt_length,
+                                                                         pad_token_id=self.tokenizer.pad_token_id,
+                                                                         left_pad=True,
+                                                                         truncation=self.truncation)
+
+        position_ids = compute_position_id_with_mask(attention_mask)
+
+        return_dict['input_ids'] = input_ids[0]
+        return_dict['attention_mask'] = attention_mask[0]
+        return_dict['position_ids'] = position_ids[0]
+        return_dict['raw_prompt_ids'] = self.tokenizer.encode(prompt_with_chat_template, add_special_tokens=False)
+        return return_dict
+        
+    def __del__(self):
+        if self.env_id is not None:
+            close_env(self.environment_endpoint, self.env_id)
+
+
 
 def collate_fn(data_list: list[dict]) -> dict:
     tensors = defaultdict(list)
@@ -294,9 +364,6 @@ class RLAgentDataset(Dataset):
 
         print(f'dataset len: {len(self.dataframe)}')
 
-        # initialize the environment ids
-        self.env_ids = {}
-
     def resume_dataset_state(self):
         raise NotImplementedError("Resume dataset state is not implemented for RLAgentDataset")
         # self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
@@ -315,57 +382,7 @@ class RLAgentDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe.iloc[item].to_dict()
-        env_id = self.env_ids.get(item, None)
-        env_kwargs = row_dict['env_kwargs']
-        if isinstance(env_kwargs, str):
-            env_kwargs = json.loads(env_kwargs)
-            
-        if env_id is None:
-            env_meta_data = initialize_env(self.environment_endpoint, row_dict['env_name'], row_dict['seed'], env_kwargs)
-            env_id = env_meta_data['env_id']
-            self.env_ids[item] = env_id
-        env_meta_data = reset_env(self.environment_endpoint, env_id, row_dict['seed'], env_kwargs)
-        row_dict['env_id'] = env_id
-        
-        # get the initial observation
-        observation = env_meta_data['observation']
-        # get the task prompt
-        task_prompt = get_task_prompt(self.environment_endpoint, env_id)
-        # get the allow parallel tool call
-        allow_parallel_tool_call = get_allow_parallel_tool_call(self.environment_endpoint, env_id)
-        # get the tools schema
-        tools_schema = get_tools_schema(self.environment_endpoint, env_id)
-        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema, allow_parallel_tool_call)
-        chat = [
-            {"role": "system", "content": system_prompt},
-            *observation
-        ]
-        chat = convert_chat_message_from_openai(self.agent_prompt_style, chat)
-        
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
-        raw_prompt = prompt_with_chat_template
-
-        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
-                                                                         tokenizer=self.tokenizer,
-                                                                         max_length=self.max_prompt_length,
-                                                                         pad_token_id=self.tokenizer.pad_token_id,
-                                                                         left_pad=True,
-                                                                         truncation=self.truncation)
-
-        position_ids = compute_position_id_with_mask(attention_mask)
-
-        row_dict['input_ids'] = input_ids[0]
-        row_dict['attention_mask'] = attention_mask[0]
-        row_dict['position_ids'] = position_ids[0]
-        row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-
-        # encode prompts without chat template
-        row_dict['raw_prompt'] = chat # the raw prompt is the chat message list in openai format
-
-        # add index for each prompt
-        index = row_dict.get("extra_info", {}).get("index", 0)
-        row_dict["index"] = index
-
+        row_dict['index'] = torch.tensor(item, dtype=torch.int64)
         return row_dict
 
     def __getstate__(self):
@@ -377,15 +394,3 @@ class RLAgentDataset(Dataset):
         #         del state['dataframe']
         #     return state
         # return self.__dict__.copy()
-
-    def __del__(self):
-        # Close all environments created by this instance
-        for _, env_id in self.env_ids.items():
-            try:
-                close_env(self.environment_endpoint, env_id)
-                # TODO: Enable logging in the future
-                # print(f"Closed environment with ID {env_id}")
-            except Exception as e:
-                # TODO: Enable logging in the future
-                # print(f"Failed to close environment with ID {env_id}: {e}")
-                pass
