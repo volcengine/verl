@@ -5,7 +5,7 @@ Since RL requires more resources compared to regular training, determining how m
 
 However, due to limited manpower and equipment resources, we also hope for more assistance from the open-source community. When submitting a PR, it is necessary to provide a script to be added to the example/tuning scripts.
 
-model_task_gpunums_device_train_infer.sh
+When defining script names, please follow this format: ``[model]_[task]_[gpunums]_[device]_[train]_[infer].sh``. This will effectively improve the script's recognizability.
 ----------------------------------------
 
 13B
