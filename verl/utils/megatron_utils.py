@@ -306,19 +306,16 @@ def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=Fa
     return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")
 
 
-def convert_megatron_model_to_transformers_model(params,
+def convert_megatron_model_to_transformers_model(name, param,
                                                  config: PretrainedConfig,
                                                  tp_size: int,
                                                  num_query_groups: int,
                                                  convert_qkv_gate_up_by_trunk_concat=False):
     """Convert megatron model to transformers model."""
-    new_params = {}
-
     def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
         nonlocal config
         nonlocal tp_size
         nonlocal num_query_groups
-        nonlocal new_params
 
         q_shard_list = []
         k_shard_list = []
@@ -359,14 +356,12 @@ def convert_megatron_model_to_transformers_model(params,
                         k_shard_list.append(k_part)
                         v_shard_list.append(v_part)
 
-        new_params[q_name] = torch.cat(q_shard_list, dim=0)
-        new_params[k_name] = torch.cat(k_shard_list, dim=0)
-        new_params[v_name] = torch.cat(v_shard_list, dim=0)
+        return (q_name, torch.cat(q_shard_list, dim=0)), (k_name, torch.cat(k_shard_list, dim=0)), (
+            v_name, torch.cat(v_shard_list, dim=0))
 
     def convert_gate_up_shard(full_tensor, gate_name, up_name):
         nonlocal config
         nonlocal tp_size
-        nonlocal new_params
 
         intermediate_size_tp = config.intermediate_size // tp_size
         gate_weight_list = []
@@ -377,64 +372,64 @@ def convert_megatron_model_to_transformers_model(params,
             up_weight_tp = gate_up_weight_tp[intermediate_size_tp:]
             gate_weight_list.append(gate_weight_tp)
             up_weight_list.append(up_weight_tp)
-        new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
-        new_params[up_name] = torch.cat(up_weight_list, dim=0)
+        
+        return (gate_name, torch.cat(gate_weight_list, dim=0)), (up_name, torch.cat(up_weight_list, dim=0))
 
-    for name, param in params.items():
-        if name == 'embedding.word_embeddings.weight':
-            new_params['model.embed_tokens.weight'] = param
-        # elif name == 'lm_head.weight':
-        #     new_params['lm_head.weight'] = param
-        # elif name == 'rm_head.weight':
-        #     new_params['rm_head.weight'] = param
-        elif 'self_attention' in name:
-            splitted_name = name.split('.')
-            layer_number = splitted_name[2]
-            component = splitted_name[4]
-            param_type = splitted_name[5]
-            if component == 'linear_proj':
-                new_params[f'model.layers.{layer_number}.self_attn.o_proj.weight'] = param
-            elif component == 'linear_qkv' and not isinstance(param, list):
-                if param_type == 'layer_norm_weight':
-                    new_params[f'model.layers.{layer_number}.input_layernorm.weight'] = param
-                else:
-                    if convert_qkv_gate_up_by_trunk_concat:
-                        convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.{param_type}',
-                                          f'model.layers.{layer_number}.self_attn.k_proj.{param_type}',
-                                          f'model.layers.{layer_number}.self_attn.v_proj.{param_type}')
-                    else:
-                        new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.{param_type}'] = param
+    new_params = {}
+    if name == 'embedding.word_embeddings.weight':
+        new_params['model.embed_tokens.weight'] = param
+    # elif name == 'lm_head.weight':
+    #     new_params['lm_head.weight'] = param
+    # elif name == 'rm_head.weight':
+    #     new_params['rm_head.weight'] = param
+    elif 'self_attention' in name:
+        splitted_name = name.split('.')
+        layer_number = splitted_name[2]
+        component = splitted_name[4]
+        param_type = splitted_name[5]
+        if component == 'linear_proj':
+            new_params[f'model.layers.{layer_number}.self_attn.o_proj.weight'] = param
+        elif component == 'linear_qkv' and not isinstance(param, list):
+            if param_type == 'layer_norm_weight':
+                new_params[f'model.layers.{layer_number}.input_layernorm.weight'] = param
             else:
-                assert isinstance(param, list) and len(param) == 3
-                assert param_type == 'weight' or param_type == 'bias'
-                new_params[f'model.layers.{layer_number}.self_attn.q_proj.{param_type}'] = param[0]
-                new_params[f'model.layers.{layer_number}.self_attn.k_proj.{param_type}'] = param[1]
-                new_params[f'model.layers.{layer_number}.self_attn.v_proj.{param_type}'] = param[2]
-        elif 'mlp' in name:
-            splitted_name = name.split('.')
-            layer_number = splitted_name[2]
-            component = splitted_name[4]
-            param_type = splitted_name[5]
-            if component == 'linear_fc1' and not isinstance(param, list):
-                if param_type == 'layer_norm_weight':
-                    new_params[f'model.layers.{layer_number}.post_attention_layernorm.weight'] = param
-                elif param_type == 'weight':
-                    if convert_qkv_gate_up_by_trunk_concat:
-                        convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
-                                              f'model.layers.{layer_number}.mlp.up_proj.weight')
-                    else:
-                        new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
-            elif component == 'linear_fc1' and isinstance(param, list):
-                assert len(param) == 2
-                assert param_type == 'weight' or param_type == 'bias'
-                new_params[f'model.layers.{layer_number}.mlp.gate_proj.weight'] = param[0]
-                new_params[f'model.layers.{layer_number}.mlp.up_proj.weight'] = param[1]
-            elif component == 'linear_fc2':
-                new_params[f'model.layers.{layer_number}.mlp.down_proj.weight'] = param
-        elif name == "decoder.final_layernorm.weight":
-            new_params['model.norm.weight'] = param
-        elif name == "output_layer.weight":
-            new_params["lm_head.weight"] = param
+                if convert_qkv_gate_up_by_trunk_concat:
+                    convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.{param_type}',
+                                        f'model.layers.{layer_number}.self_attn.k_proj.{param_type}',
+                                        f'model.layers.{layer_number}.self_attn.v_proj.{param_type}')
+                else:
+                    new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.{param_type}'] = param
         else:
-            raise ValueError(f"Unknown param name: {name}")
-    return new_params
+            assert isinstance(param, list) and len(param) == 3
+            assert param_type == 'weight' or param_type == 'bias'
+            new_params[f'model.layers.{layer_number}.self_attn.q_proj.{param_type}'] = param[0]
+            new_params[f'model.layers.{layer_number}.self_attn.k_proj.{param_type}'] = param[1]
+            new_params[f'model.layers.{layer_number}.self_attn.v_proj.{param_type}'] = param[2]
+    elif 'mlp' in name:
+        splitted_name = name.split('.')
+        layer_number = splitted_name[2]
+        component = splitted_name[4]
+        param_type = splitted_name[5]
+        if component == 'linear_fc1' and not isinstance(param, list):
+            if param_type == 'layer_norm_weight':
+                new_params[f'model.layers.{layer_number}.post_attention_layernorm.weight'] = param
+            elif param_type == 'weight':
+                if convert_qkv_gate_up_by_trunk_concat:
+                    convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
+                                            f'model.layers.{layer_number}.mlp.up_proj.weight')
+                else:
+                    new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
+        elif component == 'linear_fc1' and isinstance(param, list):
+            assert len(param) == 2
+            assert param_type == 'weight' or param_type == 'bias'
+            new_params[f'model.layers.{layer_number}.mlp.gate_proj.weight'] = param[0]
+            new_params[f'model.layers.{layer_number}.mlp.up_proj.weight'] = param[1]
+        elif component == 'linear_fc2':
+            new_params[f'model.layers.{layer_number}.mlp.down_proj.weight'] = param
+    elif name == "decoder.final_layernorm.weight":
+        new_params['model.norm.weight'] = param
+    elif name == "output_layer.weight":
+        new_params["lm_head.weight"] = param
+    else:
+        raise ValueError(f"Unknown param name: {name}")
+    return new_params.keys(), new_params.values()

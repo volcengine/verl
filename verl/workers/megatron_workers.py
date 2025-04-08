@@ -130,6 +130,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._is_offload_param = self.config.ref.get('param_offload', False)
+        torch.cuda.memory._record_memory_history(max_entries=100000)
 
     def _build_model_optimizer(self,
                                model_path,
