@@ -32,7 +32,7 @@ import verl.utils.torch_functional as verl_F
 
 ## Utils for interacting with the environment
 
-def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwargs: dict):
+def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwargs: Union[dict, str]):
     """Initialize a remote environment instance and get initial state.
 
     Args:
@@ -49,6 +49,8 @@ def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwar
     Raises:
         AssertionError: If required fields are missing from server responses
     """
+    if isinstance(env_kwargs, str):
+        env_kwargs = json.loads(env_kwargs)
 
     payload = {
         "env_name": env_name,
@@ -68,8 +70,10 @@ def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwar
     }
     
 
-def reset_env(environment_endpoint: str, env_id: str, seed: int, options: Optional[dict] = None):
+def reset_env(environment_endpoint: str, env_id: str, seed: int, options: Optional[Union[dict, str]] = None):
     """Reset the environment and get the initial observation."""
+    if isinstance(options, str):
+        options = json.loads(options)
     payload = {
         "env_id": env_id,
         "seed": seed,
@@ -226,7 +230,7 @@ class AgentEnv:
             environment_endpoint: str, 
             env_name: str, 
             seed: int, 
-            env_kwargs: dict, 
+            env_kwargs: Union[dict, str], 
             agent_prompt_style: Literal['qwen2_5'],
             tokenizer: PreTrainedTokenizer,
             max_prompt_length: int,
@@ -235,7 +239,10 @@ class AgentEnv:
         self.environment_endpoint = environment_endpoint
         self.env_name = env_name
         self.seed = seed
-        self.env_kwargs = env_kwargs
+        if isinstance(env_kwargs, str):
+            self.env_kwargs = json.loads(env_kwargs)
+        else:
+            self.env_kwargs = env_kwargs
         self.agent_prompt_style = agent_prompt_style
         self.tokenizer = tokenizer
         self.max_prompt_length = max_prompt_length
@@ -245,6 +252,7 @@ class AgentEnv:
         self.env_id = None
 
     def initialize(self):
+        print(f"initialize env {self.env_name} with seed {self.seed} and kwargs {self.env_kwargs}")
         env_meta_data = initialize_env(self.environment_endpoint, self.env_name, self.seed, self.env_kwargs)
         if self.env_id is not None:
             close_env(self.environment_endpoint, self.env_id)
