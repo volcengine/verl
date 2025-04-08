@@ -6,6 +6,8 @@ Since RL requires more resources compared to regular training, determining how m
 However, due to limited manpower and equipment resources, we also hope for more assistance from the open-source community. When submitting a PR, it is necessary to provide a script to be added to the example/tuning scripts.
 
 When defining script names, please follow this format: ``[model]_[task]_[gpunums]_[device]_[train]_[infer].sh``. This will effectively improve the script's recognizability.
+
+If you happen to have a configuration that has already been tested, we welcome you to submit a PR and include a screenshot from Wandb or other verifiable evidence.
 ----------------------------------------
 
 13B
@@ -40,11 +42,11 @@ When defining script names, please follow this format: ``[model]_[task]_[gpunums
 .. table::
    :widths: auto
 
-   ============= ====== ======== ====== ========= =================================================
-   model         task   resource train  infer     link
-   ============= ====== ======== ====== ========= =================================================
-   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `tuning script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
-   ============= ====== ======== ====== ========= =================================================
+   ============= ====== ======== ====== ========= ================================================= ======
+   model         task   resource train  infer     link                                              Author
+   ============= ====== ======== ====== ========= ================================================= ======
+   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `tuning script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_ `BearBiscuit<https://github.com/BearBiscuit05>`_
+   ============= ====== ======== ====== ========= ================================================= ======
 
 
 405B
