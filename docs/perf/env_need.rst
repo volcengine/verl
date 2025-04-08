@@ -1,13 +1,24 @@
 Device needed In verl RLHF
 ==========================
 
-Since RL requires more resources compared to regular training, determining how many resources are needed to successfully run it before training is a relatively difficult task. To provide more people with reference points for resource selection when dealing with different models and tasks, this section is mainly dedicated to introducing the environmental requirements based on experiments we have conducted.
+Since RL requires more resources compared to regular training, 
+determining how many resources are needed to successfully run it before training 
+is a relatively difficult task. To provide more people with reference points for 
+resource selection when dealing with different models and tasks, this section is 
+mainly dedicated to introducing the environmental requirements based on experiments 
+we have conducted.
 
-However, due to limited manpower and equipment resources, we also hope for more assistance from the open-source community. When submitting a PR, it is necessary to provide a script to be added to the example/tuning scripts.
+However, due to limited manpower and equipment resources, we also hope for more 
+assistance from the open-source community. When submitting a PR, it is necessary 
+to provide a script to be added to the example/tuning scripts.
 
-When defining script names, please follow this format: ``[model]_[task]_[gpunums]_[device]_[train]_[infer].sh``. This will effectively improve the script's recognizability.
+When defining script names, please follow this format: 
+``[model]_[task]_[gpunums]_[device]_[train]_[infer].sh``. This will effectively improve 
+the script's recognizability. You can place the script under the ``examples/tuning directory``.
 
-If you happen to have a configuration that has already been tested, we welcome you to submit a PR and include a screenshot from Wandb or other verifiable evidence.
+If you happen to have a configuration that has already been tested, we welcome you to submit 
+a PR and include a screenshot from Wandb or other verifiable evidence.
+
 ----------------------------------------
 
 13B
