@@ -380,10 +380,6 @@ def convert_megatron_model_to_transformers_model(name, param,
 
     if name == 'embedding.word_embeddings.weight':
         new_params['model.embed_tokens.weight'] = param
-    # elif name == 'lm_head.weight':
-    #     new_params['lm_head.weight'] = param
-    # elif name == 'rm_head.weight':
-    #     new_params['rm_head.weight'] = param
     elif 'self_attention' in name:
         splitted_name = name.split('.')
         layer_number = splitted_name[2]

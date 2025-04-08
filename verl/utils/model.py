@@ -242,6 +242,7 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
                 normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
+                print(f'normalized_name: {normalized_name}, param: {param.shape}')
                 yield normalized_name, param
 
 
