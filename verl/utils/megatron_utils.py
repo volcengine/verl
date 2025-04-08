@@ -312,6 +312,7 @@ def convert_megatron_model_to_transformers_model(name, param,
                                                  num_query_groups: int,
                                                  convert_qkv_gate_up_by_trunk_concat=False):
     """Convert megatron model to transformers model."""
+    new_params = {}
     def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
         nonlocal config
         nonlocal tp_size
@@ -356,8 +357,9 @@ def convert_megatron_model_to_transformers_model(name, param,
                         k_shard_list.append(k_part)
                         v_shard_list.append(v_part)
 
-        return (q_name, torch.cat(q_shard_list, dim=0)), (k_name, torch.cat(k_shard_list, dim=0)), (
-            v_name, torch.cat(v_shard_list, dim=0))
+        new_params[q_name] = torch.cat(q_shard_list, dim=0)
+        new_params[k_name] = torch.cat(k_shard_list, dim=0)
+        new_params[v_name] = torch.cat(v_shard_list, dim=0)
 
     def convert_gate_up_shard(full_tensor, gate_name, up_name):
         nonlocal config
@@ -373,9 +375,9 @@ def convert_megatron_model_to_transformers_model(name, param,
             gate_weight_list.append(gate_weight_tp)
             up_weight_list.append(up_weight_tp)
         
-        return (gate_name, torch.cat(gate_weight_list, dim=0)), (up_name, torch.cat(up_weight_list, dim=0))
+        new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
+        new_params[up_name] = torch.cat(up_weight_list, dim=0)
 
-    new_params = {}
     if name == 'embedding.word_embeddings.weight':
         new_params['model.embed_tokens.weight'] = param
     # elif name == 'lm_head.weight':

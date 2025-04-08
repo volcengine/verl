@@ -399,14 +399,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                                          convert_qkv_gate_up_by_simple_split)
                 # replace with original param
                 # NOTE(gaoziyuan.955@bytedance.com) params can be a list of tensors, handled in convert functions
-                names, params = convert_megatron_model_to_transformers_model(
+                converted_names, converted_params = convert_megatron_model_to_transformers_model(
                     name, infer_params,
                     self.model_config,
                     mpu.get_tensor_model_parallel_world_size(),
                     self.module.pp_models[0][0].config.num_query_groups,
                     convert_qkv_gate_up_by_trunk_concat=False)
-                for name, infer_param in zip(names, params):
-                    yield name, infer_param
+                for converted_name, infer_param in zip(converted_names, converted_params):
+                    print(f"sharding name: {name} to {converted_name}, infer_param: {infer_param.shape}")
+                    yield converted_name, infer_param
 
     def __enter__(self):
         from megatron.core import mpu
