@@ -306,13 +306,15 @@ def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=Fa
     return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")
 
 
-def convert_megatron_model_to_transformers_model(name, param,
+def convert_megatron_model_to_transformers_model(name,
+                                                 param,
                                                  config: PretrainedConfig,
                                                  tp_size: int,
                                                  num_query_groups: int,
                                                  convert_qkv_gate_up_by_trunk_concat=False):
     """Convert megatron model to transformers model."""
     new_params = {}
+
     def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
         nonlocal config
         nonlocal tp_size
@@ -374,7 +376,7 @@ def convert_megatron_model_to_transformers_model(name, param,
             up_weight_tp = gate_up_weight_tp[intermediate_size_tp:]
             gate_weight_list.append(gate_weight_tp)
             up_weight_list.append(up_weight_tp)
-        
+
         new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
         new_params[up_name] = torch.cat(up_weight_list, dim=0)
 
@@ -393,8 +395,8 @@ def convert_megatron_model_to_transformers_model(name, param,
             else:
                 if convert_qkv_gate_up_by_trunk_concat:
                     convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.{param_type}',
-                                        f'model.layers.{layer_number}.self_attn.k_proj.{param_type}',
-                                        f'model.layers.{layer_number}.self_attn.v_proj.{param_type}')
+                                      f'model.layers.{layer_number}.self_attn.k_proj.{param_type}',
+                                      f'model.layers.{layer_number}.self_attn.v_proj.{param_type}')
                 else:
                     new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.{param_type}'] = param
         else:
@@ -414,7 +416,7 @@ def convert_megatron_model_to_transformers_model(name, param,
             elif param_type == 'weight':
                 if convert_qkv_gate_up_by_trunk_concat:
                     convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
-                                            f'model.layers.{layer_number}.mlp.up_proj.weight')
+                                          f'model.layers.{layer_number}.mlp.up_proj.weight')
                 else:
                     new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
         elif component == 'linear_fc1' and isinstance(param, list):

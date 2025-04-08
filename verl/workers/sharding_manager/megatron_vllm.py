@@ -305,8 +305,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             _MICRO_DATA_PARALLEL_GROUP = mpu.get_tensor_model_parallel_group()
         self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
-    
-    def _make_iterator(self, params: Dict[str, Union[torch.Tensor, list]]) -> Iterable[Tuple[str, Union[torch.Tensor, list]]]:
+
+    def _make_iterator(self, params: Dict[str, Union[torch.Tensor,
+                                                     list]]) -> Iterable[Tuple[str, Union[torch.Tensor, list]]]:
         for name, tensor in params.items():
             yield name, tensor
             del tensor
@@ -397,17 +398,17 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
                 infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config,
                                                          convert_qkv_gate_up_by_simple_split)
-                # replace with original param
-                # NOTE(gaoziyuan.955@bytedance.com) params can be a list of tensors, handled in convert functions
-                converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                    name, infer_params,
-                    self.model_config,
-                    mpu.get_tensor_model_parallel_world_size(),
-                    self.module.pp_models[0][0].config.num_query_groups,
-                    convert_qkv_gate_up_by_trunk_concat=False)
-                for converted_name, infer_param in zip(converted_names, converted_params):
-                    print(f"sharding name: {name} to {converted_name}, infer_param: {infer_param.shape}")
-                    yield converted_name, infer_param
+            else:
+                infer_params = param
+            converted_names, converted_params = convert_megatron_model_to_transformers_model(
+                name,
+                infer_params,
+                self.model_config,
+                mpu.get_tensor_model_parallel_world_size(),
+                self.module.pp_models[0][0].config.num_query_groups,
+                convert_qkv_gate_up_by_trunk_concat=False)
+            for converted_name, infer_param in zip(converted_names, converted_params):
+                yield converted_name, infer_param
 
     def __enter__(self):
         from megatron.core import mpu
@@ -423,8 +424,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # bind the params to inference engine
         cur_tp_rank_param = normalize_pp_vpp_params(params=params,
-                                              num_hidden_layers=self.model_config.num_hidden_layers,
-                                              layer_name='layers')
+                                                    num_hidden_layers=self.model_config.num_hidden_layers,
+                                                    layer_name='layers')
         log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=None)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=False)
@@ -435,8 +436,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-            torch.cuda.memory._dump_snapshot('mem.pickle')
-            torch.cuda.memory._record_memory_history(enabled=None)
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
         log_gpu_memory_usage('After delete params sharding manager memory', logger=None)
 
@@ -466,7 +465,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
 
-        print(f'enter preprocess_data')
         all_gather_data_proto(data=data, process_group=group)
         return data
 
