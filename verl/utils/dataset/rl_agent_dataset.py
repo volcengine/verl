@@ -240,12 +240,15 @@ class AgentEnv:
         self.tokenizer = tokenizer
         self.max_prompt_length = max_prompt_length
         self.truncation = truncation
+
         self.chat = []
-        
+        self.env_id = None
+
     def initialize(self):
         env_meta_data = initialize_env(self.environment_endpoint, self.env_name, self.seed, self.env_kwargs)
+        if self.env_id is not None:
+            close_env(self.environment_endpoint, self.env_id)
         self.env_id = env_meta_data['env_id']
-        self.observation = env_meta_data['observation']
         env_meta_data = reset_env(self.environment_endpoint, self.env_id, self.seed, self.env_kwargs)
         
         # get the initial observation
@@ -262,7 +265,7 @@ class AgentEnv:
             *observation
         ]
 
-    def get_generation_ids(self):
+    def tokenize_chat(self):
         return_dict = {}
         prompt = convert_chat_message_from_openai(self.agent_prompt_style, self.chat)
         prompt_with_chat_template = self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False)
@@ -284,7 +287,6 @@ class AgentEnv:
     def __del__(self):
         if self.env_id is not None:
             close_env(self.environment_endpoint, self.env_id)
-
 
 
 def collate_fn(data_list: list[dict]) -> dict:
@@ -319,8 +321,7 @@ class RLAgentDataset(Dataset):
                  processor: Optional[ProcessorMixin] = None,
                  max_prompt_length=4096,
                  cache_dir='~/.cache/verl/rlhf',
-                 truncation='error',
-                 agent_prompt_style: Literal['qwen2_5'] = 'qwen2_5'):
+                 truncation='error'):
         self.environment_endpoint = environment_endpoint
         # Test if the environment endpoint is valid
         try:
@@ -340,7 +341,6 @@ class RLAgentDataset(Dataset):
 
         self.max_prompt_length = max_prompt_length
         self.truncation = truncation
-        self.agent_prompt_style = agent_prompt_style
         # TODO: implement the resume feature
         # whether to store the dataset in state_dict()
         # default not store
