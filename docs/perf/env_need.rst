@@ -41,11 +41,15 @@ If you happen to have a configuration that has already been tested, we welcome y
 .. table::
    :widths: auto
 
-   ============= ====== ======== ====== ========= ================================================= ===============================
-   model         task   resource train  infer     link                                              Author
-   ============= ====== ======== ====== ========= ================================================= ===============================
-   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_  `BearBiscuit <xiangyongan@bytedance.com>`_
-   ============= ====== ======== ====== ========= ================================================= ===============================
+   ============= ====== ======== ====== ========= ============================== ==============
+   model         task   resource train  infer     link                           Author                   
+   ============= ====== ======== ====== ========= ============================== ==============
+   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 70b_grpo_32_h20_fsdp_vllm      Xiangyonagn
+   ============= ====== ======== ====== ========= ============================== ==============
+
+.. _70b_grpo_32_h20_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh
+
+.. _Xiangyonagn: xiangyongan@bytedance.com
 
 405B
 ~~~~
