@@ -53,6 +53,8 @@ from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl import DataProto
 
+from verl.utils.memory import register_optim_in_bwd_hooks
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN'))
 
@@ -387,11 +389,12 @@ class FSDPSFTTrainer(object):
     def training_step(self, batch: TensorDict):
         self.fsdp_model.train()
 
-        log_gpu_memory_usage('Before optimizer zero_grad', logger=logger)
+        # log_gpu_memory_usage('Before optimizer zero_grad', logger=logger, level=logging.INFO)
+        torch.cuda.reset_peak_memory_stats()
 
         self.optimizer.zero_grad()
 
-        log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
+        # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
 
         micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
