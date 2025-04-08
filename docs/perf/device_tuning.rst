@@ -12,8 +12,8 @@ However, due to limited manpower and equipment resources, we also hope for more
 assistance from the open-source community. When submitting a PR, it is necessary 
 to provide a script to be added to the example/tuning scripts.
 
-We need two types of scripts: one is the configuration that can run with the minimum 
-resources(min), and the other is the configuration that runs with best resources(best). For the former, 
+We need two types of scripts: one is the configuration that can run with the **minimum 
+resources(min)**, and the other is the configuration that runs with **best resources(best)**. For the former, 
 it can be understood as a script that can run after applying all memory optimization techniques 
 (e.g., offload, gradient checkpointing). For the latter, it can be understood as a script that 
 can run while avoiding operations that incur additional time overhead as much as possible.
