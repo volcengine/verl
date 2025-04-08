@@ -387,7 +387,7 @@ Algorithm
 
 - ``gemma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
-- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``rloo``
+- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
 - ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
@@ -420,6 +420,7 @@ Trainer
      resume_from_path: null
      remove_previous_ckpt_in_save: False
      del_local_ckpt_after_load: False
+     ray_wait_register_center_timeout: 300
 
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab, mlflow
@@ -445,3 +446,39 @@ Trainer
   checkpoints in the save directory. Default is False.
 - ``trainer.del_local_ckpt_after_load``: Whether to delete local
   checkpoints after loading them. Default is False.
+- ``trainer.ray_wait_register_center_timeout``: The timeout for waiting
+  for the ray register center to be ready. Default is 300 seconds.
+
+
+evaluation.yaml
+---------------
+
+Data
+~~~~
+
+.. code:: yaml
+
+   data:
+     path: /tmp/math_Qwen2-7B-Instruct.parquet
+     prompt_key: prompt
+     response_key: responses
+     data_source_key: data_source
+     reward_model_key: reward_model
+
+- ``data.path``: Path to the dataset file (Parquet format).
+- ``data.prompt_key``: The field in the dataset where the prompt is located. Default is 'prompt'.
+- ``data.response_key``: The key holds the generated responses. This should be a list of strings representing the responses. Default is 'responses'.
+- ``data.data_source_key``: This is used to separate metric calculations for different data sources, ensuring that metrics are calculated independently for each source.
+- ``data.reward_model_key``: The key holds the reference answers. These reference answers typically serve as the ground truth or test cases for the task.
+
+Customized Reward Function
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: yaml
+  
+   custom_reward_function:
+     path: null
+     name: compute_score
+
+- ``custom_reward_function.path``: The path to the file containing your customized reward function. If not specified, pre-implemented reward functions will be used.
+- ``custom_reward_function.name`` (Optional) : The name of the reward function within the specified file. Default is 'compute_score'.

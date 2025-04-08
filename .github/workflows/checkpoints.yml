@@ -3,22 +3,14 @@ name: checkpoints
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/checkpoints.yml
   pull_request:
     branches:
       - main
-      - v0.2.x
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/checkpoints.yml
-      - "tests/e2e/*.sh"
+      - "tests/checkpoint/*.sh"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

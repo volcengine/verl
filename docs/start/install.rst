@@ -21,9 +21,18 @@ We recommend using **FSDP** backend to investigate, research and prototype diffe
 
 For users who pursue better scalability, we recommend using **Megatron-LM** backend. Currently, we support Megatron-LM v0.11 [1]_. The guide for using Megatron-LM backend can be found in :doc:`Megatron-LM Workers<../workers/megatron_workers>`.
 
+.. note:: 
+
+    We are announcing the direct support of megatron GPTModel, without need to implement your own model any more. Also it's easy to use TransformerEngine's support for even higher performance.
+    The main branch of verl has enabled this feature, but may not stable enough. If you encounter issues, please feel free to report and try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
+
 2. Inference:
 
-For inference, the integration of both vllm v0.6.3 and v0.8.2 is stable. For huggingface TGI integration, it is usually used for debugging and single GPU exploration. Regarding sglang integration, it is blazing fast and under rapid development - we release it as a preview feature and please give us feedbacks.
+For inference, the integration of both vllm v0.6.3 and v0.8.2 is stable. Please avoid vllm v0.7 since it has known bugs.
+
+Regarding sglang integration, it is blazing fast and under rapid development - we release it as a preview feature and please give us feedbacks.
+
+For huggingface TGI integration, it is usually used for debugging and single GPU exploration.
 
 
 Install from docker image
@@ -31,7 +40,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup. For SGLang usage, please follow the later sections in this doc.
 
-Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6``. See files under ``docker/`` for NGC-based image or if you want to build your own.
+Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` if you need both FSDP and Megatron support.
+
+We highly recommend ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 for fastest rollout performance with FSDP.
+
+See files under ``docker/`` for NGC-based image or if you want to build your own.
 
 1. Launch the desired Docker image:
 
@@ -40,7 +53,7 @@ Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-
     docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v <image:tag>
 
 
-2.	Inside the container, install verl:
+2.	Inside the container, install latest verl:
 
 .. code:: bash
 
@@ -50,7 +63,7 @@ Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-
 
 .. note::
     
-    The Docker image is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` is built with the following configurations:
 
     - **PyTorch**: 2.4.0+cu124
     - **CUDA**: 12.4
@@ -62,26 +75,39 @@ Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-
     Now verl has been **compatible to Megatron-LM core_r0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM core_r0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
 
 
-Install verl-SGLang from scratch
+Install SGLang as rollout backend
 ---------------------------------------------
 
-If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. For verl-sglang installation, ignore the version conflicts reported by pip with vllm. And, SGLang support native API for RLHF, do not need to patch a single line of code.
+If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. SGLang support native API for RLHF, do not need to patch a single line of code.
 
 The following steps are quick installation guide for verl-SGLang.
 
+1. Install from source
+
 .. code:: bash
-
-    # Create a virtual environment and use uv for quick installation
-    python3 -m venv ~/.python/verl-sglang && source ~/.python/verl-sglang/bin/activate
-    python3 -m pip install --upgrade pip && python3 -m pip install --upgrade uv
-
-    # Install verl-SGLang
+    # clone from github
     git clone https://github.com/volcengine/verl verl-sglang && cd verl-sglang
-    python3 -m uv pip install .
-    
-    # Install the latest stable version of sglang with verl support, currently, the latest version is 0.4.4.post3
-    # For SGLang installation, you can also refer to https://docs.sglang.ai/start/install.html
-    python3 -m uv pip install "sglang[all]==0.4.4.post3" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+
+    # Create a virtual environment and install dependencies
+    python3 -m venv .venv --upgrade-deps && source .venv/bin/activate
+    python3 -m pip install .[sglang]
+    python3 -m pip install .[gpu]
+
+.. note::
+    Chekc that you have the following dependencies installed:
+
+    - **PyTorch**: 2.5.1+cu124
+    - **CUDA**: 12.4
+    - **SGLang**: 0.4.4.post4
+    - **torch-memory-saver**: 0.0.5
+
+
+2. use docker image
+
+We also provide a pre-built imgae ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` for SGLang backend.
+
+.. note::
+    As we are fast moving integrating SGLang into verl, sometimes we may use a specific commit from SGLang main branch for installation but not stable release from Pypi. If you encounter any issues, feel free to contact @ocss884.
 
 
 Install from custom environment
@@ -167,6 +193,7 @@ Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcen
         liger-kernel \
         numpy \
         pandas \
+        datasets \
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \

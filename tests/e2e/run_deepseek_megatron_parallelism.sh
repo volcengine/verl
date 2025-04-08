@@ -1,5 +1,7 @@
 set -x
 
+export VLLM_ATTENTION_BACKEND=XFORMERS
+
 # the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
 
 mkdir -p $HOME/models

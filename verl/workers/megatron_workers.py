@@ -169,7 +169,11 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.architectures = getattr(actor_model_config, "architectures", None)
 
         tfconfig = convert_config(actor_model_config, megatron_config)
-        self.hf_config = actor_model_config
+        if enable_gradient_checkpointing:
+            gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
+            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
+            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
+            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
         print(f'TF config: {tfconfig}')
         self.hf_config = actor_model_config
 
@@ -279,7 +283,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                            layer_name_mapping=layer_name_mapping)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
-            NotImplementedError('Only vllmRollout is supported with Megatron now')
+            raise NotImplementedError('Only vllmRollout is supported with Megatron now')
 
         return rollout, sharding_manager
 
@@ -319,6 +323,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 megatron_config=megatron_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
+                enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False)
             )
 
         if self._is_actor:
@@ -338,7 +343,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 megatron_config=megatron_config,
                 optim_config=None,
                 override_model_config=override_model_config,
-            )
+                enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
             self.ref_policy = MegatronPPOActor(config=self.config.ref,
                                                model_config=self.ref_model_config,
                                                megatron_config=megatron_config,
@@ -415,7 +420,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -450,7 +455,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -543,8 +548,13 @@ class CriticWorker(MegatronWorker):
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
         tfconfig = convert_config(critic_model_config, megatron_config)
+        if enable_gradient_checkpointing:
+            gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
+            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
+            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
+            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
+        print(f'Critic TF config: {tfconfig}')
         self.hf_config = critic_model_config
-        print(f'TF config: {tfconfig}')
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_gptmodel_from_config
@@ -609,7 +619,8 @@ class CriticWorker(MegatronWorker):
             model_path=self.config.model.path,
             megatron_config=megatron_config,
             optim_config=self.config.optim,
-            override_model_config=override_model_config)
+            override_model_config=override_model_config,
+            enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
         self.critic = MegatronPPOCritic(config=self.config,
                                         model_config=self.critic_model_config,
                                         megatron_config=megatron_config,
