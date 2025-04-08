@@ -199,7 +199,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
-            state_dicts = torch.load(os.path.join(ckpt_name))
+            state_dicts = torch.load(os.path.join(ckpt_name), weights_only=False)
             assert len(state_dicts) == len(
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
             for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
