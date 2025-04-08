@@ -82,6 +82,7 @@ class FSDPSFTTrainer(object):
 
     def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh):
         self.config = config
+        self.optim_bwd_hook = True
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -109,8 +110,6 @@ class FSDPSFTTrainer(object):
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
             print(self.config)
-
-        self.optim_bwd_hook = True
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
@@ -273,7 +272,7 @@ class FSDPSFTTrainer(object):
         self.optimizer = None
         if self.optim_bwd_hook:
             optim_dict = {
-                param: optim.AdamW(param, lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
+                param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
             }
             register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=optim_dict)
         else:
@@ -294,9 +293,10 @@ class FSDPSFTTrainer(object):
 
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
 
-        self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer=self.optimizer,
-                                                            num_warmup_steps=num_warmup_steps,
-                                                            num_training_steps=self.total_steps)
+        if not self.optim_bwd_hook:
+            self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer=self.optimizer,
+                                                                num_warmup_steps=num_warmup_steps,
+                                                                num_training_steps=self.total_steps)
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -426,11 +426,13 @@ class FSDPSFTTrainer(object):
                 self.optimizer.step()
 
         log_gpu_memory_usage('After optimizer step', logger=logger)
+        if not self.optim_bwd_hook:
+            self.lr_scheduler.step()
 
-        self.lr_scheduler.step()
-
-        # reduce loss across dp ranks
-        lr = self.lr_scheduler.get_last_lr()[0]
+            # reduce loss across dp ranks
+            lr = self.lr_scheduler.get_last_lr()[0]
+        else:
+            lr = self.config.optim.lr
 
         log_gpu_memory_usage('After offload weights', logger=logger)
 
