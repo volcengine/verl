@@ -282,8 +282,6 @@ class AgentPPOTrainer(RayPPOTrainer):
         return gen_rollout_batch
 
     def _validate(self):
-        reward_tensor_lst = []
-        data_source_lst = []
         # Lists to collect samples for the table
         sample_inputs = []
         sample_outputs = []
