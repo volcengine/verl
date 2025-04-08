@@ -24,17 +24,6 @@ import time
 import torch
 import torch.distributed as dist
 
-# def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0, cp_rank: int = 0):
-#     """given TP,DP,PP rank to get the global rank."""
-
-
-#     tp_size = mpu.get_tensor_model_parallel_world_size()
-#     dp_size = mpu.get_data_parallel_world_size()
-#     pp_size = mpu.get_pipeline_model_parallel_world_size()
-#     assert (tp_size * dp_size * pp_size == torch.distributed.get_world_size()
-#            ), f"{tp_size} x {dp_size} x {pp_size} != {torch.distributed.get_world_size()}"
-#     # We only support TP-DP-PP grouping, for correctness when resharding
-#     return (pp_rank * dp_size + dp_rank) * tp_size + tp_rank
 def _megatron_calc_global_rank(tp_rank: int = 0,
                                dp_rank: int = 0,
                                pp_rank: int = 0,
@@ -50,13 +39,13 @@ def _megatron_calc_global_rank(tp_rank: int = 0,
     ep_size = mpu.get_expert_model_parallel_world_size()
 
     # Verify total GPU count matches (must be consistent with parallel_state.py)
-    total_size = tp_size * dp_size * pp_size * cp_size * ep_size
+    total_size = tp_size * dp_size * pp_size * cp_size
     assert total_size == torch.distributed.get_world_size(), \
-        f"{tp_size}x{dp_size}x{pp_size}x{cp_size}x{ep_size} != {torch.distributed.get_world_size()}"
+        f"{tp_size}x{dp_size}x{pp_size}x{cp_size} != {torch.distributed.get_world_size()}"
 
     # Core calculation logic (corresponds to RankGenerator order parameter)
     # Assumes default order is "tp-cp-ep-dp-pp"
-    return (((pp_rank * dp_size + dp_rank) * ep_size + ep_rank) * cp_size + cp_rank) * tp_size + tp_rank
+    return ((pp_rank * dp_size + dp_rank) * cp_size + cp_rank) * tp_size + tp_rank
 
 def _megatron_calc_layer_map(config):
     """Calculate the mapping of global layer_idx to local layer_idx
@@ -366,7 +355,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
     torch.cuda.empty_cache()
     # Embeddings
     # -------------------
-    if dp_rank == 0:
+    if dp_rank == 0 and cp_rank == 0:
         # Embeddings
         # -------------------
         print_rank_0("collecting embeddings...")
