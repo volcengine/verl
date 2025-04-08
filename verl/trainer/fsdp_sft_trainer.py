@@ -110,6 +110,8 @@ class FSDPSFTTrainer(object):
         if self.device_mesh.get_rank() == 0:
             print(self.config)
 
+        self.optim_bwd_hook = True
+
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
         if self.device_mesh.get_rank() == 0:
@@ -268,10 +270,17 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
-        self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
-                                     lr=self.config.optim.lr,
-                                     betas=self.config.optim.betas,
-                                     weight_decay=self.config.optim.weight_decay)
+        self.optimizer = None
+        if self.optim_bwd_hook:
+            optim_dict = {
+                param: optim.AdamW(param, lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
+            }
+            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=optim_dict)
+        else:
+            self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
+                                        lr=self.config.optim.lr,
+                                        betas=self.config.optim.betas,
+                                        weight_decay=self.config.optim.weight_decay)
 
         log_gpu_memory_usage('After initialize optimizer', logger=logger)
 
@@ -392,7 +401,8 @@ class FSDPSFTTrainer(object):
         # log_gpu_memory_usage('Before optimizer zero_grad', logger=logger, level=logging.INFO)
         torch.cuda.reset_peak_memory_stats()
 
-        self.optimizer.zero_grad()
+        if not self.optim_bwd_hook:
+            self.optimizer.zero_grad()
 
         # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
 
@@ -408,11 +418,12 @@ class FSDPSFTTrainer(object):
         log_gpu_memory_usage('Before optimizer step', logger=logger)
 
         # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: grad_norm is not finite: {grad_norm}")
-            self.optimizer.zero_grad()
-        else:
-            self.optimizer.step()
+        if not self.optim_bwd_hook:
+            if not torch.isfinite(grad_norm):
+                print(f"WARN: grad_norm is not finite: {grad_norm}")
+                self.optimizer.zero_grad()
+            else:
+                self.optimizer.step()
 
         log_gpu_memory_usage('After optimizer step', logger=logger)
 
