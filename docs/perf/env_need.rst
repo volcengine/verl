@@ -35,17 +35,18 @@ If you happen to have a configuration that has already been tested, we welcome y
    \      \      \        \      \      \
    ====== ====== ======== ====== ====== ======
 
+70B
+~~~
 
-70B 配置
---------
+.. table::
+   :widths: auto
 
-- **Model**: Qwen2-70B
-- **Task**: GRPO
-- **Resource**: 32*H20
-- **Train**: fsdp
-- **Infer**: vllm0.8.2
-- **Link**: `script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
-- **Author**: `BearBiscuit <https://github.com/BearBiscuit05>`_
+   ============= ====== ======== ====== ========= ================================================= ===============================
+   model         task   resource train  infer     link                                              Author
+   ============= ====== ======== ====== ========= ================================================= ===============================
+   Qwen2-70B     GRPO   32*H20   fsdp   vllm0.8.2 `script <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_  `BearBiscuit <xiangyongan@bytedance.com>`_
+   ============= ====== ======== ====== ========= ================================================= ===============================
+
 405B
 ~~~~
 
