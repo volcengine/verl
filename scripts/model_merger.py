@@ -18,7 +18,7 @@ import os
 import torch
 import argparse
 import numpy as np
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
 from concurrent.futures import ThreadPoolExecutor
 from safetensors.torch import load_file
 from torch.distributed._tensor import Shard, Placement
@@ -30,7 +30,7 @@ except ImportError:
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--backend', type=str, required=True, help="The backend of the model")
+parser.add_argument('--backend', type=str, required=True, help="The backend of the model", choices=["fsdp", "megatron"])
 parser.add_argument('--tie-word-embedding', action='store_true', help="Whether to tie word embedding weights")
 parser.add_argument('--is-value-model', action='store_true', help="Whether the model loaded as value model")
 parser.add_argument('--hf_model_path', type=str, required=True, help="The path for the huggingface model")
