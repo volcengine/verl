@@ -15,6 +15,13 @@ data:
   filter_overlong_prompts_workers: 1
   truncation: error
   image_key: images
+  adarft:
+    enable: False
+    beta: 0.5
+    alpha: 2
+    eta: 50
+    d_min: 0
+    d_max: 100
 
 actor_rollout_ref:
   hybrid_engine: True
