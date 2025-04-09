@@ -101,27 +101,25 @@ class vLLMRollout(BaseRollout):
 
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = {} if 'engine_kwargs' not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
-        # For each vLLM engine parameter, 
-        # - `None` means not setting it, so we pop it, and leave it to vLLM default value 
+        # For each vLLM engine parameter,
+        # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
-        self.inference_engine = LLM(
-            actor_module,
-            tokenizer=tokenizer,
-            model_hf_config=model_hf_config,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype=config.dtype,
-            enforce_eager=config.enforce_eager,
-            gpu_memory_utilization=config.gpu_memory_utilization,
-            skip_tokenizer_init=False,
-            max_model_len=max_model_len,
-            load_format=config.load_format,
-            disable_log_stats=config.disable_log_stats,
-            max_num_batched_tokens=max_num_batched_tokens,
-            enable_chunked_prefill=config.enable_chunked_prefill,
-            **engine_kwargs
-        )
+        self.inference_engine = LLM(actor_module,
+                                    tokenizer=tokenizer,
+                                    model_hf_config=model_hf_config,
+                                    tensor_parallel_size=tensor_parallel_size,
+                                    dtype=config.dtype,
+                                    enforce_eager=config.enforce_eager,
+                                    gpu_memory_utilization=config.gpu_memory_utilization,
+                                    skip_tokenizer_init=False,
+                                    max_model_len=max_model_len,
+                                    load_format=config.load_format,
+                                    disable_log_stats=config.disable_log_stats,
+                                    max_num_batched_tokens=max_num_batched_tokens,
+                                    enable_chunked_prefill=config.enable_chunked_prefill,
+                                    **engine_kwargs)
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.offload_model_weights()
