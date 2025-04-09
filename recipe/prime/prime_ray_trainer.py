@@ -179,12 +179,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         # TODO: we have to make sure the batch size is divisible by the dp size
         self.train_dataset = RLHFDataset(data_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
-                                         prompt_key=self.config.data.prompt_key,
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error',
-                                         filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False),
-                                         num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
+                                         config=self.config.data)
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -202,12 +197,7 @@ class RayPRIMETrainer(RayPPOTrainer):
 
         self.val_dataset = RLHFDataset(data_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
-                                       prompt_key=self.config.data.prompt_key,
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error',
-                                       filter_overlong_prompts=self.config.data.get('filter_overlong_prompts', False),
-                                       num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
+                                       config=self.config.data)
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
