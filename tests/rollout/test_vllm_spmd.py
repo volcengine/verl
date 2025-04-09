@@ -150,6 +150,7 @@ def test_vllm_spmd():
         skip_tokenizer_init=False,
         enable_prefix_caching=True,
         trust_remote_code=True,
+        seed=int(os.getenv("RANK", "0")) // tensor_parallel_size,
     )
 
     outputs = llm.generate(preencode_prompts, sampling_params=sampling_params, use_tqdm=False)
