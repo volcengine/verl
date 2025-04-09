@@ -16,6 +16,7 @@ import os
 import logging
 import torch
 import numpy as np
+from packaging import version
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -27,6 +28,7 @@ from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_t
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
+from vllm.version import __version__ as VLLM_VERSION
 
 from .base import BaseShardingManager
 from .patch import patched_ds_v3_load_weights
@@ -91,16 +93,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
-        if vllm_version in ('0.8.3'):
-            # wake up only weights
-            self.inference_engine.wake_up(tags=["weights"])
-            # update model params
-            self.update_params(params)
-            # wake up kv
-            self.inference_engine.wake_up(tags=["kv_cache"])
         else:
-            self.inference_engine.wake_up()
-            self.update_params(params)
+            if version.parse(VLLM_VERSION) >= version.parse("0.8.3"):
+                # wake up only weights
+                self.inference_engine.wake_up(tags=["weights"])
+                # update model params
+                self.update_params(params)
+                # wake up kv
+                self.inference_engine.wake_up(tags=["kv_cache"])
+            else:
+                self.inference_engine.wake_up()
+                self.update_params(params)
             
             
 
