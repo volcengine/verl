@@ -88,7 +88,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - fsdp
       - vllm0.8.2
       - `70b_grpo_32_h20_fsdp_vllm <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
-      - Xiangyongan_
+      - `Xiangyongan <xiangyongan@bytedance.com>`_
     * - MIN
       - Qwen2-70B
       - GRPO
