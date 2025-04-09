@@ -436,20 +436,21 @@ class RayPPOTrainer(object):
                 collate_fn=collate_fn,
                 batch_sampler=self.sampler  # Custom batch sampler providing batches of indices
             )
-        elif self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
         else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
+            elif self.config.data.shuffle:
+                train_dataloader_generator = torch.Generator()
+                train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+                sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
+            else:
+                sampler = SequentialSampler(data_source=self.train_dataset)
 
-        self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.get('gen_batch_size',
-                                                                                   self.config.data.train_batch_size),
-                                                   num_workers=8,
-                                                   drop_last=True,
-                                                   collate_fn=collate_fn,
-                                                   sampler=sampler)
+            self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+                                                       batch_size=self.config.data.get('gen_batch_size',
+                                                                                       self.config.data.train_batch_size),
+                                                       num_workers=8,
+                                                       drop_last=True,
+                                                       collate_fn=collate_fn,
+                                                       sampler=sampler)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
