@@ -39,7 +39,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
         args, kwargs = dispatch_fn(self, *args, **kwargs)
         output = execute_fn(method_name, *args, **kwargs)
         if blocking:
-            output = ray.get(output)
+            output = ray.get(output, timeout=60 * 10 * 4) # 40 minutes
         output = collect_fn(self, output)
         return output
 

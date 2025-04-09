@@ -107,7 +107,7 @@ class vLLMRollout(BaseRollout):
             enable_chunked_prefill=config.enable_chunked_prefill,
             swap_space=80,
             # quantization="fp8",
-            # cpu_offload_gb=40,
+            cpu_offload_gb=32,
             kv_cache_dtype=config.kv_cache_dtype,
             calculate_kv_scales=(config.kv_cache_dtype == "fp8"),
             enable_prefix_caching=False,
@@ -427,8 +427,19 @@ class vLLMRolloutWithSelf(vLLMRollout):
 
                     # if the output ends with self.tool_end_id_list, we need to extract the tool content and do the tool query
                     elif curr_output_ids[-len(self.tool_end_id_list):] == self.tool_end_id_list:
+
+
+                        # detokenize the output
+                        curr_output_ids_decoded = self.tokenizer.decode(curr_output_ids, skip_special_tokens=False)
+                        print("--> Generation stopped with: {}" .format(curr_output_ids_decoded[-10:]))
                         tool_content = self.extract_tool_content_from_ids(curr_output_ids, self.tool_start_id_list, self.tool_end_id_list)
                         tool_query = self.query_start_id_list + tool_content + self.query_end_id_list
+
+                        # detokenize the tool query
+                        tool_query_decoded = self.tokenizer.decode(tool_query, skip_special_tokens=False)
+                        print("--> Tool query: {}" .format(tool_query_decoded))
+                        print()
+
                         tool_max_tokens = self.sampling_params.max_tokens - len(tool_query)
                         with self.update_sampling_params(n=1, max_tokens=tool_max_tokens):
                             tool_output = self.inference_engine.generate(
@@ -436,8 +447,15 @@ class vLLMRolloutWithSelf(vLLMRollout):
                                 sampling_params=self.sampling_params,
                                 prompt_token_ids=tool_query,
                                 use_tqdm=False)
+
                         tool_output_ids = tool_output[0].outputs[0].token_ids
                         tool_output_ids = tool_output_ids[len(tool_query):]
+
+                        # detokenize the tool output
+                        tool_output_ids_decoded = self.tokenizer.decode(tool_output_ids, skip_special_tokens=False)
+                        print("--> Tool output: {}" .format(tool_output_ids_decoded[-10:]))
+                        # remove the think tag
+
                         tool_output_ids = self.remove_tagged_block(tool_output_ids, self.think_end_id_list)
                         if tool_output_ids[-1] == self.tokenizer.eos_token_id:
                             tool_output_ids = tool_output_ids[:-1]
@@ -454,9 +472,18 @@ class vLLMRolloutWithSelf(vLLMRollout):
                         # prepare for continue thinking
                         curr_input_ids += curr_output_ids
                         curr_max_tokens -= len(curr_output_ids)
+
+                        # detokenize new input ids
+                        curr_input_ids_decoded = self.tokenizer.decode(curr_input_ids, skip_special_tokens=False)
+                        print("--> New input ids: {}" .format(curr_input_ids_decoded[-10:]))
+                        print()
                     
                     # if the output ends with other tags, we just continue
                     else:
+                        # detokenize the output
+                        curr_output_ids_decoded = self.tokenizer.decode(curr_output_ids, skip_special_tokens=False)
+                        print("--> Generation stopped with: {}" .format(curr_output_ids_decoded[-10:]))
+
                         curr_input_ids += curr_output_ids
                         curr_max_tokens -= len(curr_output_ids)
                         curr_result_mask.extend([1] * len(curr_output_ids))

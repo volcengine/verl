@@ -15,6 +15,7 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from ray.data import DataContext
 import ray
 import hydra
 
@@ -28,6 +29,11 @@ def run_ppo(config, compute_score=None):
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+
+    # data context, wait for all actors to be ready
+    # this is important for local ray cluster
+    ctx = DataContext.get_current()
+    ctx.wait_for_min_actors_s = 60 * 10 * 4
 
     ray.get(main_task.remote(config, compute_score))
 
