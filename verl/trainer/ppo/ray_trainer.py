@@ -498,11 +498,12 @@ class RayPPOTrainer:
             processor=self.processor,
             config=self.config.data,
         )
+        # consider the design of single controller with a large val dataset in multi-modal scenarios
+        # may lead to oom issues
+        val_batch_size = self.config.data.val_batch_size or len(self.val_dataset)
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
-            # Validation datasets are sent to inference engines as a whole batch,
-            # which will schedule the memory themselves.
-            batch_size=len(self.val_dataset),
+            batch_size=val_batch_size,
             num_workers=8,
             shuffle=False,
             drop_last=False,
@@ -510,12 +511,12 @@ class RayPPOTrainer:
         )
 
         assert len(self.train_dataloader) >= 1
-        assert len(self.val_dataloader) == 1, (
-            "Validation dataloader must have a single batch,"
-            + " which inference engines will schedule the memory themselves."
-        )
+        assert len(self.val_dataloader) >= 1
 
-        print(f"Size of train dataloader: {len(self.train_dataloader)}")
+        print(
+            f"Size of train dataloader: {len(self.train_dataloader)}, "
+            f"Size of val dataloader: {len(self.val_dataloader)}"
+        )
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
