@@ -93,23 +93,27 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
+            log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+            del params
         else:
             if version.parse(VLLM_VERSION) >= version.parse("0.8.3"):
                 # wake up only weights
                 self.inference_engine.wake_up(tags=["weights"])
                 # update model params
                 self.update_params(params)
+
+                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+                del params
+                torch.cuda.empty_cache()
+
                 # wake up kv
                 self.inference_engine.wake_up(tags=["kv_cache"])
             else:
                 self.inference_engine.wake_up()
                 self.update_params(params)
-            
-            
+                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+                del params
 
-        log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
-
-        del params
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
@@ -167,7 +171,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
-    def update_params(self,updated_params):
+    def update_params(self, updated_params):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
         world_size = torch.distributed.get_world_size()
         if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
@@ -178,4 +182,3 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             loaded_params = model.load_weights(
                 ((name, param.full_tensor() if world_size != 1 else param) for name, param in updated_params.items()))
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-
