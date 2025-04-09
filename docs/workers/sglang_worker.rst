@@ -1,6 +1,6 @@
 SGLang Backend
 ==============
-Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_
+Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_, `Junrong Lin <https://github.com/ocss884>`_
 
 介绍
 ----
@@ -18,82 +18,149 @@ Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <http
     # 目前是 0.4.5，随时可能更新，请参考最新的版本
     pip install "sglang[all]>=0.4.5" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
 
-SGLang 在单机运行
+选择SGLang为推理后端在单机上进行PPO训练
 ------------------
-我们使用 Qwen-0.5B 来进行简单的测试，有关数据集和模型的下载，你可以参照 `Quickstart <https://verl.readthedocs.io/en/latest/start/quickstart.html#step-1-prepare-the-dataset>`_ 来安装模型以及数据集。对于测试 SGLang 是否有效执行，最直接的方法是运行 ``main_generation.py`` 来进行测试。
+我们使用 Qwen/Qwen2-7B-Instruct 在 gsm8k 上训练来进行简单的测试
+
+1. 运行下面的命令来准备 gsm8k 数据集
 
 .. code-block:: bash
+    python3 examples/data_preprocess/gsm8k.py
 
-    python3 -m verl.trainer.main_generation \
-        trainer.nnodes=1 \
-        trainer.n_gpus_per_node=2 \
-        data.path=~/data/rlhf/gsm8k/test.parquet \
-        data.prompt_key=prompt \
-        data.n_samples=1 \
-        data.output_path=~/data/rlhf/math/deepseek_v2_lite_gen_test.parquet \
-        model.path=Qwen/Qwen2.5-0.5B-Instruct \
-        +model.trust_remote_code=True \
-        rollout.temperature=1.0 \
-        rollout.name=sglang \
-        rollout.top_k=50 \
-        rollout.top_p=0.7 \
-        rollout.prompt_length=2048 \
-        rollout.response_length=1024 \
-        rollout.tensor_model_parallel_size=2 \
-        rollout.gpu_memory_utilization=0.8
-
-如果想测试 RL 相关算法，可以测试以下代码：
+2. 运行下面的脚本在单机上使用4卡进行PPO实验
 
 .. code-block:: bash
-
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
         data.train_files=$HOME/data/gsm8k/train.parquet \
         data.val_files=$HOME/data/gsm8k/test.parquet \
         data.train_batch_size=256 \
         data.max_prompt_length=512 \
         data.max_response_length=256 \
-        actor_rollout_ref.model.path=deepseek-ai/deepseek-llm-7b-chat \
+        actor_rollout_ref.rollout.name=sglang \
+        actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.actor.ppo_mini_batch_size=64 \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-        actor_rollout_ref.rollout.name=sglang \
         actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
-        actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-        actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+        actor_rollout_ref.model.enable_gradient_checkpointing=True \
+        actor_rollout_ref.actor.fsdp_config.param_offload=True \
+        actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
         critic.optim.lr=1e-5 \
-        critic.model.path=deepseek-ai/deepseek-llm-7b-chat \
+        critic.model.path=Qwen/Qwen2-7B-Instruct \
         critic.ppo_micro_batch_size_per_gpu=4 \
+        critic.model.fsdp_config.param_offload=True \
+        critic.model.fsdp_config.optimizer_offload=True \
         algorithm.kl_ctrl.kl_coef=0.001 \
         trainer.logger=['console'] \
         trainer.val_before_train=False \
         trainer.default_hdfs_dir=null \
-        trainer.n_gpus_per_node=1 \
+        trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
-        trainer.save_freq=10 \
+        trainer.save_freq=-1 \
         trainer.test_freq=10 \
-        trainer.total_epochs=15 2>&1 | tee verl_demo.log
+        trainer.total_epochs=2 2>&1 | tee verl_demo.log
 
-SGLang 在多机下运行
+选择SGLang为推理后端在多机上进行PPO训练
 -------------------
-SGLang 同样支持在 IPv4 和 IPv6 的场景下运行 verl 中基于 RAY 的多机推理。下面的脚本是在 TP 设置大于一台机器中总卡数的情况下来进行的测试，用于验证 SGLang 的多机推理。
+SGLang 同样支持在 IPv4 和 IPv6 的场景下运行 verl 中基于 RAY 的跨机推理。下面的脚本中我们使用了 TP=16 来进行跨机推理。现假设我们有两台互联的机器，node0的 ip 为 10.94.16.4，node1的 ip 为 10.94.16.5
+
+1. 在 node0 启动ray
+
+.. code-block:: bash
+    ray start --head --dashboard-host=0.0.0.0
+
+可以看到下面的提示
+.. code-block:: bash
+    Usage stats collection is enabled. To disable this, add `--disable-usage-stats` to the command that starts the cluster, or run the following command: `ray disable-usage-stats` before starting the cluster. See https://docs.ray.io/en/master/cluster/usage-stats.html for more details.
+
+    Local node IP: 10.94.16.4
+
+    --------------------
+    Ray runtime started.
+    --------------------
+
+    Next steps
+    To add another node to this Ray cluster, run
+        ray start --address='10.94.16.4:6379'
+
+2. 令 node1 加入ray cluster
+
+在node1上运行行下面的命令
+
+.. code-block:: bash
+    ray start --address='10.94.16.4:6379'
+
+运行下面的命令确认此时 ray cluster 里有两个节点
+
+.. code-block:: bash
+    ray status
+
+可以看到 cluster 上有两个节点，16张 GPU
+
+.. code-block:: bash
+    ======== Autoscaler status: 2025-04-09 09:25:37.694016 ========
+    Node status
+    ---------------------------------------------------------------
+    Active:
+     1 node_ef382ffd687d8f6b060c1b68e63ada7341b936fe5b1901dd04de1027
+     1 node_1eb4d7d07e793114c23a89d1a41f1f76acf6ef5b35af844a4ee8e4ba
+    Pending:
+     (no pending nodes)
+    Recent failures:
+     (no failures)
+
+    Resources
+    ---------------------------------------------------------------
+    Usage:
+     0.0/360.0 CPU
+     0.0/16.0 GPU
+     0B/3.39TiB memory
+     0B/372.53GiB object_store_memory
+
+3. 运行下面的脚本在2台机器上使用16张卡TP16训练 meta-llama/Llama-3.1-8B-Instruct
 
 .. code-block:: bash
 
-    python3 -m verl.trainer.main_generation \
-        trainer.nnodes=1 \
+    DATA_DIR=$HOME/data/gsm8k
+
+    python3 -m verl.trainer.main_ppo \
+        actor_rollout_ref.rollout.name=sglang \
+        data.train_files=$DATA_DIR/train.parquet \
+        data.val_files=$DATA_DIR/test.parquet \
+        data.train_batch_size=256 \
+        data.max_prompt_length=512 \
+        data.max_response_length=256 \
+        actor_rollout_ref.model.path=meta-llama/Llama-3.1-8B-Instruct \
+        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.model.use_remove_padding=True \
+        actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+        actor_rollout_ref.model.enable_gradient_checkpointing=True \
+        actor_rollout_ref.actor.fsdp_config.param_offload=True \
+        actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=16 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+        actor_rollout_ref.rollout.free_cache_engine=True \
+        actor_rollout_ref.ref.log_prob_micro_batch_size=16 \
+        actor_rollout_ref.ref.fsdp_config.param_offload=True \
+        critic.optim.lr=1e-5 \
+        critic.model.use_remove_padding=True \
+        critic.model.path=meta-llama/Llama-3.1-8B-Instruct \
+        critic.model.enable_gradient_checkpointing=True \
+        critic.ppo_micro_batch_size=16 \
+        critic.model.fsdp_config.param_offload=True \
+        critic.model.fsdp_config.optimizer_offload=True \
+        algorithm.kl_ctrl.kl_coef=0.001 \
+        trainer.critic_warmup=0 \
+        trainer.logger=['console'] \
+        ++trainer.val_before_train=True \
+        trainer.default_hdfs_dir=null \
         trainer.n_gpus_per_node=8 \
-        data.path=~/data/rlhf/gsm8k/test.parquet \
-        data.prompt_key=prompt \
-        data.n_samples=1 \
-        data.output_path=~/data/rlhf/math/deepseek_v2_lite_gen_test.parquet \
-        model.path=deepseek-ai/deepseek-llm-7b-chat \
-        +model.trust_remote_code=True \
-        rollout.temperature=1.0 \
-        rollout.name=sglang \
-        rollout.top_k=50 \
-        rollout.top_p=0.7 \
-        rollout.prompt_length=2048 \
-        rollout.response_length=1024 \
-        rollout.tensor_model_parallel_size=16 \
-        rollout.gpu_memory_utilization=0.8
+        trainer.nnodes=2\
+        trainer.save_freq=-1 \
+        trainer.test_freq=10 \
+        trainer.total_epochs=1 2>&1 | tee verl_demo.log
