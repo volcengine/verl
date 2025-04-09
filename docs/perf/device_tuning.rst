@@ -50,10 +50,10 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
    ====== ============= ======== ======== ====== ====== ================================== ==============
    tag    model         task     resource train  infer  link                               Contributor     
    ====== ============= ======== ======== ====== ====== ================================== ==============
-   MIN    Qwen2-14B     GRPO     4*H800   fsdp   vllm   qwen2_14b_grpo_4_h800_fsdp_vllm_   Xiangyongan_
+   MIN    Qwen2-14B     GRPO     4*H800   fsdp   vllm   qwen2-14b_grpo_4_h800_fsdp_vllm_   Xiangyongan_
    ====== ============= ======== ======== ====== ====== ================================== ==============
 
-.. _qwen2-qwen2_14b_grpo_4_h800_fsdp_vllm: ../../examples/tuning/14b/qwen2_14b_grpo_4_h800_fsdp_vllm.sh
+.. _qwen2-14b_grpo_4_h800_fsdp_vllm: ../../examples/tuning/14b/qwen2_14b_grpo_4_h800_fsdp_vllm.sh
 
 32B
 ~~~
