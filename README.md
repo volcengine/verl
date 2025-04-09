@@ -5,20 +5,33 @@
 > **Efficient Reinforcement Finetuning via Adaptive Curriculum Learning**  
 > Taiwei Shi†, Yiyang Wu†, Linxin Song†, Tianyi Zhou▽, Jieyu Zhao†  
 > †University of Southern California, ▽University of Maryland  
-> [[Paper]](https://arxiv.org/abs/TBD) | [[BibTeX]](#citation)
+> [[Paper]](https://arxiv.org/abs/2504.05520)
 
 🧠 **Highlights**:
 - Dynamically adapts training difficulty using a lightweight curriculum scheduler
 - Compatible with standard RFT algorithms like PPO, GRPO, REINFORCE++
 - Improves both **sample efficiency** and **final accuracy** on math reasoning benchmarks
 - Up to **2× faster convergence** vs PPO baseline
-- Seamlessly integrated into `verl` without modifying reward functions or model internals
+- Seamlessly integrated into `verl` without modifying reward functions or model architectures
 
 📦 **Preprocessed difficulty data:** [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
 
 🗂️ **Preprocessed training data**: [Data](https://github.com/uscnlp-lime/verl/tree/main/verl/data)
 
 ✉️ Feel free to reach out to **Taiwei Shi (taiweish@usc.edu)** or **Jieyu Zhao (jieyuz@usc.edu)** with questions or collaborations!
+
+### 📚 Citation
+
+```bibtex
+@misc{shi2025efficient,
+    title={Efficient Reinforcement Finetuning via Adaptive Curriculum Learning},
+    author={Taiwei Shi and Yiyang Wu and Linxin Song and Tianyi Zhou and Jieyu Zhao},
+    year={2025},
+    eprint={2504.05520},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG}
+}
+```
 
 ---
 
