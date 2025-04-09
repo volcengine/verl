@@ -33,11 +33,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ============= ======== ======== ====== ====== ================================== ==============
-   tag    model         task     resource train  infer  link                               Contributor     
-   ====== ============= ======== ======== ====== ====== ================================== ==============
-   MIN    Qwen2-7B      GRPO     2*H800   fsdp   vllm   qwen2-7b_grpo_2_h800_fsdp_vllm_    Xiangyongan_
-   ====== ============= ======== ======== ====== ====== ================================== ==============
+   ====== ============= ======== ======== ====== ========= ================================== ==============
+   tag    model         task     resource train  infer     link                               Contributor     
+   ====== ============= ======== ======== ====== ========= ================================== ==============
+   MIN    Qwen2-7B      GRPO     2*H800   fsdp   vllm0.8.2 qwen2-7b_grpo_2_h800_fsdp_vllm_    Xiangyongan_
+   ====== ============= ======== ======== ====== ========= ================================== ==============
 
 .. _qwen2-7b_grpo_2_h800_fsdp_vllm: ../../examples/tuning/7b/qwen2-7b_grpo_2_h800_fsdp_vllm.sh
 
@@ -47,11 +47,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ============= ======== ======== ====== ====== ================================== ==============
-   tag    model         task     resource train  infer  link                               Contributor     
-   ====== ============= ======== ======== ====== ====== ================================== ==============
-   MIN    Qwen2-14B     GRPO     4*H800   fsdp   vllm   qwen2-14b_grpo_4_h800_fsdp_vllm_   Xiangyongan_
-   ====== ============= ======== ======== ====== ====== ================================== ==============
+   ====== ============= ======== ======== ====== ========= ================================== ==============
+   tag    model         task     resource train  infer     link                               Contributor     
+   ====== ============= ======== ======== ====== ========= ================================== ==============
+   MIN    Qwen2-14B     GRPO     4*H800   fsdp   vllm0.8.2 qwen2-14b_grpo_4_h800_fsdp_vllm_   Xiangyongan_
+   ====== ============= ======== ======== ====== ========= ================================== ==============
 
 .. _qwen2-14b_grpo_4_h800_fsdp_vllm: ../../examples/tuning/14b/qwen2_14b_grpo_4_h800_fsdp_vllm.sh
 
@@ -78,8 +78,11 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
    ====== ============= ====== ======== ====== ========= ================================== ==============
    MIN    Qwen2-72B     GRPO   32*H20   fsdp   vllm0.8.2 qwen2-70b_grpo_32_h20_fsdp_vllm_   Xiangyongan_
    ====== ============= ====== ======== ====== ========= ================================== ==============
+   MIN    Qwen2-72B     GRPO   32*H800  fsdp   vllm0.8.3 qwen2-70b_grpo_32_h800_fsdp_vllm_  Xiangyongan_
+   ====== ============= ====== ======== ====== ========= ================================== ==============
 
 .. _qwen2-70b_grpo_32_h20_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh
+.. _qwen2-70b_grpo_32_h800_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h800_fsdp_vllm.sh
 
 .. _Xiangyongan: xiangyongan@bytedance.com
 
