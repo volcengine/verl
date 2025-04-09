@@ -102,9 +102,9 @@ class vLLMRollout(BaseRollout):
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs))
         if engine_kwargs.get('swap_space', None) is None:
-            # vLLM has its own default `swap_space` value, which can change in the future versions.
-            # Not setting it means leave it to vLLM default value, 
-            # while setting it explicitly in config means the swap space in GB you want.
+            # Not setting it means leave it to vLLM default value (Note that vLLM has its own default `swap_space` value, 
+            # which can, however, change in the future versions);
+            # Setting it explicitly in config means the swap space in GB you want.
             engine_kwargs.pop('swap_space')
         self.inference_engine = LLM(
             actor_module,
