@@ -73,13 +73,13 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 .. table::
    :widths: auto
 
-   ====== ============= ====== ======== ====== ========= ================================== ==============
-   tag    model         task   resource train  infer     link                               Contributor                   
-   ====== ============= ====== ======== ====== ========= ================================== ==============
-   MIN    Qwen2-72B     GRPO   32*H20   fsdp   vllm0.8.2 qwen2-70b_grpo_32_h20_fsdp_vllm_   Xiangyongan_
-   ====== ============= ====== ======== ====== ========= ================================== ==============
-   MIN    Qwen2-72B     GRPO   32*H800  fsdp   vllm0.8.3 qwen2-70b_grpo_32_h800_fsdp_vllm_  Xiangyongan_
-   ====== ============= ====== ======== ====== ========= ================================== ==============
+   ====== ============= ====== ======== ====== ========== ================================== ==============
+   tag    model         task   resource train  infer      link                               Contributor                   
+   ====== ============= ====== ======== ====== ========== ================================== ==============
+   MIN    Qwen2-72B     GRPO   32*H20   fsdp   vllm0.8.2  qwen2-70b_grpo_32_h20_fsdp_vllm_   Xiangyongan_
+   ====== ============= ====== ======== ====== ========== ================================== ==============
+   MIN    Qwen2-72B     GRPO   32*H800  fsdp   vllm0.8.3  qwen2-70b_grpo_32_h800_fsdp_vllm_  Xiangyongan_
+   ====== ============= ====== ======== ====== ========== ================================== ==============
 
 .. _qwen2-70b_grpo_32_h20_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh
 .. _qwen2-70b_grpo_32_h800_fsdp_vllm: ../../examples/tuning/70b/qwen2-70b_grpo_32_h800_fsdp_vllm.sh
