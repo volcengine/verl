@@ -29,7 +29,6 @@ from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     # apply_kl_penalty, 
     # compute_advantage,
-    # compute_response_mask,
     _timer
 )
 
@@ -249,8 +248,9 @@ class AgentPPOTrainer(RayPPOTrainer):
 
         for turn_idx in range(self.config.env.max_turn):
             # TODO: tokenize in parallel
-            gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
+            gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat(add_generation_prompt=True) for env in env_list]))
             if validate:
+                # only trigger in the validation phase
                 gen_tokenized_batch.meta_info = {
                     'eos_token_id': self.tokenizer.eos_token_id,
                     'pad_token_id': self.tokenizer.pad_token_id,
@@ -292,18 +292,18 @@ class AgentPPOTrainer(RayPPOTrainer):
 
         # Tokenize the chat
         # TODO: tokenize in parallel
-        gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat() for env in env_list]))
-        gen_rollout_batch.union(gen_tokenized_batch)
+        tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat(add_generation_prompt=False) for env in env_list]))
+        gen_rollout_batch.union(tokenized_batch)
 
         # Debug
-        env = gen_rollout_batch.non_tensor_batch['env'][0]
-        print("Chat of first env:")
-        print(json.dumps(env.chat, indent=2))
-        print(f'Reward by action turn of first env: {env.reward_by_action_turn}')
-        print(f'Action turn of first env: {env.action_turn}')
-        print(f'gen_rollout_batch batch keys: {gen_rollout_batch.batch.keys()}')
-        print(f'gen_rollout_batch non_tensor_batch keys: {gen_rollout_batch.non_tensor_batch.keys()}')
-        print(f'gen_rollout_batch meta_info: {gen_rollout_batch.meta_info}')
+        # env = gen_rollout_batch.non_tensor_batch['env'][0]
+        # print("Chat of first env:")
+        # print(json.dumps(env.chat, indent=2))
+        # print(f'Reward by action turn of first env: {env.reward_by_action_turn}')
+        # print(f'Action turn of first env: {env.action_turn}')
+        # print(f'gen_rollout_batch batch keys: {gen_rollout_batch.batch.keys()}')
+        # print(f'gen_rollout_batch non_tensor_batch keys: {gen_rollout_batch.non_tensor_batch.keys()}')
+        # print(f'gen_rollout_batch meta_info: {gen_rollout_batch.meta_info}')
 
         return gen_rollout_batch
 
@@ -411,7 +411,7 @@ class AgentPPOTrainer(RayPPOTrainer):
 
                     # agent rollout with stateful envs
                     with _timer('agent_rollout', timing_raw):
-                        gen_rollout_batch = self._run_agent_rollout(batch)
+                        gen_rollout_batch = self._run_agent_rollout(batch, validate=False)
                     
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
@@ -432,7 +432,7 @@ class AgentPPOTrainer(RayPPOTrainer):
                             baseline_batch.non_tensor_batch['env'] = np.array(baseline_env_list, dtype=object)
                             baseline_batch.check_consistency()
 
-                            baseline_gen_rollout_batch = self._run_agent_rollout(baseline_batch, do_sample=False)
+                            baseline_gen_rollout_batch = self._run_agent_rollout(baseline_batch, do_sample=False, validate=False)
 
                             reward_baseline_tensor = baseline_gen_rollout_batch.non_tensor_batch['reward_by_action_turn']
                             reward_baseline_tensor = [sum(reward) for reward in reward_baseline_tensor]
@@ -446,12 +446,46 @@ class AgentPPOTrainer(RayPPOTrainer):
                                                              dtype=object)
                     # repeat to align with repeated responses in rollout
                     # TODO: check the logic if n > 1
+                    assert self.config.actor_rollout_ref.rollout.n == 1, "The number of rollout supported right now is 1"
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_rollout_batch)
+
+                    # balance the number of valid tokens on each dp rank.
+                    # Note that this breaks the order of data inside the batch.
+                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    if self.config.trainer.balance_batch:
+                        self._balance_batch(batch, metrics=metrics)
+
+                    # compute global_valid tokens
+                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                     print(f'batch batch keys: {batch.batch.keys()}')
                     print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
                     print(f'batch meta_info: {batch.meta_info}')
 
+                    # recompute old_log_probs
+                    with _timer('old_log_prob', timing_raw):
+                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        batch = batch.union(old_log_prob)
+
+                    print(f'old_log_prob batch keys: {old_log_prob.batch.keys()}')
+                    print(f'old_log_prob non_tensor_batch keys: {old_log_prob.non_tensor_batch.keys()}')
+                    print(f'old_log_prob meta_info: {old_log_prob.meta_info}')
+
+                    if self.use_reference_policy:
+                        # compute reference log_prob
+                        with _timer('ref', timing_raw):
+                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                            batch = batch.union(ref_log_prob)
+
+                        print(f'ref_log_prob batch keys: {ref_log_prob.batch.keys()}')
+                        print(f'ref_log_prob non_tensor_batch keys: {ref_log_prob.non_tensor_batch.keys()}')
+                        print(f'ref_log_prob meta_info: {ref_log_prob.meta_info}')
+
+                    with _timer('adv', timing_raw):
+                        # compute scores. The raw reward are computed provided by the environment, and is already stored in the batch
+                        # tokenwise_reward is the rewards on the last tokens of each model generated (policy) turn. tokenwise_reward has the same size as input_ids
+                        # non-tensor reward_by_action_turn is rewards for each policy turn.
+                        pass
                 return
         
