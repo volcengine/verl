@@ -541,7 +541,7 @@ class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def teardown_generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
         logger.info("Tearing down efficient sequence generation.")
-        self.rollout_sharding_manager.exit_sharding_context()
+        self.rollout_sharding_manager.exit_sharding_context(None, None, None)
         log_gpu_memory_usage('After exiting rollout sharding manager', logger=logger)
         return prompts  # Dummy return to match the interface
 
