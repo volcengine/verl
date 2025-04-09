@@ -24,6 +24,7 @@ import time
 import torch
 import torch.distributed as dist
 
+
 def _megatron_calc_global_rank(tp_rank: int = 0,
                                dp_rank: int = 0,
                                pp_rank: int = 0,
@@ -46,6 +47,7 @@ def _megatron_calc_global_rank(tp_rank: int = 0,
     # Core calculation logic (corresponds to RankGenerator order parameter)
     # Assumes default order is "tp-cp-ep-dp-pp"
     return ((pp_rank * dp_size + dp_rank) * cp_size + cp_rank) * tp_size + tp_rank
+
 
 def _megatron_calc_layer_map(config):
     """Calculate the mapping of global layer_idx to local layer_idx
@@ -355,7 +357,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
     torch.cuda.empty_cache()
     # Embeddings
     # -------------------
-    if dp_rank == 0 and cp_rank == 0:
+    if dp_rank == 0 and cp_rank == 0:  # models are identical across cp ranks
         # Embeddings
         # -------------------
         print_rank_0("collecting embeddings...")
