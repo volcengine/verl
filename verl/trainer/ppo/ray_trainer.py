@@ -425,12 +425,6 @@ class RayPPOTrainer(object):
             config=self.config.data,
         )
 
-        config_truncation = self.config.data.get('truncation', 'error')
-        if isinstance(self.train_dataset, RLHFDataset) and self.train_dataset.truncation != config_truncation:
-            raise ValueError(
-                f"train dataset truncation {self.train_dataset.truncation} must be the same as config {config_truncation}"
-            )
-
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -453,9 +447,6 @@ class RayPPOTrainer(object):
             processor=self.processor,
             config=self.config.data,
         )
-        if isinstance(self.val_dataset, RLHFDataset) and self.val_dataset.truncation != config_truncation:
-            raise ValueError(
-                f"val dataset truncation {self.val_dataset.truncation} must be the same as config {config_truncation}")
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
