@@ -10,7 +10,7 @@ numpy
 pandas
 datasets
 peft
-pyarrow>=15.0.0
+pyarrow>=19.0.0
 pybind11
 pylatexenc
 pylint==3.3.6
