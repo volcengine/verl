@@ -7,20 +7,38 @@
 > †University of Southern California, ▽University of Maryland  
 > [[Paper]](https://arxiv.org/abs/2504.05520)
 
-🧠 **Highlights**:
+### 🧠 Highlights
 - Dynamically adapts training difficulty using a lightweight curriculum scheduler
 - Compatible with standard RFT algorithms like PPO, GRPO, REINFORCE++
 - Improves both **sample efficiency** and **final accuracy** on math reasoning benchmarks
 - Up to **2× faster convergence** vs PPO baseline
 - Seamlessly integrated into `verl` without modifying reward functions or model architectures
 
-📦 **Preprocessed difficulty data:** [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
+### 📦 Preprocessed Data
+- **Difficulty annotations**: [DeepScaleR](https://huggingface.co/datasets/lime-nlp/DeepScaleR_Difficulty)
+- **Training data**: [verl/data](https://github.com/uscnlp-lime/verl/tree/main/verl/data)
 
-🗂️ **Preprocessed training data**: [Data](https://github.com/uscnlp-lime/verl/tree/main/verl/data)
+### 🚀 Usage
+To use AdaRFT, simply enable it in [ppo_trainer.yaml](https://github.com/uscnlp-lime/verl/blob/main/verl/trainer/config/ppo_trainer.yaml#L18-L24).
 
-✉️ Feel free to reach out to **Taiwei Shi (taiweish@usc.edu)** or **Jieyu Zhao (jieyuz@usc.edu)** with questions or collaborations!
+Alternatively, you can enable AdaRFT via command-line by setting the following flags:
+
+```bash
+python3 -m verl.trainer.main_ppo \
+    ... \
+    data.adarft.enable=True \
+    data.adarft.beta=0.5 \       # Target reward (success rate) the model aims to maintain
+    data.adarft.alpha=2 \        # Sensitivity of difficulty updates based on reward difference
+    data.adarft.eta=50 \         # Step size to scale reward signal to difficulty space
+    data.adarft.d_min=0 \        # Minimum difficulty bound
+    data.adarft.d_max=100 \      # Maximum difficulty bound
+    ...
+```
+
+Make sure your dataset includes difficulty scores (e.g., from [here](https://github.com/uscnlp-lime/verl/tree/main/verl/data)) for AdaRFT to function properly.
 
 ### 📚 Citation
+✉️ Feel free to reach out to **Taiwei Shi (taiweish@usc.edu)** or **Jieyu Zhao (jieyuz@usc.edu)** with questions or collaborations!
 
 ```bibtex
 @misc{shi2025efficient,
