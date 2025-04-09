@@ -3,13 +3,6 @@ name: e2e_gsm8k_dapo
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_gsm8k_dapo.yml
   pull_request:
     branches:
       - main
@@ -18,7 +11,10 @@ on:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k_dapo.yml
-      - "tests/e2e/*.sh"
+      - "tests/e2e/*dapo.sh"
+      - "!verl/trainer/main_ppo.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      - "!verl/workers/megatron_workers.py"
 
 # Declare permissions just read content.
 permissions:

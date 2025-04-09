@@ -268,7 +268,7 @@ class ActorRolloutRefWorker(Worker):
 
         # TODO: add more optimizer args into config
         if role == 'actor' and optim_config is not None:
-            from verl.utils.torch_functional import get_constant_schedule_with_warmup
+            from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
             actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
                                           lr=optim_config.lr,
                                           betas=optim_config.get('betas', (0.9, 0.999)),
@@ -276,14 +276,22 @@ class ActorRolloutRefWorker(Worker):
 
             total_steps = optim_config.get('total_training_steps', 0)
             num_warmup_steps = int(optim_config.get('lr_warmup_steps', -1))
+            warmup_style = optim_config.get('warmup_style', 'constant')
             if num_warmup_steps < 0:
                 num_warmup_steps_ratio = optim_config.get('lr_warmup_steps_ratio', 0.)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
             print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
-            actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer,
-                                                                   num_warmup_steps=num_warmup_steps)
+            if warmup_style == 'constant':
+                actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer,
+                                                                       num_warmup_steps=num_warmup_steps)
+            elif warmup_style == 'cosine':
+                actor_lr_scheduler = get_cosine_schedule_with_warmup(optimizer=actor_optimizer,
+                                                                     num_warmup_steps=num_warmup_steps,
+                                                                     num_training_steps=total_steps)
+            else:
+                raise NotImplementedError(f'Warmup style {warmup_style} is not supported')
         else:
             actor_optimizer = None
             actor_lr_scheduler = None
@@ -766,15 +774,23 @@ class CriticWorker(Worker):
 
         total_steps = config.optim.get('total_training_steps', 0)
         num_warmup_steps = int(config.optim.get('lr_warmup_steps', -1))
+        warmup_style = config.optim.get('warmup_style', 'constant')
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.get('lr_warmup_steps_ratio', 0.)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
-        from verl.utils.torch_functional import get_constant_schedule_with_warmup
-        critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer,
-                                                                num_warmup_steps=num_warmup_steps)
+        from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+        if warmup_style == 'constant':
+            critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer,
+                                                                    num_warmup_steps=num_warmup_steps)
+        elif warmup_style == 'cosine':
+            critic_lr_scheduler = get_cosine_schedule_with_warmup(optimizer=critic_optimizer,
+                                                                  num_warmup_steps=num_warmup_steps,
+                                                                  num_training_steps=total_steps)
+        else:
+            raise NotImplementedError(f'Warmup style {warmup_style} is not supported')
 
         return critic_module, critic_optimizer, critic_lr_scheduler
 
@@ -1134,6 +1150,16 @@ class RewardModelWorker(Worker):
         data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
+        else:
+            rm_input_ids = data.batch['input_ids']
+            rm_attention_mask = data.batch['attention_mask']
+            rm_position_ids = data.batch['position_ids']
+            rm_inputs = {
+                'input_ids': rm_input_ids,
+                'attention_mask': rm_attention_mask,
+                'position_ids': rm_position_ids
+            }
+            rm_data = DataProto.from_dict(rm_inputs)
 
         # Support all hardwares
         rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
