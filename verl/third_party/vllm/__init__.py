@@ -48,7 +48,7 @@ elif package_version == '0.6.3':
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine
     from .vllm_v_0_6_3 import parallel_state
-elif package_version == '0.6.3+rocm624':
+elif package_version == '0.6.3+rocm624' or package_version == '0.6.3+rocm634':
     vllm_version = '0.6.3'
     from .vllm_v_0_6_3.llm import LLM
     from .vllm_v_0_6_3.llm import LLMEngine
