@@ -36,7 +36,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
    ====== ============= ======== ======== ====== ====== ================================== ==============
    tag    model         task     resource train  infer  link                               Contributor     
    ====== ============= ======== ======== ====== ====== ================================== ==============
-   MIN    Qwen2-7B     GRPO     2*H800   fsdp   vllm   qwen2-7b_grpo_2_h800_fsdp_vllm_    Xiangyongan_
+   MIN    Qwen2-7B      GRPO     2*H800   fsdp   vllm   qwen2-7b_grpo_2_h800_fsdp_vllm_    Xiangyongan_
    ====== ============= ======== ======== ====== ====== ================================== ==============
 
 .. _qwen2-7b_grpo_2_h800_fsdp_vllm: ../../examples/tuning/7b/qwen2-7b_grpo_2_h800_fsdp_vllm.sh
