@@ -61,7 +61,7 @@ Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <http
         trainer.nnodes=1 \
         trainer.save_freq=-1 \
         trainer.test_freq=10 \
-        trainer.total_epochs=2 2>&1 | tee verl_demo.log
+        trainer.total_epochs=15 2>&1 | tee verl_demo.log
 
 选择SGLang为推理后端在多机上进行PPO训练
 -------------------
@@ -163,4 +163,4 @@ SGLang 同样支持在 IPv4 和 IPv6 的场景下运行 verl 中基于 RAY 的�
         trainer.nnodes=2\
         trainer.save_freq=-1 \
         trainer.test_freq=10 \
-        trainer.total_epochs=1 2>&1 | tee verl_demo.log
+        trainer.total_epochs=15 2>&1 | tee verl_demo.log
