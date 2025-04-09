@@ -447,7 +447,7 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.train_dataset = dataset_cls(
+        self.val_dataset = dataset_cls(
             data_files=self.config.data.val_files,
             tokenizer=self.tokenizer,
             processor=self.processor,
