@@ -100,7 +100,7 @@ class vLLMRollout(BaseRollout):
                              please increase max_num_batched_tokens or disable chunked prefill')
 
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        engine_kwargs = {} if 'engine_kwargs' not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
         # For each vLLM engine parameter, 
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value 
         #    (which can vary across different vLLM versions);
