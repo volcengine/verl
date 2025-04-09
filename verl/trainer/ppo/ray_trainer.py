@@ -591,11 +591,11 @@ class RayPPOTrainer(object):
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
-                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                n_max = max([int(name.split("_at_")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
                     if var_name == core_var and any(
                             metric_name.startswith(pfx)
-                            for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
+                            for pfx in ["mean", "std", "maj", "best"]) and f"_at_{n_max}/" in metric_name:
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"
