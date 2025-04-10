@@ -256,6 +256,7 @@ import torch.distributed
 from torch.distributed import new_group
 from torch.distributed._tensor import DTensor
 from typing import Dict, Iterable, Union, Tuple
+import numpy as np
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
