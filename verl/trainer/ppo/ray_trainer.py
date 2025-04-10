@@ -165,6 +165,14 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
 
 def calc_mini_batch_loss_token_nums(batch: DataProto, traj_mini_bsz: int, num_dp_ranks: int) -> list[int]:
+    """
+    NOTE: Be compatible with
+    
+    1. verl.workers.fsdp_workers.ActorRolloutRefWorker.update_actor
+    2. verl.workers.fsdp_workers.CriticWorker.update_critic
+
+    TODO: Calculate separate numbers if adopting different strategies for actor and critic
+    """
     response_mask = compute_response_mask(response_ids=batch.batch['responses'],
                                           attention_mask=batch.batch['attention_mask'])
 
