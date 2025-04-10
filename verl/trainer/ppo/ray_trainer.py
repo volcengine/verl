@@ -410,7 +410,7 @@ class RayPPOTrainer(object):
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.utils.import_utils import load_extern_type
-        if self.config.data.custom_cls.get("path", None):
+        if "custom_cls" in self.config.data and self.config.data.custom_cls.get("path", None) is not None:
             dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
             if not issubclass(dataset_cls, Dataset):
                 raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from "
