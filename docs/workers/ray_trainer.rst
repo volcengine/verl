@@ -23,10 +23,7 @@ then tokenize.
 
    self.train_dataset = RLHFDataset(data_files=self.config.data.train_files,
                                        tokenizer=self.tokenizer,
-                                       prompt_key=self.config.data.prompt_key,
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
+                                       config=self.config.data)
 
 Then, the dataloader will iterate the dataset under PPO mini batch size.
 
