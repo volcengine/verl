@@ -35,7 +35,7 @@ from verl.models.llama.megatron import ParallelLlamaForCausalLMRmPadPP
 from megatron.core import parallel_state as mpu
 from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core import tensor_parallel
-from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config
+from verl.utils.megatron_utils import get_model, init_megatron_optim_config, mcore_model_parallel_config
 from verl.utils.megatron.optimizer import get_megatron_optimizer
 
 from transformers import LlamaConfig
@@ -78,16 +78,7 @@ class Trainer(MegatronWorker):
                                          num_attention_heads=16,
                                          num_key_value_heads=16)
 
-        megatron_config = OmegaConf.create({
-            'sequence_parallel_enabled': True,
-            'param_dtype': 'bf16',
-            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
-            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
-            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
-            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
-        })
-
-        megatron_config = init_model_parallel_config(megatron_config)
+        megatron_config = mcore_model_parallel_config(sequence_parallel=True, params_dtype=torch.bfloat16)
         self.megatron_config = megatron_config
 
         def megatron_actor_model_provider(pre_process, post_process):

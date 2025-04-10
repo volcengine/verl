@@ -36,7 +36,7 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.megatron_utils import init_model_parallel_config
+from verl.utils.megatron_utils import mcore_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
 
@@ -94,7 +94,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
-                context_parallel_size=1,
+                context_parallel_size=self.config.actor.megatron.context_parallel_size,
                 expert_model_parallel_size=1,
                 nccl_communicator_config_path=None,
             )
@@ -299,17 +299,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
 
-        megatron_config = OmegaConf.create({
-            'sequence_parallel': self.config.actor.megatron.get('sequence_parallel', True),
-            'param_dtype': PrecisionType.to_str(self.param_dtype),
-            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
-            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
-            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
-            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
-            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
-        })
-
-        megatron_config = init_model_parallel_config(megatron_config)
+        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.actor.megatron.get(
+            'sequence_parallel', True),
+                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
 
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -501,7 +493,7 @@ class CriticWorker(MegatronWorker):
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
-                context_parallel_size=1,
+                context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=1,
                 nccl_communicator_config_path=None,
             )
@@ -526,7 +518,7 @@ class CriticWorker(MegatronWorker):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config, convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
         # Step 1: initialize the tokenizer
@@ -604,17 +596,9 @@ class CriticWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
 
-        megatron_config = OmegaConf.create({
-            'sequence_parallel': self.config.megatron.get('sequence_parallel', True),
-            'param_dtype': PrecisionType.to_str(self.param_dtype),
-            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
-            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
-            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
-            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
-            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
-        })
-
-        megatron_config = init_model_parallel_config(megatron_config)
+        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.megatron.get(
+            'sequence_parallel', True),
+                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
         self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
             megatron_config=megatron_config,
@@ -706,7 +690,7 @@ class RewardModelWorker(MegatronWorker):
                 virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
-                context_parallel_size=1,
+                context_parallel_size=self.config.megatron.context_parallel_size,
                 expert_model_parallel_size=1,
                 nccl_communicator_config_path=None,
             )
@@ -799,17 +783,9 @@ class RewardModelWorker(MegatronWorker):
 
         self.param_dtype = torch.bfloat16
 
-        megatron_config = OmegaConf.create({
-            'sequence_parallel': self.config.megatron.get('sequence_parallel', True),
-            'param_dtype': PrecisionType.to_str(self.param_dtype),
-            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
-            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
-            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
-            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
-            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
-        })
-
-        megatron_config = init_model_parallel_config(megatron_config)
+        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.megatron.get(
+            'sequence_parallel', True),
+                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
 
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,

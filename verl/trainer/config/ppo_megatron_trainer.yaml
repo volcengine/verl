@@ -64,6 +64,7 @@ actor_rollout_ref:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
       seed: 1
@@ -75,6 +76,7 @@ actor_rollout_ref:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
       seed: 1
@@ -145,6 +147,7 @@ critic:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
     seed: 1
@@ -169,6 +172,7 @@ reward_model:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
     seed: 1
