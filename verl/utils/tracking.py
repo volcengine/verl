@@ -289,87 +289,12 @@ class ValidationGenerationsLogger:
 class RolloutLogger:
 
     def log(self, loggers, samples, step, epoch=None, data_dir=None):
-        if 'wandb' in loggers:
-            self.log_generations_to_wandb(samples, step)
-        if 'swanlab' in loggers:
-            self.log_generations_to_swanlab(samples, step)
-        if 'mlflow' in loggers:
-            self.log_generations_to_mlflow(samples, step)
         if 'database' in loggers:
             if data_dir is None:
                 raise ValueError("Data directory must be provided for database logging")
             if epoch is None:
                 raise ValueError("Epoch number be provided for database logging")
             self.log_generations_to_database(samples, step, epoch, data_dir)
-
-    def log_generations_to_wandb(self, samples, step):
-        """Log samples to wandb as a table"""
-        import wandb
-
-        # Create column names for all samples
-        columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
-
-        if not hasattr(self, 'rollout_data_table'):
-            # Initialize the table on first call
-            self.rollout_data_table = wandb.Table(columns=columns)
-
-        # Create a new table with same columns and existing data
-        # Workaround for https://github.com/wandb/wandb/issues/2981#issuecomment-1997445737
-        new_table = wandb.Table(columns=columns, data=self.rollout_data_table.data)
-
-        # Add new row with all data
-        row_data = []
-        row_data.append(step)
-        for sample in samples:
-            row_data.extend(sample)
-
-        new_table.add_data(*row_data)
-
-        # Update reference and log
-        wandb.log({"rollout/generations": new_table}, step=step)
-        self.rollout_data_table = new_table
-
-    def log_generations_to_swanlab(self, samples, step):
-        """Log samples to swanlab as text"""
-        import swanlab
-
-        swanlab_text_list = []
-        for i, sample in enumerate(samples):
-            row_text = f"""
-            input: {sample[0]}
-            
-            ---
-            
-            output: {sample[1]}
-            
-            ---
-            
-            score: {sample[2]}
-            """
-            swanlab_text_list.append(swanlab.Text(row_text, caption=f"sample {i+1}"))
-
-        # Log to swanlab
-        swanlab.log({"rollout/generations": swanlab_text_list}, step=step)
-
-    def log_generations_to_mlflow(self, samples, step):
-        """Log validation generation to mlflow as artifacts"""
-        #https://mlflow.org/docs/latest/api_reference/python_api/mlflow.html?highlight=log_artifact#mlflow.log_artifact
-
-        import mlflow
-        import tempfile
-        import json
-        try:
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                rollout_data_file = Path(tmp_dir, f"rollout_{step}.json")
-                row_data = []
-                for sample in samples:
-                    data = {"input": sample[0], "output": sample[1], "score": sample[2]}
-                    row_data.append(data)
-                with open(rollout_data_file, "w") as file:
-                    json.dump(row_data, file)
-                mlflow.log_artifact(rollout_data_file)
-        except Exception as e:
-            print(f"WARNING: save validation generation file to mlflow failed with error {e}")
 
     def log_generations_to_database(self, samples, step, epoch, data_dir):
         """Log the rollout samples to a parquet file at data_dir"""
