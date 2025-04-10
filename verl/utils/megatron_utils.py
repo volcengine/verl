@@ -26,6 +26,7 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core.transformer import TransformerConfig
+from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from omegaconf import DictConfig
@@ -181,6 +182,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
+        context_parallel_size=mpu.get_context_parallel_world_size(),
         overlap_p2p_comm=overlap_p2p_comm,
         batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
@@ -192,6 +194,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, 'hidden_dropout', 0.0),
         add_qkv_bias=qkv_bias,
+        attention_backend=AttnBackend.flash,
         bf16=dt is torch.bfloat16)
 
     return transformer_config
@@ -210,18 +213,21 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     return config
 
 
-def init_model_parallel_config(config: DictConfig) -> ModelParallelConfig:
-    # TODO(sgm): check how to disable megatron timers
-    timers = None
-    return ModelParallelConfig(tensor_model_parallel_size=config.get('tensor_model_parallel_size'),
-                               pipeline_model_parallel_size=config.get('pipeline_model_parallel_size'),
-                               virtual_pipeline_model_parallel_size=config.get('virtual_pipeline_model_parallel_size'),
-                               sequence_parallel=config.get('sequence_parallel'),
-                               params_dtype=PrecisionType.to_dtype(config.get('param_dtype')),
-                               pipeline_dtype=PrecisionType.to_dtype(config.get('param_dtype')),
-                               bf16=True,
-                               fp16=False,
-                               timers=timers)
+def mcore_model_parallel_config(
+    sequence_parallel: bool,
+    params_dtype: torch.dtype,
+) -> ModelParallelConfig:
+    return ModelParallelConfig(
+        tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
+        pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
+        virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
+        context_parallel_size=mpu.get_context_parallel_world_size(),
+        sequence_parallel=sequence_parallel,
+        params_dtype=params_dtype,
+        pipeline_dtype=params_dtype,
+        bf16=True,
+        fp16=False,
+        timers=None)
 
 
 def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
@@ -279,8 +285,10 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
         return os.path.join(checkpoint_path, "optim", "optim.pt")
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     tp_rank = mpu.get_tensor_model_parallel_rank()
+    cp_rank = mpu.get_context_parallel_rank()
+    dp_rank = mpu.get_data_parallel_rank()
     #TODO: support ep
-    return os.path.join(checkpoint_path, f"optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}.pt")
+    return os.path.join(checkpoint_path, f"optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
 
 
 def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=False):
