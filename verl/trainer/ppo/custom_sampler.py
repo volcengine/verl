@@ -19,7 +19,7 @@ class CurriculumSampler(Sampler):
             # Find the batch that best matches the target difficulty
             selected_indices = self._select_closest_to_target()
             batch.extend(selected_indices)
-            yield selected_indices
+            yield [int(i) for i in selected_indices]
     
     def _select_closest_to_target(self):
         # Compute the absolute difference from target difficulty for each sample
