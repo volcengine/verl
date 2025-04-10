@@ -90,13 +90,14 @@ class RewardManager():
 import ray
 import hydra
 from split_monkey_patch import fit
+import os
 
 
 @hydra.main(config_path='config', config_name='ppo_trainer_split', version_base=None)
 def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}}, num_cpus=1)
 
     ray.get(main_task.remote(config))
 
