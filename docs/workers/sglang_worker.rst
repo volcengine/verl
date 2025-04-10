@@ -6,7 +6,7 @@ Introduction
 ------------
 `SGLang <https://github.com/sgl-project/sglang>`_ is an open-source state-of-the-art inference service engine, fully adopted by xAI to support all inference needs of Grok during research and serving processes.
 
-Currently, veRL fully supports using SGLang as the inference engine during the rollout phase. As a rollout engine, SGLang is completely consistent with vLLM, including memory saving and multi-node rollout features. After installing veRL and SGLang, simply add ``actor_rollout_ref.rollout.name=sglang`` at startup to seamlessly switch between the two inference frameworks.
+Currently, verl fully supports using SGLang as the inference engine during the rollout phase. As a rollout engine, SGLang is completely consistent with vLLM, including memory saving and multi-node rollout features. After installing verl and SGLang, simply add ``actor_rollout_ref.rollout.name=sglang`` at startup to seamlessly switch between the two inference frameworks.
 
 In addition, the SGLang team is actively working on supporting features such as Multi-Turn Agentic RL, VLM RLHF, Server-Based RLHF, and Partial Rollout. You can track the related development progress in the `Tracking Roadmap <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/74>`_.
 
@@ -68,7 +68,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
 
 Using SGLang as the Inference Backend for PPO Training Across Multiple Machines
 ------------------------------------------------------------------------------
-SGLang also supports running veRL's RAY-based cross-machine inference in IPv4 and IPv6 scenarios. In the script below, we use TP=16 for cross-machine inference. Suppose we have two interconnected machines: node0 with IP 10.94.16.4 and node1 with IP 10.94.16.5.
+SGLang also supports running verl's RAY-based cross-machine inference in IPv4 and IPv6 scenarios. In the script below, we use TP=16 for cross-machine inference. Suppose we have two interconnected machines: node0 with IP 10.94.16.4 and node1 with IP 10.94.16.5.
 
 1. Start Ray on node0:
 
