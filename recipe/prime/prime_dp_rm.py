@@ -212,8 +212,8 @@ class DataParallelPRIMERewardModel:
             max_token_len = data.meta_info['max_token_len'] * self.ulysses_sequence_parallel_size
             micro_data_chunks, indices = get_uniform_data_chunks(data=selected_data, max_token_len=max_token_len)
         else:
-            num_micro_batches = len(batch) // micro_batch_size
-            micro_data_chunks = batch.chunk(num_micro_batches)
+            num_micro_batches = len(selected_data) // micro_batch_size
+            micro_data_chunks = selected_data.chunk(num_micro_batches)
 
         rm_scores_lst = []
         q_lst = []
