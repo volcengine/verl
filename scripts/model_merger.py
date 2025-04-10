@@ -28,7 +28,6 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--backend', type=str, required=True, help="The backend of the model", choices=["fsdp", "megatron"])
 parser.add_argument('--tie-word-embedding', action='store_true', help="Whether to tie word embedding weights")
