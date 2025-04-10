@@ -14,9 +14,9 @@
 
 from omegaconf import ListConfig
 import os
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Callable
 import copy
-import pandas as pd
+import datasets
 from collections import defaultdict
 
 import torch
@@ -81,15 +81,15 @@ class RLHFDataset(Dataset):
                  parquet_files: Union[str, List[str]],
                  tokenizer: PreTrainedTokenizer,
                  processor: Optional[ProcessorMixin] = None,
-                 prompt_key='prompt',
-                 image_key='images',
-                 max_prompt_length=1024,
-                 filter_prompts=True,
-                 cache_dir='~/.cache/verl/rlhf',
-                 chat_template_func=None,
-                 return_raw_chat=False,
-                 truncation='error',
-                 filter_overlong_prompts=False):
+                 prompt_key: str = 'prompt',
+                 image_key: str = 'images',
+                 max_prompt_length: int = 1024,
+                 cache_dir: str = '~/.cache/verl/rlhf',
+                 chat_template_func: Optional[Callable] = None,
+                 return_raw_chat: bool = False,
+                 truncation: str = 'error',
+                 filter_overlong_prompts: bool = False,
+                 num_workers: Optional[int] = None):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
@@ -102,12 +102,15 @@ class RLHFDataset(Dataset):
         self.prompt_key = prompt_key
         self.image_key = image_key
         self.max_prompt_length = max_prompt_length
-        self.filter_prompts = filter_prompts
 
         self.return_raw_chat = return_raw_chat
         self.chat_template_func = chat_template_func
         self.truncation = truncation
         self.filter_overlong_prompts = filter_overlong_prompts
+        if num_workers is None:
+            self.num_workers = max(1, os.cpu_count() // 4)
+        else:
+            self.num_workers = min(num_workers, os.cpu_count())
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -125,9 +128,9 @@ class RLHFDataset(Dataset):
         dataframes = []
         for parquet_file in self.parquet_files:
             # read parquet files and cache
-            dataframe = pd.read_parquet(parquet_file)
+            dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
-        self.dataframe = pd.concat(dataframes)
+        self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f'dataset len: {len(self.dataframe)}')
 
@@ -135,9 +138,11 @@ class RLHFDataset(Dataset):
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
-            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-                tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                                 axis=1)]
+            self.dataframe = self.dataframe.filter(
+                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
+                               ) <= self.max_prompt_length,
+                num_proc=self.num_workers,
+                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens")
 
             print(f'filter dataset len: {len(self.dataframe)}')
 
@@ -157,7 +162,7 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        row_dict: dict = self.dataframe.iloc[item].to_dict()
+        row_dict: dict = self.dataframe[item]
 
         chat = row_dict.pop(self.prompt_key)
 
@@ -214,7 +219,7 @@ class RLHFDataset(Dataset):
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat.tolist()
+            row_dict['raw_prompt'] = chat
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)

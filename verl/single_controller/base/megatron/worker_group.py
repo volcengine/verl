@@ -47,5 +47,10 @@ class MegatronWorkerGroup(WorkerGroup):
         assert self._megatron_global_info is not None, "MegatronWorkerGroup._megatron_global_info must be initialized"
         return self._megatron_global_info.pp_size
 
+    @property
+    def cp_size(self):
+        assert self._megatron_global_info is not None, "MegatronWorkerGroup._megatron_global_info must be initialized"
+        return self._megatron_global_info.cp_size
+
     def get_megatron_global_info(self):
         return self._megatron_global_info

@@ -3,13 +3,6 @@ name: e2e_gsm8k
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
-  push:
-    branches:
-      - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_gsm8k.yml
   pull_request:
     branches:
       - main
@@ -18,7 +11,8 @@ on:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k.yml
-      - "tests/e2e/*.sh"
+      - "tests/e2e/*gsm8k*.sh"
+      - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

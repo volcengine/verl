@@ -114,8 +114,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             pp_size = mpu.get_pipeline_model_parallel_world_size()
             tp_rank = mpu.get_tensor_model_parallel_rank()
             tp_size = mpu.get_tensor_model_parallel_world_size()
+            cp_rank = mpu.get_context_parallel_rank()
+            cp_size = mpu.get_context_parallel_world_size()
             rng_state_list = ShardedObject('rng_state',
-                                           rng_state_list, (pp_size, tp_size), (pp_rank, tp_rank),
+                                           rng_state_list, (pp_size, tp_size, cp_size), (pp_rank, tp_rank, cp_rank),
                                            replica_id=mpu.get_data_parallel_rank(with_context_parallel=True))
 
         return rng_state_list
@@ -125,6 +127,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             pipeline_parallel=None,
                             tensor_rank=None,
                             pipeline_rank=None,
+                            cp_rank=None,
                             expert_parallel=None,
                             expert_rank=None,
                             return_base_dir=True,
@@ -137,6 +140,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             tensor_rank = mpu.get_tensor_model_parallel_rank()
         if pipeline_rank is None:
             pipeline_rank = mpu.get_pipeline_model_parallel_rank()
+        if cp_rank is None:
+            cp_rank = mpu.get_context_parallel_rank()
         if expert_parallel is None:
             expert_parallel = (mpu.get_expert_model_parallel_world_size() > 1)
         if expert_rank is None:
@@ -145,6 +150,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Use both the tensor and pipeline MP rank. If using the distributed
         # optimizer, then the optimizer's path must additionally include the
         # data parallel rank.
+
+        # due to the fact that models are identical across cp ranks, cp rank is not used in the checkpoint path
         if not pipeline_parallel:
             common_path = os.path.join(checkpoints_path, f'mp_rank_{tensor_rank:02d}')
         else:

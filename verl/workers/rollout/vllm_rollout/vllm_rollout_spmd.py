@@ -24,6 +24,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
+import os
 import numpy as np
 from typing import List
 from contextlib import contextmanager
@@ -86,7 +87,6 @@ class vLLMRollout(BaseRollout):
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
-            import os
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             train_tp = kwargs.get('train_tp', None)
@@ -106,6 +106,7 @@ class vLLMRollout(BaseRollout):
                              please increase max_num_batched_tokens or disable chunked prefill')
 
         trust_remote_code = kwargs.get('trust_remote_code', False)
+        load_format = 'dummy' if config.load_format.startswith('dummy') else config.load_format
 
         self.inference_engine = LLM(
             model=model_path,
@@ -119,11 +120,13 @@ class vLLMRollout(BaseRollout):
             disable_mm_preprocessor_cache=True,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
+            load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
+            seed=int(os.getenv("RANK", "0")) // tensor_parallel_size,
         )
 
         # Offload vllm model to reduce peak memory usage
