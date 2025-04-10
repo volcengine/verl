@@ -83,6 +83,8 @@ class FSDPSFTTrainer(object):
     def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh):
         self.config = config
         self.optim_bwd_hook = True
+        self.optim_dict = None
+        self.lr_scheduler = None
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -106,6 +108,8 @@ class FSDPSFTTrainer(object):
         self._build_dataloader()
         # build model
         self._build_model_optimizer()
+
+        self._build_lr_scheduler()
 
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
@@ -271,10 +275,10 @@ class FSDPSFTTrainer(object):
 
         self.optimizer = None
         if self.optim_bwd_hook:
-            optim_dict = {
+            self.optim_dict = {
                 param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
             }
-            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=optim_dict)
+            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict)
         else:
             self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
                                         lr=self.config.optim.lr,
@@ -291,12 +295,35 @@ class FSDPSFTTrainer(object):
                 f'Number of steps/epoch {self.steps_per_epoch}, number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}'
             )
 
+        
+    def _build_lr_scheduler(self):
+
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
 
-        if not self.optim_bwd_hook:
-            self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer=self.optimizer,
-                                                                num_warmup_steps=num_warmup_steps,
-                                                                num_training_steps=self.total_steps)
+        if self.optim_bwd_hook:
+            optimizer = next(iter(self.optim_dict.values()))
+        else:
+            optimizer = self.optimizer
+        
+        self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer,
+                                                            num_warmup_steps=num_warmup_steps,
+                                                            num_training_steps=self.total_steps)
+
+        if self.optim_bwd_hook:
+            original_step = self.lr_scheduler.step
+
+            def custom_step(epoch=None):
+                if epoch is None:
+                    original_step()
+                else:
+                    original_step(epoch)
+                new_lr = self.lr_scheduler.get_last_lr()[0]
+                for opt in self.optim_dict.values():
+                    for param_group in opt.param_groups:
+                        param_group["lr"] = new_lr 
+        
+            self.lr_scheduler.step = custom_step
+        
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -426,13 +453,13 @@ class FSDPSFTTrainer(object):
                 self.optimizer.step()
 
         log_gpu_memory_usage('After optimizer step', logger=logger)
-        if not self.optim_bwd_hook:
-            self.lr_scheduler.step()
+        
+        self.lr_scheduler.step()
 
-            # reduce loss across dp ranks
-            lr = self.lr_scheduler.get_last_lr()[0]
-        else:
-            lr = self.config.optim.lr
+        # reduce loss across dp ranks
+        lr = self.lr_scheduler.get_last_lr()[0]
+
+        print("learning rate: {lr}")
 
         log_gpu_memory_usage('After offload weights', logger=logger)
 
