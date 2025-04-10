@@ -457,30 +457,28 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
-        if self.tp_size == 1:
-            return data
+        # prompts are identical for each training tp. We select for each inference tp
+        from megatron.core import mpu
+        group = mpu.get_pipeline_model_parallel_group()
+        group_size = torch.distributed.get_world_size(group=group)
+        assert group_size == mpu.get_pipeline_model_parallel_world_size()
 
-        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            group = vllm_ps.get_tensor_model_parallel_group()
-        else:
-            group = vllm_ps.get_tensor_model_parallel_group().device_group
-
-        all_gather_data_proto(data=data, process_group=group)
+        if group_size > 1:
+            prev_device = data.batch.device
+            data.batch = data.batch.cuda(device=torch.cuda.current_device())
+            data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=group, dim=0)
+            data.batch = data.batch.to(prev_device)
+            # all gather non_tensor_batch
+            all_non_tensor_batch = [None for _ in range(group_size)]
+            torch.distributed.all_gather_object(all_non_tensor_batch, data.non_tensor_batch, group=group)
+            data.non_tensor_batch = {
+                k: np.concatenate([d[k] for d in all_non_tensor_batch]) for k in data.non_tensor_batch
+            }
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
-        if self.tp_size == 1:
-            return data
-
-        # all gather batch among pp group
-        from megatron.core import mpu
-        meta_info = data.meta_info
-        if meta_info.get('allgather_pp_output', True):
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=mpu.get_pipeline_model_parallel_world_size(),
-                                                group=mpu.get_pipeline_model_parallel_group(),
-                                                dim=0)
-        return data.chunk(chunks=self.tp_size)[self.tp_rank]
+        # MEGATRON_PP_AS_DP_PROTO will only collect DP group
+        return data
 
 
 """

@@ -6,7 +6,7 @@ mkdir -p $HOME/models
 
 huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir $HOME/models/deepseek-ai/deepseek-coder-1.3b-instruct
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\

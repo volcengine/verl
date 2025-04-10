@@ -1,7 +1,5 @@
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
-
 huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir $HOME/models/deepseek-ai/deepseek-coder-1.3b-instruct
 
 python3 -m verl.trainer.main_ppo \

@@ -1,7 +1,5 @@
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
-
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/gsm8k/train.parquet \
