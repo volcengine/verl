@@ -19,9 +19,9 @@
 - **Training data**: [verl/data](https://github.com/uscnlp-lime/verl/tree/main/verl/data)
 
 ### 🚀 Usage
-To use AdaRFT, simply enable it in [ppo_trainer.yaml](https://github.com/uscnlp-lime/verl/blob/main/verl/trainer/config/ppo_trainer.yaml#L18-L24).
+To use AdaRFT, you can simply use our example [script](https://github.com/uscnlp-lime/verl/blob/main/examples/adarft/run_qwen2.5-1.5b_seq_balance.sh). 
 
-Alternatively, you can enable AdaRFT via command-line by setting the following flags:
+You can also enable it in [ppo_trainer.yaml](https://github.com/uscnlp-lime/verl/blob/main/verl/trainer/config/ppo_trainer.yaml#L18-L24) or via command-line by setting the following flags:
 
 ```bash
 python3 -m verl.trainer.main_ppo \
