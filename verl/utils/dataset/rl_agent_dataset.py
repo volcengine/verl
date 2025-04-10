@@ -288,7 +288,7 @@ def get_model_generated_mask_and_tokenwise_reward(
     """
     assert agent_prompt_style == 'qwen2_5', f"Agent prompt style {agent_prompt_style} is not supported"
     model_generated_mask = torch.zeros_like(attention_mask)
-    tokenwise_reward = torch.zeros_like(input_ids)
+    tokenwise_reward = torch.zeros_like(input_ids).float()
     assert len(action_turn) == len(reward_by_action_turn)
 
     bos_token_id = tokenizer.convert_tokens_to_ids('<|im_start|>')

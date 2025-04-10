@@ -48,7 +48,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     # reward offset      [- - - - 0 0 0 0 0 r - - - 0 0 r - -]
     
     model_generated_mask = data.batch['model_generated_mask'][:, 1:]
-    token_level_scores = data.batch['token_level_scores'][:, 1:]
+    token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
 
     # compute kl between ref_policy and current policy
@@ -554,10 +554,10 @@ class AgentPPOTrainer(RayPPOTrainer):
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                    print(f'batch batch keys: {batch.batch.keys()}')
-                    print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
-                    print(f'batch meta_info: {batch.meta_info}')
-                    print(f"Class of self.actor_rollout_wg: {type(self.actor_rollout_wg)}")
+                    # print(f'batch batch keys: {batch.batch.keys()}')
+                    # print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
+                    # print(f'batch meta_info: {batch.meta_info}')
+                    # print(f"Class of self.actor_rollout_wg: {type(self.actor_rollout_wg)}")
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
@@ -576,10 +576,10 @@ class AgentPPOTrainer(RayPPOTrainer):
                         batch = batch.union(old_log_prob)
 
                     # old_log_probs will has one less column as it's p(a|s)
-                    print(f"old_log_prob old_log_probs shape: {old_log_prob.batch['old_log_probs'].shape} / {batch.batch['input_ids'].shape}")
-                    print(f'old_log_prob batch keys: {old_log_prob.batch.keys()}')
-                    print(f'old_log_prob non_tensor_batch keys: {old_log_prob.non_tensor_batch.keys()}')
-                    print(f'old_log_prob meta_info: {old_log_prob.meta_info}')
+                    # print(f"old_log_prob old_log_probs shape: {old_log_prob.batch['old_log_probs'].shape} / {batch.batch['input_ids'].shape}")
+                    # print(f'old_log_prob batch keys: {old_log_prob.batch.keys()}')
+                    # print(f'old_log_prob non_tensor_batch keys: {old_log_prob.non_tensor_batch.keys()}')
+                    # print(f'old_log_prob meta_info: {old_log_prob.meta_info}')
 
                     if self.use_reference_policy:
                         # compute reference log_prob
@@ -590,10 +590,10 @@ class AgentPPOTrainer(RayPPOTrainer):
                             batch = batch.union(ref_log_prob)
 
                         # ref_log_probs will has one less column as it's p(a|s)
-                        print(f"ref_log_prob ref_log_prob shape: {ref_log_prob.batch['ref_log_prob'].shape} / {batch.batch['input_ids'].shape}")
-                        print(f'ref_log_prob batch keys: {ref_log_prob.batch.keys()}')
-                        print(f'ref_log_prob non_tensor_batch keys: {ref_log_prob.non_tensor_batch.keys()}')
-                        print(f'ref_log_prob meta_info: {ref_log_prob.meta_info}')
+                        # print(f"ref_log_prob ref_log_prob shape: {ref_log_prob.batch['ref_log_prob'].shape} / {batch.batch['input_ids'].shape}")
+                        # print(f'ref_log_prob batch keys: {ref_log_prob.batch.keys()}')
+                        # print(f'ref_log_prob non_tensor_batch keys: {ref_log_prob.non_tensor_batch.keys()}')
+                        # print(f'ref_log_prob meta_info: {ref_log_prob.meta_info}')
 
                     # compute values
                     if self.use_critic:
@@ -604,10 +604,10 @@ class AgentPPOTrainer(RayPPOTrainer):
                             batch = batch.union(values)
 
                         # Values will has one less column as it is only on the states
-                        print(f'values values shape: {values.batch["values"].shape} / {batch.batch["input_ids"].shape}')
-                        print(f'values batch keys: {values.batch.keys()}')
-                        print(f'values non_tensor_batch keys: {values.non_tensor_batch.keys()}')
-                        print(f'values meta_info: {values.meta_info}')
+                        # print(f'values values shape: {values.batch["values"].shape} / {batch.batch["input_ids"].shape}')
+                        # print(f'values batch keys: {values.batch.keys()}')
+                        # print(f'values non_tensor_batch keys: {values.non_tensor_batch.keys()}')
+                        # print(f'values meta_info: {values.meta_info}')
 
                     with _timer('adv', timing_raw):
                         # compute scores. The raw reward are computed provided by the environment, and is already stored in the batch
@@ -617,7 +617,7 @@ class AgentPPOTrainer(RayPPOTrainer):
 
                         # rename it for the ray trainer convention
                         # I didn't directly name it `token_level_scores` to test any potential issues when integrating with the functions originally designed in ray trainer (for single turn of response at last turn).
-                        batch.batch['token_level_scores'] = batch.batch['tokenwise_reward'] 
+                        batch.batch['token_level_scores'] = batch.batch['tokenwise_reward'][:, 1:]
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
@@ -628,7 +628,7 @@ class AgentPPOTrainer(RayPPOTrainer):
                         else:
                             # get an offset to align with the log_prob etc.
                             # see more details in apply_kl_penalty
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores'][:, 1:]
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
                         
                         # compute advantages, executed on the driver process
                         batch = compute_advantage_agent(batch,
@@ -636,9 +636,9 @@ class AgentPPOTrainer(RayPPOTrainer):
                                                         gamma=self.config.algorithm.gamma,
                                                         lam=self.config.algorithm.lam,
                                                         num_repeat=self.config.actor_rollout_ref.rollout.n)
-                    print(f'batch batch keys: {batch.batch.keys()}')
-                    print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
-                    print(f'batch meta_info: {batch.meta_info}')
+                    # print(f'batch batch keys: {batch.batch.keys()}')
+                    # print(f'batch non_tensor_batch keys: {batch.non_tensor_batch.keys()}')
+                    # print(f'batch meta_info: {batch.meta_info}')
 
                     # update critic
                     if self.use_critic:
@@ -649,6 +649,48 @@ class AgentPPOTrainer(RayPPOTrainer):
                             critic_output = self.critic_wg.update_critic(critic_input_batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
-                    print(f'critic_output_metrics: {critic_output_metrics}')
-                return
-        
+                        print(f'critic_output_metrics: {critic_output_metrics}')
+
+                    # implement critic warmup
+                    if self.config.trainer.critic_warmup <= self.global_steps:
+                        # update actor
+                        with _timer('update_actor', timing_raw):
+                            actor_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'ref_log_prob', 'advantages'])
+                            actor_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
+                            actor_input_batch.batch['response_mask'] = batch.batch['model_generated_mask'][:, 1:]
+                            actor_output = self.actor_rollout_wg.update_actor(actor_input_batch)
+                        actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
+                        metrics.update(actor_output_metrics)
+                        print(f'actor_output_metrics: {actor_output_metrics}')
+                    
+                    # validate
+                    if self.config.trainer.test_freq > 0 and \
+                        (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
+                        with _timer('testing', timing_raw):
+                            val_metrics: dict = self._validate()
+                            if is_last_step:
+                                last_val_metrics = val_metrics
+                        metrics.update(val_metrics)
+                    
+                    if self.config.trainer.save_freq > 0 and ( is_last_step or \
+                            self.global_steps % self.config.trainer.save_freq == 0):
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+
+                # collect metrics
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                # TODO: implement actual tflpo and theoretical tflpo
+                n_gpus = self.resource_pool_manager.get_n_gpus()
+                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+
+                # TODO: make a canonical logger that supports various backend
+                logger.log(data=metrics, step=self.global_steps)
+
+                if is_last_step:
+                    pprint(f'Final validation metrics: {last_val_metrics}')
+                    progress_bar.close()
+                    return
+
+                progress_bar.update(1)
+                self.global_steps += 1
