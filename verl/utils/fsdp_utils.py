@@ -17,7 +17,7 @@ import itertools
 import json
 import math
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Dict
 
 import torch
@@ -28,7 +28,13 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-
+from packaging import version
+if version.parse(torch.__version__) >= version.parse('2.6'):
+    from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy
+elif version.parse(torch.__version__) >= version.parse('2.4'):
+    from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy
+else:
+    fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy = None, None, None, None
 
 def init_fn(x: torch.nn.Module):
     if torch.distributed.get_rank() != 0:
@@ -111,6 +117,10 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
 
 @torch.no_grad()
 def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
+    if fsdp_version(model) == 2: 
+        offload_fsdp2_model_to_cpu(model, empty_cache)
+        return
+
     assert isinstance(model, FSDP)
     # lazy init FSDP model
     _lazy_init(model, model)
@@ -127,9 +137,18 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
     if empty_cache:
         torch.cuda.empty_cache()
 
+@torch.no_grad()
+def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
+    model.to('cpu', non_blocking=True)
+    if empty_cache:
+       torch.cuda.empty_cache()
 
 @torch.no_grad()
 def load_fsdp_model_to_gpu(model: FSDP):
+    if fsdp_version(model) == 2:
+        load_fsdp2_model_to_gpu(model)
+        return
+    
     assert isinstance(model, FSDP)
     # lazy init FSDP model
     _lazy_init(model, model)
@@ -143,6 +162,10 @@ def load_fsdp_model_to_gpu(model: FSDP):
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
 
+@torch.no_grad()
+def load_fsdp2_model_to_gpu(model):
+    device_id = torch.cuda.current_device()
+    model.to(f"cuda:{device_id}", non_blocking=True)
 
 @torch.no_grad()
 def offload_fsdp_optimizer(optimizer):
@@ -333,3 +356,46 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
         return sub_mod
 
     return init_fn
+
+
+def fsdp_version(model):
+    if isinstance(model, FSDP):
+        return 1
+    elif isinstance(model, FSDPModule):
+        return 2
+    else:
+        return 0
+    
+
+def get_fsdp_state_ctx(model, state_type, state_cfg, optim_cfg):
+    if fsdp_version(model) == 1:
+        return FSDP.state_dict_type(model, state_type, state_cfg, optim_cfg)
+    else:
+        return nullcontext()
+
+
+def fsdp2_sharding_strategy(device_mesh):
+    sharding_strategy = False # zero1,2
+    if device_mesh.ndim == 1:
+        sharding_strategy = True # zero3
+    elif device_mesh.ndim == 2:
+        sharding_strategy = torch.cuda.device_count() # hsdp
+    else:
+        raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
+    return sharding_strategy
+
+
+def apply_fsdp2(model, fsdp_kwargs):
+    '''model: AutoModelForCausalLM
+    '''
+    assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
+
+    fsdp_mesh = fsdp_kwargs.get('mesh')
+
+    # refer torchtitan
+    for idx, layer in enumerate(model.model.layers):
+        reshard_after_forward = fsdp2_sharding_strategy(fsdp_mesh)
+        if idx == len(model.model.layers) - 1:
+            reshard_after_forward = False
+        fully_shard(layer, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)
+    fully_shard(model, **fsdp_kwargs, reshard_after_forward=False)

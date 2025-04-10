@@ -30,7 +30,7 @@ actor_rollout_ref:
     use_remove_padding: False
     use_liger: False
   actor:
-    strategy: fsdp  # This is for backward-compatibility
+    strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null

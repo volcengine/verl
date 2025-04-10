@@ -51,7 +51,7 @@ from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_ava
 from .base import BaseShardingManager
 
 # from vllm.distributed import parallel_state as sglang_ps
-
+from verl.utils.fsdp_utils import fsdp_version
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -81,9 +81,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # Full params
         self.full_params = full_params
-        if full_params:
-            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
-        else:
+        if full_params and fsdp_version(self.module) == 1:
+            FSDP.set_state_dict_type(
+                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
+            )
+        elif fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(
                 self.module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
