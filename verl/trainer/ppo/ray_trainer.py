@@ -426,16 +426,15 @@ class RayPPOTrainer(object):
         if self.config.data.adarft.enable:
             # Use CurriculumSampler
             from .custom_sampler import CurriculumSampler
-            self.sampler = CurriculumSampler(
+            sampler = CurriculumSampler(
                 data_source=self.train_dataset,
                 batch_size=self.config.data.train_batch_size,
                 target_difficulty=0
             )       
-            self.train_dataloader = DataLoader(
-                dataset=self.train_dataset,
-                collate_fn=collate_fn,
-                batch_sampler=self.sampler  # Custom batch sampler providing batches of indices
-            )
+            self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+                                                       num_workers=8,
+                                                       collate_fn=collate_fn,
+                                                       batch_sampler=sampler)
         else:
             elif self.config.data.shuffle:
                 train_dataloader_generator = torch.Generator()
