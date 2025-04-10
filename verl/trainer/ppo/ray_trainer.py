@@ -27,6 +27,7 @@ from copy import deepcopy
 from collections import defaultdict
 from functools import partial
 from tqdm import tqdm
+from datetime import datetime
 
 import ray
 import numpy as np
@@ -232,9 +233,11 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
 @contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
+    print(f'{name} starts at {datetime.now()}')
     with Timer(name=name, logger=None) as timer:
         yield
     timing_raw[name] = timer.last
+    print(f'{name} ends at {datetime.now()} after {timer.last} seconds')
 
 
 class RayPPOTrainer(object):
