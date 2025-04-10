@@ -90,7 +90,6 @@ class RewardManager():
 import ray
 import hydra
 from split_monkey_patch import fit
-import os
 
 
 @hydra.main(config_path='config', config_name='ppo_trainer_split', version_base=None)

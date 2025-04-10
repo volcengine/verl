@@ -30,7 +30,6 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 from .prime_ray_trainer import RayPRIMETrainer
 
-import os
 import ray
 import hydra
 
