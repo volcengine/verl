@@ -319,29 +319,26 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
 
 
 def load_megatron_model_weights(config,
-                               model_config,
-                               parallel_model,
-                               params_dtype,
-                               is_value_model=False,
-                               local_cache_path='~/.cache/verl/rlhf'):
+                                model_config,
+                                parallel_model,
+                                params_dtype,
+                                is_value_model=False,
+                                local_cache_path='~/.cache/verl/rlhf'):
     """Load weights for verl customized model."""
-    architectures, model, state_dict, is_value_model = _load_hf_model(
-        config, model_config, is_value_model, local_cache_path
-    )
+    architectures, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model,
+                                                                      local_cache_path)
 
     from verl.models.weight_loader_registry import get_weight_loader
     print(f'before weight loader: architectures = {architectures}...')
     for arch in architectures:
         print(f'call weight loader arch = {arch}, model config = {model.config}')
         weight_loader = get_weight_loader(arch)
-        weight_loader(
-            state_dict=state_dict,
-            wrapped_models=parallel_model,
-            config=model.config,
-            params_dtype=params_dtype,
-            is_value_model=is_value_model,
-            tie_word_embeddings=model_config.tie_word_embeddings
-        )
+        weight_loader(state_dict=state_dict,
+                      wrapped_models=parallel_model,
+                      config=model.config,
+                      params_dtype=params_dtype,
+                      is_value_model=is_value_model,
+                      tie_word_embeddings=model_config.tie_word_embeddings)
     return model.config
 
 
@@ -352,18 +349,14 @@ def load_megatron_gptmodel_weights(config,
                                    is_value_model=False,
                                    local_cache_path='~/.cache/verl/rlhf'):
     """Load weights for mcore GPT model."""
-    _, model, state_dict, is_value_model = _load_hf_model(
-        config, model_config, is_value_model, local_cache_path
-    )
+    _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)
 
     from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
-    load_state_dict_to_megatron_gptmodel(
-        state_dict=state_dict,
-        wrapped_models=parallel_model,
-        config=model.config,
-        params_dtype=params_dtype,
-        is_value_model=is_value_model
-    )
+    load_state_dict_to_megatron_gptmodel(state_dict=state_dict,
+                                         wrapped_models=parallel_model,
+                                         config=model.config,
+                                         params_dtype=params_dtype,
+                                         is_value_model=is_value_model)
     del state_dict, model
 
 
@@ -404,7 +397,6 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
     return unpad_tokens, cu_seqlens, max_seqlen_in_batch
 
 
-
 def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
@@ -420,6 +412,7 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
         dist_checkpointing.load(ssd, dist_weight_path, strict=strict)
 
     return
+
 
 
 def get_parallel_gptmodel_from_config(tfconfig,
