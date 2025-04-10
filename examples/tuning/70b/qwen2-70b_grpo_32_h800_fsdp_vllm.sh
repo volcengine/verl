@@ -1,19 +1,21 @@
 set -x
 
+#### important: vllm version must be >= 0.8.3
+
 gsm8k_train_path=$HOME/data/rlhf/gsm8k/train.parquet
 gsm8k_val_path=$HOME/data/rlhf/math/test.parquet
 model_path=Qwen/Qwen2-72B-Instruct
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=$data_path \
+    data.train_files=$gsm8k_train_path \
     data.val_files=$gsm8k_val_path \
     data.train_batch_size=1024 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=model_path \
+    actor_rollout_ref.model.path=$model_path \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
