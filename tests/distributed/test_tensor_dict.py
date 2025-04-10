@@ -54,7 +54,6 @@ def test_all_gather_data_proto():
     assert data.meta_info == {'info': 'test_info'}
 
 
-
 def test_vocab_parallel_entropy():
     from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy
     from verl.utils.debug import log_gpu_memory_usage
@@ -62,7 +61,8 @@ def test_vocab_parallel_entropy():
 
     from megatron.core import parallel_state as mpu
 
-    mpu.initialize_model_parallel(tensor_model_parallel_size=2, pipeline_model_parallel_size=1, 
+    mpu.initialize_model_parallel(tensor_model_parallel_size=2,
+                                  pipeline_model_parallel_size=1,
                                   virtual_pipeline_model_parallel_size=None)
 
     batch_size = 2
