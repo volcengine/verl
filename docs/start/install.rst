@@ -78,7 +78,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 Install SGLang as rollout backend
 ---------------------------------------------
 
-If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the rearch and inference workload at xAI. SGLang support native API for RLHF, do not need to patch a single line of code.
+If you want to use SGLang instead of vllm for inference, please follow the instruction here. SGLang has largely support the research and inference workload at xAI. SGLang support native API for RLHF, do not need to patch a single line of code.
 
 The following steps are quick installation guide for verl-SGLang.
 

@@ -15,6 +15,9 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
+  custom_cls:
+      path: null
+      name: null
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -64,6 +67,7 @@ actor_rollout_ref:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
       seed: 1
@@ -75,6 +79,7 @@ actor_rollout_ref:
       tensor_model_parallel_size: 4
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
       seed: 1
@@ -145,6 +150,7 @@ critic:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
     seed: 1
@@ -169,6 +175,7 @@ reward_model:
     tensor_model_parallel_size: 4
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
     seed: 1

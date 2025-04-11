@@ -16,6 +16,7 @@
 import torch
 import time
 import torch.distributed as dist
+from .saver import _megatron_calc_global_rank
 
 
 def _megatron_calc_layer_map(config):
@@ -71,11 +72,13 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
 
     dp_rank = mpu.get_data_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
+    cp_rank = mpu.get_context_parallel_rank()
+    src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=0, cp_rank=cp_rank)
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
     mp_group = mpu.get_model_parallel_group()
 
-    if torch.distributed.get_rank() == 0:
+    if torch.distributed.get_rank() == src_rank:
         assert mp_group.rank() == 0, f"mp_rank:[{mp_group.rank}] != 0 on rank #0"
         assert pp_rank == 0, f"pp_rank:[{pp_rank}] != 0 on rank #0"
         assert dp_rank == 0, f"dp_rank:[{dp_rank}] != 0 on rank #0"
@@ -98,7 +101,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         """broadcast tensor from rank0 across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             if name in state_dict:
                 weight = state_dict[name]
                 tensor_shape = weight.shape
@@ -109,7 +112,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             tensor_shape = None
 
         obj_list = [tensor_shape]
-        dist.broadcast_object_list(obj_list, src=0, group=mp_group)
+        dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
         tensor_shape = obj_list[0]
 
         if tensor_shape is None:
@@ -124,9 +127,9 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 device=torch.cuda.current_device(),
                 requires_grad=False,
             )
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             tensor.data.copy_(weight)
-        dist.broadcast(tensor, src=0, group=mp_group)
+        dist.broadcast(tensor, src=src_rank, group=mp_group)
 
     def _broadcast_tp_shard_tensor_vocab(tensor, name, chunk_dim=0, mutate_func=None) -> torch.Tensor:
         """broadcast tensor in tp shards across mp_group"""
@@ -135,7 +138,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
 
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             if name in state_dict:
                 full_weight = state_dict[name]
 
@@ -149,7 +152,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             chunk_shape = None
 
         obj_list = [chunk_shape]
-        dist.broadcast_object_list(obj_list, src=0, group=mp_group)
+        dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
         chunk_shape = obj_list[0]
         if chunk_shape is None:
             # all or none ranks in the mp_group should reach here
@@ -169,9 +172,9 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
-            if torch.distributed.get_rank() == 0:
+            if torch.distributed.get_rank() == src_rank:
                 sync_tensor.data.copy_(tensor_chunk[i])
-            dist.broadcast(sync_tensor, src=0, group=mp_group)
+            dist.broadcast(sync_tensor, src=src_rank, group=mp_group)
             if (i == tp_rank) and (tensor is not None):
                 tensor.data.copy_(sync_tensor)
 
@@ -182,7 +185,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
 
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             if name in state_dict:
                 full_weight = state_dict[name]
                 if mutate_func is not None:
@@ -195,7 +198,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             chunk_shape = None
 
         obj_list = [chunk_shape]
-        dist.broadcast_object_list(obj_list, src=0, group=mp_group)
+        dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
         chunk_shape = obj_list[0]
         if chunk_shape is None:
             # all or none ranks in the mp_group should reach here
@@ -215,9 +218,9 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
-            if torch.distributed.get_rank() == 0:
+            if torch.distributed.get_rank() == src_rank:
                 sync_tensor.data.copy_(tensor_chunk[i])
-            dist.broadcast(sync_tensor, src=0, group=mp_group)
+            dist.broadcast(sync_tensor, src=src_rank, group=mp_group)
             if (i == tp_rank) and (tensor is not None):
                 tensor.data.copy_(sync_tensor)
 
@@ -228,7 +231,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
 
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             gate_weight = state_dict[gate_name]
             up_weight = state_dict[up_name]
             new_gate_up_weight = torch.empty(config.intermediate_size * 2,
@@ -248,7 +251,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             chunk_shape = None
 
         obj_list = [chunk_shape]
-        dist.broadcast_object_list(obj_list, src=0, group=mp_group)
+        dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
         chunk_shape = obj_list[0]
         if chunk_shape is None:
             # all or none ranks in the mp_group should reach here
@@ -265,13 +268,13 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         else:
             assert (
                 tensor.shape == chunk_shape
-            ), f"rank #{torch.distributed.get_rank() == 0:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
+            ), f"rank #{torch.distributed.get_rank() == src_rank:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
-            if torch.distributed.get_rank() == 0:
+            if torch.distributed.get_rank() == src_rank:
                 sync_tensor.data.copy_(tensor_chunk[i])
-            dist.broadcast(sync_tensor, src=0, group=mp_group)
+            dist.broadcast(sync_tensor, src=src_rank, group=mp_group)
             if (i == tp_rank) and (tensor is not None):
                 tensor.data.copy_(sync_tensor)
 
@@ -282,7 +285,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
 
-        if torch.distributed.get_rank() == 0:
+        if torch.distributed.get_rank() == src_rank:
             assert (q_name in state_dict and k_name in state_dict and v_name in state_dict)
             full_weight_q = state_dict[q_name]
             full_weight_k = state_dict[k_name]
@@ -341,11 +344,11 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             chunk_shape = None
 
         obj_list = [chunk_shape]
-        dist.broadcast_object_list(obj_list, src=0, group=mp_group)
+        dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
         chunk_shape = obj_list[0]
         if chunk_shape is None:
             # all or none ranks in the mp_group should reach here
-            print_rank_0(f"tp_shard tensor:[{name}] not in state_dict, skip loading")
+            print_rank_0(f"tp_shard tensor:[{q_name, k_name, v_name}] not in state_dict, skip loading")
             return
 
         if tensor is None:
@@ -361,9 +364,9 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
-            if torch.distributed.get_rank() == 0:
+            if torch.distributed.get_rank() == src_rank:
                 sync_tensor.data.copy_(tensor_chunk[i])
-            dist.broadcast(sync_tensor, src=0, group=mp_group)
+            dist.broadcast(sync_tensor, src=src_rank, group=mp_group)
             if (i == tp_rank) and (tensor is not None):
                 tensor.data.copy_(sync_tensor)
 
@@ -441,7 +444,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             lm_head_weight = gpt_model_module.output_layer.weight
 
         if is_value_model:
-            # if torch.distributed.get_rank() == 0:
+            # if torch.distributed.get_rank() == src_rank:
             if 'lm_head.weight' in state_dict and state_dict['lm_head.weight'].shape[0] == 1:
                 _broadcast_tensor(lm_head_weight, "lm_head.weight")
             elif 'reward_head.weight' in state_dict and state_dict['reward_head.weight'].shape[0] == 1:

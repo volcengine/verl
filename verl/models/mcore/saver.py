@@ -25,16 +25,28 @@ import torch
 import torch.distributed as dist
 
 
-def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0):
-    """given TP,DP,PP rank to get the global rank."""
+def _megatron_calc_global_rank(tp_rank: int = 0,
+                               dp_rank: int = 0,
+                               pp_rank: int = 0,
+                               cp_rank: int = 0,
+                               ep_rank: int = 0):
+    """Calculate global rank with support for CP/EP parallelism"""
 
+    # Get parallel sizes for each dimension
     tp_size = mpu.get_tensor_model_parallel_world_size()
     dp_size = mpu.get_data_parallel_world_size()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
-    assert (tp_size * dp_size * pp_size == torch.distributed.get_world_size()
-           ), f"{tp_size} x {dp_size} x {pp_size} != {torch.distributed.get_world_size()}"
-    # We only support TP-DP-PP grouping, for correctness when resharding
-    return (pp_rank * dp_size + dp_rank) * tp_size + tp_rank
+    cp_size = mpu.get_context_parallel_world_size()
+    ep_size = mpu.get_expert_model_parallel_world_size()
+
+    # Verify total GPU count matches (must be consistent with parallel_state.py)
+    total_size = tp_size * dp_size * pp_size * cp_size
+    assert total_size == torch.distributed.get_world_size(), \
+        f"{tp_size}x{dp_size}x{pp_size}x{cp_size} != {torch.distributed.get_world_size()}"
+
+    # Core calculation logic (corresponds to RankGenerator order parameter)
+    # Assumes default order is "tp-cp-ep-dp-pp"
+    return ((pp_rank * dp_size + dp_rank) * cp_size + cp_rank) * tp_size + tp_rank
 
 
 def _megatron_calc_layer_map(config):
@@ -89,6 +101,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
     dp_rank = mpu.get_data_parallel_rank()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
+    cp_rank = mpu.get_context_parallel_rank()
     virtual_pp_size = mpu.get_virtual_pipeline_model_parallel_world_size() or 1
     mp_group = mpu.get_model_parallel_group()
 
@@ -125,7 +138,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         """broadcast tensor across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
-        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
+        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
         if torch.distributed.get_rank() == src_rank:
             if tensor is None:
@@ -166,7 +179,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
-        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
+        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
         if torch.distributed.get_rank() == src_rank:
             chunk_shape = tensor.shape
@@ -191,7 +204,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         chunk_tensors = [None] * tp_size
 
         for i in range(tp_size):
-            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank)
+            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
             sync_tensor = tensor if torch.distributed.get_rank() == cur_src_rank else buffer_tensor
             dist.broadcast(sync_tensor, src=cur_src_rank, group=mp_group)
 
@@ -210,7 +223,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
-        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
+        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
         if torch.distributed.get_rank() == src_rank:
             chunk_shape = tensor.shape
@@ -235,7 +248,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         chunk_tensors = [None] * tp_size
 
         for i in range(tp_size):
-            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank)
+            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
             sync_tensor = tensor if torch.distributed.get_rank() == cur_src_rank else buffer_tensor
             dist.broadcast(sync_tensor, src=cur_src_rank, group=mp_group)
 
@@ -263,7 +276,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         nonlocal mp_group
         tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
-        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
+        src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
         if torch.distributed.get_rank() == src_rank:
             chunk_shape = tensor.shape
@@ -288,7 +301,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         chunk_tensors = [None] * tp_size
 
         for i in range(tp_size):
-            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank)
+            cur_src_rank = _megatron_calc_global_rank(tp_rank=i, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
             sync_tensor = tensor if torch.distributed.get_rank() == cur_src_rank else buffer_tensor
             dist.broadcast(sync_tensor, src=cur_src_rank, group=mp_group)
 
@@ -344,7 +357,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
     torch.cuda.empty_cache()
     # Embeddings
     # -------------------
-    if dp_rank == 0:
+    if dp_rank == 0 and cp_rank == 0:  # models are identical across cp ranks
         # Embeddings
         # -------------------
         print_rank_0("collecting embeddings...")

@@ -110,7 +110,7 @@ def collect_megatron_compute(worker_group, output):
     pp_size = worker_group.get_megatron_global_info().pp_size
     for global_rank in range(worker_group.world_size):
         local_rank_info = worker_group.get_megatron_rank_info(rank=global_rank)
-        if local_rank_info.tp_rank == 0 and local_rank_info.pp_rank == pp_size - 1:
+        if local_rank_info.tp_rank == 0 and local_rank_info.pp_rank == pp_size - 1 and local_rank_info.cp_rank == 0:
             output_in_dp.append(output[global_rank])
     return output_in_dp
 
@@ -167,17 +167,18 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     pp_size = worker_group.pp_size
     dp_size = worker_group.dp_size
-
-    pp_dp_size = pp_size * dp_size
+    cp_size = worker_group.cp_size
+    pp_dp_cp_size = pp_size * dp_size * cp_size
 
     all_args = []
     for arg in args:
-        assert isinstance(arg, (List, Tuple)) and len(arg) == pp_dp_size
+        assert isinstance(arg, (List, Tuple)) and len(arg) == pp_dp_cp_size
         transformed_args = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
             local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
-            # compute the rank in arg. Note that the order is dp then pp
+            local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
+            # compute the rank in arg. Note that the order is dp then cp then pp
             # Also note that the outputs within a pp group will be firstly allgathered, then only the output of pp0 will be collected.
             # For pp=2 dp=4, a batch of data "ABCDEFGH" should be dispatched and collected in below order:
             #    dispatch:       pp_allgther:        collect:
@@ -186,7 +187,8 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
             #  0 | A C E G |   0 | AB CD EF GH |     ABCDEFGH
             #  1 | B D F H |   1 | AB CD EF GH |
             #    +---------+     +-------------+
-            arg_rank = local_dp_rank * worker_group.pp_size + local_pp_rank
+            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
+            arg_rank = dp_cp_rank * pp_size + local_pp_rank
 
             transformed_args.append(arg[arg_rank])
         all_args.append(transformed_args)
@@ -194,13 +196,15 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_size, f'expect len(v)=={pp_dp_size}, got {len(v)}'
+        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_cp_size, f'expect len(v)=={pp_dp_cp_size}, got {len(v)}'
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
             local_pp_rank = worker_group.get_megatron_rank_info(rank=i).pp_rank
-            # compute the rank in arg. Note that the order is dp then pp
-            arg_rank = local_dp_rank * worker_group.pp_size + local_pp_rank
+            local_cp_rank = worker_group.get_megatron_rank_info(rank=i).cp_rank
+            # compute the rank in arg. Note that the order is dp then cp then pp
+            dp_cp_rank = local_cp_rank * dp_size + local_dp_rank
+            arg_rank = dp_cp_rank * pp_size + local_pp_rank
             transformed_v.append(v[arg_rank])
         all_kwargs[k] = transformed_v
     return all_args, all_kwargs
@@ -238,9 +242,10 @@ def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
     assert isinstance(worker_group, MegatronWorkerGroup)
 
-    pp_dp_size = worker_group.dp_size * worker_group.pp_size
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(pp_dp_size, *args, **kwargs)
-    return dispatch_megatron_pp_as_dp(worker_group, *splitted_args, **splitted_kwargs)
+    pp_dp_cp_size = worker_group.dp_size * worker_group.pp_size * worker_group.cp_size
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(pp_dp_cp_size, *args, **kwargs)
+    ret = dispatch_megatron_pp_as_dp(worker_group, *splitted_args, **splitted_kwargs)
+    return ret
 
 
 def collect_megatron_pp_as_dp_data_proto(worker_group, output):
