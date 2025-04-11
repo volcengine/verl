@@ -1,39 +1,102 @@
+# Still wating for dynamic name features: https://github.com/docker/compose/issues/9026
 # Usage Example:
 # cd scripts/github_actions_runner
 # export REPOSITORY=volcengine/verl
 # export REG_TOKEN=...
 # export RUNNER_NAME_STEM=verl-L20-$(hostname)
 # export RUNNER_LABELS="L20x2"
-# docker compose up --scale runner=4
+# docker compose build runner-image  # Build the image first
+# docker compose up                  # Then start the services
+
+# c.f. https://docs.docker.com/reference/compose-file/extension/
+# Define common runner configuration
+x-runner-config: &runner-config
+  restart: unless-stopped
+  image: github-actions-runner:latest # All services use this pre-built image
+  deploy:
+    resources:
+      reservations:
+        cpus: ${CPU_RESERVATIONS_PER_RUNNER:-40}
+        memory: ${MEMORY_RESERVATIONS_PER_RUNNER:-180G}
+        devices:
+          # c.f. https://docs.docker.com/compose/how-tos/gpu-support/
+          - capabilities: [ gpu ]
+            count: 2
+            driver: nvidia
+  volumes:
+    # Mount Docker socket for Docker-in-Docker
+    - /var/run/docker.sock:/var/run/docker.sock
+
+# Define common environment variables
+x-common-env: &common-env
+  REPOSITORY: ${REPOSITORY:-volcengine/verl}
+  REG_TOKEN: ${REG_TOKEN:-}
+  RUNNER_LABELS: ${RUNNER_LABELS:-}
+  RUNNER_GROUP: ${RUNNER_GROUP:-}
+  RUNNER_WORK_DIR: ${RUNNER_WORK_DIR:-_work}
+  http_proxy: ${http_proxy:-}
+  https_proxy: ${https_proxy:-}
+  no_proxy: ${no_proxy:-127.0.0.0/8}
+
 services:
-  runner:
+  # Build the image only once
+  runner-image:
     build:
       context: .
       dockerfile: Dockerfile.github.actions.runner
-    restart: unless-stopped
+    image: github-actions-runner:latest
+    profiles:
+      - builder # This service is only started when explicitly requested
+
+  # Individual runner instances
+  runner-1:
+    <<: *runner-config
+    depends_on:
+      - runner-image
     environment:
-      - REPOSITORY=${REPOSITORY:-volcengine/verl}
-      - REG_TOKEN=${REG_TOKEN:-}
-      - RUNNER_NAME=${RUNNER_NAME_STEM:-verl-$(hostname)}-{{.Task.Slot}}
-      - RUNNER_LABELS=${RUNNER_LABELS:-}
-      - RUNNER_GROUP=${RUNNER_GROUP:-}
-      - RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-_work}
-      - http_proxy=${http_proxy:-}
-      - https_proxy=${https_proxy:-}
-      - no_proxy=${no_proxy:-127.0.0.0/8}
-    deploy:
-      resources:
-        reservations:
-          cpus: ${CPU_RESERVATIONS_PER_REPLICA:-40}
-          memory: ${MEMORY_RESERVATIONS_PER_REPLICA:-180G}
-          devices:
-            # c.f. https://docs.docker.com/compose/how-tos/gpu-support/
-            - capabilities: [ gpu ]
-              count: ${GPUS_PER_REPLICA:-2}
-              driver: nvidia
-    # runtime: nvidia
+      <<: *common-env
+      RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-1
     volumes:
       # Mount Docker socket for Docker-in-Docker
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount runner's working directory for persistence, with unique path per replica
-      - ${RUNNER_WORK_HOME:-${HOME}/github-actions-runner/work-dirs}/replica-{{.Task.Slot}}:/home/docker/actions-runner/_work
+      # Mount runner's working directory for persistence with unique path
+      - ${RUNNER_WORK_HOME:-${HOME}/github-actions-runner/work-dirs}/runner-1:/home/docker/actions-runner/_work
+
+  runner-2:
+    <<: *runner-config
+    depends_on:
+      - runner-image
+    environment:
+      <<: *common-env
+      RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-2
+    volumes:
+      # Mount Docker socket for Docker-in-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount runner's working directory for persistence with unique path
+      - ${RUNNER_WORK_HOME:-${HOME}/github-actions-runner/work-dirs}/runner-2:/home/docker/actions-runner/_work
+
+  runner-3:
+    <<: *runner-config
+    depends_on:
+      - runner-image
+    environment:
+      <<: *common-env
+      RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-3
+    volumes:
+      # Mount Docker socket for Docker-in-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount runner's working directory for persistence with unique path
+      - ${RUNNER_WORK_HOME:-${HOME}/github-actions-runner/work-dirs}/runner-3:/home/docker/actions-runner/_work
+
+  runner-4:
+    <<: *runner-config
+    depends_on:
+      - runner-image
+    environment:
+      <<: *common-env
+      RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-4
+    volumes:
+      # Mount Docker socket for Docker-in-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount runner's working directory for persistence with unique path
+      - ${RUNNER_WORK_HOME:-${HOME}/github-actions-runner/work-dirs}/runner-4:/home/docker/actions-runner/_work
