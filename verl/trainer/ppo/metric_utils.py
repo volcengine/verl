@@ -33,7 +33,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     if 'model_generated_mask' in batch.batch.keys():
         response_mask = batch.batch['model_generated_mask'].bool()[:, 1:]
         response_length = response_mask.sum(-1).float()
-        prompt_length = (batch.batch['attention_mask'] & (1-batch.batch['model_generated_mask'])).sum(-1).float()
+        prompt_length = (batch.batch['attention_mask'] & (1 - batch.batch['model_generated_mask'])).sum(-1).float()
     else:
         response_length = batch.batch['responses'].shape[-1]
 
@@ -61,7 +61,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     if 'model_generated_mask' in batch.batch.keys():
         response_mask = batch.batch['model_generated_mask'].bool()[:, 1:]
         max_response_length = response_mask.sum(-1).max().item()
-        max_prompt_length = (1-batch.batch['model_generated_mask']).sum(-1).max().item()
+        max_prompt_length = (1 - batch.batch['model_generated_mask']).sum(-1).max().item()
     else:
         max_response_length = batch.batch['responses'].shape[-1]
 

@@ -24,7 +24,7 @@ import hydra
 @hydra.main(config_path='config', config_name='agent_ppo_trainer', version_base=None)
 def main(config):
     run_agent_ppo(config)
-    
+
 
 def run_agent_ppo(config) -> None:
     # TODO(linjunrong.ocss884): this ENV is left for resolving SGLang conflict with ray devices
@@ -104,11 +104,11 @@ class TaskRunner:
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = AgentPPOTrainer(config=config,
-                                tokenizer=tokenizer,
-                                processor=processor,
-                                role_worker_mapping=role_worker_mapping,
-                                resource_pool_manager=resource_pool_manager,
-                                ray_worker_group_cls=ray_worker_group_cls)
+                                  tokenizer=tokenizer,
+                                  processor=processor,
+                                  role_worker_mapping=role_worker_mapping,
+                                  resource_pool_manager=resource_pool_manager,
+                                  ray_worker_group_cls=ray_worker_group_cls)
         trainer.init_workers()
         trainer.fit()
 

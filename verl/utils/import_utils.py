@@ -71,7 +71,7 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Custom type file '{file_path}' not found.")
         spec = importlib.util.spec_from_file_location("custom_module", file_path)
-        
+
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)

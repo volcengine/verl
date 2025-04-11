@@ -33,6 +33,7 @@ import verl.utils.torch_functional as verl_F
 
 ## Utils for interacting with the environment
 
+
 def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwargs: Union[dict, str]):
     """Initialize a remote environment instance and get initial state.
 
@@ -53,48 +54,42 @@ def initialize_env(environment_endpoint: str, env_name: str, seed: int, env_kwar
     if isinstance(env_kwargs, str):
         env_kwargs = json.loads(env_kwargs)
 
-    payload = {
-        "env_name": env_name,
-        "seed": seed,
-        "env_kwargs": env_kwargs
-    }
+    payload = {"env_name": env_name, "seed": seed, "env_kwargs": env_kwargs}
     init_response = requests.post(f"{environment_endpoint}/api/environment/initialize", json=payload)
     init_obj = init_response.json()
     assert 'env_id' in init_obj, f"Environment initialization failed: {init_obj} as env_id is not present"
     env_id = init_obj['env_id']
     assert 'observation' in init_obj, f"Environment initialization failed: {init_obj} as observation is not present"
-    assert 'info' in init_obj, f"Environment initialization failed: {init_obj} as info is not present" # info is only for the gymnasium convention
+    assert 'info' in init_obj, f"Environment initialization failed: {init_obj} as info is not present"  # info is only for the gymnasium convention
 
     return {
-        'env_id': env_id, # the environment id
-        'observation': init_obj['observation'], # a chat message list as the initial observation
+        'env_id': env_id,  # the environment id
+        'observation': init_obj['observation'],  # a chat message list as the initial observation
     }
+
 
 def reset_env(environment_endpoint: str, env_id: str, seed: int, options: Optional[Union[dict, str]] = None):
     """Reset the environment and get the initial observation."""
     if isinstance(options, str):
         options = json.loads(options)
-    payload = {
-        "env_id": env_id,
-        "seed": seed,
-        "options": options
-    }
+    payload = {"env_id": env_id, "seed": seed, "options": options}
     reset_response = requests.post(f"{environment_endpoint}/api/environment/{env_id}/reset", json=payload)
     reset_obj = reset_response.json()
     assert 'observation' in reset_obj, f"Environment reset failed: {reset_obj} as observation is not present"
-    assert 'info' in reset_obj, f"Environment reset failed: {reset_obj} as info is not present" # info is only for the gymnasium convention
+    assert 'info' in reset_obj, f"Environment reset failed: {reset_obj} as info is not present"  # info is only for the gymnasium convention
     return {
-        'observation': reset_obj['observation'], # a chat message list as the initial observation
-        'info': reset_obj['info'] # info is only for the gymnasium convention
+        'observation': reset_obj['observation'],  # a chat message list as the initial observation
+        'info':
+            reset_obj['info']  # info is only for the gymnasium convention
     }
+
 
 def close_env(environment_endpoint: str, env_id: str):
     """Close the environment."""
-    payload = {
-        "env_id": env_id
-    }
+    payload = {"env_id": env_id}
     close_response = requests.post(f"{environment_endpoint}/api/environment/{env_id}/close", json=payload)
     close_obj = close_response.json()
+
 
 def step_env(environment_endpoint: str, env_id: str, action: dict):
     """
@@ -107,12 +102,11 @@ def step_env(environment_endpoint: str, env_id: str, action: dict):
     - truncated: bool
     - info: dict
     """
-    payload = {
-        "action": action
-    }
+    payload = {"action": action}
     step_response = requests.post(f"{environment_endpoint}/api/environment/{env_id}/step", json=payload)
     step_obj = step_response.json()
     return step_obj
+
 
 def get_task_prompt(environment_endpoint: str, env_id: str) -> str:
     """Retrieve the task prompt for a given environment ID."""
@@ -120,6 +114,7 @@ def get_task_prompt(environment_endpoint: str, env_id: str) -> str:
     prompt_obj = prompt_response.json()
     assert 'task_prompt' in prompt_obj, f"Failed to get task prompt: {prompt_obj} as task_prompt is not present"
     return prompt_obj['task_prompt']
+
 
 def get_allow_parallel_tool_call(environment_endpoint: str, env_id: str) -> bool:
     """Retrieve the allow_parallel_tool_call for a given environment ID."""
@@ -131,6 +126,7 @@ def get_allow_parallel_tool_call(environment_endpoint: str, env_id: str) -> bool
         # By default, it does not support parallel tool call.
         return False
 
+
 def get_tools_schema(environment_endpoint: str, env_id: str) -> dict:
     """
     Retrieve the tools schema for a given environment ID.
@@ -141,14 +137,16 @@ def get_tools_schema(environment_endpoint: str, env_id: str) -> dict:
     assert 'tools_schema' in schema_obj, f"Failed to get tools schema: {schema_obj} as tools_schema is not present"
     return schema_obj['tools_schema']
 
+
 ## Utils for llm specific chat template
+
 
 def get_agent_system_prompt(
     agent_prompt_style: Literal['qwen2_5'],
     task_prompt: str,
     tools_schema: dict,
     allow_parallel_tool_call: bool,
-    ) -> str:
+) -> str:
     """
     Get the system prompt for the agent.
     """
@@ -188,6 +186,7 @@ def get_agent_system_prompt(
 
     return system_prompt
 
+
 def convert_chat_message_from_openai(
     agent_prompt_style: Literal['qwen2_5'],
     chat: list[dict],
@@ -199,43 +198,48 @@ def convert_chat_message_from_openai(
     if agent_prompt_style == 'qwen2_5':
         for message in chat:
             if message['role'] == 'system':
-                assert isinstance(message['content'], str), f"System message must be a string, got {type(message['content'])}, which is not supported"
+                assert isinstance(
+                    message['content'],
+                    str), f"System message must be a string, got {type(message['content'])}, which is not supported"
                 new_chat.append(message)
             elif message['role'] == 'user':
                 if isinstance(message['content'], str):
                     new_chat.append(message)
                 else:
-                    raise ValueError(f"User message must be a string, got {type(message['content'])}, which is not supported")
+                    raise ValueError(
+                        f"User message must be a string, got {type(message['content'])}, which is not supported")
             elif message['role'] == 'tool':
-                assert isinstance(message['content'], str), f"Tool message must be a string, got {type(message['content'])}, which is not supported"
+                assert isinstance(
+                    message['content'],
+                    str), f"Tool message must be a string, got {type(message['content'])}, which is not supported"
                 new_chat.append({
                     "role": "user",
                     "content": "<tool_response>\n" + message['content'] + "\n</tool_response>"
                 })
             elif message['role'] == 'assistant':
-                assert message['content'] is None or isinstance(message['content'], str), f"Assistant message must be a string, got {type(message['content'])}, which is not supported"
+                assert message['content'] is None or isinstance(
+                    message['content'],
+                    str), f"Assistant message must be a string, got {type(message['content'])}, which is not supported"
                 if "tool_calls" not in message:
                     new_chat.append(message)
                 else:
                     content = ""
                     if message['content'] is not None and message['content'].strip() != "":
                         content += message['content'] + "\n"
-                        
+
                     for tool_call in message['tool_calls']:
                         content += "<tool_call>\n" + json.dumps({
                             "name": tool_call['function']['name'],
                             "arguments": json.loads(tool_call['function']['arguments'])
                         }) + "\n</tool_call>\n"
                     content = content.rstrip()
-                    new_chat.append({
-                        "role": "assistant",
-                        "content": content
-                    })
+                    new_chat.append({"role": "assistant", "content": content})
             else:
                 raise ValueError(f"Message role {message['role']} is not supported")
     else:
         raise ValueError(f"Agent prompt style {agent_prompt_style} is not supported")
     return new_chat
+
 
 def convert_assistant_message_to_openai(
     agent_prompt_style: Literal['qwen2_5'],
@@ -253,11 +257,11 @@ def convert_assistant_message_to_openai(
         assistant_message_str = assistant_message_str.lstrip()
         content = ""
         if not assistant_message_str.startswith('<tool_call>'):
-            content = assistant_message_str.split('<tool_call>',1)[0]
+            content = assistant_message_str.split('<tool_call>', 1)[0]
         assistant_message['content'] = content
         tool_calls = []
         while '<tool_call>' and '</tool_call>' in assistant_message_str:
-            tool_obj = json.loads(assistant_message_str.split('<tool_call>',1)[1].split('</tool_call>',1)[0].strip())
+            tool_obj = json.loads(assistant_message_str.split('<tool_call>', 1)[1].split('</tool_call>', 1)[0].strip())
             assert 'name' in tool_obj and 'arguments' in tool_obj, f"Tool call must contain name and arguments, got {tool_obj}"
             tool_obj = {
                 "type": "function_call",
@@ -268,12 +272,13 @@ def convert_assistant_message_to_openai(
                 }
             }
             tool_calls.append(tool_obj)
-            assistant_message_str = assistant_message_str.split('<tool_call>',1)[1].split('</tool_call>',1)[1]
+            assistant_message_str = assistant_message_str.split('<tool_call>', 1)[1].split('</tool_call>', 1)[1]
         if tool_calls:
             assistant_message['tool_calls'] = tool_calls
     else:
         raise ValueError(f"Agent prompt style {agent_prompt_style} is not supported")
     return assistant_message
+
 
 def get_model_generated_mask_and_tokenwise_reward(
     tokenizer: PreTrainedTokenizer,
@@ -307,47 +312,45 @@ def get_model_generated_mask_and_tokenwise_reward(
         print("chat", chat)
         print("turn_ids", turn_ids)
 
-    assert len(chat) == turn_ids[-1].item() + 1, f"The length of the chat {len(chat)} is not equal to the last turn id {turn_ids[-1].item()} + 1. This may due to the additional bos_token_id and eos_token_id added in the chat template."
+    assert len(chat) == turn_ids[-1].item(
+    ) + 1, f"The length of the chat {len(chat)} is not equal to the last turn id {turn_ids[-1].item()} + 1. This may due to the additional bos_token_id and eos_token_id added in the chat template."
 
     for turn, reward in zip(action_turn, reward_by_action_turn):
         # get turn_start_index and turn_end_index
         turn_mask = ((turn_ids == turn) & attention_mask.bool())
         turn_input_ids = input_ids[turn_mask]
-        assert (turn_input_ids[:len(generation_prompt_ids)] == generation_prompt_ids).all(), f"The first {len(generation_prompt_ids)} tokens of the turn {turn} are not equal to the generation prompt ids: {turn_input_ids[:len(generation_prompt_ids)]} != {generation_prompt_ids}.\n{turn_input_ids=}\n{chat=}"
+        assert (turn_input_ids[:len(generation_prompt_ids)] == generation_prompt_ids).all(
+        ), f"The first {len(generation_prompt_ids)} tokens of the turn {turn} are not equal to the generation prompt ids: {turn_input_ids[:len(generation_prompt_ids)]} != {generation_prompt_ids}.\n{turn_input_ids=}\n{chat=}"
         # try to match the generation suffix ids
         for generation_suffix_ids in generation_suffix_ids_list:
             if (turn_input_ids[-len(generation_suffix_ids):] == generation_suffix_ids).all():
                 break
         else:
-            raise ValueError(f"No generation suffix ids found for the turn {turn}, turn_input_ids ends with: {turn_input_ids[-10:]}, and generation_suffix_ids_list is {generation_suffix_ids_list}")
-        
+            raise ValueError(
+                f"No generation suffix ids found for the turn {turn}, turn_input_ids ends with: {turn_input_ids[-10:]}, and generation_suffix_ids_list is {generation_suffix_ids_list}"
+            )
+
         # Find true tokens generated by model, i.e., exclude the generation prompt and generation suffix
         turn_indices = torch.where(turn_mask)[0]
         turn_start_idx = turn_indices[len(generation_prompt_ids)]
         turn_end_idx = turn_indices[-(len(generation_suffix_ids) + 1)]
-        
+
         # Set response mask to 1 for the model-generated tokens (excluding prompt and suffix)
         # The add 1 here means including the ending token
-        model_generated_mask[turn_start_idx:turn_end_idx+1] = 1
-        
+        model_generated_mask[turn_start_idx:turn_end_idx + 1] = 1
+
         # Assign reward to all tokens in this turn that were generated by the model
         tokenwise_reward[turn_end_idx] = reward
 
     return model_generated_mask, tokenwise_reward
 
+
 # Environment class
 class AgentEnv:
-    def __init__(
-            self, 
-            environment_endpoint: str, 
-            env_name: str, 
-            seed: int, 
-            env_kwargs: Union[dict, str], 
-            agent_prompt_style: Literal['qwen2_5'],
-            tokenizer: PreTrainedTokenizer,
-            max_prompt_length: int,
-            truncation: Literal['error', 'ignore', 'max_length']
-            ):
+
+    def __init__(self, environment_endpoint: str, env_name: str, seed: int, env_kwargs: Union[dict, str],
+                 agent_prompt_style: Literal['qwen2_5'], tokenizer: PreTrainedTokenizer, max_prompt_length: int,
+                 truncation: Literal['error', 'ignore', 'max_length']):
         self.environment_endpoint = environment_endpoint
         self.env_name = env_name
         self.seed = seed
@@ -371,7 +374,7 @@ class AgentEnv:
             close_env(self.environment_endpoint, self.env_id)
         self.env_id = env_meta_data['env_id']
         env_meta_data = reset_env(self.environment_endpoint, self.env_id, self.seed, self.env_kwargs)
-        
+
         # get the initial observation
         observation = env_meta_data['observation']
         # get the task prompt
@@ -380,16 +383,16 @@ class AgentEnv:
         allow_parallel_tool_call = get_allow_parallel_tool_call(self.environment_endpoint, self.env_id)
         # get the tools schema
         tools_schema = get_tools_schema(self.environment_endpoint, self.env_id)
-        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema, allow_parallel_tool_call)
-        self.chat = [
-            {"role": "system", "content": system_prompt},
-            *observation
-        ]
+        system_prompt = get_agent_system_prompt(self.agent_prompt_style, task_prompt, tools_schema,
+                                                allow_parallel_tool_call)
+        self.chat = [{"role": "system", "content": system_prompt}, *observation]
 
     def tokenize_chat(self, add_generation_prompt: bool = False):
         return_dict = {}
         prompt = convert_chat_message_from_openai(self.agent_prompt_style, self.chat)
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(prompt, add_generation_prompt=add_generation_prompt, tokenize=False)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(prompt,
+                                                                       add_generation_prompt=add_generation_prompt,
+                                                                       tokenize=False)
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                          tokenizer=self.tokenizer,
                                                                          max_length=self.max_prompt_length,
@@ -408,24 +411,18 @@ class AgentEnv:
             # Only compute the response mask and tokenwise reward for the non-generation prompt tokens
             # As they are usually needed for things after all the rollouts are done
             # Also the logic in get_response_mask_and_tokenwise_reward is based on the assumption that NO generation prompt is added
-            # If you also want to compute the response mask and tokenwise reward for the generation prompt tokens, 
+            # If you also want to compute the response mask and tokenwise reward for the generation prompt tokens,
             # simply removing the if statement does not work.
             model_generated_mask, tokenwise_reward = get_model_generated_mask_and_tokenwise_reward(
-                self.tokenizer, 
-                self.agent_prompt_style, 
-                self.chat, 
-                input_ids[0], 
-                attention_mask[0], 
-                self.action_turn, 
-                self.reward_by_action_turn
-            )
+                self.tokenizer, self.agent_prompt_style, self.chat, input_ids[0], attention_mask[0], self.action_turn,
+                self.reward_by_action_turn)
             return_dict['model_generated_mask'] = model_generated_mask
             # Not that this is different from the response_mask implemented elsewhere
             # response_mask is only for the raw_prompt_ids, usually refers to the last assistant message?
             # while model_generated_mask is for all the tokens + padding tokens, basically having the same length as input_ids
             return_dict['tokenwise_reward'] = tokenwise_reward
         return return_dict
-    
+
     def step(self, assistant_message_str: str, tool_parsing_error_reward: float):
         """
         Step the environment with the assistant message.
@@ -442,25 +439,19 @@ class AgentEnv:
             # Remove the leading newline characters
             # This is to make sure the turn parsing is correct, this is however may cause misalignment with the original assistant message
             assistant_message_str = assistant_message_str.lstrip()
-            assistant_message = {
-                "role": "assistant",
-                "content": assistant_message_str
-            }
+            assistant_message = {"role": "assistant", "content": assistant_message_str}
             reward = tool_parsing_error_reward
             done = True
             truncated = False
             info = {}
             error_message = f"Failed to parse the assistant message: {assistant_message_str}, error: {e}"
-            observation = [{
-                "role": "user",
-                "content": error_message
-            }]
+            observation = [{"role": "user", "content": error_message}]
         self.chat.append(assistant_message)
         self.action_turn.append(len(self.chat) - 1)
         self.reward_by_action_turn.append(reward)
         self.chat += observation
         return observation, reward, done, truncated, info
-        
+
     def __del__(self):
         if self.env_id is not None:
             close_env(self.environment_endpoint, self.env_id)
@@ -491,11 +482,12 @@ class RLAgentDataset(Dataset):
     We assume the dataset contains a column that contains prompts and other information
     """
 
-    def __init__(self,
-                 data_files: Union[str, List[str]],
-                 tokenizer: PreTrainedTokenizer,
-                 config: DictConfig,
-                 processor: Optional[ProcessorMixin] = None,
+    def __init__(
+        self,
+        data_files: Union[str, List[str]],
+        tokenizer: PreTrainedTokenizer,
+        config: DictConfig,
+        processor: Optional[ProcessorMixin] = None,
     ):
         self.environment_endpoint = config.environment_endpoint
         # Test if the environment endpoint is valid

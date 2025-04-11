@@ -24,20 +24,14 @@ from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 from verl.utils.dataset.rl_agent_dataset import RLAgentDataset, collate_fn, AgentEnv
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
-from verl.trainer.ppo.ray_trainer import (
-    RayPPOTrainer, 
-    ResourcePoolManager, 
-    Role, 
-    WorkerType,
-    AdvantageEstimator,
-    compute_advantage,
-    _timer
-)
+from verl.trainer.ppo.ray_trainer import (RayPPOTrainer, ResourcePoolManager, Role, WorkerType, AdvantageEstimator,
+                                          compute_advantage, _timer)
+
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
     # The original implementation of apply_kl_penalty in ray trainer only assume single turn of response at last turn.
     # Here we extend it to support multiple turns of response at last turns, and using the model_generated_mask to calculate the kl penalty.
-    
+
     # Hint for caculating the right offset
     # tokens obs/act      o o o o o a a a a a a o o o a a a o o
     # mask                0 0 0 0 0 1 1 1 1 1 1 0 0 0 1 1 1 0 0
@@ -46,7 +40,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     # masked p(a|s)      [0 0 0 0 x x x x x x 0 0 0 x x x 0 0]
     # reward r(a,s)       - - - - - 0 0 0 0 0 r - - - 0 0 r - -
     # reward offset      [- - - - 0 0 0 0 0 r - - - 0 0 r - -]
-    
+
     model_generated_mask = data.batch['model_generated_mask'][:, 1:]
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
@@ -65,7 +59,7 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
     # according to https://github.com/huggingface/trl/blob/951ca1841f29114b969b57b26c7d3e80a39f75a0/trl/trainer/ppo_trainer.py#L837
     kl_ctrl.update(current_kl=current_kl, n_steps=batch_size)
-    
+
     data.batch['token_level_rewards'] = token_level_rewards
 
     metrics = {'actor/reward_kl_penalty': current_kl, 'actor/reward_kl_penalty_coeff': beta}
@@ -119,15 +113,16 @@ def compute_advantage_agent(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, 
     # Step 4: reverse the reordering
     data.batch['advantages'] = advantages.gather(dim=-1, index=reverse_indices)
     data.batch['returns'] = returns.gather(dim=-1, index=reverse_indices)
-    
+
     return data
+
 
 class AgentPPOTrainer(RayPPOTrainer):
     """
     Extension of RayPPOTrainer with agent-specific functionality.
     Inherits core PPO implementation from RayPPOTrainer.
     """
-    
+
     def __init__(self,
                  config,
                  tokenizer,
@@ -136,16 +131,16 @@ class AgentPPOTrainer(RayPPOTrainer):
                  ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
                  processor=None):
         super().__init__(
-            config, 
-            tokenizer, 
-            role_worker_mapping, 
-            resource_pool_manager, 
-            ray_worker_group_cls, 
+            config,
+            tokenizer,
+            role_worker_mapping,
+            resource_pool_manager,
+            ray_worker_group_cls,
             processor,
-            reward_fn = None,       # Reward is provided by the environment
-            val_reward_fn = None    # Reward is provided by the environment
+            reward_fn=None,  # Reward is provided by the environment
+            val_reward_fn=None  # Reward is provided by the environment
         )
-        assert self.use_rm is False, "Reward model is not needed for agent PPO. The reward is provided by the environment"      
+        assert self.use_rm is False, "Reward model is not needed for agent PPO. The reward is provided by the environment"
         assert self.config.actor_rollout_ref.rollout.n == 1, "The number of rollout supported right now is 1"
 
     def _validate_config(self):
@@ -255,8 +250,11 @@ class AgentPPOTrainer(RayPPOTrainer):
                 "validation gen temperature should be greater than 0 when enabling do_sample"
 
         print("[validate_config] All configuration checks passed successfully!")
-        
-    def _run_agent_rollout(self, gen_batch: DataProto, do_sample: Optional[bool] = None, validate: bool = True) -> DataProto:
+
+    def _run_agent_rollout(self,
+                           gen_batch: DataProto,
+                           do_sample: Optional[bool] = None,
+                           validate: bool = True) -> DataProto:
         gen_rollout_batch = gen_batch.select(batch_keys=['index'], non_tensor_batch_keys=['env'])
         env_list = gen_rollout_batch.non_tensor_batch['env']
         # initialize the environment
@@ -266,7 +264,8 @@ class AgentPPOTrainer(RayPPOTrainer):
 
         for turn_idx in range(self.config.env.max_turn):
             # TODO: tokenize in parallel
-            gen_tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat(add_generation_prompt=True) for env in env_list]))
+            gen_tokenized_batch = DataProto.from_single_dict(
+                collate_fn([env.tokenize_chat(add_generation_prompt=True) for env in env_list]))
             if validate:
                 # only trigger in the validation phase
                 gen_tokenized_batch.meta_info = {
@@ -279,7 +278,8 @@ class AgentPPOTrainer(RayPPOTrainer):
             if do_sample is not None:
                 gen_tokenized_batch.meta_info['do_sample'] = do_sample
 
-            gen_tokenized_batch_padded, pad_size = pad_dataproto_to_divisor(gen_tokenized_batch, self.actor_rollout_wg.world_size)
+            gen_tokenized_batch_padded, pad_size = pad_dataproto_to_divisor(gen_tokenized_batch,
+                                                                            self.actor_rollout_wg.world_size)
             output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(gen_tokenized_batch_padded)
             output_gen_batch = unpad_dataproto(output_gen_batch_padded, pad_size=pad_size)
 
@@ -296,11 +296,12 @@ class AgentPPOTrainer(RayPPOTrainer):
                 response_tokens = sample.batch['responses']
                 response = self.tokenizer.decode(response_tokens, skip_special_tokens=True)
                 env = env_list[i]
-                _, reward, done, truncated, info = env.step(response, tool_parsing_error_reward=self.config.env.tool_parsing_error_reward)
+                _, reward, done, truncated, info = env.step(
+                    response, tool_parsing_error_reward=self.config.env.tool_parsing_error_reward)
                 if not done and not truncated:
                     # only keep the envs that are not done or truncated
                     new_env_list.append(env)
-            
+
             if len(new_env_list) == 0:
                 break
             env_list = new_env_list
@@ -316,7 +317,8 @@ class AgentPPOTrainer(RayPPOTrainer):
 
         # Tokenize the chat
         # TODO: tokenize in parallel
-        tokenized_batch = DataProto.from_single_dict(collate_fn([env.tokenize_chat(add_generation_prompt=False) for env in env_list]))
+        tokenized_batch = DataProto.from_single_dict(
+            collate_fn([env.tokenize_chat(add_generation_prompt=False) for env in env_list]))
         gen_rollout_batch.union(tokenized_batch)
 
         # Debug
@@ -343,28 +345,38 @@ class AgentPPOTrainer(RayPPOTrainer):
             # repeat test batch
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
                                            interleave=True)
-            
-            env_list = [AgentEnv(
-                environment_endpoint=self.config.env.environment_endpoint,
-                env_name=sample.non_tensor_batch['env_name'],
-                seed=sample.non_tensor_batch['seed'],
-                env_kwargs=sample.non_tensor_batch['env_kwargs'],
-                agent_prompt_style=self.config.data.agent_prompt_style,
-                tokenizer=self.tokenizer,
-                max_prompt_length=self.config.data.max_prompt_length,
-                truncation=self.config.data.get('truncation', 'error')
-            ) for sample in test_batch]
+
+            env_list = [
+                AgentEnv(environment_endpoint=self.config.env.environment_endpoint,
+                         env_name=sample.non_tensor_batch['env_name'],
+                         seed=sample.non_tensor_batch['seed'],
+                         env_kwargs=sample.non_tensor_batch['env_kwargs'],
+                         agent_prompt_style=self.config.data.agent_prompt_style,
+                         tokenizer=self.tokenizer,
+                         max_prompt_length=self.config.data.max_prompt_length,
+                         truncation=self.config.data.get('truncation', 'error')) for sample in test_batch
+            ]
             test_batch.non_tensor_batch['env'] = np.array(env_list, dtype=object)
 
             test_batch.check_consistency()
 
             gen_rollout_batch = self._run_agent_rollout(test_batch)
-            sample_inputs = [json.dumps(gen_rollout_batch[i].non_tensor_batch['chat'], indent=2) for i in range(len(gen_rollout_batch))]
-            sample_outputs = [json.dumps({
-                "action_turn": gen_rollout_batch[i].non_tensor_batch['action_turn'],
-                "reward_by_action_turn": gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn'],
-            }, indent=2) for i in range(len(gen_rollout_batch))]
-            sample_scores = [sum(gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn']) for i in range(len(gen_rollout_batch))]
+            sample_inputs = [
+                json.dumps(gen_rollout_batch[i].non_tensor_batch['chat'], indent=2)
+                for i in range(len(gen_rollout_batch))
+            ]
+            sample_outputs = [
+                json.dumps(
+                    {
+                        "action_turn": gen_rollout_batch[i].non_tensor_batch['action_turn'],
+                        "reward_by_action_turn": gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn'],
+                    },
+                    indent=2) for i in range(len(gen_rollout_batch))
+            ]
+            sample_scores = [
+                sum(gen_rollout_batch[i].non_tensor_batch['reward_by_action_turn'])
+                for i in range(len(gen_rollout_batch))
+            ]
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -399,7 +411,7 @@ class AgentPPOTrainer(RayPPOTrainer):
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
                 return
-        
+
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
@@ -419,16 +431,16 @@ class AgentPPOTrainer(RayPPOTrainer):
                 with _timer('step', timing_raw):
                     # create a batch of envs
                     with _timer('env_creation', timing_raw):
-                        env_list = [AgentEnv(
-                            environment_endpoint=self.config.env.environment_endpoint,
-                            env_name=sample.non_tensor_batch['env_name'],
-                            seed=sample.non_tensor_batch['seed'],
-                            env_kwargs=sample.non_tensor_batch['env_kwargs'],
-                            agent_prompt_style=self.config.data.agent_prompt_style,
-                            tokenizer=self.tokenizer,
-                            max_prompt_length=self.config.data.max_prompt_length,
-                            truncation=self.config.data.get('truncation', 'error')
-                        ) for sample in batch]
+                        env_list = [
+                            AgentEnv(environment_endpoint=self.config.env.environment_endpoint,
+                                     env_name=sample.non_tensor_batch['env_name'],
+                                     seed=sample.non_tensor_batch['seed'],
+                                     env_kwargs=sample.non_tensor_batch['env_kwargs'],
+                                     agent_prompt_style=self.config.data.agent_prompt_style,
+                                     tokenizer=self.tokenizer,
+                                     max_prompt_length=self.config.data.max_prompt_length,
+                                     truncation=self.config.data.get('truncation', 'error')) for sample in batch
+                        ]
                         batch.non_tensor_batch['env'] = np.array(env_list, dtype=object)
 
                         batch.check_consistency()
@@ -436,35 +448,38 @@ class AgentPPOTrainer(RayPPOTrainer):
                     # agent rollout with stateful envs
                     with _timer('agent_rollout', timing_raw):
                         gen_rollout_batch = self._run_agent_rollout(batch, validate=False)
-                    
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         # TODO: The implementation of REMAX is completed and needs better understanding of the baseline algorithm under agent context
                         raise NotImplementedError("REMAX is not implemented yet")
                         with _timer('gen_max', timing_raw):
-                            baseline_batch = batch.select(batch_keys=['index'], non_tensor_batch_keys=['env_name', 'seed', 'env_kwargs'])
-                            baseline_env_list = [AgentEnv(
-                                environment_endpoint=self.config.env.environment_endpoint,
-                                env_name=sample.non_tensor_batch['env_name'],
-                                seed=sample.non_tensor_batch['seed'],
-                                env_kwargs=sample.non_tensor_batch['env_kwargs'],
-                                agent_prompt_style=self.config.data.agent_prompt_style,
-                                tokenizer=self.tokenizer,
-                                max_prompt_length=self.config.data.max_prompt_length,
-                                truncation=self.config.data.get('truncation', 'error')
-                            ) for sample in baseline_batch]
+                            baseline_batch = batch.select(batch_keys=['index'],
+                                                          non_tensor_batch_keys=['env_name', 'seed', 'env_kwargs'])
+                            baseline_env_list = [
+                                AgentEnv(environment_endpoint=self.config.env.environment_endpoint,
+                                         env_name=sample.non_tensor_batch['env_name'],
+                                         seed=sample.non_tensor_batch['seed'],
+                                         env_kwargs=sample.non_tensor_batch['env_kwargs'],
+                                         agent_prompt_style=self.config.data.agent_prompt_style,
+                                         tokenizer=self.tokenizer,
+                                         max_prompt_length=self.config.data.max_prompt_length,
+                                         truncation=self.config.data.get('truncation', 'error'))
+                                for sample in baseline_batch
+                            ]
                             baseline_batch.non_tensor_batch['env'] = np.array(baseline_env_list, dtype=object)
                             baseline_batch.check_consistency()
 
-                            baseline_gen_rollout_batch = self._run_agent_rollout(baseline_batch, do_sample=False, validate=False)
+                            baseline_gen_rollout_batch = self._run_agent_rollout(baseline_batch,
+                                                                                 do_sample=False,
+                                                                                 validate=False)
 
-                            reward_baseline_tensor = baseline_gen_rollout_batch.non_tensor_batch['reward_by_action_turn']
+                            reward_baseline_tensor = baseline_gen_rollout_batch.non_tensor_batch[
+                                'reward_by_action_turn']
                             reward_baseline_tensor = [sum(reward) for reward in reward_baseline_tensor]
                             reward_baseline_tensor = torch.Tensor(reward_baseline_tensor, dtype=torch.float32)
                             batch.batch['reward_baselines'] = reward_baseline_tensor
 
                             del baseline_batch, baseline_env_list
-                    
 
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
@@ -497,7 +512,8 @@ class AgentPPOTrainer(RayPPOTrainer):
                         #     ``attention_mask``: tensor of shape [batch_size, sequence_length]. torch.int64.
                         #     ``position_ids``: tensor of shape [batch_size, sequence_length]. torch.int64.
                         #     ``responses``:  tensor of shape [batch_size, response_length]. torch.int64.
-                        old_log_prob_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                        old_log_prob_input_batch = batch.select(
+                            batch_keys=['input_ids', 'attention_mask', 'position_ids'])
                         # for computing log_prob, on all logits, masking will be haddled in trainer
                         # I didn't directly add `responses` to the batch is for the coder to really know what they are doing before using `responses` to fit the single turn implementation.
                         old_log_prob_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
@@ -513,7 +529,8 @@ class AgentPPOTrainer(RayPPOTrainer):
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer('ref', timing_raw):
-                            ref_log_prob_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                            ref_log_prob_input_batch = batch.select(
+                                batch_keys=['input_ids', 'attention_mask', 'position_ids'])
                             ref_log_prob_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(ref_log_prob_input_batch)
                             batch = batch.union(ref_log_prob)
@@ -527,7 +544,8 @@ class AgentPPOTrainer(RayPPOTrainer):
                     # compute values
                     if self.use_critic:
                         with _timer('values', timing_raw):
-                            values_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                            values_input_batch = batch.select(
+                                batch_keys=['input_ids', 'attention_mask', 'position_ids'])
                             values_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
                             values = self.critic_wg.compute_values(values_input_batch)
                             batch = batch.union(values)
@@ -558,7 +576,7 @@ class AgentPPOTrainer(RayPPOTrainer):
                             # get an offset to align with the log_prob etc.
                             # see more details in apply_kl_penalty
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-                        
+
                         # compute advantages, executed on the driver process
                         batch = compute_advantage_agent(batch,
                                                         adv_estimator=self.config.algorithm.adv_estimator,
@@ -572,7 +590,8 @@ class AgentPPOTrainer(RayPPOTrainer):
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
-                            critic_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids', 'values', 'returns'])
+                            critic_input_batch = batch.select(
+                                batch_keys=['input_ids', 'attention_mask', 'position_ids', 'values', 'returns'])
                             critic_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
                             critic_input_batch.batch['response_mask'] = batch.batch['model_generated_mask'][:, 1:]
                             critic_output = self.critic_wg.update_critic(critic_input_batch)
@@ -584,14 +603,17 @@ class AgentPPOTrainer(RayPPOTrainer):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
-                            actor_input_batch = batch.select(batch_keys=['input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'ref_log_prob', 'advantages'])
+                            actor_input_batch = batch.select(batch_keys=[
+                                'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'ref_log_prob',
+                                'advantages'
+                            ])
                             actor_input_batch.batch['responses'] = batch.batch['input_ids'][:, 1:]
                             actor_input_batch.batch['response_mask'] = batch.batch['model_generated_mask'][:, 1:]
                             actor_output = self.actor_rollout_wg.update_actor(actor_input_batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
                         print(f'actor_output_metrics: {actor_output_metrics}')
-                    
+
                     # validate
                     if self.config.trainer.test_freq > 0 and \
                         (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
@@ -600,7 +622,7 @@ class AgentPPOTrainer(RayPPOTrainer):
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
-                    
+
                     if self.config.trainer.save_freq > 0 and ( is_last_step or \
                             self.global_steps % self.config.trainer.save_freq == 0):
                         with _timer('save_checkpoint', timing_raw):
