@@ -40,7 +40,7 @@ if [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ]; then
    "default": {
      "httpProxy": "${http_proxy:-${https_proxy:-}}",
      "httpsProxy": "${https_proxy:-${http_proxy:-}}",
-     "noProxy": "${no_proxy:-"127.0.0.0/8"}"
+     "noProxy": "${no_proxy:-127.0.0.0/8}"
    }
  }
 }
