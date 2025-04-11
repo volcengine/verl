@@ -6,7 +6,7 @@ REPOSITORY=${REPOSITORY:-"volcengine/verl"}
 REG_TOKEN=${REG_TOKEN:-""}
 RUNNER_NAME=${RUNNER_NAME:-"verl-$(hostname)"}
 RUNNER_LABELS=${RUNNER_LABELS:-""} # Delimiter is comma
-RUNNER_GROUP=${RUNNER_GROUP:-"default"}
+RUNNER_GROUP=${RUNNER_GROUP:-"Default"}
 RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
 
 # Log function
