@@ -76,4 +76,4 @@ trap 'cleanup; exit 143' TERM
 
 # Start runner
 log "Starting runner..."
-./run.sh & wait $!
+./run.sh >"${RUNNER_WORK_DIR}/runner-$(date +%Y%m%d-%H%M%S).log" 2>&1 & wait $!
