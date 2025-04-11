@@ -54,6 +54,8 @@ jobs:
           ray stop --force
           bash tests/e2e/run_qwen_grpo_megatron.sh
   e2e_grpo_gsm8k_megatron_1:
+    # NOTE: No need to just change model if the previous job fails
+    needs: e2e_grpo_gsm8k_megatron_0
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
