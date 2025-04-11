@@ -34,6 +34,7 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+      VLLM_ATTENTION_BACKEND: XFORMERS # TODO: Remove after update vllm in container
     container:
       image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
       options: --gpus 2 --shm-size=10g
@@ -62,6 +63,7 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+      VLLM_ATTENTION_BACKEND: XFORMERS # TODO: Remove after update vllm in container
     container:
       image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
       options: --gpus 2 --shm-size=10g

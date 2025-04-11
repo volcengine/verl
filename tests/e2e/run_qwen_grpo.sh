@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
-
 model_id=Qwen/Qwen2.5-0.5B
 model_path=${HOME}/models/Qwen/${model_id}
 
@@ -38,7 +36,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=${num_gpus} \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
