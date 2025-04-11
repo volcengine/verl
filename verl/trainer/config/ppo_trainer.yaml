@@ -179,6 +179,12 @@ custom_reward_function:
   path: null
   name: compute_score
 
+custom_metric_function:
+  path: null
+  name: "compute_custom_metrics"
+  # metric_kwargs:
+  #   track_every_n_steps: 10
+
 algorithm:
   gamma: 1.0
   lam: 1.0

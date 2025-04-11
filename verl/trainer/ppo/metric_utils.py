@@ -15,12 +15,58 @@
 Metrics related to the PPO trainer.
 """
 
-import torch
-from typing import Any, Dict, List, Callable
-import numpy as np
-from verl import DataProto
-from collections import Counter, defaultdict
+import os
+import sys
+import importlib.util
+from collections import defaultdict
 from functools import partial
+from typing import Any, Dict, List, Callable
+
+import numpy as np
+import torch
+
+from verl import DataProto
+
+
+def get_custom_metric_fn(config):
+    """
+    Load custom metric function from configuration.
+    
+    Args:
+        config: object containing custom metric function configuration
+        
+    Returns:
+        custom metric function or None (if not configured)
+    """
+    metric_fn_config = config.get("custom_metric_function") or {}
+    file_path = metric_fn_config.get("path")
+    if not file_path:
+        return None
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Metric function file '{file_path}' not found.")
+
+    spec = importlib.util.spec_from_file_location("custom_metric_module", file_path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        sys.modules["custom_metric_module"] = module
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+
+    function_name = metric_fn_config.get("name")
+    if not hasattr(module, function_name):
+        raise AttributeError(f"Metric function '{function_name}' not found in '{file_path}'.")
+
+    print(f"Using custom metric function '{function_name}' from '{file_path}'")
+    raw_fn = getattr(module, function_name)
+
+    metric_kwargs = dict(metric_fn_config.get("metric_kwargs", {}))
+
+    def wrapped_fn(*args, **kwargs):
+        return raw_fn(*args, **kwargs, **metric_kwargs)
+
+    return wrapped_fn
 
 
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
