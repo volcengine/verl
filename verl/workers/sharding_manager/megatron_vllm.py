@@ -461,7 +461,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # prompts are identical for each training tp. We select for each inference tp
-        micro_dp_size = get_micro_data_parallel_world_size() 
+        micro_dp_size = get_micro_data_parallel_world_size()
         if micro_dp_size > 1:
             local_prompts = data.chunk(chunks=micro_dp_size)
             data = local_prompts[get_micro_data_parallel_rank()]
