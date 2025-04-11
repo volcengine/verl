@@ -7,7 +7,7 @@
 # export RUNNER_LABELS="L20x2"
 # export RUNNER_IMAGE=github-actions-runner:latest  # Use your custom image tag if different
 # export RUNNER_WORK_HOME=${HOME}/github-actions-runner/work-dirs
-# mkdir -p ${RUNNER_WORK_HOME}
+# for i in {1..4}; do mkdir -p ${RUNNER_WORK_HOME}/runner-$i && sudo chown -R 1000:1000 ${RUNNER_WORK_HOME}/runner-$i && sudo chmod -R 755 ${RUNNER_WORK_HOME}/runner-$i; done
 # docker build -t github-actions-runner:latest -f Dockerfile.github.actions.runner .
 # docker compose up
 
