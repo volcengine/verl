@@ -108,4 +108,30 @@ jobs:
           ray stop --force
           LIGER=True bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
 
-
+  e2e_ppo_trainer_sglang:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install hf_transfer
+          pip3 install -e .[test,gpu,sglang] --no-deps
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
+        run: |
+          ray stop --force
+          ENGINE=sglang bash tests/e2e/ppo_trainer/run_ppo_function_rm_qwen_gsm8k.sh
