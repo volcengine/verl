@@ -15,6 +15,9 @@ data:
   filter_overlong_prompts_workers: 1
   truncation: error
   image_key: images
+  custom_cls:
+      path: null
+      name: null
 
 actor_rollout_ref:
   hybrid_engine: True

@@ -15,6 +15,7 @@ import os
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
+from omegaconf import OmegaConf
 
 
 def get_gsm8k_data():
@@ -31,7 +32,13 @@ def test_rl_dataset():
     from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
     local_path = get_gsm8k_data()
-    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
+    config = OmegaConf.create({
+        "prompt_key": "prompt",
+        "max_prompt_length": 256,
+        "filter_overlong_prompts": True,
+        "filter_overlong_prompts_workers": 2,
+    })
+    dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
 
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
 
