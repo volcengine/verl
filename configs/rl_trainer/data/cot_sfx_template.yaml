@@ -1,0 +1,1 @@
+last_user_msg_template: "{{ content | trim }}\n\nLet's think step by step."
