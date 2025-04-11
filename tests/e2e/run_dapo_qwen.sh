@@ -35,8 +35,8 @@ num_gpus=2
 train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
 
 python3 -m recipe.dapo.src.main_dapo \
-    data.train_files="$HOME/data/dapo-math-17k.parquet" \
-    data.val_files="$HOME/data/gsm8k/test.parquet" \
+    data.train_files="${VERL_HOME}/data/dapo-math-17k.parquet" \
+    data.val_files="${HOME}/data/gsm8k/test.parquet" \
     reward_model.reward_manager=dapo \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
