@@ -24,6 +24,23 @@ if [ -z "${REG_TOKEN}" ]; then
     exit 1
 fi
 
+# Configure Docker proxy if either proxy is set
+if [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ]; then
+    log "Configuring Docker proxy..."
+    mkdir -p /home/docker/.docker
+    tee /home/docker/.docker/config.json <<EOF
+{
+ "proxies": {
+   "default": {
+     "httpProxy": "${http_proxy:-${https_proxy:-}}",
+     "httpsProxy": "${https_proxy:-${http_proxy:-}}",
+     "noProxy": "${no_proxy:-"127.0.0.0/8"}"
+   }
+ }
+}
+EOF
+fi
+
 # Change to runner directory
 cd /home/docker/actions-runner || exit 1
 

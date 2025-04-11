@@ -1,34 +1,20 @@
 # Modified from https://github.com/beikeni/github-runner-dockerfile/blob/main/Dockerfile
-ARG BASE_IMAGE="ubuntu:24.04"
+ARG BASE_IMAGE="ubuntu:22.04"
+# Ubuntu 24.04 has broken dependencies for libicu. c.f. https://github.com/microsoft/linux-package-repositories/issues/135
 
 FROM ${BASE_IMAGE}
 
 ARG RUNNER_VERSION="2.323.0"
-
+# Proxy settings will be inherited from host environment during build
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
 # Prevents installdependencies.sh from prompting the user and blocking the image creation
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt update -y && apt upgrade -y && useradd -m docker
 RUN apt install -y --no-install-recommends \
   curl jq build-essential libssl-dev libffi-dev python3 python3-venv python3-dev python3-pip
-
-# Create user-level Docker proxy configuration only if either proxy is set
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-
-RUN [ -n "${HTTP_PROXY}" ] || [ -n "${HTTPS_PROXY}" ] && \
-  mkdir -p /home/docker/.docker && \
-  tee /home/docker/.docker/config.json <<EOF
-{
- "proxies": {
-   "default": {
-     "httpProxy": "${HTTP_PROXY-${HTTPS_PROXY}}",
-     "httpsProxy": "${HTTPS_PROXY-${HTTP_PROXY}}",
-     "noProxy": "127.0.0.0/8"
-   }
- }
-}
-EOF
 
 RUN cd /home/docker && mkdir actions-runner && cd actions-runner \
   && curl -O -L https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \

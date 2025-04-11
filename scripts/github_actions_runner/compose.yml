@@ -18,6 +18,9 @@ services:
       - RUNNER_LABELS=${RUNNER_LABELS:-""}
       - RUNNER_GROUP=${RUNNER_GROUP:-"default"}
       - RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
+      - http_proxy=${http_proxy:-}
+      - https_proxy=${https_proxy:-}
+      - no_proxy=${no_proxy:-"127.0.0.0/8"}
     deploy:
       resources:
         reservations:
