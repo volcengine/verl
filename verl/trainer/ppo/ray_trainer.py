@@ -43,7 +43,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import RandomSampler, SequentialSampler, DataLoader
+from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 WorkerType = Type[Worker]
@@ -436,7 +436,7 @@ class RayPPOTrainer(object):
                                                        collate_fn=collate_fn,
                                                        batch_sampler=self.sampler)
         else:
-            elif self.config.data.shuffle:
+            if self.config.data.shuffle:
                 train_dataloader_generator = torch.Generator()
                 train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
                 sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
