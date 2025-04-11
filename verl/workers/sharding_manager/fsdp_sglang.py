@@ -40,7 +40,7 @@ from sglang.srt.entrypoints.verl_engine import VerlEngine
 from .base import BaseShardingManager
 from verl.third_party.sglang import parallel_state as sglang_ps
 # from vllm.distributed import parallel_state as sglang_ps
-
+from verl.utils.fsdp_utils import fsdp_version
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
@@ -60,11 +60,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # Full params
         self.full_params = full_params
-        if full_params:
+        if full_params and fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(self.module,
                                      state_dict_type=StateDictType.FULL_STATE_DICT,
                                      state_dict_config=FullStateDictConfig())
-        else:
+        elif fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(self.module,
                                      state_dict_type=StateDictType.SHARDED_STATE_DICT,
                                      state_dict_config=ShardedStateDictConfig())
