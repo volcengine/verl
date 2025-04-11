@@ -43,7 +43,7 @@ jobs:
         # but a user in the runner container
         run: |
           pip3 install hf_transfer --user
-          pip3 install -e .[test] --user
+          pip3 install .[test] --user
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
@@ -68,7 +68,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install hf_transfer --user
-          pip3 install -e .[test] --user
+          pip3 install .[test] --user
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
