@@ -13,6 +13,17 @@ on:
       - "tests/e2e/*.sh"
       - "!verl/trainer/fsdp_sft_trainer.py"
       - "!recipe/**"
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: 'Runner label to use (l20-0, l20-1, l20-2)'
+        required: true
+        type: choice
+        options:
+          - l20-0
+          - l20-1
+          - l20-2
+        default: l20-2
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -25,7 +36,7 @@ permissions:
 
 jobs:
   e2e_gsm8k_megatron-l20-0:
-    runs-on: [self-hosted, l20-0, l20-2
+    runs-on: [self-hosted, l20-0, l20-2]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
