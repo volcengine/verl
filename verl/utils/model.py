@@ -276,6 +276,10 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
 
 def _load_hf_model(config, model_config, is_value_model, local_cache_path):
     """Helper function containing the loading hf model logic"""
+    from megatron.core import parallel_state as mpu
+    from verl.models.mcore.saver import _megatron_calc_global_rank
+    from accelerate import init_empty_weights
+
     assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
@@ -289,16 +293,17 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
         local_model_path = config.model.path
         print(f"load from local dir {local_model_path}")
 
-    # TODO: to find a better way to load mistral7b-rm lm_head
-    from verl.utils.fsdp_utils import get_init_weight_context_manager
-    init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
+    src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=0, cp_rank=mpu.get_context_parallel_rank())
+    cpu_init_weights = lambda: torch.device('cpu')
+    init_context = init_empty_weights if torch.distributed.get_rank() != src_rank else cpu_init_weights
     with init_context(), warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        # TODO: to find a better way to load mistral7b-rm lm_head
         if 'mistral7b-rm' in config.model.path:
             model = MistralForSequenceClassification.from_pretrained(
                 local_model_path,
                 torch_dtype="auto",
-                # device_map="auto",  # disable auto device_map, the HF weight is only loaded to CPU in root rank
+                # device_map="auto",  # disable auto device_map, the HF weight is only loaded to CPU in src_rank
                 # low_cpu_mem_usage=True
             )  # use score head instead of lm_head
             state_dict = model.state_dict()
@@ -310,7 +315,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
             model = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 torch_dtype="auto",
-                # device_map="auto", # disable auto device_map, the HF weight is only loaded to CPU in root rank
+                # device_map="auto", # disable auto device_map, the HF weight is only loaded to CPU in src_rank
                 # low_cpu_mem_usage=True
             )
             state_dict = model.state_dict()
