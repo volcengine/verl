@@ -1,8 +1,10 @@
 # Usage Example:
-# REPOSITORY=volcengine/verl REG_TOKEN=... \
-#  RUNNER_NAME_STEM=verl-L20-$(hostname) \
-#  RUNNER_LABELS="L20x2" \
-#  docker compose up --scale runner=4
+# cd scripts/github_actions_runner
+# export REPOSITORY=volcengine/verl
+# export REG_TOKEN=...
+# export RUNNER_NAME_STEM=verl-L20-$(hostname)
+# export RUNNER_LABELS="L20x2"
+# docker compose up --scale runner=4
 services:
   runner:
     build:
@@ -18,20 +20,14 @@ services:
       - RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
     deploy:
       resources:
-        limits:
-          cpus: '${CPU_LIMITS_PER_REPLICA:-40}'
-          memory: ${MEMORY_LIMITS_PER_REPLICA:-180G}
-          devices:
-            - driver: nvidia
-              count: ${GPUS_PER_REPLICA:-2}
-              capabilities: [ gpu ]
         reservations:
-          cpus: '${CPU_RESERVATIONS_PER_REPLICA:-40}'
+          cpus: ${CPU_RESERVATIONS_PER_REPLICA:-40}
           memory: ${MEMORY_RESERVATIONS_PER_REPLICA:-180G}
           devices:
-            - driver: nvidia
+            # c.f. https://docs.docker.com/compose/how-tos/gpu-support/
+            - capabilities: [ gpu ]
               count: ${GPUS_PER_REPLICA:-2}
-              capabilities: [ gpu ]
+              driver: nvidia
     runtime: nvidia
     volumes:
       # Mount Docker socket for Docker-in-Docker

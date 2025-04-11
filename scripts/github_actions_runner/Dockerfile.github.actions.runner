@@ -18,7 +18,7 @@ ARG HTTPS_PROXY
 
 RUN [ -n "${HTTP_PROXY}" ] || [ -n "${HTTPS_PROXY}" ] && \
   mkdir -p /home/docker/.docker && \
-  tee /home/docker/.docker/config.json <<-"EOF"
+  tee /home/docker/.docker/config.json <<EOF
 {
  "proxies": {
    "default": {

@@ -7,16 +7,16 @@ DOCKER_DATA_HOME=${DOCKER_DATA_HOME:-}
 # Proxy for Docker itself
 if [ -n "${http_proxy}" ]; then
     sudo mkdir -p /etc/systemd/system/docker.service.d
-    sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf <<-"EOF"
+    sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
 [Service]
-Environment="http_proxy=${http_proxy}"
-Environment="https_proxy=${http_proxy}"
+Environment="http_proxy=${http_proxy:-${https_proxy}}"
+Environment="https_proxy=${http_proxy:-${https_proxy}}"
 EOF
 fi
 
 if [ -n "${DOCKER_DATA_HOME}" ]; then
   sudo mkdir -p /etc/docker
-  sudo tee /etc/docker/daemon.json <<-"EOF"
+  sudo tee /etc/docker/daemon.json <<EOF
 {
   "data-root": "${DOCKER_DATA_HOME}"
 }
@@ -25,7 +25,7 @@ fi
 
 if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
   mkdir -p "${HOME}"/.docker
-  tee "${HOME}"/.docker/config.json <<-"EOF"
+  tee "${HOME}"/.docker/config.json <<EOF
 {
  "proxies": {
    "default": {
@@ -39,5 +39,5 @@ EOF
 fi
 
 sudo systemctl daemon-reload
-# sudo systemctl show docker
+# sudo systemctl show docker --property ...
 sudo systemctl restart docker
