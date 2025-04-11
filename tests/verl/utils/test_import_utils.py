@@ -16,26 +16,10 @@ import os
 import sys
 import importlib.util
 import pytest
+from verl.utils.import_utils import load_extern_type
 
 # Path to the test module
 TEST_MODULE_PATH = os.path.join(os.path.dirname(__file__), "test_module.py")
-
-
-# Import the load_extern_type function directly from the file
-def import_function_from_file(file_path, function_name):
-    """Import a function from a file without importing the entire module"""
-    spec = importlib.util.spec_from_file_location("module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return getattr(module, function_name)
-
-
-# Get the path to the import_utils.py file
-IMPORT_UTILS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "verl",
-                                 "utils", "import_utils.py")
-
-# Import the load_extern_type function
-load_extern_type = import_function_from_file(IMPORT_UTILS_PATH, "load_extern_type")
 
 
 def test_load_extern_type_class():
