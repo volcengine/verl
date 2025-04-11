@@ -145,6 +145,26 @@ class TaskRunner:
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
 
+        # update the kl penalty parameter
+        if config.algorithm.kl_penalty == 'kl':
+            config.algorithm.kl_penalty = 'k1'
+        elif config.algorithm.kl_penalty == 'mse':
+            config.algorithm.kl_penalty = 'k2'
+        elif config.algorithm.kl_penalty == 'low_var_kl':
+            config.algorithm.kl_penalty = 'k3'
+        else:
+            raise NotImplementedError
+
+        # update the kl penalty parameter
+        if config.actor_rollout_ref.actor.kl_loss_type == 'kl':
+            config.actor_rollout_ref.actor.kl_loss_type = 'k1'
+        elif config.actor_rollout_ref.actor.kl_loss_type == 'mse':
+            config.actor_rollout_ref.actor.kl_loss_type = 'k2'
+        elif config.actor_rollout_ref.actor.kl_loss_type == 'low_var_kl':
+            config.actor_rollout_ref.actor.kl_loss_type = 'k3'
+        else:
+            raise NotImplementedError
+
         #use reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
