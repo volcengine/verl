@@ -64,9 +64,11 @@ jobs:
         with:
             fetch-depth: 0
       - name: Install the current repository
+        # NOTE: `--user` is a must due to we are not root in a new job container
+        # but a user in the runner container
         run: |
-          pip3 install hf_transfer
-          pip3 install -e .[test]
+          pip3 install hf_transfer --user
+          pip3 install -e .[test] --user
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
