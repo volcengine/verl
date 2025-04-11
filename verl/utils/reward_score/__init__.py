@@ -18,6 +18,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     if data_source == 'openai/gsm8k':
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
+    elif data_source == "countdown":
+        from . import countdown
+        return countdown.compute_score(solution_str, ground_truth)
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
         from . import math
         res = math.compute_score(solution_str, ground_truth)
