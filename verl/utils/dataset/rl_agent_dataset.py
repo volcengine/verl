@@ -248,6 +248,9 @@ def convert_assistant_message_to_openai(
         "role": "assistant",
     }
     if agent_prompt_style == 'qwen2_5':
+        # Remove the leading newline characters
+        # This is to make sure the turn parsing is correct, this is hwoever may cause misalignment with the original assistant message
+        assistant_message_str = assistant_message_str.lstrip()
         content = ""
         if not assistant_message_str.startswith('<tool_call>'):
             content = assistant_message_str.split('<tool_call>',1)[0]
@@ -294,7 +297,8 @@ def get_model_generated_mask_and_tokenwise_reward(
     bos_token_id = tokenizer.convert_tokens_to_ids('<|im_start|>')
     eos_token_id = tokenizer.convert_tokens_to_ids('<|im_end|>')
     generation_prompt_ids = tokenizer.encode('<|im_start|>assistant\n', return_tensors='pt')[0]
-    generation_suffix_ids_list = [tokenizer.encode(suffix, return_tensors='pt')[0] for suffix in ['<|im_end|>', '<|im_end|>\n']]
+    generation_suffix_ids_list = [tokenizer.encode(suffix, return_tensors='pt')[0] for suffix in ['<|im_end|>\n']]
+    # generation_suffix_ids_list = [tokenizer.encode(suffix, return_tensors='pt')[0] for suffix in ['<|im_end|>', '<|im_end|>\n']]
 
     # Get the position ids of the bos_token_id and eos_token_id
     turn_ids = (input_ids == bos_token_id).long().cumsum(dim=-1) - 1
@@ -307,7 +311,7 @@ def get_model_generated_mask_and_tokenwise_reward(
 
     for turn, reward in zip(action_turn, reward_by_action_turn):
         # get turn_start_index and turn_end_index
-        turn_mask = (turn_ids == turn)
+        turn_mask = ((turn_ids == turn) & attention_mask.bool())
         turn_input_ids = input_ids[turn_mask]
         assert (turn_input_ids[:len(generation_prompt_ids)] == generation_prompt_ids).all(), f"The first {len(generation_prompt_ids)} tokens of the turn {turn} are not equal to the generation prompt ids: {turn_input_ids[:len(generation_prompt_ids)]} != {generation_prompt_ids}"
         # try to match the generation suffix ids
