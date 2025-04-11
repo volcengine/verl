@@ -31,7 +31,7 @@ services:
             - capabilities: [ gpu ]
               count: ${GPUS_PER_REPLICA:-2}
               driver: nvidia
-    runtime: nvidia
+    # runtime: nvidia
     volumes:
       # Mount Docker socket for Docker-in-Docker
       - /var/run/docker.sock:/var/run/docker.sock
