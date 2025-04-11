@@ -21,7 +21,7 @@ overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
 
 # An early version for DAPO
-loss_agg_mode="seq-mean-token-sum"
+loss_agg_mode="seq-mean-token-mean"
 
 enable_filter_groups=False
 gen_prompt_bsz=512 # NOTE: no filtering here
