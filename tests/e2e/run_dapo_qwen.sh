@@ -76,7 +76,7 @@ python3 -m recipe.dapo.src.main_dapo \
     trainer.n_gpus_per_node=${num_gpus} \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.total_epochs=1 \
+    trainer.total_epochs=2 \
     trainer.resume_mode=disable \
     trainer.val_before_train=False \
     trainer.total_training_steps=2 $@

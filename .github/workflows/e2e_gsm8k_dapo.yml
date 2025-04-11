@@ -1,4 +1,4 @@
-name: e2e_gsm8k_dapo
+name: e2e_dapo
 
 on:
   # Trigger the workflow on push or pull request,
@@ -10,7 +10,7 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_gsm8k_dapo.yml
+      - .github/workflows/e2e_dapo.yml
       - "tests/e2e/*dapo.sh"
       - "!verl/trainer/main_ppo.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_dapo:
+  e2e_dapo_qwen:
     runs-on: [L20x2]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -42,11 +42,12 @@ jobs:
         run: |
           pip3 install hf_transfer
           pip3 install -e .[test,gpu]
-      - name: Prepare gsm8k dataset
+      - name: Prepare DAPO-Math & gsm8k dataset
         run: |
           ray stop --force
           bash recipe/dapo/prepare_dapo_data.sh
-      - name: Running gsm8k e2e with dapo alg
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running the E2E test with the DAPO algorithm and data
         run: | 
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_dapo.sh
+          bash tests/e2e/run_dapo_qwen.sh
