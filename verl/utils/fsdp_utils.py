@@ -141,7 +141,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
     model.to('cpu', non_blocking=True)
     if empty_cache:
-       torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
 @torch.no_grad()
 def load_fsdp_model_to_gpu(model: FSDP):
