@@ -1,18 +1,21 @@
 # Still wating for dynamic name features: https://github.com/docker/compose/issues/9026
 # Usage Example:
 # cd scripts/github_actions_runner
+# docker build -t github-actions-runner:latest -f Dockerfile.github.actions.runner .
 # export REPOSITORY=volcengine/verl
 # export REG_TOKEN=...
 # export RUNNER_NAME_STEM=verl-L20-$(hostname)
 # export RUNNER_LABELS="L20x2"
-# docker compose build runner-image  # Build the image first
+# export RUNNER_IMAGE=github-actions-runner:latest  # Use your custom image tag if different
+# export RUNNER_WORK_HOME=${HOME}/github-actions-runner/work-dirs
+# mkdir -p ${RUNNER_WORK_HOME}
 # docker compose up                  # Then start the services
 
 # c.f. https://docs.docker.com/reference/compose-file/extension/
 # Define common runner configuration
 x-runner-config: &runner-config
   restart: unless-stopped
-  image: github-actions-runner:latest # All services use this pre-built image
+  image: ${RUNNER_IMAGE:-github-actions-runner:latest} # Use environment variable or default
   deploy:
     resources:
       reservations:
@@ -44,15 +47,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.github.actions.runner
-    image: github-actions-runner:latest
+    image: ${RUNNER_IMAGE:-github-actions-runner:latest}
     profiles:
       - builder # This service is only started when explicitly requested
 
   # Individual runner instances
   runner-1:
     <<: *runner-config
-    depends_on:
-      - runner-image
     environment:
       <<: *common-env
       RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-1
@@ -64,8 +65,6 @@ services:
 
   runner-2:
     <<: *runner-config
-    depends_on:
-      - runner-image
     environment:
       <<: *common-env
       RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-2
@@ -77,8 +76,6 @@ services:
 
   runner-3:
     <<: *runner-config
-    depends_on:
-      - runner-image
     environment:
       <<: *common-env
       RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-3
@@ -90,8 +87,6 @@ services:
 
   runner-4:
     <<: *runner-config
-    depends_on:
-      - runner-image
     environment:
       <<: *common-env
       RUNNER_NAME: ${RUNNER_NAME_STEM:-verl-$(hostname)}-4
