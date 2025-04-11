@@ -369,6 +369,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
+        micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
+        data.meta_info['micro_batch_size'] = micro_batch_size
         dataloader = self.actor.make_minibatch_iterator(data=data)
         with Timer(name='update_policy', logger=None) as timer:
             metrics = self.actor.update_policy(dataloader=dataloader)
@@ -423,7 +425,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_param_and_grad(self.ref_module, torch.cuda.current_device(), self._is_offload_grad)
 
-        micro_batch_size = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
         output = self.ref_policy.compute_log_prob(data=data)
