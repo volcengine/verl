@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import uuid
-from omegaconf import ListConfig
+from omegaconf import ListConfig, DictConfig
 import os
 from typing import List, Union, Optional, Literal
 import copy
@@ -249,7 +249,7 @@ def convert_assistant_message_to_openai(
     }
     if agent_prompt_style == 'qwen2_5':
         # Remove the leading newline characters
-        # This is to make sure the turn parsing is correct, this is hwoever may cause misalignment with the original assistant message
+        # This is to make sure the turn parsing is correct, this is however may cause misalignment with the original assistant message
         assistant_message_str = assistant_message_str.lstrip()
         content = ""
         if not assistant_message_str.startswith('<tool_call>'):
@@ -313,7 +313,7 @@ def get_model_generated_mask_and_tokenwise_reward(
         # get turn_start_index and turn_end_index
         turn_mask = ((turn_ids == turn) & attention_mask.bool())
         turn_input_ids = input_ids[turn_mask]
-        assert (turn_input_ids[:len(generation_prompt_ids)] == generation_prompt_ids).all(), f"The first {len(generation_prompt_ids)} tokens of the turn {turn} are not equal to the generation prompt ids: {turn_input_ids[:len(generation_prompt_ids)]} != {generation_prompt_ids}"
+        assert (turn_input_ids[:len(generation_prompt_ids)] == generation_prompt_ids).all(), f"The first {len(generation_prompt_ids)} tokens of the turn {turn} are not equal to the generation prompt ids: {turn_input_ids[:len(generation_prompt_ids)]} != {generation_prompt_ids}.\n{turn_input_ids=}\n{chat=}"
         # try to match the generation suffix ids
         for generation_suffix_ids in generation_suffix_ids_list:
             if (turn_input_ids[-len(generation_suffix_ids):] == generation_suffix_ids).all():
@@ -439,6 +439,9 @@ class AgentEnv:
             truncated = step_obj['truncated']
             info = step_obj['info']
         except Exception as e:
+            # Remove the leading newline characters
+            # This is to make sure the turn parsing is correct, this is however may cause misalignment with the original assistant message
+            assistant_message_str = assistant_message_str.lstrip()
             assistant_message = {
                 "role": "assistant",
                 "content": assistant_message_str
@@ -489,32 +492,31 @@ class RLAgentDataset(Dataset):
     """
 
     def __init__(self,
-                 environment_endpoint: str,
-                 parquet_files: Union[str, List[str]],
+                 data_files: Union[str, List[str]],
                  tokenizer: PreTrainedTokenizer,
+                 config: DictConfig,
                  processor: Optional[ProcessorMixin] = None,
-                 max_prompt_length=4096,
-                 cache_dir='~/.cache/verl/rlhf',
-                 truncation='error'):
-        self.environment_endpoint = environment_endpoint
+    ):
+        self.environment_endpoint = config.environment_endpoint
         # Test if the environment endpoint is valid
         try:
-            response = requests.get(environment_endpoint)
+            response = requests.get(config.environment_endpoint)
             response.raise_for_status()
         except Exception as e:
-            raise ValueError(f"Invalid environment endpoint: {environment_endpoint}")
+            raise ValueError(f"Invalid environment endpoint: {config.environment_endpoint}")
 
-        if not isinstance(parquet_files, (List, ListConfig)):
-            parquet_files = [parquet_files]
+        if not isinstance(data_files, (List, ListConfig)):
+            data_files = [data_files]
 
-        self.parquet_files = copy.deepcopy(parquet_files)
-        self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
-        self.cache_dir = os.path.expanduser(cache_dir)
+        self.data_files = copy.deepcopy(data_files)
+        self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
+        self.config = config
 
-        self.max_prompt_length = max_prompt_length
-        self.truncation = truncation
+        self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
+        self.max_prompt_length = config.get("max_prompt_length", 1024)
+        self.truncation = config.get('truncation', 'error')
         # TODO: implement the resume feature
         # whether to store the dataset in state_dict()
         # default not store
@@ -524,13 +526,13 @@ class RLAgentDataset(Dataset):
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
-        parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
-        for i, parquet_file in enumerate(parquet_files):
-            self.parquet_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
+        data_files = self.data_files if not use_origin_parquet else self.original_data_files
+        for i, parquet_file in enumerate(data_files):
+            self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
 
     def _read_files_and_initialize_env(self):
         dataframes = []
-        for parquet_file in self.parquet_files:
+        for parquet_file in self.data_files:
             # read parquet files and cache
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
@@ -540,7 +542,7 @@ class RLAgentDataset(Dataset):
 
     def resume_dataset_state(self):
         raise NotImplementedError("Resume dataset state is not implemented for RLAgentDataset")
-        # self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
+        # self.serialize_dataset = False if hasattr(self, 'original_data_files') else True
         # # resume dataframe if not it's serialized in data.pt
         # if not self.serialize_dataset:
         #     self._download(use_origin_parquet=True)  # download and resume from original parquet files

@@ -1,3 +1,8 @@
+env:
+  environment_endpoint: http://localhost:8000
+  max_turn: 20  # This is used to limit the number of turns in the agent interaction. Notice that the remote environment may have a different turn limit, and this limit is applied on top of that.
+  tool_parsing_error_reward: -0.5 # This is used to penalize the agent for response (tool) parsing errors.
+
 data:
   tokenizer: null
   train_files: ~/code/verl_agent_env_examples/examples/verl/sokoban/data/train.parquet
@@ -9,11 +14,10 @@ data:
   shuffle: True
   truncation: error
   agent_prompt_style: qwen2_5
-
-env:
-  environment_endpoint: http://localhost:8000
-  max_turn: 20  # This is used to limit the number of turns in the agent interaction. Notice that the remote environment may have a different turn limit, and this limit is applied on top of that.
-  tool_parsing_error_reward: -0.5 # This is used to penalize the agent for response (tool) parsing errors.
+  custom_cls:
+      path: verl.utils.dataset.rl_agent_dataset
+      name: RLAgentDataset
+  environment_endpoint: ${env.environment_endpoint}
 
 actor_rollout_ref:
   hybrid_engine: True
