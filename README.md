@@ -163,15 +163,20 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [AdaRFT](https://github.com/uscnlp-lime/verl): Efficient Reinforcement Finetuning via **Adaptive Curriculum Learning** ![GitHub Repo stars](https://img.shields.io/github/stars/uscnlp-lime/verl)
 
 ## Contribution Guide
+
 Contributions from the community are welcome! Please check out our [project roadmap](https://github.com/volcengine/verl/issues/710) and [good first issues](https://github.com/volcengine/verl/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) to see where you can contribute.
 
-### Code formatting
-We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat your code locally, make sure you have installed the **latest** version of `yapf`
+We use pre-commit to help improve code quality. To initialize pre-commit, run:
+
 ```bash
-pip3 install yapf --upgrade
+pip install pre-commit
+pre-commit install
 ```
-Then, make sure you are at top level of verl repo and run
+
+You can also manually run pre-commit by:
+
 ```bash
-bash scripts/format.sh
+pre-commit run
 ```
+
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.

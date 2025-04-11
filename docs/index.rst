@@ -113,11 +113,20 @@ verl is free software; you can redistribute it and/or modify it under the terms
 of the Apache License 2.0. We welcome contributions.
 Join us on `GitHub <https://github.com/volcengine/verl>`_, `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ and `Wechat <https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG>`_ for discussions.
 
-Code formatting
-^^^^^^^^^^^^^^^^^^^^^^^^
-We use yapf (Google style) to enforce strict code formatting when reviewing MRs. Run yapf at the top level of verl repo:
+Contributions from the community are welcome! Please check out our `project roadmap <https://github.com/volcengine/verl/issues/710>`_ and `good first issues <https://github.com/volcengine/verl/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22>`_ to see where you can contribute.
+
+We use pre-commit to help improve code quality. To initialize pre-commit, run:
 
 .. code-block:: bash
 
-   pip3 install yapf
-   yapf -ir -vv --style ./.style.yapf verl examples tests
+   pip install pre-commit
+   pre-commit install
+
+You can also manually run pre-commit by:
+
+.. code-block:: bash
+
+   pre-commit run
+
+We are HIRING! Send us an `email <mailto:haibin.lin@bytedance.com>`_ if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.
+
