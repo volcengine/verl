@@ -15,6 +15,13 @@ data:
   filter_overlong_prompts_workers: 1
   truncation: error
   image_key: images
+  adarft:
+    enable: False
+    beta: 0.5 # Target reward: the desired average success rate. The curriculum adjusts difficulty to maintain model performance around this level.
+    alpha: 2  # Sensitivity parameter: controls how sharply the target difficulty responds to deviations from the target reward using a tanh function.
+    eta: 50   # Step size: scales how much the target difficulty should change based on the reward signal; maps reward difference (0–1) to difficulty scale (0–100).
+    d_min: 0  # Minimum allowed difficulty for curriculum sampling.
+    d_max: 100 # Maximum allowed difficulty for curriculum sampling.
 
 actor_rollout_ref:
   hybrid_engine: True

@@ -421,21 +421,33 @@ class RayPPOTrainer(object):
         assert self.train_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
-        # use sampler for better ckpt resume
-        if self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
-        else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
 
-        self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.get('gen_batch_size',
-                                                                                   self.config.data.train_batch_size),
-                                                   num_workers=8,
-                                                   drop_last=True,
-                                                   collate_fn=collate_fn,
-                                                   sampler=sampler)
+        # use sampler for better ckpt resume
+        if self.config.data.adarft.enable:
+            # Use CurriculumSampler
+            from .custom_sampler import CurriculumSampler
+            self.sampler = CurriculumSampler(data_source=self.train_dataset,
+                                             batch_size=self.config.data.train_batch_size,
+                                             target_difficulty=0)
+            self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+                                                       num_workers=8,
+                                                       collate_fn=collate_fn,
+                                                       batch_sampler=self.sampler)
+        else:
+            if self.config.data.shuffle:
+                train_dataloader_generator = torch.Generator()
+                train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+                sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
+            else:
+                sampler = SequentialSampler(data_source=self.train_dataset)
+
+            self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
+                                                       batch_size=self.config.data.get(
+                                                           'gen_batch_size', self.config.data.train_batch_size),
+                                                       num_workers=8,
+                                                       drop_last=True,
+                                                       collate_fn=collate_fn,
+                                                       sampler=sampler)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
@@ -945,6 +957,20 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
 
+                    if self.config.data.adarft.enable:
+                        beta = self.config.data.adarft.beta
+                        alpha = self.config.data.adarft.alpha
+                        eta = self.config.data.adarft.eta
+                        d_min = self.config.data.adarft.d_min
+                        d_max = self.config.data.adarft.d_max
+                        sequence_reward = batch.batch['token_level_rewards'].sum(-1)
+                        current_reward = torch.mean(sequence_reward).detach().item()
+                        new_target_difficulty = self.sampler.target_difficulty + eta * np.tanh(alpha *
+                                                                                               (current_reward - beta))
+                        new_target_difficulty = np.clip(new_target_difficulty, d_min, d_max)
+                        self.sampler.update_target_difficulty(new_target_difficulty)
+                        batch.meta_info['target_difficulty'] = new_target_difficulty
+
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
@@ -975,7 +1001,10 @@ class RayPPOTrainer(object):
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(
+                    compute_data_metrics(batch=batch,
+                                         use_critic=self.use_critic,
+                                         use_adarft=self.config.data.adarft.enable))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()

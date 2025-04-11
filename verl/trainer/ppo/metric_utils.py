@@ -45,7 +45,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     )
 
 
-def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
+def compute_data_metrics(batch: DataProto, use_critic: bool = True, use_adarft: bool = False) -> Dict[str, Any]:
     # TODO: add response length
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
@@ -110,6 +110,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
             # vf explained var
             'critic/vf_explained_var': (1.0 - return_diff_var / (return_var + 1e-5)).detach().item(),
         } if use_critic else {}),
+        **({
+            'critic/target_difficulty': batch.meta_info.get('target_difficulty', float('nan')),
+        } if use_adarft else {}),
 
         # response length
         'response_length/mean':

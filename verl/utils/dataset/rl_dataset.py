@@ -225,6 +225,10 @@ class RLHFDataset(Dataset):
         index = row_dict.get("extra_info", {}).get("index", 0)
         row_dict["index"] = index
 
+        # get difficulty from extra_info
+        difficulty = row_dict.get("extra_info", {}).get("difficulty", 0)
+        row_dict["difficulty"] = difficulty
+
         return row_dict
 
     def __getstate__(self):
