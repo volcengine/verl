@@ -1,4 +1,4 @@
-name: e2e_gsm8k
+name: e2e_ppo_trainer
 
 on:
   # Trigger the workflow on push or pull request,
@@ -10,9 +10,11 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_gsm8k.yml
+      - .github/workflows/e2e_ppo_trainer.yml
       - "tests/e2e/*gsm8k*.sh"
       - "!recipe/**"
+      - "!verl/trainer/config/ppo_megatron_trainer.yaml"
+      - "!verl/workers/**/megatron_*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -24,8 +26,8 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k:
-    runs-on: [L20x8]
+  e2e_ppo_trainer_function_rm:
+    runs-on: [L20x2]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -47,49 +49,63 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
+      # TODO: Checkpoints saveing and resuming w/o Megatron
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm.sh
-      - name: Running gsm8k e2e without rmpad using function rm and load ckpt from previous step
+          bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e without rmpad using function rm
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm_no_rmpad.sh
-          rm -rf ~/ckpt/*
+          RM_PAD=False bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (GRPO)
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm_grpo.sh
+          ADV_ESTIMATOR=grpo USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (ReMax)
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm_remax.sh
-      - name: Running gsm8k e2e with rmpad using model rm
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_model_rm.sh
-      - name: Running gsm8k e2e without rmpad using model rm
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_model_rm_no_rmpad.sh
-      - name: Running gsm8k e2e with rmpad using model rm and ulysses sp=2
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_model_rm_ulysses.sh
-      - name: Running gsm8k e2e with rmpad using model rm and dynamic batch size
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_model_rm_seq_balance.sh
-      - name: Running gsm8k e2e with rmpad using model rm with Liger Kernel enabled
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_model_rm_liger_kernel.sh
+          ADV_ESTIMATOR=remax USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using customized reward function
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_custom_function_rm.sh
+          CUSTOM_REWARD_FN=True tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm with in-reward kl and kl loss
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm_both_kl.sh
+          USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+
+  e2e_ppo_trainer_model_rm:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus all --shm-size=10g
+    steps:
+      - name: Running gsm8k e2e with rmpad using model rm
+        run: |
+          ray stop --force
+          bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e without rmpad using model rm
+        run: |
+          ray stop --force
+          RM_PAD=False bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm and ulysses sp=2
+        run: |
+          ray stop --force
+          SP_SIZE=2 bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm and dynamic batch size
+        run: |
+          ray stop --force
+          SEQ_BALANCE=True bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm with Liger Kernel enabled
+        run: |
+          ray stop --force
+          LIGER=True bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+
 

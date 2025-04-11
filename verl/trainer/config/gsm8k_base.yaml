@@ -1,0 +1,41 @@
+data:
+  train_files: $HOME/data/gsm8k/train.parquet
+  val_files: $HOME/data/gsm8k/test.parquet
+  max_prompt_length: 512
+  max_response_length: 512
+
+actor_rollout_ref:
+  model:
+    path: $HOME/models/Qwen/Qwen2.5-0.5B
+    enable_gradient_checkpointing: True
+  actor:
+    optim:
+      lr: 1e-6
+    fsdp_config:
+      param_offload: False
+      optimizer_offload: False
+  rollout:
+    tensor_model_parallel_size: 2
+    name: vllm
+    gpu_memory_utilization: 0.4
+
+critic:
+  optim:
+    lr: 1e-5
+  model:
+    path: $HOME/models/Qwen/Qwen2.5-0.5B
+    enable_gradient_checkpointing: False
+  model.fsdp_config:
+    param_offload: False
+    optimizer_offload: False
+
+algorithm:
+  adv_estimator: gae
+  use_kl_in_reward: False
+
+trainer:
+  critic_warmup: 0
+  logger: ['console']
+  project_name: 'verl_example_gsm8k'
+  experiment_name: 'qwen_e2e_ci_function_rm'
+  nnodes: 1 

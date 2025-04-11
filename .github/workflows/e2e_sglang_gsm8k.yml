@@ -49,5 +49,5 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_function_rm.sh sglang
+          ENGINE=sglang bash tests/e2e/ppo/run_ppo_function_rm_qwen_gsm8k.sh
 

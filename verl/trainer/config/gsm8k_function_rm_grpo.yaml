@@ -1,0 +1,29 @@
+defaults:
+  - gsm8k_base
+
+data:
+  train_batch_size: 1024
+
+actor_rollout_ref:
+  model:
+    use_remove_padding: True
+  actor:
+    ppo_mini_batch_size: 256
+    ppo_micro_batch_size_per_gpu: 4
+    use_kl_loss: True
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+  rollout:
+    log_prob_micro_batch_size_per_gpu: 16
+  ref:
+    log_prob_micro_batch_size_per_gpu: 16
+    fsdp_config:
+      param_offload: True
+
+algorithm:
+  adv_estimator: grpo
+
+trainer:
+  n_gpus_per_node: 8
+  save_freq: -1
+  total_training_steps: 1 
