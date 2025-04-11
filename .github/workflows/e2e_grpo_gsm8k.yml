@@ -34,16 +34,17 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus 2 --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
             fetch-depth: 0
       - name: Install the current repository
-        # NOTE: `--user` is a must due to we are not root in a new job container
-        # but a user in the runner container
         run: |
-          pip3 install hf_transfer --user
-          pip3 install .[test] --user
+          pip3 install hf_transfer
+          pip3 install .[test]
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
@@ -61,14 +62,17 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus 2 --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer --user
-          pip3 install .[test] --user
+          pip3 install hf_transfer
+          pip3 install .[test]
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
