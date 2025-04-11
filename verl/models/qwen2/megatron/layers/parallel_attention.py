@@ -30,7 +30,7 @@ from transformers import Qwen2Config
 from verl.models.qwen2.megatron.layers.parallel_linear import QKVParallelLinear
 
 from verl.utils.megatron import tensor_parallel as tp_utils
-
+from verl.utils.device import is_npu_available
 
 class Qwen2RotaryEmbedding(nn.Module):
 
@@ -278,6 +278,11 @@ from einops import rearrange
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+    from flash_attn.layers.rotary import apply_rotary_emb
+elif is_npu_available:
+    import numpy as np
+    import torch_npu
+    from verl.bert_padding import index_first_axis, pad_input, unpad_input
 
 
 def apply_rotary_pos_emb_rmpad(q, k, cos, sin, position_ids, indices, sequence_length):
@@ -296,7 +301,6 @@ def apply_rotary_pos_emb_rmpad(q, k, cos, sin, position_ids, indices, sequence_l
     return q_embed, k_embed
 
 
-from flash_attn.layers.rotary import apply_rotary_emb
 
 
 # use flash-attn rotary embeddings with rmpad
@@ -352,13 +356,19 @@ class ParallelQwen2AttentionRmPad(ParallelQwen2Attention):
         value_states = value_states.view(total_nnz, self.num_key_value_heads_per_tp, self.head_dim)
 
         cos, sin = self.rotary_emb(value_states, seq_len=sequence_length)
-        cos, sin = cos[:, :cos.shape[1] // 2], sin[:, :sin.shape[1] // 2]  # flash attn only needs half
-        query_states, key_states = apply_rotary_pos_emb_rmpad_flash(query_states,
-                                                                    key_states,
-                                                                    cos,
-                                                                    sin,
-                                                                    cu_seqlens=cu_seqlens,
-                                                                    max_seqlen=max_seqlen_in_batch)
+        if is_flash_attn_2_available():
+            cos, sin = cos[:, :cos.shape[1] // 2], sin[:, :sin.shape[1] // 2]  # flash attn only needs half
+            query_states, key_states = apply_rotary_pos_emb_rmpad_flash(query_states,
+                                                                        key_states,
+                                                                        cos,
+                                                                        sin,
+                                                                        cu_seqlens=cu_seqlens,
+                                                                        max_seqlen=max_seqlen_in_batch)
+        elif is_npu_available:
+            query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin, position_ids,
+                                                                  indices, sequence_length)
+        else:
+            raise NotImplementedError("Only flash-attn 2 and ascend npu are supported")
         # query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin, position_ids, indices,
 
         # It is recommended to use dropout with FA according to the docs
@@ -376,18 +386,38 @@ class ParallelQwen2AttentionRmPad(ParallelQwen2Attention):
             key_states = key_states.to(torch.float16)
             value_states = value_states.to(torch.float16)
 
-        attn_output_unpad = flash_attn_varlen_func(
-            query_states,
-            key_states,
-            value_states,
-            cu_seqlens_q=cu_seqlens,
-            cu_seqlens_k=cu_seqlens,
-            max_seqlen_q=max_seqlen_in_batch,
-            max_seqlen_k=max_seqlen_in_batch,
-            dropout_p=dropout_rate,
-            softmax_scale=None,
-            causal=True,
-        )
+        if is_flash_attn_2_available():
+            attn_output_unpad = flash_attn_varlen_func(
+                query_states,
+                key_states,
+                value_states,
+                cu_seqlens_q=cu_seqlens,
+                cu_seqlens_k=cu_seqlens,
+                max_seqlen_q=max_seqlen_in_batch,
+                max_seqlen_k=max_seqlen_in_batch,
+                dropout_p=dropout_rate,
+                softmax_scale=None,
+                causal=True,
+            )
+        elif is_npu_available:
+            attention_mask_npu = torch.from_numpy(np.triu(np.ones([max_seqlen_in_batch, max_seqlen_in_batch]),
+                                                          k=1)).to(bool).npu()
+            head_num = query_states.shape[1]
+            attn_output_unpad = torch_npu.npu_fusion_attention(
+                query_states,
+                key_states,
+                value_states,
+                head_num,
+                atten_mask=attention_mask_npu,
+                scale=1.0 / math.sqrt(query_states.shape[-1]),
+                keep_prob=1,
+                input_layout="TND",
+                actual_seq_qlen=tuple(cu_seqlens[1:].cpu().numpy().tolist()),
+                actual_seq_kvlen=tuple(cu_seqlens[1:].cpu().numpy().tolist()),
+                pre_tockens=2147483647,
+                next_tockens=0)[0]
+        else:
+            raise NotImplementedError("Only flash-attn 2 and ascend npu are supported")
 
         attn_output_unpad = attn_output_unpad.to(input_dtype)
         attn_output_unpad = attn_output_unpad.reshape(total_nnz, 1, self.hidden_size_per_tp).contiguous()
