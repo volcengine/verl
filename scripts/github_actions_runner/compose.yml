@@ -1,7 +1,6 @@
 # Still wating for dynamic name features: https://github.com/docker/compose/issues/9026
 # Usage Example:
 # cd scripts/github_actions_runner
-# docker build -t github-actions-runner:latest -f Dockerfile.github.actions.runner .
 # export REPOSITORY=volcengine/verl
 # export REG_TOKEN=...
 # export RUNNER_NAME_STEM=verl-L20-$(hostname)
@@ -9,7 +8,8 @@
 # export RUNNER_IMAGE=github-actions-runner:latest  # Use your custom image tag if different
 # export RUNNER_WORK_HOME=${HOME}/github-actions-runner/work-dirs
 # mkdir -p ${RUNNER_WORK_HOME}
-# docker compose up                  # Then start the services
+# docker build -t github-actions-runner:latest -f Dockerfile.github.actions.runner .
+# docker compose up
 
 # c.f. https://docs.docker.com/reference/compose-file/extension/
 # Define common runner configuration
