@@ -368,7 +368,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         return origin_params
 
-    def __enter__(self):
+    def enter_sharding_context(self):
         # create a new cuda space for parameters not in this pp rank
         self.module.load_params_to_cuda()
         # broadcast the parameters from pp rank to other ranks
@@ -383,7 +383,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.origin_params = self._post_process_params(self.params)
         self.inference_engine.sync_model_weights(self.params, load_format='megatron')
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def exit_sharding_context(self, exc_type, exc_value, traceback):
         # offload parameters doesn't belong to this pp rank
         self.module.offload_params_to_cpu()
 

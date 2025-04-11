@@ -55,6 +55,8 @@ infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=True
 gen_tp=4
 
+use_efficient_resharding=False  # Change to True if you want to use efficient resharding
+
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m recipe.dapo.src.main_dapo \
@@ -75,6 +77,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
+    actor_rollout_ref.model.use_efficient_resharding=${use_efficient_resharding} \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
     algorithm.filter_groups.metric=${filter_groups_metric} \

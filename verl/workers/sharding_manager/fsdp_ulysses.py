@@ -39,7 +39,7 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
         self.device_mesh = device_mesh
         self.seed_offset = 12345
 
-    def __enter__(self):
+    def enter_sharding_context(self):
         if self.device_mesh is not None:
             # We have a global SP group
             # so we have to change to use model-specific sp group
@@ -47,7 +47,7 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
             set_ulysses_sequence_parallel_group(self.device_mesh['sp'].get_group())
             # TODO: check how to set seed for each model
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def exit_sharding_context(self, exc_type, exc_value, traceback):
         # restore random states
         if self.device_mesh is not None:
             # revert to previous sp group

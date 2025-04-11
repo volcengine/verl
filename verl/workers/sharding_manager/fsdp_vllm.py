@@ -75,7 +75,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
-    def __enter__(self):
+    def enter_sharding_context(self):
         # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
         # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
         # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory
@@ -127,7 +127,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def exit_sharding_context(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # TODO(ZSL): check this
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):

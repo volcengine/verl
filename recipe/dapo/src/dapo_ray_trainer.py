@@ -49,6 +49,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
 
+        use_efficient_resharding = (
+            self.config.actor_rollout_ref.actor.strategy == "fsdp" 
+            and self.config.actor_rollout_ref.model.use_efficient_resharding
+        )
+
         self.global_steps = 0
 
         # load checkpoint before doing anything
@@ -97,7 +102,13 @@ class RayDAPOTrainer(RayPPOTrainer):
                 with _timer('step', timing_raw):
                     # generate a batch
                     with _timer('gen', timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        if use_efficient_resharding:
+                            if num_gen_batches == 1:
+                                self.actor_rollout_wg.setup_generate_sequences_efficient(gen_batch)
+
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences_efficient(gen_batch)
+                        else:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -213,6 +224,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             batch = batch[:traj_bsz]
+
+                    if use_efficient_resharding:  # Rollout is over
+                        self.actor_rollout_wg.teardown_generate_sequences_efficient(batch)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
