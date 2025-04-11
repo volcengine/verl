@@ -1,7 +1,7 @@
 set -x
 
-# data with difficulty scores can be downloaded 
-# from https://github.com/uscnlp-lime/verl/tree/main/verl/data
+# data with difficulty scores can be downloaded from
+# https://github.com/uscnlp-lime/verl/tree/main/verl/data
 # or https://huggingface.co/datasets/lime-nlp/MATH_Difficulty
 gsm8k_test_path=verl/verl/data/gsm8k/test.parquet
 deepscaler_skew_difficult_train_path=verl/verl/data/deepscaler_skew_difficult_train.parquet

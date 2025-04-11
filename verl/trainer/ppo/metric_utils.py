@@ -112,7 +112,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True, use_adarft: 
         } if use_critic else {}),
         **({
             'critic/target_difficulty': batch.meta_info.get('target_difficulty', float('nan')),
-        } if use_adarft else {}) ,
+        } if use_adarft else {}),
 
         # response length
         'response_length/mean':
