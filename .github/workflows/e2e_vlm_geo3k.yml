@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   e2e_vlm_geo3k:
-    runs-on: [l20]
+    runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

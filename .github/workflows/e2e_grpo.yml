@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   e2e_gsm8k_megatron-l20-0:
-    runs-on: [l20]
+    runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -66,7 +66,7 @@ jobs:
           ray stop --force
           bash tests/e2e/run_qwen_grpo_megatron.sh
   e2e_gsm8k_megatron-l20-1:
-    runs-on: [l20]
+    runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
