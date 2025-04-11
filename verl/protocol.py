@@ -25,6 +25,7 @@ from typing import Callable, Dict, List, Union
 
 import torch
 import tensordict
+from packaging import version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, Dataset
 
@@ -222,8 +223,7 @@ class DataProto:
         elif isinstance(item, (int, np.integer)):
             tensor_data = self.batch[item]
             non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
-            return_type = DataProto if isinstance(item, slice) else DataProtoItem
-            return return_type(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
+            return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
 
         # Case 4: Unsupported type
         else:
@@ -232,7 +232,7 @@ class DataProto:
     def __getstate__(self):
         import io
         buffer = io.BytesIO()
-        if tensordict.__version__ >= '0.5.0' and self.batch is not None:
+        if version.parse(tensordict.__version__) >= version.parse('0.5.0') and self.batch is not None:
             self.batch = self.batch.contiguous()
             self.batch = self.batch.consolidate()
         torch.save(self.batch, buffer)
