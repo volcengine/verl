@@ -141,11 +141,13 @@ def fit(self):
                         batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
                     # compute advantages, executed on the driver process
+                    scale_grpo_adv = self.config.algorithm.get('scale_grpo_adv', True)
                     batch = compute_advantage(batch,
                                               adv_estimator=self.config.algorithm.adv_estimator,
                                               gamma=self.config.algorithm.gamma,
                                               lam=self.config.algorithm.lam,
-                                              num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                              num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                              scale_grpo_adv=scale_grpo_adv)
 
                 # update critic
                 if self.use_critic:
