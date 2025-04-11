@@ -30,7 +30,7 @@ gen_prompt_bsz=$((train_prompt_bsz * 3))
 n_resp_per_prompt=4
 
 python3 -m recipe.dapo.src.main_dapo \
-    data.train_files="$HOME/data/gsm8k/train.parquet" \
+    data.train_files="$HOME/data/dapo-math-17k.parquet" \
     data.val_files="$HOME/data/gsm8k/test.parquet" \
     reward_model.reward_manager=dapo \
     algorithm.adv_estimator=${adv_estimator} \
