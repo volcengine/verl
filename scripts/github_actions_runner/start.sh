@@ -9,6 +9,11 @@ RUNNER_LABELS=${RUNNER_LABELS:-""} # Delimiter is comma
 RUNNER_GROUP=${RUNNER_GROUP:-"Default"}
 RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
 
+echo "RUNNER_NAME=${RUNNER_NAME}"
+echo "RUNNER_LABELS=${RUNNER_LABELS}"
+echo "RUNNER_GROUP=${RUNNER_GROUP}"
+echo "RUNNER_WORK_DIR=${RUNNER_WORK_DIR}"
+
 # Log function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
