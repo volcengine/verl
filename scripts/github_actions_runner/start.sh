@@ -6,7 +6,8 @@ REPOSITORY=${REPOSITORY:-"volcengine/verl"}
 REG_TOKEN=${REG_TOKEN:-""}
 RUNNER_NAME=${RUNNER_NAME:-"verl-$(hostname)"}
 RUNNER_LABELS=${RUNNER_LABELS:-""} # Delimiter is comma
-RUNNER_GROUP=${RUNNER_GROUP:-"Default"}
+RUNNER_GROUP=${RUNNER_GROUP:-""} # Only available for enterprise users.
+# c.f. https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/managing-access-to-self-hosted-runners-using-groups
 RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
 
 echo "RUNNER_NAME=${RUNNER_NAME}"

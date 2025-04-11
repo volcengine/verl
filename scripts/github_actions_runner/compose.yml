@@ -16,7 +16,7 @@ services:
       - REG_TOKEN=${REG_TOKEN:-""}
       - RUNNER_NAME=${RUNNER_NAME_STEM-"verl-$(hostname)"}-{{.Task.Slot}}
       - RUNNER_LABELS=${RUNNER_LABELS:-""}
-      - RUNNER_GROUP=${RUNNER_GROUP:-"Default"}
+      - RUNNER_GROUP=${RUNNER_GROUP:-""}
       - RUNNER_WORK_DIR=${RUNNER_WORK_DIR:-"_work"}
       - http_proxy=${http_proxy:-}
       - https_proxy=${https_proxy:-}
