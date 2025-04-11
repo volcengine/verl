@@ -18,26 +18,32 @@ from typing import Dict
 import torch
 
 def register_optim_in_bwd_hooks(
-    model: torch.nn.Module, optim_dict: Dict[torch.nn.Parameter, torch.optim.Optimizer]
+    model: torch.nn.Module,
+    optim_dict: Dict[torch.nn.Parameter, torch.optim.Optimizer],
+    acc_steps: int, # number of microbatches to accumulate,
 ) -> None:
     """
-    Register hooks for optimizer step running in backward.
-
-    When fusing the optimizer step into backward, we need to call ``.step()`` on the optimizer
-    for a given parameter as soon as its gradient is ready. This utility registers post-accumulate-grad
-    hooks on all parameters in the model to achieve this.
-
-    Args:
-        model (torch.nn.Module): Model whose parameters will be optimized. Note that currently
-            hooks for ALL parameters in the model will be registered.
-        optim_dict (Dict[torch.nn.Parameter, torch.optim.Optimizer]): Mapping from
-            parameters to optimizers.
+    Register backward hooks that only perform an optimizer step after `acc_steps`
+    backward calls on each parameter.
     """
-
     def optim_step(param) -> None:
-        optim_dict[param].step()
-        optim_dict[param].zero_grad()
+        # Get or initialize an accumulation counter on the parameter.
+        if not hasattr(param, '_accumulation_counter'):
+            param._accumulation_counter = 0
+        param._accumulation_counter += 1
 
+        # Only update when we've accumulated gradients from all microbatches.
+        if param._accumulation_counter % acc_steps == 0:
+            # print("Autocast enabled before optimizer step:", torch.is_autocast_enabled())
+            # with torch.amp.autocast(device_type='cuda', enabled=False):
+                # print("Autocast Enabled before optimizer step:", torch.is_autocast_enabled())
+            param.data = param.data.float()
+            print(f"Param data type: {param.data.dtype}")
+            optim_dict[param].step()
+            # optim_dict[param].zero_grad()
+            # Resetting or implicitly allowing counter to roll-over
+            # (optional: you could set param._accumulation_counter = 0)
+    
     for p in model.parameters():
         if p.requires_grad:
             p.register_post_accumulate_grad_hook(optim_step)

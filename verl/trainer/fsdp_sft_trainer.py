@@ -273,12 +273,16 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
+        batch_size = self.config.data.train_batch_size
+        microbatchsize = self.config.data.micro_batch_size_per_gpu
+        acc_steps = batch_size//microbatchsize
+
         self.optimizer = None
         if self.optim_bwd_hook:
             self.optim_dict = {
                 param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
             }
-            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict)
+            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict, acc_steps=acc_steps)
         else:
             self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
                                         lr=self.config.optim.lr,
@@ -430,6 +434,9 @@ class FSDPSFTTrainer(object):
 
         if not self.optim_bwd_hook:
             self.optimizer.zero_grad()
+        else:
+            for opt in self.optim_dict.values():
+                opt.zero_grad()
 
         # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
 
@@ -458,8 +465,6 @@ class FSDPSFTTrainer(object):
 
         # reduce loss across dp ranks
         lr = self.lr_scheduler.get_last_lr()[0]
-
-        print("learning rate: {lr}")
 
         log_gpu_memory_usage('After offload weights', logger=logger)
 
@@ -567,7 +572,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from verl.utils.distributed import initialize_global_process_group
 
 
-@hydra.main(config_path='config', config_name='sft_trainer', version_base=None)
+@hydra.main(config_path='config', config_name='sft_trainer_test', version_base=None)
 def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
