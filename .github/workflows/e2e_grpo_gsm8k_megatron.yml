@@ -1,4 +1,4 @@
-name: e2e_grpo
+name: e2e_grpo_gsm8k_megatron
 
 on:
   # Trigger the workflow on push or pull request,
@@ -9,10 +9,13 @@ on:
     paths:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
-      - .github/workflows/e2e_grpo.yml
+      - .github/workflows/e2e_grpo_gsm8k_megatron.yml
       - "tests/e2e/*.sh"
       - "!verl/trainer/fsdp_sft_trainer.py"
       - "!recipe/**"
+      - "!verl/trainer/config/ppo_trainer.yaml"
+      - "!verl/workers/**/dp_*.py"
+      - "!verl/workers/**/fsdp_*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -24,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_megatron-l20-0:
+  e2e_grpo_gsm8k_megatron_0:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -46,15 +49,11 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running GRPO gsm8k e2e training tests with FSDP on 8 L20 GPUs (Qwen)
-        run: |
-          ray stop --force
-          bash tests/e2e/run_qwen_grpo.sh
       - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_grpo_megatron.sh
-  e2e_gsm8k_megatron-l20-1:
+  e2e_grpo_gsm8k_megatron_1:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -76,10 +75,6 @@ jobs:
       - name: Prepare gsm8k dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running GRPO gsm8k e2e training tests with FSDP on 8 L20 GPUs (Deepseek)
-        run: |
-          ray stop --force
-          bash tests/e2e/run_deepseek_grpo.sh
       - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
