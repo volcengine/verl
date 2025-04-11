@@ -6,7 +6,7 @@ mkdir -p $HOME/models
 
 huggingface-cli download deepseek-ai/deepseek-coder-1.3b-instruct --local-dir $HOME/models/deepseek-ai/deepseek-coder-1.3b-instruct
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
@@ -22,7 +22,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=2 \
-    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=2 \
     actor_rollout_ref.actor.checkpoint.contents=['model','hf_model','optimizer','extra'] \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
@@ -71,7 +71,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=2 \
-    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
@@ -101,4 +101,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.save_freq=-1 \
     trainer.test_freq=1 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=1 $@
+    trainer.total_training_steps=2 $@

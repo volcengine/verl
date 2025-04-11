@@ -1,13 +1,11 @@
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 # the config file used: verl/trainer/main_ppo/config/ppo_megatron_trainer.yaml
 
 mkdir -p $HOME/models
 huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
-
-export VLLM_ATTENTION_BACKEND=XFORMERS
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\

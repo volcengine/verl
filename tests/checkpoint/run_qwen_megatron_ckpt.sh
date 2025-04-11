@@ -6,7 +6,7 @@ mkdir -p $HOME/models
 
 huggingface-cli download Qwen/Qwen2.5-0.5B --local-dir $HOME/models/Qwen/Qwen2.5-0.5B
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
@@ -101,4 +101,4 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.save_freq=-1 \
     trainer.test_freq=1 \
     trainer.total_epochs=15 \
-    trainer.total_training_steps=1 $@
+    trainer.total_training_steps=2 $@

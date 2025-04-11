@@ -219,7 +219,7 @@ def collect_megatron_pp_as_dp(worker_group, output):
     output_in_dp = []
     for global_rank in range(worker_group.world_size):
         local_rank_info = worker_group.get_megatron_rank_info(rank=global_rank)
-        if local_rank_info.tp_rank == 0 and local_rank_info.pp_rank == 0:
+        if local_rank_info.tp_rank == 0:
             output_in_dp.append(output[global_rank])
     return output_in_dp
 

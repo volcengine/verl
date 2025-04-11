@@ -64,7 +64,7 @@ actor_rollout_ref:
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
     megatron:
-      tensor_model_parallel_size: 4
+      tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
@@ -76,7 +76,7 @@ actor_rollout_ref:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     megatron:
-      tensor_model_parallel_size: 4
+      tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
@@ -101,7 +101,7 @@ actor_rollout_ref:
     enforce_eager: True
     free_cache_engine: True
     load_format: dummy_megatron
-    tensor_model_parallel_size: 2
+    tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -147,7 +147,7 @@ critic:
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
   megatron:
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
@@ -172,7 +172,7 @@ reward_model:
   enable: False
   strategy: megatron
   megatron:
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1

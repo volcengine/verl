@@ -35,15 +35,11 @@ from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights
 from verl.utils.flops_counter import FlopsCounter
-from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.megatron_utils import mcore_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
 
 from codetiming import Timer
-
-from megatron.core import parallel_state as mpu
-from megatron.core import ModelParallelConfig
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -74,6 +70,8 @@ class ActorRolloutRefWorker(MegatronWorker):
     def __init__(self, config: DictConfig, role: str):
         super().__init__()
         self.config = config
+
+        from megatron.core import mpu
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -135,7 +133,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_model_optimizer(self,
                                model_path,
-                               megatron_config: ModelParallelConfig,
+                               megatron_config,
                                optim_config,
                                override_model_config,
                                enable_gradient_checkpointing=False):
@@ -212,7 +210,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
-            log_gpu_memory_usage('After AllGatherPPModel init', logger=logger)
+            log_gpu_memory_usage('After AllGatherPPModel init', logger=None)
         elif self._is_ref:
             print(f'self.config.ref.load_weight: {self.config.ref.load_weight}')
             ref_module = get_model(model_provider_func=megatron_actor_model_provider,
@@ -229,7 +227,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                ref_module,
                                                params_dtype=megatron_config.params_dtype,
                                                is_value_model=False)
-            log_gpu_memory_usage('After ref module init', logger=logger)
+            log_gpu_memory_usage('After ref module init', logger=None)
             return ref_module, actor_model_config
 
         # TODO: add more optimizer args into config
@@ -240,15 +238,16 @@ class ActorRolloutRefWorker(MegatronWorker):
             optim_config = None
             actor_optimizer = None
 
-        log_gpu_memory_usage('After actor optimizer init', logger=logger)
+        log_gpu_memory_usage('After actor optimizer init', logger=None)
 
         return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
 
-    def _build_rollout(self):
+    def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == 'vllm':
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import MegatronVLLMShardingManager
             from verl.utils.model import normalize_pp_vpp_params
+            from torch.distributed.device_mesh import init_device_mesh
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
@@ -257,31 +256,35 @@ class ActorRolloutRefWorker(MegatronWorker):
                 "gate_proj_layer_name": "linear_fc1.weight",
             }
 
-            # reshard the weight partition from actor to rollout to initialize the rollout class
-            # create a new cuda space for parameters not in this pp rank
-            self.hybrid_engine.load_params_to_cuda()
-            # broadcast the parameters from pp rank to other ranks
-            self.hybrid_engine.allgather_params()
-            # obtain name to parameters in pp/vpp
-            params = self.hybrid_engine.get_all_params()
-            # update the param name for the
-            params = normalize_pp_vpp_params(params=params,
-                                             num_hidden_layers=self.actor_model_config.num_hidden_layers,
-                                             layer_name='layers')
-            assert vllm_mode == 'customized', "Support for vllm>=0.7 for Megatron-LM backend has not been implemented yet."
-            rollout = vLLMRollout(actor_module=params,
-                                  config=self.config.rollout,
-                                  tokenizer=self.tokenizer,
-                                  model_hf_config=self.actor_model_config,
-                                  train_tp=mpu.get_tensor_model_parallel_world_size())
-            log_gpu_memory_usage('After building vllm rollout', logger=logger)
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            assert self.world_size % infer_tp == 0, f'rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}'
+            rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
+            log_gpu_memory_usage(f'Before building vllm rollout', logger=None)
+
+            from megatron.core import mpu
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            local_path = copy_to_local(self.config.model.path)
+            if vllm_mode == 'customized':
+                rollout = vLLMRollout(actor_module=self.actor_module,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config)
+            elif vllm_mode == 'spmd':
+                rollout = vLLMRollout(model_path=local_path,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config,
+                                      device_mesh=rollout_device_mesh,
+                                      trust_remote_code=trust_remote_code)
+            log_gpu_memory_usage('After building vllm rollout', logger=None)
 
             # perform weight resharding between actor and rollout
             sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
                                                            inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
                                                            layer_name_mapping=layer_name_mapping)
-            log_gpu_memory_usage('After building sharding manager', logger=logger)
+            log_gpu_memory_usage('After building sharding manager', logger=None)
         else:
             raise NotImplementedError('Only vllmRollout is supported with Megatron now')
 
@@ -298,6 +301,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.torch_dtypes import PrecisionType
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
+
+        from megatron.core import mpu
 
         megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.actor.megatron.get(
             'sequence_parallel', True),
@@ -327,7 +332,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                                           actor_optimizer_config=self.actor_optim_config)
 
         if self._is_rollout:
-            self.rollout, self.sharding_manager = self._build_rollout()
+            self.rollout, self.sharding_manager = self._build_rollout(
+                trust_remote_code=self.config.model.get('trust_remote_code', False))
 
         if self._is_ref:
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
@@ -345,6 +351,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
+            from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
             self.checkpoint_mananager = MegatronCheckpointManager(
                 config=self.config,
                 model_config=self.actor_model_config,
@@ -367,7 +374,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         data.batch = data.batch.cuda()
 
-        log_gpu_memory_usage('Before update policy', logger=logger)
+        log_gpu_memory_usage('Before update policy', logger=None)
 
         dataloader = self.actor.make_minibatch_iterator(data=data)
         with Timer(name='update_policy', logger=None) as timer:
@@ -377,7 +384,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics['perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
 
-        log_gpu_memory_usage('After update policy', logger=logger)
+        log_gpu_memory_usage('After update policy', logger=None)
 
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={'metrics': metrics})
@@ -400,19 +407,19 @@ class ActorRolloutRefWorker(MegatronWorker):
         }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
-            log_gpu_memory_usage('After entering sharding manager', logger=logger)
+            log_gpu_memory_usage('After entering sharding manager', logger=None)
 
             prompts = self.sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
 
-            log_gpu_memory_usage('After rollout generation', logger=logger)
+            log_gpu_memory_usage('After rollout generation', logger=None)
 
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After generate_sequences', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=None)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -447,7 +454,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After generate_sequences', logger=logger)
+        log_gpu_memory_usage('After generate_sequences', logger=None)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -473,6 +480,8 @@ class CriticWorker(MegatronWorker):
     def __init__(self, config):
         super().__init__()
         self.config = config
+
+        from megatron.core import mpu
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -511,7 +520,7 @@ class CriticWorker(MegatronWorker):
 
     def _build_critic_model_optimizer(self,
                                       model_path,
-                                      megatron_config: ModelParallelConfig,
+                                      megatron_config,
                                       optim_config,
                                       override_model_config,
                                       enable_gradient_checkpointing=False):
@@ -612,6 +621,7 @@ class CriticWorker(MegatronWorker):
                                         critic_optimizer=self.critic_optimizer,
                                         critic_optimizer_config=critic_optimizer_config)
         self.flops_counter = FlopsCounter(self.critic_model_config)
+        from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
         self.checkpoint_mananager = MegatronCheckpointManager(
             config=self.config,
             model_config=self.critic_model_config,
@@ -671,6 +681,8 @@ class RewardModelWorker(MegatronWorker):
         super().__init__()
         self.config = config
 
+        from megatron.core import mpu
+
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
         # Therefore, we only require one distribute initialization.
@@ -702,7 +714,7 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
+    def _build_rm_model(self, model_path, megatron_config, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import update_model_config
         from verl.utils.megatron_utils import get_model
@@ -729,7 +741,7 @@ class RewardModelWorker(MegatronWorker):
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_model_from_config
             # vpp is not supported yet because it will hang for some reason. Need debugging
-            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
+            # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
             # this_megatron_config = copy.deepcopy(megatron_config)
             # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
             parallel_model = get_parallel_model_from_config(config=rm_model_config,
