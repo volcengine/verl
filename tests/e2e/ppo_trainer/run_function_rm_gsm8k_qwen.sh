@@ -6,6 +6,8 @@ MODEL_PATH=${MODEL_PATH:-$HOME/models/Qwen/Qwen2.5-0.5B}
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
+MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-512}
+MAX_RESPONSE_LEN=${MAX_RESPONSE_LEN:-512}
 
 ENGINE=${ENGINE:-vllm}
 RM_PAD=${RM_PAD:-True}

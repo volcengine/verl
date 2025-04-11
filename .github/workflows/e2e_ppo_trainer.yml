@@ -11,7 +11,8 @@ on:
       - "**/*.py"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_ppo_trainer.yml
-      - "tests/e2e/*gsm8k*.sh"
+      - "tests/e2e/run_function_rm_gsm8k_qwen.sh"
+      - "tests/e2e/run_model_rm_gsm8k_qwen.sh"
       - "!recipe/**"
       - "!verl/trainer/config/ppo_megatron_trainer.yaml"
       - "!verl/workers/**/megatron_*.py"
@@ -145,4 +146,36 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
         run: |
           ray stop --force
-          ENGINE=sglang bash tests/e2e/ppo_trainer/run_ppo_function_rm_qwen_gsm8k.sh
+          ENGINE=sglang bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+
+  e2e_ppo_trainer_vlm:
+    runs-on: [L20x2]
+    timeout-minutes: 10 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      HF_HUB_ENABLE_HF_TRANSFER: 1
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus 2 --shm-size=40g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install hf_transfer
+          pip3 install -e .[test,geo,vllm]
+          python -c "import transformers; print(transformers.__version__)"
+      - name: Prepare geo3k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/geo3k.py
+      - name: Running geo3k vlm e2e training tests on 8 L20 GPUs with rmpad using function rm
+        run: |
+          ray stop --force
+          TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+            MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
+            MODEL_NAME=Qwen/Qwen2-VL-2B-Instruct \
+            ADV_ESTIMATOR=grpo USE_KL=True bash tests/e2e/ppo_trainer/run_vlm_geo3k_qwen.sh
