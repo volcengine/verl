@@ -1,6 +1,5 @@
 # Modified from https://github.com/beikeni/github-runner-dockerfile/blob/main/Dockerfile
-ARG BASE_IMAGE="ubuntu:22.04"
-# Ubuntu 24.04 has broken dependencies for libicu. c.f. https://github.com/microsoft/linux-package-repositories/issues/135
+ARG BASE_IMAGE="whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6"
 
 FROM ${BASE_IMAGE}
 
