@@ -65,4 +65,4 @@ python3 -m recipe.prime.main_prime \
     trainer.n_gpus_per_node=${num_gpus} \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.total_training_steps=2 $@
+    trainer.total_training_steps=1 $@

@@ -83,4 +83,4 @@ python3 -m recipe.dapo.src.main_dapo \
     trainer.total_epochs=2 \
     trainer.resume_mode=disable \
     trainer.val_before_train=False \
-    trainer.total_training_steps=2 $@
+    trainer.total_training_steps=1 $@

@@ -47,7 +47,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps=1 \
     trainer.logger=['console'] \
     trainer.default_hdfs_dir=null $@
 EOF

@@ -18,7 +18,7 @@ TEST_FREQ=${TEST_FREQ:--1}
 # Save & Resume
 RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
-TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-2}
+TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
 train_prompt_bsz=16 # 8n
 train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
