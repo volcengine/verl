@@ -301,9 +301,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
             rng_state_path = get_rng_states_checkpoint_path(local_path)
-            rng_state = self.get_rng_state()
-            torch.save(rng_state, rng_state_path)
-            if self.rank == 0:
-                print(f"saving rng states to {rng_state_path}")
+            if self.rank % torch.cuda.device_count() == 0:
+                rng_state = self.get_rng_state()
+                torch.save(rng_state, rng_state_path)
+                print(f"Rank {self.rank} saving rng states to {rng_state_path}")
 
         self.previous_saved_paths.append(local_path)
