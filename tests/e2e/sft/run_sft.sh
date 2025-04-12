@@ -8,20 +8,23 @@ MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
 
-CKPTS_HOME=${CKPTS_HOME:-$HOME/ckpts}
-
 SP_SIZE=${SP_SIZE:-1}
 LIGER=${LIGER:-False}
 MULTITURN=${MULTITURN:-False}
 LORA_RANK=${LORA_RANK:-0}
 RM_PAD=${RM_PAD:-True}
 
-exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
+micro_bsz=2
+num_gpus=8
 
-mkdir -p "${CKPTS_HOME}"
+project_name="verl-test"
+exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
+ckpts_home=${ckpts_home:-$HOME/${project_name}/${exp_name}}
+
+mkdir -p "${ckpts_home}"
 
 read -r -d '' cmd <<EOF
-torchrun --standalone --nnodes=1 --nproc_per_node=2 ${ENTRYPOINT} \
+torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.prompt_key=extra_info \
@@ -31,7 +34,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 ${ENTRYPOINT} \
     data.multiturn.enable="${MULTITURN}" \
     data.multiturn.messages_key=messages \
     optim.lr=1e-4 \
-    data.micro_batch_size_per_gpu=2 \
+    data.micro_batch_size_per_gpu=${micro_bsz} \
     model.partial_pretrain="${MODEL_ID}" \
     model.lora_rank="${LORA_RANK}" \
     model.lora_alpha=16 \
@@ -39,8 +42,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 ${ENTRYPOINT} \
     model.use_liger="${LIGER}" \
     ulysses_sequence_parallel_size="${SP_SIZE}" \
     use_remove_padding="${RM_PAD}" \
-    trainer.default_local_dir="${CKPTS_HOME}" \
-    trainer.project_name="verl-test" \
+    trainer.default_local_dir="${ckpts_home}" \
+    trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_training_steps="${TOT_TRAIN_STEPS}" \
     trainer.logger=['console'] \
@@ -49,4 +52,4 @@ EOF
 
 eval "$cmd"
 
-rm -rf "${CKPTS_HOME:?}/*"
+rm -rf "${ckpts_home:?}/*"
