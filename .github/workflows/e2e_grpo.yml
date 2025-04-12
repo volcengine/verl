@@ -7,7 +7,8 @@ on:
     branches:
       - main
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_grpo.yml
       - "tests/e2e/*.sh"

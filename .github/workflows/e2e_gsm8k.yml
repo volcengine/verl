@@ -8,7 +8,8 @@ on:
       - main
       - v0.2.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k.yml
       - "tests/e2e/*gsm8k*.sh"

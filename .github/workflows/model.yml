@@ -8,7 +8,8 @@ on:
       - main
       - v0.3.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - "tests/model/*"
       - .github/workflows/model.yml
       - "!recipe/**"
