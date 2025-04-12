@@ -45,7 +45,8 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       VERL_HOME: "/github/home/verl"
-      OVERWRITE: ${{ github.event.inputs.overwrite || '0' }}
+      # OVERWRITE: ${{ github.event.inputs.overwrite || '0' }}
+      OVERWRITE: 1
     container:
       image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
       options: --gpus all --shm-size=10g
