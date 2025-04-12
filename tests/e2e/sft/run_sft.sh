@@ -18,6 +18,8 @@ RM_PAD=${RM_PAD:-True}
 
 exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
 
+mkdir -p "${CKPTS_HOME}"
+
 read -r -d '' cmd <<EOF
 torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     "${ENTRYPOINT}" \
