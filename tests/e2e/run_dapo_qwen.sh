@@ -26,7 +26,7 @@ filter_groups_metric=acc
 max_num_gen_batches=10
 # n >= 2
 train_prompt_bsz=4 # 2n
-gen_prompt_bsz=$((train_prompt_bsz * 3)) # 6n
+gen_prompt_bsz=16
 train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # n
 n_resp_per_prompt=4
 train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 4n
@@ -56,7 +56,7 @@ python3 -m recipe.dapo.src.main_dapo \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
