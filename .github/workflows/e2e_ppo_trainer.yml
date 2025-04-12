@@ -68,7 +68,7 @@ jobs:
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using customized reward function
         run: |
           ray stop --force
-          CUSTOM_REWARD_FN=True tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+          CUSTOM_REWARD_FN=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
       - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm with in-reward kl and kl loss
         run: |
           ray stop --force
