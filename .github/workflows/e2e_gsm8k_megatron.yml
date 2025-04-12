@@ -9,7 +9,8 @@ on:
       - main
       - v0.3.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - "verl/trainer/config/*.yaml"
       - .github/workflows/e2e_gsm8k_megatron.yml
       - "tests/e2e/*megatron*.sh"
