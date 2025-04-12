@@ -14,7 +14,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_prime.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_qwen_gsm8k_prime.sh"
+      - "tests/e2e/run_prime.sh"
       - "!examples"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
@@ -50,4 +50,4 @@ jobs:
       - name: Running gsm8k e2e with prime alg
         run: | 
           ray stop --force
-          bash tests/e2e/run_qwen_gsm8k_prime.sh
+          bash tests/e2e/run_prime.sh
