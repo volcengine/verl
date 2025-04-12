@@ -34,7 +34,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
     container:
       image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
-      options: --gpus "\"device=${CUDA_VISIBLE_DEVICES}\"" --shm-size=10g
+      options: --gpus 2 --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
