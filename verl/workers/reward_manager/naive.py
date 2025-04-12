@@ -102,7 +102,7 @@ class NaiveRewardManager:
     def _process_score(self, score_result: Union[dict[str, Any], float]) -> tuple[float, dict[str, Any]]:
         if isinstance(score_result, dict):
             if "score" not in score_result:
-                raise KeyError("if Reward funtion return a dcit, it must contain a 'score' key")
+                raise KeyError("If reward funtion return a dcit, it must contain a 'score' key")
             return score_result["score"], score_result
         return score_result, {"score": score_result}
 
