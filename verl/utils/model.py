@@ -200,7 +200,7 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     Normalize the pp vpp params into a complete named parameters.
     This is useful when gather parameters from pp ranks and passed to a model without pp
 
-    params: List[List[Dict[str, param]]]
+    params: Iterable[List[Dict[str, param]]]
         params contains a list of pp, with a list of vpp named_parameters in each vpp chunk.
     output: Dict[str, param]
 
@@ -237,15 +237,12 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
         return name
 
     pp_size = len(params)
-    normalized_name_to_param = {}
     for pp_rank in range(len(params)):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
                 normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
-                normalized_name_to_param[normalized_name] = param
-
-    return normalized_name_to_param
+                yield normalized_name, param
 
 
 def get_parallel_model_from_config(config,
