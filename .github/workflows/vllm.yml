@@ -55,8 +55,33 @@ jobs:
           cd tests/generation
           bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet 2
           rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+
+  vllm_2gpus:
+    runs-on: [L20x2]
+    timeout-minutes: 20 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test]
+          pip3 install vllm==0.5.4
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
+          cd tests/generation
+          bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
+          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+      - name: Test the latest vLLM
+        run: |
+          pip3 install --upgrade vllm==0.7.3
           cd tests/generation
           bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
           rm -rf $HOME/data/gen/qwen_05_gen_test.parquet

@@ -121,7 +121,7 @@ if __name__ == '__main__':
     import hydra
     from omegaconf import DictConfig
 
-    @hydra.main(config_path="../../verl/trainer/config", config_name="sft_trainer")
+    @hydra.main(config_path="../../../verl/trainer/config", config_name="sft_trainer")
     def hydra_entry(cfg: DictConfig) -> None:
         main(cfg)
 

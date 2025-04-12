@@ -2,7 +2,7 @@
 set -x
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
-MODEL_PATH=${MODEL_PATH:-$HOME/models/Qwen/Qwen2.5-0.5B}
+MODEL_PATH=${MODEL_PATH:-$HOME/models/${MODEL_ID}}
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}

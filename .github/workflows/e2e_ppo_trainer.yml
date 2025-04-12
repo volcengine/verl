@@ -169,5 +169,5 @@ jobs:
           ray stop --force
           TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
-            MODEL_NAME=Qwen/Qwen2-VL-2B-Instruct \
+            MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
             ADV_ESTIMATOR=grpo USE_KL=True bash tests/e2e/ppo_trainer/run_vlm_geo3k_qwen.sh
