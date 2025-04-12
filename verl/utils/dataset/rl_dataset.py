@@ -17,6 +17,7 @@ from typing import List, Union, Optional
 import copy
 import datasets
 from collections import defaultdict
+import random
 
 import torch
 import numpy as np
@@ -105,6 +106,11 @@ class RLHFDataset(Dataset):
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
 
+        self.mode = 'train' if any('/train/' in file or 'train.' in file for file in data_files) else 'other'
+        self.sampling_ratios = config.get("sampling_ratios", None)
+        if self.sampling_ratios is not None and len(self.sampling_ratios) != len(self.data_files):
+            raise ValueError(f"Number of sampling_ratios ({len(self.sampling_ratios)}) must match number of data_files ({len(self.data_files)})")
+
         # whether to store the dataset in state_dict()
         # default not store
         self.serialize_dataset = False
@@ -119,11 +125,44 @@ class RLHFDataset(Dataset):
 
     def _read_files_and_tokenize(self):
         dataframes = []
+        dataset_sizes = []
+
         for parquet_file in self.data_files:
             # read parquet files and cache
             dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
-        self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
+            dataset_sizes.append(len(dataframe))
+
+        # If sampling_ratios is provided, apply them by sampling from each dataset
+        if self.sampling_ratios is not None and self.mode == "train":
+            combined_dataframes = []
+            
+            # Normalize ratios if they don't sum to 1
+            ratios = self.sampling_ratios
+            
+            # Calculate target size for each dataset
+            target_sizes = [int(dataset_sizes[ri] * ratio) for ri, ratio in enumerate(ratios)]
+                
+            # Sample from each dataset according to the target sizes
+            for i, (dataframe, target_size) in enumerate(zip(dataframes, target_sizes)):
+                if target_size == 0:
+                    continue
+                    
+                if target_size < len(dataframe):
+                    # Sample without replacement if we need fewer samples than available
+                    sampled_indices = random.sample(range(len(dataframe)), target_size)
+                    sampled_dataset = dataframe.select(sampled_indices)
+                else:
+                    # Use all samples if we need more or exactly what's available
+                    sampled_dataset = dataframe
+                    
+                combined_dataframes.append(sampled_dataset)
+                print(f'Dataset {i}: using {len(sampled_dataset)} samples (ratio: {ratios[i]:.2f}) out of {dataset_sizes[i]}')
+                
+            self.dataframe: datasets.Dataset = datasets.concatenate_datasets(combined_dataframes)
+        else:
+            # Concatenate all datasets
+            self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f'dataset len: {len(self.dataframe)}')
 
