@@ -8,7 +8,8 @@ on:
       - main
       - v0.3.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - .github/workflows/e2e_vlm_geo3k.yml
       - "tests/e2e/*vl*.sh"
       - "!recipe/**"
