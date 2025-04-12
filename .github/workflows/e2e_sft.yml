@@ -8,7 +8,8 @@ on:
       - main
       - v0.2.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - .github/workflows/e2e_sft.yml
       - "tests/e2e/*.sh"
       - "!verl/trainer/main_ppo.py"
