@@ -48,4 +48,4 @@ EOF
 
 eval "$cmd"
 
-rm -rf "${CKPTS_HOME}"
+rm -rf "${CKPTS_HOME:?}/*"
