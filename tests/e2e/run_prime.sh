@@ -2,6 +2,8 @@
 set -x
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/qwen/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-${HOME}/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-${HOME}/data/gsm8k/test.parquet}
@@ -27,7 +29,7 @@ python3 -m recipe.prime.main_prime \
     data.accuracy_upper_bound=0.8 \
     data.oversample_factor=4 \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path="${MODEL_ID}" \
+    actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
@@ -47,7 +49,7 @@ python3 -m recipe.prime.main_prime \
     algorithm.use_kl_in_reward=True \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
-    reward_model.model.path="${MODEL_ID}" \
+    reward_model.model.path="${MODEL_PATH}" \
     reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     reward_model.model.update=before \
     reward_model.model.beta_train=0.05 \

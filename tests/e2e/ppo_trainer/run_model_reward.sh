@@ -2,6 +2,8 @@
 set -x
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/qwen/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
@@ -39,7 +41,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path="${MODEL_ID}" \
+    actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.use_liger="${LIGER}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
@@ -63,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     critic.ulysses_sequence_parallel_size="${SP_SIZE}" \
     critic.model.use_remove_padding="${RM_PAD}" \
     critic.optim.lr_warmup_steps_ratio=0.05 \
-    critic.model.path="${MODEL_ID}" \
+    critic.model.path="${MODEL_PATH}" \
     critic.model.enable_gradient_checkpointing=False \
     critic.use_dynamic_bsz="${SEQ_BALANCE}" \
     critic.ppo_max_token_len_per_gpu=${train_max_token_num_per_gpu} \

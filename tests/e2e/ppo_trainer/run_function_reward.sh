@@ -2,6 +2,8 @@
 set -x
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/qwen/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
@@ -53,7 +55,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size=8 \
     data.max_prompt_length=512 \
     data.max_response_length=512 \
-    actor_rollout_ref.model.path="${MODEL_ID}" \
+    actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
@@ -67,7 +69,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding="${RM_PAD}" \
-    critic.model.path="${MODEL_ID}" \
+    critic.model.path="${MODEL_PATH}" \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.model.fsdp_config.param_offload=False \

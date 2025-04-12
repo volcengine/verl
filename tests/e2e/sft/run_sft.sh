@@ -4,6 +4,8 @@ set -x
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.fsdp_sft_trainer"}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/qwen/${MODEL_ID}}
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
@@ -35,7 +37,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
     data.multiturn.messages_key=messages \
     optim.lr=1e-4 \
     data.micro_batch_size_per_gpu=${micro_bsz} \
-    model.partial_pretrain="${MODEL_ID}" \
+    model.partial_pretrain="${MODEL_PATH}" \
     model.lora_rank="${LORA_RANK}" \
     model.lora_alpha=16 \
     model.target_modules=all-linear \
