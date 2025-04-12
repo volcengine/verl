@@ -47,7 +47,7 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running the E2E test with the DAPO algorithm and data
+      - name: Running the E2E test with the DAPO algorithm
         run: | 
           ray stop --force
           bash tests/e2e/run_dapo.sh
