@@ -4,7 +4,7 @@ set -x
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.fsdp_sft_trainer"}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
-MODEL_PATH=${MODEL_PATH:-${HOME}/models/qwen/${MODEL_ID}}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
