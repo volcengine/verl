@@ -20,6 +20,16 @@ on:
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Megatron
       - "!verl/workers/**/megatron_*.py"
+  workflow_dispatch:
+    inputs:
+      overwrite:
+        description: 'Set to 1 to overwrite existing data'
+        required: false
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
 
 
 # Declare permissions just read content.
@@ -35,6 +45,7 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       VERL_HOME: "/github/home/verl"
+      OVERWRITE: ${{ github.event.inputs.overwrite || '0' }}
     container:
       image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
       options: --gpus all --shm-size=10g
