@@ -29,7 +29,6 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
       image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
       options: --gpus 2 --shm-size=10g
@@ -39,7 +38,6 @@ jobs:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer
           pip3 install -e .[test,gpu]
       - name: Prepare gsm8k dataset
         run: |
