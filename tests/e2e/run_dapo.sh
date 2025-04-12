@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 
 adv_estimator=grpo
 
@@ -25,18 +25,20 @@ enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 # n >= 2
-train_prompt_bsz=4 # 2n
-gen_prompt_bsz=16
-train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # n
+gen_prompt_bsz=$((train_prompt_bsz * 4))
+train_prompt_bsz=16 # 8n
+train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
 n_resp_per_prompt=4
-train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 4n
-train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 2n
-num_gpus=2
+train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 16n
+train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
+num_gpus=8
 train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
+
+exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)"
 
 python3 -m recipe.dapo.src.main_dapo \
     data.train_files="${VERL_HOME}/data/dapo-math-17k.parquet" \
-    data.val_files="${HOME}/data/gsm8k/test.parquet" \
+    data.val_files="${VERL_HOME}/data/aime-2024.parquet" \
     reward_model.reward_manager=dapo \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
@@ -56,7 +58,7 @@ python3 -m recipe.dapo.src.main_dapo \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
     algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B \
+    actor_rollout_ref.model.path="${MODEL_ID}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
@@ -67,12 +69,12 @@ python3 -m recipe.dapo.src.main_dapo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     trainer.logger=['console'] \
-    trainer.project_name='verl_example_dapo' \
-    trainer.experiment_name='qwen2.5_0.5b_instruct_e2e_ci_dapo' \
+    trainer.project_name='verl-test' \
+    trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=${num_gpus} \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \

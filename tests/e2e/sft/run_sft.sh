@@ -16,6 +16,8 @@ MULTITURN=${MULTITURN:-False}
 LORA_RANK=${LORA_RANK:-0}
 RM_PAD=${RM_PAD:-True}
 
+exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)"
+
 read -r -d '' cmd <<EOF
 torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     "${ENTRYPOINT}" \
@@ -37,8 +39,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     use_liger="${LIGER}" \
     use_remove_padding="${RM_PAD}" \
     trainer.default_local_dir="${CKPTS_HOME}" \
-    trainer.project_name=qwen2.5-sft \
-    trainer.experiment_name=gsm8k-sft-qwen-2p5-0p5b-instruct \
+    trainer.project_name="verl-test" \
+    trainer.experiment_name="${exp_name}" \
     trainer.total_training_steps=2 \
     trainer.logger=['console'] \
     trainer.default_hdfs_dir=null $@
