@@ -21,7 +21,7 @@ exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
 mkdir -p "${CKPTS_HOME}"
 
 read -r -d '' cmd <<EOF
-torchrun --standalone --nnodes=1 --nproc_per_node=8 ${ENTRYPOINT} \
+torchrun --standalone --nnodes=1 --nproc_per_node=2 ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.prompt_key=extra_info \
@@ -36,8 +36,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 ${ENTRYPOINT} \
     model.lora_rank="${LORA_RANK}" \
     model.lora_alpha=16 \
     model.target_modules=all-linear \
+    model.use_liger="${LIGER}" \
     ulysses_sequence_parallel_size="${SP_SIZE}" \
-    use_liger="${LIGER}" \
     use_remove_padding="${RM_PAD}" \
     trainer.default_local_dir="${CKPTS_HOME}" \
     trainer.project_name="verl-test" \
