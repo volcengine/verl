@@ -16,7 +16,7 @@ MULTITURN=${MULTITURN:-False}
 LORA_RANK=${LORA_RANK:-0}
 RM_PAD=${RM_PAD:-True}
 
-exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)"
+exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
 
 read -r -d '' cmd <<EOF
 torchrun --standalone --nnodes=1 --nproc_per_node=2 \
@@ -41,7 +41,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     trainer.default_local_dir="${CKPTS_HOME}" \
     trainer.project_name="verl-test" \
     trainer.experiment_name="${exp_name}" \
-    trainer.total_training_steps=2 \
+    trainer.total_training_steps="${TOT_TRAIN_STEPS}" \
     trainer.logger=['console'] \
     trainer.default_hdfs_dir=null $@
 EOF

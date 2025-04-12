@@ -34,7 +34,7 @@ train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
 num_gpus=8
 train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
 
-exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)"
+exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal-$(git rev-parse --short HEAD)"
 
 python3 -m recipe.dapo.src.main_dapo \
     data.train_files="${VERL_HOME}/data/dapo-math-17k.parquet" \

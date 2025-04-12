@@ -55,18 +55,22 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) with validation and saving
         run: |
           ray stop --force
-          ADV_ESTIMATOR=gae MODEL_ID=Qwen/Qwen2.5-0.5B bash tests/e2e/run_ppo_trainer_megatron.sh
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TOT_TRAIN_STEPS=1 bash tests/e2e/run_ppo_trainer_megatron.sh
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) after resuming
+        run: |
+          ray stop --force
+          RESUME_MODE=auto bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=grpo MODEL_ID=Qwen/Qwen2.5-0.5B bash tests/e2e/run_ppo_trainer_megatron.sh
+          ADV_ESTIMATOR=grpo bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=gae MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
+          MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force

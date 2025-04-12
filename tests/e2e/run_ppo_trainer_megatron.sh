@@ -7,6 +7,13 @@ TRAIN_FILES=${TRAIN_FILES:-${HOME}/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-${HOME}/data/gsm8k/test.parquet}
 
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
+# Validation
+VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}
+TEST_FREQ=${TEST_FREQ:--1}
+# Save & Resume
+RESUME_MODE=${RESUME_MODE:-disable}
+SAVE_FREQ=${SAVE_FREQ:--1}
+TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-2}
 
 train_prompt_bsz=16 # 8n
 train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
@@ -16,7 +23,7 @@ train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
 num_gpus=8
 train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
 
-exp_name="$(basename "${MODEL_ID,,}")-${ADV_ESTIMATOR}-megatron-gsm8k-minimal-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)"
+exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal-$(git rev-parse --short HEAD)"
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
@@ -63,12 +70,12 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_test' \
-    trainer.experiment_name=${exp_name} \
+    trainer.experiment_name="${exp_name}" \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=${num_gpus} \
-    trainer.val_before_train=False \
-    trainer.test_freq=5 \
+    trainer.val_before_train="${VAL_BEFORE_TRAIN}" \
+    trainer.test_freq="${TEST_FREQ}" \
     trainer.save_freq=-1 \
-    trainer.resume_mode=disable \
+    trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps=2 $@
+    trainer.total_training_steps="${TOT_TRAIN_STEPS}" $@
