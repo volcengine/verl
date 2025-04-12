@@ -55,7 +55,7 @@ verl is fast with:
 ## Key Features
 
 - **FSDP** and **Megatron-LM** for training.
-- **vLLM**, **SGLang**(experimental) and **HF Transformers** for rollout generation.
+- **vLLM**, **SGLang** and **HF Transformers** for rollout generation.
 - Compatible with Hugging Face Transformers and Modelscope Hub: Qwen-2.5, Llama3.1, Gemma2, DeepSeek-LLM, etc
 - Supervised fine-tuning.
 - Reinforcement learning with [PPO](examples/ppo_trainer/), [GRPO](examples/grpo_trainer/), [ReMax](examples/remax_trainer/), [REINFORCE++](https://verl.readthedocs.io/en/latest/examples/config.html#algorithm), [RLOO](examples/rloo_trainer/), [PRIME](recipe/prime/), etc.
@@ -114,7 +114,10 @@ verl is fast with:
 The performance is essential for on-policy RL algorithm. We have written a detailed [performance tuning guide](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) to help you optimize performance.
 
 ## Use vLLM v0.8.2
-veRL now supports vLLM>=0.8.2 when using FSDP as the training backend. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md) for installation guide and more information. Please avoid vllm 0.7.x which contains bugs that may lead to OOMs and unexpected errors.
+veRL now supports vLLM>=0.8.2 when using FSDP as the training backend. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/README_vllm0.8.md) for the installation guide and more information. Please avoid vllm 0.7.x, which contains bugs that may lead to OOMs and unexpected errors.
+
+## Use Latest SGLang
+SGLang is fully supported with veRL, and SGLang RL Group is working extensively on building unique features, including multi-turn Agentic RL, VLM RLHF, Server-Based RL, and Partial Rollout. Please refer to [this document](https://verl.readthedocs.io/en/latest/workers/sglang_worker.html) for the installation guide and more information.
 
 ## Citation and acknowledgement
 
