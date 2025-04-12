@@ -46,8 +46,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_grpo_example_chartqa' \
-    trainer.experiment_name='qwen2_5_vl_7b_chartqa' \
+    trainer.project_name='verl_grpo_example_mix' \
+    trainer.experiment_name='qwen2_5_vl_7b_geo3k+chartqa' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
