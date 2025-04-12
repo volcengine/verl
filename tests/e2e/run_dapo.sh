@@ -24,7 +24,7 @@ overlong_penalty_factor=1.0
 loss_agg_mode="token-mean"
 
 enable_filter_groups=True
-filter_groups_metric=reward
+filter_groups_metric=seq_reward
 max_num_gen_batches=10
 # n >= 2
 train_prompt_bsz=16 # 8n
