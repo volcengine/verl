@@ -375,10 +375,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        if vllm_version == '0.8.2':
-            all_gather_group = self.train_tp_group
-        else:
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             all_gather_group = get_micro_data_parallel_group()
+        else:
+            all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
