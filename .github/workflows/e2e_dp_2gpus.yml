@@ -1,0 +1,358 @@
+name: e2e_dp_2gpus
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  pull_request:
+    branches:
+      - main
+      - v0.2.x
+    paths:
+      - "**/*.py"
+      - "verl/trainer/config/*.yaml"
+      - .github/workflows/e2e_2gpus.yml
+      - "tests/e2e"
+      - "!recipe/**"
+      - "!verl/trainer/config/ppo_megatron_trainer.yaml"
+      - "!verl/workers/**/megatron_*.py"
+
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Declare permissions just read content.
+permissions: 
+  contents: read
+
+jobs:
+  e2e_ppo_trainer_function_rm:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,gpu]
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      # TODO: Checkpoints saveing and resuming w/o Megatron
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
+        run: |
+          ray stop --force
+          bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e without rmpad using function rm
+        run: |
+          ray stop --force
+          RM_PAD=False bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (GRPO)
+        run: |
+          ray stop --force
+          ADV_ESTIMATOR=grpo USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm (ReMax)
+        run: |
+          ray stop --force
+          ADV_ESTIMATOR=remax USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using customized reward function
+        run: |
+          ray stop --force
+          CUSTOM_REWARD_FN=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm with in-reward kl and kl loss
+        run: |
+          ray stop --force
+          USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+
+  e2e_ppo_trainer_model_rm:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,gpu]
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e with rmpad using model rm
+        run: |
+          ray stop --force
+          bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e without rmpad using model rm
+        run: |
+          ray stop --force
+          RM_PAD=False bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm and ulysses sp=2
+        run: |
+          ray stop --force
+          SP_SIZE=2 bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm and dynamic batch size
+        run: |
+          ray stop --force
+          SEQ_BALANCE=True bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+      - name: Running gsm8k e2e with rmpad using model rm with Liger Kernel enabled
+        run: |
+          ray stop --force
+          LIGER=True bash tests/e2e/ppo_trainer/run_model_rm_gsm8k_qwen.sh
+
+  e2e_grpo_gsm8k_qwen:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      VLLM_ATTENTION_BACKEND: XFORMERS # TODO: Remove after update vllm in container
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install .[test]
+      - name: Prepare gsm8k dataset
+        run: |
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running GRPO gsm8k e2e training tests with FSDP on 2 L20 GPUs (Qwen)
+        run: |
+          ray stop --force
+          bash tests/e2e/run_qwen_grpo.sh
+
+  e2e_grpo_gsm8k_deepseek_coder:
+    # NOTE: No need to just change model if the previous job fails
+    needs: e2e_grpo_gsm8k_qwen
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      VLLM_ATTENTION_BACKEND: XFORMERS # TODO: Remove after update vllm in container
+    container:
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install .[test]
+      - name: Prepare gsm8k dataset
+        run: |
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running GRPO gsm8k e2e training tests with FSDP on 2 L20 GPUs (DeepSeek)
+        run: |
+          ray stop --force
+          bash tests/e2e/run_deepseek_grpo.sh
+
+  e2e_dapo_qwen:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+      VERL_HOME: "/github/home/verl"
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus '"device=0,1"' --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,gpu]
+      - name: Prepare DAPO-Math & gsm8k dataset
+        run: |
+          ray stop --force
+          bash recipe/dapo/prepare_dapo_data.sh
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running the E2E test with the DAPO algorithm and data
+        run: | 
+          ray stop --force
+          bash tests/e2e/run_dapo_qwen.sh
+
+  e2e_gsm8k_prime:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,gpu]
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e with prime alg
+        run: | 
+          ray stop --force
+          bash tests/e2e/run_qwen_gsm8k_prime.sh
+
+  e2e_ppo_trainer_sglang:
+    runs-on: [L20x2]
+    timeout-minutes: 40 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,gpu,sglang] --no-deps
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm and save ckpt
+        run: |
+          ray stop --force
+          ENGINE=sglang bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+
+  e2e_ppo_trainer_vlm:
+    runs-on: [L20x2]
+    timeout-minutes: 10 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+      options: --gpus 2 --shm-size=40g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test,geo,vllm]
+          python -c "import transformers; print(transformers.__version__)"
+      - name: Prepare geo3k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/geo3k.py
+      - name: Running geo3k vlm e2e training tests on 8 L20 GPUs with rmpad using function rm
+        run: |
+          ray stop --force
+          TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+            MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
+            MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
+            ADV_ESTIMATOR=grpo USE_KL=True bash tests/e2e/ppo_trainer/run_function_rm_gsm8k_qwen.sh
+
+  e2e_sft:
+    runs-on: [L20x2]
+    timeout-minutes: 5 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install peft
+          pip3 install -e .[test,gpu]
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests on 2 L20 GPUs with rmpad using function rm
+        run: |
+          ray stop --force
+          bash tests/e2e/sft/run_sft.sh
+      - name: Running gsm8k e2e training tests on 2 L20 GPUs w/o rmpad using function rm
+        run: |
+          ray stop --force
+          RM_PAD=False bash tests/e2e/sft/run_sft.sh
+      - name: Running gsm8k e2e training tests on 2 L20 GPUs with sequence parallism
+        run: |
+          ray stop --force
+          SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
+      - name: Check loss difference between sequence parallel vs. default implementation
+        run: |
+          ray stop --force
+          ENTRYPOINT="tests/sft/test_sp_loss_match.py" SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
+      - name: Running gsm8k e2e training tests on 2 L20 GPUs with sequence parallism and liger
+        run: |
+          ray stop --force
+          SP_SIZE=2 LIGER=True bash tests/e2e/sft/run_sft.sh
+      - name: Running gsm8k e2e training tests with LoRA
+        run: |
+          ray stop --force
+          LORA_RANK=32 bash tests/e2e/sft/run_sft.sh
+      # TODO: multiturn
+
+  vllm_2gpus:
+    runs-on: [L20x2]
+    timeout-minutes: 20 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1"
+    container:
+      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      options: --gpus 2 --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+            fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install -e .[test]
+          pip3 install vllm==0.5.4
+      - name: Run Qwen 0.5B generation test when world_size == 1
+        run: |
+          cd tests/generation
+          bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
+          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+      - name: Test the latest vLLM
+        run: |
+          pip3 install --upgrade vllm==0.7.3
+          cd tests/generation
+          bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
+          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
