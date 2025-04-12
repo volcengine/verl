@@ -41,7 +41,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,gpu]
-      - name: Prepare DAPO-Math & gsm8k dataset
+      - name: Prepare DAPO-Math & GSM8K dataset
         run: |
           ray stop --force
           bash recipe/dapo/prepare_dapo_data.sh
