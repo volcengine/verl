@@ -136,7 +136,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_model_optimizer(self,
                                model_path,
-                               megatron_config: ModelParallelConfig,
+                               dtype,
                                optim_config,
                                override_model_config,
                                enable_gradient_checkpointing=False):
@@ -170,19 +170,19 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
         self.architectures = getattr(actor_model_config, "architectures", None)
 
-        tfconfig = hf_to_mcore_config(actor_model_config, megatron_config.dtype)
+        tf_config = hf_to_mcore_config(actor_model_config, dtype)
         if enable_gradient_checkpointing:
             gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
-            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
-            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
-            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
-        print(f'TF config: {tfconfig}')
+            tf_config.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
+            tf_config.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
+            tf_config.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
+        print(f'TF config: {tf_config}')
         self.hf_config = actor_model_config
 
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
             parallel_model = init_mcore_model(
-                tfconfig,
+                tf_config,
                 actor_model_config,
                 pre_process,
                 post_process,
@@ -214,7 +214,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                     load_megatron_gptmodel_weights(self.config,
                                                    actor_model_config,
                                                    actor_module,
-                                                   params_dtype=megatron_config.params_dtype,
+                                                   params_dtype=dtype,
                                                    is_value_model=False)
 
             if self.rank == 0:
@@ -239,7 +239,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                     load_megatron_gptmodel_weights(self.config,
                                                    actor_model_config,
                                                    ref_module,
-                                                   params_dtype=megatron_config.params_dtype,
+                                                   params_dtype=dtype,
                                                    is_value_model=False)
             log_gpu_memory_usage('After ref module init', logger=logger)
             return ref_module, actor_model_config
@@ -311,10 +311,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
 
-        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.actor.megatron.get(
-            'sequence_parallel', True),
-                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
-
+        self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:
@@ -324,7 +321,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             self.actor_module, self.hybrid_engine, self.actor_optimizer, \
             self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
-                megatron_config=megatron_config,
+                dtype=self.dtype,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False)
@@ -333,7 +330,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor:
             self.actor = MegatronPPOActor(config=self.config.actor,
                                           model_config=self.actor_model_config,
-                                          megatron_config=megatron_config,
+                                          hf_config=self.hf_config,
+                                          tf_config=self.tf_config,
                                           actor_module=self.actor_module,
                                           actor_optimizer=self.actor_optimizer,
                                           actor_optimizer_config=self.actor_optim_config)
@@ -344,13 +342,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_ref:
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
-                megatron_config=megatron_config,
+                dtype=self.dtype,
                 optim_config=None,
                 override_model_config=override_model_config,
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
             self.ref_policy = MegatronPPOActor(config=self.config.ref,
                                                model_config=self.ref_model_config,
-                                               megatron_config=megatron_config,
+                                               hf_config=self.hf_config,
+                                               tf_config=self.tf_config,
                                                actor_module=self.ref_module,
                                                actor_optimizer=None,
                                                actor_optimizer_config=None)
@@ -525,7 +524,7 @@ class CriticWorker(MegatronWorker):
 
     def _build_critic_model_optimizer(self,
                                       model_path,
-                                      megatron_config: ModelParallelConfig,
+                                      dtype,
                                       optim_config,
                                       override_model_config,
                                       enable_gradient_checkpointing=False):
@@ -554,18 +553,19 @@ class CriticWorker(MegatronWorker):
         self.architectures = getattr(critic_model_config, "architectures", None)
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
-        tfconfig = hf_to_mcore_config(critic_model_config, megatron_config.dtype)
+        tf_config = hf_to_mcore_config(critic_model_config, dtype)
         if enable_gradient_checkpointing:
             gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
-            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
-            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
-            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
-        print(f'Critic TF config: {tfconfig}')
+            tf_config.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
+            tf_config.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
+            tf_config.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
+        print(f'Critic TF config: {tf_config}')
         self.hf_config = critic_model_config
+        self.tf_config = tf_config
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
-            parallel_model = init_mcore_model(tfconfig,
+            parallel_model = init_mcore_model(tf_config,
                                               critic_model_config,
                                               pre_process,
                                               post_process,
@@ -593,7 +593,7 @@ class CriticWorker(MegatronWorker):
                 load_megatron_gptmodel_weights(self.config,
                                                critic_model_config,
                                                critic_module,
-                                               params_dtype=megatron_config.params_dtype,
+                                               params_dtype=dtype,
                                                is_value_model=True)
             t1 = time.time()
             if torch.distributed.get_rank() == 0:
@@ -619,19 +619,17 @@ class CriticWorker(MegatronWorker):
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
-
-        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.megatron.get(
-            'sequence_parallel', True),
-                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
+        self.dtype = PrecisionType.to_dtype(self.param_dtype)
         self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
-            megatron_config=megatron_config,
+            dtype=self.dtype,
             optim_config=self.config.optim,
             override_model_config=override_model_config,
             enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
         self.critic = MegatronPPOCritic(config=self.config,
                                         model_config=self.critic_model_config,
-                                        megatron_config=megatron_config,
+                                        hf_config=self.hf_config,
+                                        tf_config=self.tf_config,
                                         critic_module=self.critic_module,
                                         critic_optimizer=self.critic_optimizer,
                                         critic_optimizer_config=critic_optimizer_config)
