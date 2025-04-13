@@ -32,6 +32,7 @@ num_gpus=8
 train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
 
 reward_fn_name=null
+reward_fn_file_path=null
 output_file="$(pwd)/output.txt"
 if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
     reward_fn_name="my_reward_function"
