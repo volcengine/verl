@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euxo pipefail
+set -xeuo pipefail
 
 # Get the configuration name and engine name from arguments
 CONFIG_NAME="$1"
