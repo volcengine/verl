@@ -113,7 +113,7 @@ def test_vllm_spmd():
                   logprobs=1,
                   ignore_eos=True)
 
-    tensor_parallel_size = 2
+    tensor_parallel_size = 4
 
     from torch.distributed.device_mesh import init_device_mesh
     device_mesh = init_device_mesh('cuda', mesh_shape=(world_size,), mesh_dim_names=['fsdp'])
