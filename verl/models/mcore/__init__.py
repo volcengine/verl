@@ -14,3 +14,6 @@
 # limitations under the License.
 
 from .gpt_model import gptmodel_forward
+from .registry import init_mcore_model, hf_to_mcore_config
+
+__all__ = ['init_mcore_model', 'hf_to_mcore_config', 'gptmodel_forward']

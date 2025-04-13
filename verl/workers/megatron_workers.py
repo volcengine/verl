@@ -143,7 +143,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config, get_generation_config
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
+        from verl.models.mcore import hf_to_mcore_config
         from transformers import AutoConfig
 
         # Step 1: initialize the tokenizer
@@ -169,7 +170,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
         self.architectures = getattr(actor_model_config, "architectures", None)
 
-        tfconfig = convert_config(actor_model_config, megatron_config)
+        tfconfig = hf_to_mcore_config(actor_model_config, megatron_config.dtype)
         if enable_gradient_checkpointing:
             gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
             tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
@@ -179,8 +180,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.hf_config = actor_model_config
 
         def megatron_actor_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(
+            from verl.models.mcore import init_mcore_model
+            parallel_model = init_mcore_model(
                 tfconfig,
                 actor_model_config,
                 pre_process,
@@ -531,8 +532,9 @@ class CriticWorker(MegatronWorker):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+        from verl.models.mcore import hf_to_mcore_config
 
         # Step 1: initialize the tokenizer
         local_path = copy_to_local(model_path)
@@ -552,7 +554,7 @@ class CriticWorker(MegatronWorker):
         self.architectures = getattr(critic_model_config, "architectures", None)
         if self.rank == 0:
             print(f'Model config after override: {critic_model_config}')
-        tfconfig = convert_config(critic_model_config, megatron_config)
+        tfconfig = hf_to_mcore_config(critic_model_config, megatron_config.dtype)
         if enable_gradient_checkpointing:
             gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
             tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
@@ -562,13 +564,13 @@ class CriticWorker(MegatronWorker):
         self.hf_config = critic_model_config
 
         def megatron_critic_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(tfconfig,
-                                                               critic_model_config,
-                                                               pre_process,
-                                                               post_process,
-                                                               share_embeddings_and_output_weights=False,
-                                                               value=True)
+            from verl.models.mcore import init_mcore_model
+            parallel_model = init_mcore_model(tfconfig,
+                                              critic_model_config,
+                                              pre_process,
+                                              post_process,
+                                              share_embeddings_and_output_weights=False,
+                                              value=True)
             parallel_model.cuda()
             return parallel_model
 
