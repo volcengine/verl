@@ -138,6 +138,15 @@ class MegatronPPOActor(BasePPOActor):
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
+        if config.actor.strategy == "megatron":
+            if config.actor.megatron.tensor_model_parallel_size == 1:
+                print(f'[Warining] Because actor tp size == 1, set sp to False')
+                config.actor.megatron.sequence_parallel = False
+        if config.ref.strategy == "megatron":
+            if config.ref.megatron.tensor_model_parallel_size == 1:
+                print(f'[Warining] Because ref tp size == 1, set sp to False')
+                config.ref.megatron.sequence_parallel = False
+        self.config = config
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids

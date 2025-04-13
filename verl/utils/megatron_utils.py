@@ -187,7 +187,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
         params_dtype=dt,
-        sequence_parallel=True,
+        sequence_parallel=megatron_config.sequence_parallel,
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
