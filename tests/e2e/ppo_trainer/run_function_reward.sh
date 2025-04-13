@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -x
+set -euxo pipefail
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
@@ -91,11 +91,20 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps="${TOT_TRAIN_STEPS}" $@ \
-    | tee "${output_file}";
+    trainer.total_training_steps="${TOT_TRAIN_STEPS}" "${@}" \
+    | tee "${output_file}"
+exit_code=${PIPESTATUS[0]}
 
 if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
     python3 tests/e2e/check_custom_rwd_fn.py --output_file="${output_file}"
+    check_exit_code=$?
     rm -rf "${reward_fn_file_path}"
     rm -rf "${output_file}"
+    # Return the exit code of check_custom_rwd_fn.py if it fails
+    if [ $check_exit_code -ne 0 ]; then
+        exit $check_exit_code
+    fi
 fi
+
+# Return the exit code of the Python command
+exit $exit_code

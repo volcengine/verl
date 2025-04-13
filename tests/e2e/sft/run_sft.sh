@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -x
+set -euxo pipefail
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.fsdp_sft_trainer"}
 
