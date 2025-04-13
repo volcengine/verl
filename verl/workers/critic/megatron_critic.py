@@ -69,10 +69,9 @@ class MegatronPPOCritic(BasePPOCritic):
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
-        if self.use_critic and config.strategy == "megatron":
-            if config.megatron.tensor_model_parallel_size == 1:
-                print(f'[Warining] Because critic tp size == 1, set sp to False')
-                config.megatron.sequence_parallel = False
+        if config.megatron.tensor_model_parallel_size == 1:
+            print(f'[Warining] Because critic tp size == 1, set sp to False')
+            config.megatron.sequence_parallel = False
         self.config = config
 
     def compute_values(self, data: DataProto) -> DataProto:
