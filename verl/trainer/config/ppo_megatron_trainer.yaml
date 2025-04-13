@@ -68,7 +68,7 @@ actor_rollout_ref:
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
-      sequence_parallel: True
+      sequence_parallel: False
       use_distributed_optimizer: True
       seed: 1
     load_weight: True
@@ -80,7 +80,7 @@ actor_rollout_ref:
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
-      sequence_parallel: True
+      sequence_parallel: False
       use_distributed_optimizer: True
       seed: 1
     load_weight: True
@@ -151,7 +151,7 @@ critic:
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
-    sequence_parallel: True
+    sequence_parallel: False
     use_distributed_optimizer: True
     seed: 1
   load_weight: True
@@ -176,7 +176,7 @@ reward_model:
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
-    sequence_parallel: True
+    sequence_parallel: False
     use_distributed_optimizer: True
     seed: 1
   model:
