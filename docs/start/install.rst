@@ -39,11 +39,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-We recommend image ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 with FSDP.
+For latest vllm, please use ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 with FSDP.
 
-For users who need latest Megatron, please use image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` for vllm with Megatron/FSDP.
+For users who need latest Megatron, please use ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` for vllm v0.6.3 with Megatron/FSDP.
 
-For SGLang with FSDP, please use image ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` which is provided SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` which is provided SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
