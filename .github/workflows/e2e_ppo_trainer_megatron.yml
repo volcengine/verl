@@ -66,7 +66,7 @@ jobs:
           RESUME_MODE=auto bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
         run: |
-          exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal-$(git rev-parse --short HEAD)"
+          exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
           python scripts/model_merger.py --backend megatron --tie-word-embedding --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
       - name: Running GRPO gsm8k e2e training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
@@ -87,6 +87,6 @@ jobs:
           ADV_ESTIMATOR=grpo MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
-          exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal-$(git rev-parse --short HEAD)"
+          exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
           python scripts/model_merger.py --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface

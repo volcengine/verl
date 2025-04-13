@@ -31,7 +31,7 @@ train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
 train_max_token_num_per_gpu=32768
 infer_max_token_num_per_gpu=32768
 
-exp_name="$(basename "${MODEL_ID,,}")-model-reward-minimal-$(git rev-parse --short HEAD)"
+exp_name="$(basename "${MODEL_ID,,}")-model-reward-minimal"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \

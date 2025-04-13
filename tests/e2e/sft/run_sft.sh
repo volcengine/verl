@@ -20,7 +20,7 @@ micro_bsz=2
 num_gpus=8
 
 project_name="verl-test"
-exp_name="$(basename "${MODEL_ID,,}")-sft-minimal-$(git rev-parse --short HEAD)"
+exp_name="$(basename "${MODEL_ID,,}")-sft-minimal"
 ckpts_home=${ckpts_home:-$HOME/${project_name}/${exp_name}}
 
 mkdir -p "${ckpts_home}"
