@@ -91,9 +91,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps="${TOT_TRAIN_STEPS}" "${@}" \
+    trainer.total_training_steps="${TOT_TRAIN_STEPS}" $@ \
     | tee "${output_file}"
-exit_code=${PIPESTATUS[0]}
 
 if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
     python3 tests/e2e/check_custom_rwd_fn.py --output_file="${output_file}"
@@ -105,6 +104,3 @@ if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
         exit $check_exit_code
     fi
 fi
-
-# Return the exit code of the Python command
-exit $exit_code
