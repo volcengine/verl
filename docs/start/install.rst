@@ -24,13 +24,13 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 .. note:: 
 
     We are announcing the direct support of megatron GPTModel, without need to implement your own model any more. Also it's easy to use TransformerEngine's support for even higher performance.
-    The main branch of verl has enabled this feature, but may not stable enough. If you encounter issues, please feel free to report and try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
+    The main branch of verl has enabled this as an preview feature. If you encounter issues, please feel free to report and try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
 
 2. Inference:
 
 For inference, vllm 0.6.3 and 0.8.2 have been tested for stability. Avoid using vllm 0.7x due to reported issues with its functionality.
 
-For SGLang, refer to the :doc:`SGLang Backend<../workers/sglang_worker>` for detailed installation and usage instructions. **SGLang offers high performance and is under extensive development.** We encourage users to report any issues or provide feedback via the `SGLang Issue Tracker <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/106>`_.
+For SGLang, refer to the :doc:`SGLang Backend<../workers/sglang_worker>` for detailed installation and usage instructions. **SGLang offers better throughput and is under extensive development.** We encourage users to report any issues or provide feedback via the `SGLang Issue Tracker <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/106>`_.
 
 For huggingface TGI integration, it is usually used for debugging and single GPU exploration.
 
@@ -39,11 +39,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-Image and tag: ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` if you need both FSDP and Megatron support.
+We recommend image ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 with FSDP.
 
-We also recommend ``hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2-verl0.3.0.post1`` with vllm v0.8.2 for better rollout performance with FSDP compared with the previous version of vllm.
+For users who need latest Megatron, please use image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` for vllm with Megatron/FSDP.
 
-For SGLang, SGLang RL Group provide a pre-built imgae ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` to use.
+For SGLang with FSDP, please use image ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` which is provided SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -59,8 +59,9 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 .. code:: bash
 
     # install the nightly version (recommended)
-    git clone https://github.com/volcengine/verl && cd verl && pip3 install -e .
-    # or install from pypi via `pip3 install verl`
+    git clone https://github.com/volcengine/verl && cd verl
+    pip3 install -e . [vllm] or pip3 install -e . [sglang]
+    # or install from pypi instead of git via `pip3 install verl[...]`
 
 .. note::
     
