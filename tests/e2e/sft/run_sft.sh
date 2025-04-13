@@ -25,7 +25,6 @@ ckpts_home=${ckpts_home:-$HOME/${project_name}/${exp_name}}
 
 mkdir -p "${ckpts_home}"
 
-read -r -d '' cmd <<EOF
 torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
@@ -50,8 +49,5 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
     trainer.total_training_steps=1 \
     trainer.logger=['console'] \
     trainer.default_hdfs_dir=null $@
-EOF
-
-eval "$cmd"
 
 rm -rf "${ckpts_home:?}/*"
