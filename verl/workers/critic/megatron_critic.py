@@ -73,6 +73,7 @@ class MegatronPPOCritic(BasePPOCritic):
             if config.megatron.tensor_model_parallel_size == 1:
                 print(f'[Warining] Because critic tp size == 1, set sp to False')
                 config.megatron.sequence_parallel = False
+        self.config = config
 
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)

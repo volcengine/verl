@@ -142,6 +142,7 @@ class MegatronPPOActor(BasePPOActor):
             if config.actor.megatron.tensor_model_parallel_size == 1:
                 print(f'[Warining] Because actor tp size == 1, set sp to False')
                 config.actor.megatron.sequence_parallel = False
+        self.config = config
         if config.ref.strategy == "megatron":
             if config.ref.megatron.tensor_model_parallel_size == 1:
                 print(f'[Warining] Because ref tp size == 1, set sp to False')
