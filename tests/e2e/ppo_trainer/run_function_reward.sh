@@ -67,6 +67,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name="${ENGINE}" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding="${RM_PAD}" \
     critic.model.path="${MODEL_PATH}" \
