@@ -38,7 +38,7 @@ permissions:
 jobs:
   vllm:
     runs-on: [L20x8]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
