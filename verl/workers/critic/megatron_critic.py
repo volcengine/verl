@@ -69,8 +69,8 @@ class MegatronPPOCritic(BasePPOCritic):
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
-        if config.critic.shuffle:
-            assert config.critic.data_loader_seed is not None, f'If shuffle dataloader, seed must be manually set'
+        if config.shuffle:
+            assert config.data_loader_seed is not None, f'If shuffle dataloader, seed must be manually set'
 
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
