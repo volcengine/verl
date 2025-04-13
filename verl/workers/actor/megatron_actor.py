@@ -138,6 +138,8 @@ class MegatronPPOActor(BasePPOActor):
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
+        if config.actor.shuffle:
+            assert config.actor.data_loader_seed is not None, f'If shuffle dataloader, seed must be manually set'
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
@@ -228,6 +230,7 @@ class MegatronPPOActor(BasePPOActor):
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(mini_batch_size=self.config.ppo_mini_batch_size,
                                   epochs=self.config.ppo_epochs,
+                                  seed=self.config.data_loader_seed,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
     def forward_backward_batch(self, data: DataProto, forward_only=False, post_process_fn=None):
