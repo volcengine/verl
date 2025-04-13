@@ -77,7 +77,7 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=False \
     custom_reward_function.path="${reward_fn_file_path}"\
     custom_reward_function.name="${reward_fn_name}"\
-    algorithm.use_kl_in_reward="${USE_KL_IN_REWARD}" \
+    algorithm.use_kl_in_reward="${USE_KL}" \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
