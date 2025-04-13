@@ -40,7 +40,7 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup. For SGLang usage, please follow the later sections in this doc.
 
-Image and tag: ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0``. Check files under ``docker/`` for NGC-based image or if you want to build your own.
+Image and tag: ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0``. Check files under ``docker/`` for NGC-based image or if you want to build your own.
 
 1. Launch the desired Docker image and attach into it:
 
@@ -61,14 +61,14 @@ Image and tag: ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0``. C
 
 .. note::
     
-    The Docker image ``whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0`` is built with the following configurations:
 
-    - **PyTorch**: 2.6.0+cu126
-    - **CUDA**: 12.6
+    - **PyTorch**: 2.6.0+cu124
+    - **CUDA**: 12.4
     - **Megatron-LM**: v0.11.0
     - **vLLM**: 0.8.2
     - **Ray**: 2.44.0
-    - **TransformerEngine**: 2.1.0+8eb1712
+    - **TransformerEngine**: 2.0.0
 
     Now verl has been **compatible to Megatron-LM v0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM v0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
 
