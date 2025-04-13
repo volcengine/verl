@@ -33,7 +33,7 @@ def main():
 
     local_cache_path = '~/.cache/verl/rlhf'
     local_cache_path = os.path.expanduser(local_cache_path)
-    hdfs_path = 'Qwen/Qwen2.5-1.5B-Instruct'
+    hdfs_path = 'Qwen/Qwen2.5-7B-Instruct'
 
     from verl.utils.fs import copy_to_local
     local_model_path = copy_to_local(src=hdfs_path, cache_dir=local_cache_path)
