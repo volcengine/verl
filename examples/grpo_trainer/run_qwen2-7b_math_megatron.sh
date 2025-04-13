@@ -27,6 +27,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.actor.megatron.sequence_parallel=True \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \

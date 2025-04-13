@@ -27,6 +27,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     critic.ppo_micro_batch_size_per_gpu=4 \
     reward_model.enable=True \
     reward_model.megatron.tensor_model_parallel_size=4 \
+    reward_model..megatron.sequence_parallel=True \
     reward_model.model.path=deepseek-ai/deepseek-llm-7b-chat \
     reward_model.micro_batch_size_per_gpu=4 \
     reward_model.param_offload=False \
