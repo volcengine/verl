@@ -53,7 +53,7 @@ __all__ = ['MegatronPPOActor']
 class MegatronPPOActor(BasePPOActor):
 
     def __init__(self, config, model_config, hf_config, tf_config, actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig):
+                 actor_optimizer: DistributedOptimizer):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -107,7 +107,6 @@ class MegatronPPOActor(BasePPOActor):
         self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-        self.actor_optimizer_config = actor_optimizer_config
 
         self.optimizer_step_args = OmegaConf.create({
             'skip_grad': None,
