@@ -77,6 +77,7 @@ actor_rollout_ref:
     checkpoint:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
+    strategy: megatron
     megatron:
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
