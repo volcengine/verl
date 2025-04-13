@@ -409,6 +409,23 @@ def load_megatron_gptmodel_weights(config,
     del state_dict, model
 
 
+def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
+    from megatron.core import dist_checkpointing
+    from megatron.core.dist_checkpointing.serialization import StrictHandling
+
+    # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
+    strict = StrictHandling.ASSUME_OK_UNEXPECTED
+    for model in parallel_model:
+        ssd = model.module.module.sharded_state_dict()
+        if is_value_model:
+            for k in list(ssd.keys()):
+                if "output_layer" in k:
+                    ssd.pop(k)
+        dist_checkpointing.load(ssd, dist_weight_path, strict=strict)
+
+    return
+
+
 def get_parallel_gptmodel_from_config(tfconfig,
                                       hf_config,
                                       pre_process=None,
