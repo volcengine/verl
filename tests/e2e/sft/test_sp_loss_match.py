@@ -39,7 +39,7 @@ def test_trainer_forward_consistency(trainer: FSDPSFTTrainer, total_steps: int =
         for data in trainer.train_dataloader:
             data = TensorDict(data, batch_size=trainer.config.data.train_batch_size).cuda()
             trainer.fsdp_model.train()
-            micro_batches = data.split(trainer.config.data.micro_batch_size)
+            micro_batches = data.split(trainer.config.data.micro_batch_size_per_gpu)
 
             for idx, micro_batch in enumerate(micro_batches):
                 if trainer.device_mesh.get_rank() == 0:
