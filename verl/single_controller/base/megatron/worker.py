@@ -38,10 +38,7 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, 
-                                      model_path,
-                                      dtype,
-                                      override_model_config):
+    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config):
         from verl.utils.model import print_model_size, update_model_config
         from verl.utils.fs import copy_to_local
         from verl.utils import hf_tokenizer
@@ -74,7 +71,8 @@ class MegatronWorker(Worker):
             if verl_model_config.get('enable_gradient_checkpointing', False):
                 gradient_checkpointing_cfg = dict(verl_model_config.get('gradient_checkpointing_kwargs', dict()))
                 tf_config.recompute_method = gradient_checkpointing_cfg.get('activations_checkpoint_method', 'full')
-                tf_config.recompute_granularity = gradient_checkpointing_cfg.get('activations_checkpoint_granularity', 'full')
+                tf_config.recompute_granularity = gradient_checkpointing_cfg.get('activations_checkpoint_granularity',
+                                                                                 'full')
                 tf_config.recompute_num_layers = gradient_checkpointing_cfg.get('activations_checkpoint_num_layers', -1)
 
         add_optimization_config_to_tf_config(tf_config, self.config.model)

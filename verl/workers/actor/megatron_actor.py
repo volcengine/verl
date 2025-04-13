@@ -239,12 +239,11 @@ class MegatronPPOActor(BasePPOActor):
             batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                'sequence_parallel': self.tf_config.sequence_parallel,
-                'hidden_size': self.model_config.hidden_size
-            })
+        input_shapes = compute_transformers_input_shapes(batches,
+                                                         meta_info={
+                                                             'sequence_parallel': self.tf_config.sequence_parallel,
+                                                             'hidden_size': self.model_config.hidden_size
+                                                         })
         n_micro_batch = len(batches)
         seq_len = batches[0]['input_ids'].shape[1]
 
@@ -317,13 +316,14 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            from verl.models.mcore import gptmodel_forward
+            from verl.models.mcore import get_mcore_forward_fn
+            forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = gptmodel_forward(model,
-                                      input_ids,
-                                      attention_mask,
-                                      position_ids,
-                                      sequence_parallel=self.tf_config.sequence_parallel)
+            output = forward_fn(model,
+                                input_ids,
+                                attention_mask,
+                                position_ids,
+                                sequence_parallel=self.tf_config.sequence_parallel)
             if forward_only:
                 meta_info = None
             else:

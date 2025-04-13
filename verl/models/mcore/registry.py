@@ -63,3 +63,23 @@ def init_mcore_model(
                          f"Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}")
     return MODEL_INITIALIZER_REGISTRY[arch](tfconfig, hf_config, pre_process, post_process,
                                             share_embeddings_and_output_weights, value, **extra_kwargs)
+
+
+from .model_forward import gptmodel_forward_dense, gptmodel_forward_qwen2_moe, gptmodel_forward_llama4, gptmodel_forward_dpskv3, gptmodel_forward_qwen2_5_vl
+
+
+def get_mcore_forward_fn(hf_config: PretrainedConfig):
+    MODEL_FORWARD_REGISTRY = {
+        "LlamaForCausalLM": gptmodel_forward_dense,
+        "Qwen2ForCausalLM": gptmodel_forward_dense,
+        "Qwen2MoeForCausalLM": gptmodel_forward_qwen2_moe,
+        "DeepseekV3ForCausalLM": gptmodel_forward_dpskv3,
+        "Qwen2_5_VLForConditionalGeneration": gptmodel_forward_qwen2_5_vl,
+        "Llama4ForConditionalGeneration": gptmodel_forward_llama4,
+    }
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    arch = hf_config.architectures[0]
+    if arch not in MODEL_FORWARD_REGISTRY:
+        raise ValueError(f"Model architectures {arch} forward function are not supported for now. "
+                         f"Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}")
+    return MODEL_FORWARD_REGISTRY[arch]

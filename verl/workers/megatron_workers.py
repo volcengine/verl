@@ -133,10 +133,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
-    def _build_model_optimizer(self,
-                               model_path,
-                               optim_config,
-                               override_model_config):
+    def _build_model_optimizer(self, model_path, optim_config, override_model_config):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size, get_generation_config
@@ -292,13 +289,14 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
 
         if self._is_actor:
-            self.actor = MegatronPPOActor(config=self.config.actor,
-                                          model_config=self.actor_model_config,
-                                          hf_config=self.hf_config,
-                                          tf_config=self.tf_config,
-                                          actor_module=self.actor_module,
-                                          actor_optimizer=self.actor_optimizer,
-                                          )
+            self.actor = MegatronPPOActor(
+                config=self.config.actor,
+                model_config=self.actor_model_config,
+                hf_config=self.hf_config,
+                tf_config=self.tf_config,
+                actor_module=self.actor_module,
+                actor_optimizer=self.actor_optimizer,
+            )
 
         if self._is_rollout:
             self.rollout, self.sharding_manager = self._build_rollout()
@@ -307,7 +305,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
-                override_model_config=override_model_config,)
+                override_model_config=override_model_config,
+            )
             self.ref_policy = MegatronPPOActor(config=self.config.ref,
                                                model_config=self.ref_model_config,
                                                hf_config=self.hf_config,
@@ -483,10 +482,7 @@ class CriticWorker(MegatronWorker):
 
         # TODO(sgm): support critic model offload
 
-    def _build_critic_model_optimizer(self,
-                                      model_path,
-                                      optim_config,
-                                      override_model_config):
+    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
         from verl.utils.model import print_model_size
         from verl.utils.megatron.optimizer import get_megatron_optimizer
@@ -671,7 +667,7 @@ class RewardModelWorker(MegatronWorker):
                                               value=True)
             parallel_model.cuda()
             return parallel_model
-        
+
         # Step 3: initialize the megatron model
         reward_model = get_model(model_provider_func=megatron_rm_model_provider,
                                  model_type=ModelType.encoder_or_decoder,
@@ -683,9 +679,7 @@ class RewardModelWorker(MegatronWorker):
 
         if self.config.load_weight:
             if self.config.megatron.use_dist_checkpointing:
-                load_mcore_dist_weights(reward_model,
-                                        self.config.megatron.dist_checkpointing_path,
-                                        is_value_model=True)
+                load_mcore_dist_weights(reward_model, self.config.megatron.dist_checkpointing_path, is_value_model=True)
             else:
                 load_megatron_gptmodel_weights(self.config,
                                                self.hf_config,

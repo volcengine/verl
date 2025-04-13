@@ -19,7 +19,7 @@ from transformers import PretrainedConfig
 from megatron.core.transformer import TransformerConfig
 import torch
 import torch.nn.functional as F
-from megatron.core.enums import AttnBackend
+from megatron.core.transformer.enums import AttnBackend
 
 
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
