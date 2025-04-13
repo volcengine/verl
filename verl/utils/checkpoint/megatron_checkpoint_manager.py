@@ -173,7 +173,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.optimizer.load_parameter_state(optimizer_path)
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
-        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+        rng_state_path = get_rng_states_checkpoint_path(ckpt_path, only_rank0_save=False)
         print(f"Loading rng states from {rng_state_path}")
         rng_state = torch.load(rng_state_path)
         # access rng_state for data parallel rank
@@ -300,10 +300,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'extra' in self.checkpoint_contents:
             torch.distributed.barrier()
 
-            rng_state_path = get_rng_states_checkpoint_path(local_path)
+            rng_state_path = get_rng_states_checkpoint_path(local_path, only_rank0_save=False)
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
-            if self.rank == 0:
-                print(f"saving rng states to {rng_state_path}")
+            print(f"Rank {self.rank} saving rng states to {rng_state_path}")
 
         self.previous_saved_paths.append(local_path)
