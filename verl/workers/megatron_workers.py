@@ -17,6 +17,7 @@ The main entry point to run the PPO algorithm
 
 import os
 import logging
+import time
 import ray
 import torch
 import torch.distributed
@@ -33,7 +34,7 @@ from verl.single_controller.base.decorator import register, Dispatch
 from verl import DataProto
 from verl.utils.fs import copy_to_local
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights
+from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights, load_mcore_dist_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.megatron_utils import mcore_model_parallel_config
@@ -204,11 +205,16 @@ class ActorRolloutRefWorker(MegatronWorker):
             actor_module = actor_modules_list
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
-                load_megatron_gptmodel_weights(self.config,
-                                               actor_model_config,
-                                               actor_module,
-                                               params_dtype=megatron_config.params_dtype,
-                                               is_value_model=False)
+                if self.config.actor.megatron.use_dist_checkpointing:
+                    load_mcore_dist_weights(actor_module,
+                                            self.config.actor.megatron.dist_checkpointing_path,
+                                            is_value_model=False)
+                else:
+                    load_megatron_gptmodel_weights(self.config,
+                                                   actor_model_config,
+                                                   actor_module,
+                                                   params_dtype=megatron_config.params_dtype,
+                                                   is_value_model=False)
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
@@ -224,11 +230,16 @@ class ActorRolloutRefWorker(MegatronWorker):
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print(f'load ref weight start')
-                load_megatron_gptmodel_weights(self.config,
-                                               actor_model_config,
-                                               ref_module,
-                                               params_dtype=megatron_config.params_dtype,
-                                               is_value_model=False)
+                if self.config.ref.megatron.use_dist_checkpointing:
+                    load_mcore_dist_weights(ref_module,
+                                            self.config.ref.megatron.dist_checkpointing_path,
+                                            is_value_model=False)
+                else:
+                    load_megatron_gptmodel_weights(self.config,
+                                                   actor_model_config,
+                                                   ref_module,
+                                                   params_dtype=megatron_config.params_dtype,
+                                                   is_value_model=False)
             log_gpu_memory_usage('After ref module init', logger=logger)
             return ref_module, actor_model_config
 
@@ -571,11 +582,20 @@ class CriticWorker(MegatronWorker):
         # critic_module = nn.ModuleList(critic_module)
 
         if self.config.load_weight:
-            load_megatron_gptmodel_weights(self.config,
-                                           critic_model_config,
-                                           critic_module,
-                                           params_dtype=megatron_config.params_dtype,
-                                           is_value_model=True)
+            t0 = time.time()
+            if self.config.megatron.use_dist_checkpointing:
+                load_mcore_dist_weights(critic_module,
+                                        self.config.megatron.dist_checkpointing_path,
+                                        is_value_model=True)
+            else:
+                load_megatron_gptmodel_weights(self.config,
+                                               critic_model_config,
+                                               critic_module,
+                                               params_dtype=megatron_config.params_dtype,
+                                               is_value_model=True)
+            t1 = time.time()
+            if torch.distributed.get_rank() == 0:
+                print(f'critic load_weight time: {t1 - t0}')
         if self.rank == 0:
             print_model_size(critic_module[0])
 
