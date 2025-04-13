@@ -138,7 +138,7 @@ class MegatronPPOActor(BasePPOActor):
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get('ulysses_sequence_parallel_size', 1) == 1
-        if config.shuffle:
+        if config.get('shuffle', None) is not None:
             assert config.data_loader_seed is not None, f'If shuffle dataloader, seed must be manually set'
 
     def compute_log_prob(self, data: DataProto) -> torch.Tensor:
