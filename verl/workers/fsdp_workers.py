@@ -530,6 +530,50 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def setup_generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
+        logger.info("Setting up efficient sequence generation.")
+        assert self._is_rollout
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+
+        # Reshard FSDP model for rollout
+        self.rollout_sharding_manager.enter_sharding_context()
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+
+        log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
+        return prompts  # Dummy return to match the interface
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def teardown_generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
+        logger.info("Tearing down efficient sequence generation.")
+        self.rollout_sharding_manager.exit_sharding_context(None, None, None)
+        log_gpu_memory_usage('After exiting rollout sharding manager', logger=logger)
+        return prompts  # Dummy return to match the interface
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def generate_sequences_efficient(self, prompts: DataProto) -> DataProto:
+        # Support all hardwares
+        prompts = prompts.to(torch.cuda.current_device())
+        meta_info = {
+            'eos_token_id':
+                self.generation_config.eos_token_id
+                if self.generation_config is not None else self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.generation_config.pad_token_id
+                if self.generation_config is not None else self.tokenizer.pad_token_id,
+        }
+        prompts.meta_info.update(meta_info)
+        prompts = self.rollout_sharding_manager.preprocess_data(prompts)
+        output = self.rollout.generate_sequences(prompts=prompts)
+        log_gpu_memory_usage('After rollout generation', logger=logger)
+        output = self.rollout_sharding_manager.postprocess_data(output)
+        output = output.to('cpu')
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
