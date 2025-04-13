@@ -140,7 +140,7 @@ def test_sglang_spmd():
                            spaces_between_special_tokens=True,
                            ignore_eos=False)
 
-    tensor_parallel_size = 4
+    tensor_parallel_size = 2
     device_mesh_kwargs = dict(mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"])
     inference_device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
 
