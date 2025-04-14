@@ -21,7 +21,7 @@ class BaseTool(object):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
     
-    async def create(self, instance_id: Optional[str] = None) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
         """Create a tool instance.
 
         Args:

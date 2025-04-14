@@ -13,6 +13,7 @@ class FinishReasonTypeEnum(str, Enum):
     LENGTH = "length"
     STOP = "stop"
     TOOL_CALL = "tool_calls"
+    MAX_TURNS = "max_turns"
 
     @classmethod
     def from_str(cls, value: str) -> "FinishReasonTypeEnum":
@@ -22,6 +23,8 @@ class FinishReasonTypeEnum(str, Enum):
             return cls.LENGTH
         elif value == "tool_calls":
             return cls.TOOL_CALL
+        elif value == "max_turns":
+            return cls.MAX_TURNS
         else:
             raise ValueError(f"Unsupported finish reason type: {value}")
 
@@ -169,7 +172,7 @@ class AsyncRolloutRequest(BaseModel):
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
         self.response_ids = self.input_ids[len(self.prompt_ids):]
-        if finish_reason_type == FinishReasonTypeEnum.STOP:
+        if finish_reason_type == FinishReasonTypeEnum.STOP or finish_reason_type == FinishReasonTypeEnum.MAX_TURNS:
             eos_token_id = tokenizer.eos_token_id
             self.input_ids.append(eos_token_id)
             self.attention_mask.append(1)

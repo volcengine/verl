@@ -45,12 +45,13 @@ class Gsm8kTool(BaseTool):
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
     
-    async def create(self, instance_id: Optional[str] = None) -> str:
+    async def create(self, instance_id: Optional[str] = None, **kwargs) -> str:
         if instance_id is None:
             instance_id = str(uuid4())
+        ground_truth = kwargs.get("ground_truth", "")
         self._instance_dict[instance_id] = {
             "response": "",
-            "ground_truth": "",
+            "ground_truth": ground_truth,
             "reward": 0.0,
         }
         return instance_id

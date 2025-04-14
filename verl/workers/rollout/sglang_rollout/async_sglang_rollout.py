@@ -136,7 +136,8 @@ class AsyncSGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        self.max_turns = getattr(config, "max_turns", 1)
+        self.max_turns = getattr(config, "max_turns", None)
+        self._printed_debug_sample = False 
         
         tool_list = None
         if config.get("tool_kwargs") and config.tool_kwargs.get("tools_config_file", None) is not None:
@@ -427,11 +428,12 @@ class AsyncSGLangRollout(BaseRollout):
         output = None
         
         current_turns = 0
-        while current_turns < self.max_turns:
-            current_turns += 1
-            
+        while True:            
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
-                await asyncio.gather(*[tool.create(_req.request_id) for tool in self._tool_map.values()])
+                # TODO: how to parse extra kwargs
+                await asyncio.gather(*[tool.create(instance_id=_req.request_id, 
+                    ground_truth=_req.non_tensor_batch['reward_model'].get('ground_truth', None))
+                                       for tool in self._tool_map.values()])
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
@@ -477,6 +479,8 @@ class AsyncSGLangRollout(BaseRollout):
                     
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+                
+                current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.tokenizer, content, alreadyover_long=True)
                     break
@@ -500,6 +504,9 @@ class AsyncSGLangRollout(BaseRollout):
                     else:
                         _req.add_assistant_message(self.tokenizer, content)
                         break
+            if self.max_turns is not None and current_turns >= self.max_turns:
+                finish_reason_type = FinishReasonTypeEnum.MAX_TURNS
+                break
 
         # Calculate the reward for each tool
         async def calc_reward_and_release_fn(name: str, tool: BaseTool):
@@ -515,6 +522,23 @@ class AsyncSGLangRollout(BaseRollout):
         tool_reward_scores = dict(tool_reward_scores)
         _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
 
+        if not self._printed_debug_sample:
+            prompt_ids = _req.prompt_ids
+            response_ids = _req.response_ids
+            prompt_str = self.tokenizer.decode(prompt_ids, skip_special_tokens=True)
+            response_str = self.tokenizer.decode(response_ids, skip_special_tokens=True)
+            ground_truth = (
+                _req.messages[-1].ground_truth
+                if hasattr(_req.messages[-1], "ground_truth")
+                else _req.non_tensor_batch['reward_model'].get('ground_truth', None)
+            )
+            print(f"\n=== [PRINT FIRST SAMPLE] request_id: {_req.request_id} ===")
+            print("[Prompt]       ", prompt_str)
+            print("[Response]     ", response_str)
+            print("[Ground Truth] ", ground_truth)
+            print("[Score]        ", _req.reward_scores)
+            self._printed_debug_sample = True
+            
         return _req
     
     @torch.no_grad()
