@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 jobs:
-  e2e_gsm8k_megatron-l20-0:
+  e2e_grpo-l20-0:
     runs-on: [self-hosted, l20-0]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -34,7 +34,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
-      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -55,7 +55,7 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_qwen_grpo_megatron.sh
-  e2e_gsm8k_megatron-l20-1:
+  e2e_grpo-l20-1:
     runs-on: [self-hosted, l20-1]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -64,7 +64,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
-      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
