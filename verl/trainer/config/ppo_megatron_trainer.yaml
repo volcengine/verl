@@ -53,7 +53,8 @@ actor_rollout_ref:
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
-    shuffle: True
+    data_loader_seed: null
+    shuffle: False
     optim:
       lr: 1e-6
       clip_grad: 1.0
@@ -64,24 +65,29 @@ actor_rollout_ref:
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
     megatron:
-      tensor_model_parallel_size: 4
+      tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
       seed: 1
     load_weight: True
     checkpoint:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
+    strategy: megatron
     megatron:
-      tensor_model_parallel_size: 4
+      tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
       use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
       seed: 1
     load_weight: True
     param_offload: False
@@ -101,7 +107,7 @@ actor_rollout_ref:
     enforce_eager: True
     free_cache_engine: True
     load_format: dummy_megatron
-    tensor_model_parallel_size: 2
+    tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
     max_num_seqs: 1024
@@ -147,12 +153,14 @@ critic:
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
   megatron:
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
+    use_dist_checkpointing: False
+    dist_checkpointing_path: null
     seed: 1
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
@@ -160,6 +168,7 @@ critic:
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+  data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
   kl_ctrl:
@@ -172,12 +181,14 @@ reward_model:
   enable: False
   strategy: megatron
   megatron:
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
     sequence_parallel: True
     use_distributed_optimizer: True
+    use_dist_checkpointing: False
+    dist_checkpointing_path: null
     seed: 1
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
