@@ -66,8 +66,7 @@ jobs:
           torchrun --standalone --nnodes=1 --nproc_per_node=8 $(which pytest) -s test_vllm_hf_loader.py
       - name: Test the latest vLLM
         run: |
-          pip3 install --upgrade vllm==0.8.3
-          pip3 install tensordict==0.6.2
+          pip3 install --upgrade vllm==0.7.3
           cd tests/rollout
           torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_vllm_spmd.py
       - name: Run Qwen 0.5B generation test
