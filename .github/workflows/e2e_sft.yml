@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   e2e_sft:
-    runs-on: [self-hosted, l20-1]
+    runs-on: [L20x8]
     timeout-minutes: 5 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
