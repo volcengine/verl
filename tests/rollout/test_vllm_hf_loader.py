@@ -79,7 +79,7 @@ def test_vllm_with_hf():
     # Initialize model and token
     local_cache_path = '~/.cache/verl/rlhf'
     local_cache_path = os.path.expanduser(local_cache_path)
-    hdfs_path = 'Qwen/Qwen2-7B-Instruct'
+    hdfs_path = 'deepseek-ai/deepseek-llm-7b-chat'
     from verl.utils.fs import copy_to_local
     local_model_path = copy_to_local(src=hdfs_path, cache_dir=local_cache_path)
     tokenizer = AutoTokenizer.from_pretrained(local_model_path)
@@ -116,7 +116,7 @@ def test_vllm_with_hf():
         kwargs['detokenize'] = False
     sampling_params = SamplingParams(**kwargs)
 
-    tensor_parallel_size = 2
+    tensor_parallel_size = 4
 
     llm = LLM(model=actor_model,
               tokenizer=tokenizer,
