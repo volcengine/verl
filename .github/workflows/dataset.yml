@@ -30,7 +30,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g
@@ -40,7 +40,6 @@ jobs:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip install hf_transfer
           pip install -e .[test]
           pip install --upgrade "ray>=2.40.0"
           pip install cupy-cuda12x
