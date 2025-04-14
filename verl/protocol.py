@@ -427,12 +427,14 @@ class DataProto:
             idxs_torch = idxs
             idxs_np = idxs.detach().cpu().numpy()
 
+        batch_size = idxs_np.sum() if idxs_np.dtype == bool else idxs_np.shape[0]
+
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities
-            selected_batch = TensorDict(
-                source={key: tensor[idxs_torch] for key, tensor in self.batch.items()},
-                batch_size=(idxs_torch.shape[0],),
-            )
+            selected_batch = TensorDict(source={
+                key: tensor[idxs_torch] for key, tensor in self.batch.items()
+            },
+                                        batch_size=(batch_size,))
         else:
             selected_batch = None
 
