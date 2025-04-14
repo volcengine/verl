@@ -37,6 +37,8 @@ train_traj_mini_bsz=$((train_traj_micro_bsz * 2)) # 2 * b * n
 train_prompt_mini_bsz=$((train_traj_mini_bsz * n_resp_per_prompt)) # 2 * b * n / g
 train_prompt_bsz=$((train_prompt_mini_bsz * 2)) # 4 * b * n / g
 
+gen_prompt_bsz=$((train_prompt_bsz * 4))
+
 exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal"
 
 python3 -m recipe.dapo.src.main_dapo \
