@@ -163,6 +163,7 @@ class SGLangRollout(BaseRollout):
             enable_memory_saver=True,
             base_gpu_id=0,
             gpu_id_step=1,
+            load_format=self.config.load_format,
             dist_init_addr=dist_init_addr,
             nnodes=nnodes
             # NOTE(Chenyang): if you want to debug the sglang engine

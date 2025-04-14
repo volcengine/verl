@@ -109,7 +109,7 @@ class vLLMRollout(BaseRollout):
                              please increase max_num_batched_tokens or disable chunked prefill')
 
         trust_remote_code = kwargs.get('trust_remote_code', False)
-        load_format = 'dummy' if config.load_format.startswith('dummy') else config.load_format
+        load_format = 'dummy' if self.config.load_format.startswith('dummy') else self.config.load_format
 
         self.inference_engine = LLM(
             model=model_path,
