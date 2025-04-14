@@ -15,17 +15,17 @@ cd verl
 pip3 install -e .
 
 # Install the latest stable version of vLLM
-pip3 install vllm==0.8.2
+pip3 install vllm==0.8.3
 
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
 
 ```
 
-We have a pre-built docker image for veRL+vLLM 0.8.2. You can direct import it with the following command:
+We have a pre-built docker image for veRL+vLLM 0.8.3. You can direct import it with the following command:
 
 ```bash
-docker pull hiyouga/verl:ngc-th2.6.0-cu120-vllm0.8.2
+docker pull hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.3-flashinfer0.2.2-cxx11abi0
 ```
 
 ## Features
