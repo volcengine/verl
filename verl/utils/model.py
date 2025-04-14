@@ -419,7 +419,6 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
     return
 
 
-
 def get_parallel_gptmodel_from_config(tfconfig,
                                       hf_config,
                                       pre_process=None,
