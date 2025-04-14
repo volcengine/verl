@@ -235,6 +235,8 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 def _timer(name: str, timing_raw: Dict[str, float]):
     with Timer(name=name, logger=None) as timer:
         yield
+    if name not in timing_raw:
+        timing_raw[name] = 0
     timing_raw[name] += timer.last
 
 
