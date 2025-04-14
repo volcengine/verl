@@ -53,7 +53,8 @@ actor_rollout_ref:
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
-    shuffle: True
+    data_loader_seed: null
+    shuffle: False
     optim:
       lr: 1e-6
       clip_grad: 1.0
@@ -167,6 +168,7 @@ critic:
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+  data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
   kl_ctrl:
