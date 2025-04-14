@@ -3,6 +3,8 @@ set -xeuo pipefail
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.fsdp_sft_trainer"}
 
+NUM_GPUS=${NUM_GPUS:8}
+
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
@@ -17,7 +19,7 @@ LORA_RANK=${LORA_RANK:-0}
 RM_PAD=${RM_PAD:-True}
 
 micro_bsz=2
-num_gpus=8
+NUM_GPUS=8
 
 project_name="verl-test"
 exp_name="$(basename "${MODEL_ID,,}")-sft-minimal"
@@ -25,7 +27,7 @@ ckpts_home=${ckpts_home:-$HOME/${project_name}/${exp_name}}
 
 mkdir -p "${ckpts_home}"
 
-torchrun --standalone --nnodes=1 --nproc_per_node=${num_gpus} ${ENTRYPOINT} \
+torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
     data.prompt_key=extra_info \

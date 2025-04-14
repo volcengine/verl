@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+NUM_GPUS=${NUM_GPUS:8}
+
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
@@ -22,8 +24,7 @@ train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
 n_resp_per_prompt=4
 train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 16n
 train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
-num_gpus=8
-train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / num_gpus)) # n
+train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / NUM_GPUS)) # n
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
@@ -76,7 +77,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.project_name='verl-test' \
     trainer.experiment_name="${exp_name}" \
     trainer.nnodes=1 \
-    trainer.n_gpus_per_node=${num_gpus} \
+    trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.val_before_train="${VAL_BEFORE_TRAIN}" \
     trainer.test_freq="${TEST_FREQ}" \
     trainer.save_freq="${SAVE_FREQ}" \
