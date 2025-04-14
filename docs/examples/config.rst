@@ -158,6 +158,8 @@ Actor/Rollout/Reference Policy
       log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
       # for hf rollout
       do_sample: True
+      engine_kwargs: # inference engine parameters
+        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
       # number of responses (i.e. num sample times)
       n: 1 # > 1 for grpo, rloo
 
@@ -285,6 +287,10 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``do_sample``: Whether to sample. If set to False, the rollout model
   will perform greedy sampling. We disable ``do_sample`` during
   validation.
+
+- ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
+  - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+  - Positive integer, e.g., ``32 `` means 32 GB.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
