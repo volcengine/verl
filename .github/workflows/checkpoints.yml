@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   checkpoints:
-    runs-on: [self-hosted, l20-0]
+    runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
