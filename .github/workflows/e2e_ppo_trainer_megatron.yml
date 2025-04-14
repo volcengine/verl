@@ -22,7 +22,7 @@ on:
       # Recipes
       - "!recipe"
       # FSDP
-      - "!verl/workers/*dp*.py"
+      - "!verl/workers/**/*dp_*.py"
 
 
 # Cancel jobs on the same ref if a new one is triggered

@@ -20,7 +20,7 @@ on:
       # Recipes
       - "!recipe"
       # FSDP
-      - "!verl/workers/*dp*.py"
+      - "!verl/workers/**/*dp_*.py"
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # SGLang
