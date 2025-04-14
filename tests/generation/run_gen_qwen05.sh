@@ -1,5 +1,5 @@
 # Tested with 1 & 4 GPUs
-set -x
+set -xeuo pipefail
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: run_gen_qwen05.sh <nproc_per_node> <save_path> [other_configs...]"

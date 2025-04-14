@@ -9,9 +9,22 @@ on:
       - v0.3.x
     paths:
       - "**/*.py"
-      - "verl/trainer/config/*.yaml"
-      - .github/workflows/vllm.yml
-      - "!recipe/**"
+      # Entrypoints
+      - ".github/workflows/vllm.yml"
+      - "tests/generation"
+      - "verl/trainer/main_generation.py"
+      - "verl/trainer/config/generation.yaml"
+      - "!examples"
+      - "!verl/trainer/main_*.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      # Recipes
+      - "!recipe"
+      # FSDP
+      - "!verl/workers/**/*dp_*.py"
+      # Megatron
+      - "!verl/workers/**/megatron_*.py"
+      # SGLang
+      - "!**/*sglang*"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -24,13 +37,14 @@ permissions:
 
 jobs:
   vllm:
-    runs-on: [self-hosted, l20-0]
-    timeout-minutes: 20 # Increase this timeout value as needed
+    runs-on: [L20x8]
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      HF_ENDPOINT: "https://hf-mirror.com"
     container:
       image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
       options: --gpus all --shm-size=10g
@@ -40,9 +54,12 @@ jobs:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer
           pip3 install -e .[test]
           pip3 install vllm==0.5.4
+      - name: Download Model to Use
+        run: |
+          huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
+          huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
