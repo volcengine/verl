@@ -19,12 +19,13 @@ RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
-train_prompt_bsz=16 # 8n
-train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
-n_resp_per_prompt=4
-train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 16n
-train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
-train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / NUM_GPUS)) # n
+train_traj_micro_bsz_per_gpu=2 # b
+n_resp_per_prompt=4 # g
+
+train_traj_micro_bsz=$((train_traj_micro_bsz_per_gpu * NUM_GPUS)) # b * n
+train_traj_mini_bsz=$((train_traj_micro_bsz * 2)) # 2 * b * n
+train_prompt_mini_bsz=$((train_traj_mini_bsz * n_resp_per_prompt)) # 2 * b * n / g
+train_prompt_bsz=$((train_prompt_mini_bsz * 2)) # 4 * b * n / g
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 

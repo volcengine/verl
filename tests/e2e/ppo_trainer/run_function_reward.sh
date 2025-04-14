@@ -17,6 +17,7 @@ RM_PAD=${RM_PAD:-True}
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
 USE_KL=${USE_KL:-False}
 CUSTOM_REWARD_FN=${CUSTOM_REWARD_FN:-False}
+ENABLE_CHUNKED_PREFILL=${ENABLE_CHUNKED_PREFILL:-True} # For vLLM VLM placeholder issue: https://github.com/vllm-project/vllm/issues/15185
 # Validation
 VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}
 TEST_FREQ=${TEST_FREQ:--1}
@@ -25,12 +26,13 @@ RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
-train_prompt_bsz=16 # 8n
-train_prompt_mini_bsz=$((train_prompt_bsz / 2)) # 4n
-n_resp_per_prompt=4
-train_traj_mini_bsz=$((train_prompt_mini_bsz * n_resp_per_prompt)) # 16n
-train_traj_micro_bsz=$((train_traj_mini_bsz / 2)) # 8n
-train_traj_micro_bsz_per_gpu=$((train_traj_micro_bsz / NUM_GPUS)) # n
+train_traj_micro_bsz_per_gpu=2 # b
+n_resp_per_prompt=4 # g
+
+train_traj_micro_bsz=$((train_traj_micro_bsz_per_gpu * NUM_GPUS)) # b * n
+train_traj_mini_bsz=$((train_traj_micro_bsz * 2)) # 2 * b * n
+train_prompt_mini_bsz=$((train_traj_mini_bsz * n_resp_per_prompt)) # 2 * b * n / g
+train_prompt_bsz=$((train_prompt_mini_bsz * 2)) # 4 * b * n / g
 
 reward_fn_name=null
 reward_fn_file_path=null
@@ -69,6 +71,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name="${ENGINE}" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.enable_chunked_prefill="${ENABLE_CHUNKED_PREFILL}" \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding="${RM_PAD}" \
