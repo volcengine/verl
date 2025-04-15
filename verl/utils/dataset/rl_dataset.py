@@ -151,68 +151,82 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
+    def _build_messages(self, example: dict):
+        messages: list = example.pop(self.prompt_key)
+        if self.image_key in example:
+            # https://huggingface.co/docs/transformers/en/tasks/image_text_to_text
+            content_list = []
+            last_user_message: str = messages.pop(-1)['content']
+            for i, content in enumerate(last_user_message.split("<image>")):
+                if i != 0:
+                    content_list.append({"type": "image"})
+
+                if content:
+                    content_list.append({"type": "text", "text": content})
+
+            messages.append({"role": "user", "content": content_list})
+
+        return messages
+
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
+        messages = self._build_messages(row_dict)
 
-        chat = row_dict.pop(self.prompt_key)
-
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
-
-        is_multi_modal = self.image_key in row_dict
-        if is_multi_modal:  # expand image token
-            raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
-            row_dict['multi_modal_data'] = {'image': [process_image(image) for image in row_dict.pop(self.image_key)]}
-            image_inputs = self.processor.image_processor(row_dict['multi_modal_data']['image'], return_tensors='pt')
-            image_grid_thw = image_inputs['image_grid_thw']
-            row_dict['multi_modal_inputs'] = {key: val for key, val in image_inputs.items()}
-
-            if image_grid_thw is not None:
-                merge_length = self.processor.image_processor.merge_size**2
-                index = 0
-                while '<image>' in prompt_with_chat_template:
-                    prompt_with_chat_template = prompt_with_chat_template.replace(
-                        '<image>',
-                        '<|vision_start|>' + '<|placeholder|>' * (image_grid_thw[index].prod() // merge_length) +
-                        '<|vision_end|>',
-                        1,
-                    )
-                    index += 1
-
-                prompt_with_chat_template = prompt_with_chat_template.replace('<|placeholder|>',
-                                                                              self.processor.image_token)
+        if self.image_key in row_dict:  # process multimodal data
+            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            images = [process_image(image) for image in row_dict.pop(self.image_key)]
+            model_inputs = self.processor(images, [raw_prompt], return_tensors="pt", add_special_tokens=False)
+            input_ids = model_inputs.pop('input_ids')
+            attention_mask = model_inputs.pop('attention_mask')
+            row_dict["multi_modal_data"] = {"image": images}
+            row_dict["multi_modal_inputs"] = dict(model_inputs)
         else:
-            raw_prompt = prompt_with_chat_template
+            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            model_inputs = self.tokenizer(raw_prompt, return_tensors='pt', add_special_tokens=False)
+            input_ids = model_inputs.pop('input_ids')
+            attention_mask = model_inputs.pop('attention_mask')
 
-        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
-                                                                         tokenizer=self.tokenizer,
-                                                                         max_length=self.max_prompt_length,
-                                                                         pad_token_id=self.tokenizer.pad_token_id,
-                                                                         left_pad=True,
-                                                                         truncation=self.truncation)
+        input_ids, attention_mask = verl_F.postprocess_data(input_ids=input_ids,
+                                                            attention_mask=attention_mask,
+                                                            max_length=self.max_prompt_length,
+                                                            pad_token_id=self.tokenizer.pad_token_id,
+                                                            left_pad=True,
+                                                            truncation=self.truncation)
 
-        if is_multi_modal:
+        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
             from verl.models.transformers.qwen2_vl import get_rope_index
 
-            position_ids = get_rope_index(
-                self.processor,
-                input_ids=input_ids[0],
-                image_grid_thw=image_grid_thw,
-                attention_mask=attention_mask[0],
-            )  # (3, seq_len)
+            position_ids = [
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    attention_mask=attention_mask[0],
+                )
+            ]  # (1, 3, seq_len)
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
         row_dict['input_ids'] = input_ids[0]
         row_dict['attention_mask'] = attention_mask[0]
         row_dict['position_ids'] = position_ids[0]
-        row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
+        raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
+        if len(raw_prompt_ids) > self.max_prompt_length:
+            if self.truncation == "left":
+                raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length:]
+            elif self.truncation == "right":
+                raw_prompt_ids = raw_prompt_ids[:self.max_prompt_length]
+            elif self.truncation == "error":
+                raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
+
+        row_dict['raw_prompt_ids'] = raw_prompt_ids
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat
+            row_dict['raw_prompt'] = messages
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
@@ -227,4 +241,5 @@ class RLHFDataset(Dataset):
             if 'dataframe' in state:
                 del state['dataframe']
             return state
+
         return self.__dict__.copy()
