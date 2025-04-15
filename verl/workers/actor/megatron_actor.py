@@ -322,9 +322,9 @@ class MegatronPPOActor(BasePPOActor):
                                                                                         loss_agg_mode=loss_agg_mode)
                     policy_loss = pg_loss
                 else:
+                    log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
                     entropy = vocab_parallel_entropy(logits)
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                    log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
                                                                                         log_prob=log_prob,
                                                                                         advantages=advantages,
