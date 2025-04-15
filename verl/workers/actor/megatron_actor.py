@@ -53,7 +53,7 @@ __all__ = ['MegatronPPOActor']
 class MegatronPPOActor(BasePPOActor):
 
     def __init__(self, config, model_config, megatron_config: ModelParallelConfig, actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig):
+                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig, role="actor"):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -118,6 +118,7 @@ class MegatronPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.actor_optimizer_config = actor_optimizer_config
+        self.role = role
 
         self.optimizer_step_args = OmegaConf.create({
             'skip_grad': None,
@@ -201,9 +202,10 @@ class MegatronPPOActor(BasePPOActor):
                                             src=mpu.get_pipeline_model_parallel_last_rank(),
                                             group=mpu.get_pipeline_model_parallel_group(),
                                             async_op=False)
-                for o in output:
-                    if o.get('actor/entropy_loss') is not None:
-                        append_to_dict(metrics, {'actor/entropy_loss': o['actor/entropy_loss']})
+                if self.role == "actor":
+                    for o in output:
+                        if o.get('actor/entropy_loss') is not None:
+                            append_to_dict(metrics, {'actor/entropy_loss': o['actor/entropy_loss']})
 
         # add empty cache after each compute
         torch.cuda.empty_cache()
@@ -283,6 +285,8 @@ class MegatronPPOActor(BasePPOActor):
                 else:
                     stats = post_process_fn(output, data)
                     metrics.update(stats)
+                if self.role == "ref":
+                    return 1.0, metrics
 
             responses = data['responses']
             response_length = responses.size(1)

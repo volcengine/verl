@@ -356,7 +356,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                megatron_config=megatron_config,
                                                actor_module=self.ref_module,
                                                actor_optimizer=None,
-                                               actor_optimizer_config=None)
+                                               actor_optimizer_config=None,
+                                               role="ref")
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -443,7 +444,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output = self.ref_policy.compute_log_prob(data=data)
+        output, _ = self.ref_policy.compute_log_prob(data=data)
         output = DataProto.from_dict(tensors={'ref_log_prob': output})
         output = output.to('cpu')
         if self._is_offload_param:

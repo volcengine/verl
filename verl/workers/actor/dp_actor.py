@@ -43,6 +43,7 @@ class DataParallelPPOActor(BasePPOActor):
         config,
         actor_module: nn.Module,
         actor_optimizer: torch.optim.Optimizer = None,
+        role = 'actor',
     ):
         """When optimizer is None, it is Reference Policy"""
         super().__init__(config)
@@ -52,6 +53,7 @@ class DataParallelPPOActor(BasePPOActor):
         print(f'Actor use_remove_padding={self.use_remove_padding}')
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+        self.role = role
 
         self.compute_entropy_from_logits = (
             torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -228,11 +230,11 @@ class DataParallelPPOActor(BasePPOActor):
                 micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
 
             response_mask = micro_batch['attention_mask'][:, -micro_batch['responses'].size(-1):]
-            loss_agg_mode = self.config.loss_agg_mode
             with torch.no_grad():
                 entropy, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature, recompute=True)
             log_probs_lst.append(log_probs)
-            if entropy is not None:
+            if entropy is not None and self.role == "actor":
+                loss_agg_mode = self.config.loss_agg_mode
                 # compute entropy loss from entropy
                 entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                 append_to_dict(metrics, {'actor/entropy_loss': entropy_loss.detach().item()})
