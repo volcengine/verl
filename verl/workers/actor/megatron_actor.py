@@ -52,8 +52,14 @@ __all__ = ['MegatronPPOActor']
 
 class MegatronPPOActor(BasePPOActor):
 
-    def __init__(self, config, model_config, megatron_config: ModelParallelConfig, actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig, role="actor"):
+    def __init__(self,
+                 config,
+                 model_config,
+                 megatron_config: ModelParallelConfig,
+                 actor_module: nn.ModuleList,
+                 actor_optimizer: DistributedOptimizer,
+                 actor_optimizer_config: OptimizerConfig,
+                 role="actor"):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -311,31 +317,32 @@ class MegatronPPOActor(BasePPOActor):
                 entropy_coeff = meta_info['entropy_coeff']
                 if entropy_coeff == 0:
                     log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                        log_prob=log_prob,
-                                                                                        advantages=advantages,
-                                                                                        response_mask=response_mask,
-                                                                                        cliprange=clip_ratio,
-                                                                                        cliprange_low=clip_ratio_low,
-                                                                                        cliprange_high=clip_ratio_high,
-                                                                                        clip_ratio_c=clip_ratio_c,
-                                                                                        loss_agg_mode=loss_agg_mode)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        cliprange=clip_ratio,
+                        cliprange_low=clip_ratio_low,
+                        cliprange_high=clip_ratio_high,
+                        clip_ratio_c=clip_ratio_c,
+                        loss_agg_mode=loss_agg_mode)
                     policy_loss = pg_loss
                 else:
                     log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
                     entropy = vocab_parallel_entropy(logits)
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                        log_prob=log_prob,
-                                                                                        advantages=advantages,
-                                                                                        response_mask=response_mask,
-                                                                                        cliprange=clip_ratio,
-                                                                                        cliprange_low=clip_ratio_low,
-                                                                                        cliprange_high=clip_ratio_high,
-                                                                                        clip_ratio_c=clip_ratio_c,
-                                                                                        loss_agg_mode=loss_agg_mode)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
+                        old_log_prob=old_log_prob,
+                        log_prob=log_prob,
+                        advantages=advantages,
+                        response_mask=response_mask,
+                        cliprange=clip_ratio,
+                        cliprange_low=clip_ratio_low,
+                        cliprange_high=clip_ratio_high,
+                        clip_ratio_c=clip_ratio_c,
+                        loss_agg_mode=loss_agg_mode)
                     policy_loss = pg_loss - entropy_coeff * entropy_loss
-
 
             stats = {}
             if forward_only:

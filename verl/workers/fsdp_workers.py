@@ -432,7 +432,9 @@ class ActorRolloutRefWorker(Worker):
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
-            self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp, role="ref")
+            self.ref_policy = DataParallelPPOActor(config=self.config.ref,
+                                                   actor_module=self.ref_module_fsdp,
+                                                   role="ref")
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -547,7 +549,10 @@ class ActorRolloutRefWorker(Worker):
             data = self.ulysses_sharding_manager.preprocess_data(data)
             output, metrics = self.actor.compute_log_prob(data=data)
             output = DataProto.from_dict(tensors={'old_log_probs': output},
-                                         meta_info={'temperature': self.config.rollout.temperature, 'metrics': metrics})
+                                         meta_info={
+                                             'temperature': self.config.rollout.temperature,
+                                             'metrics': metrics
+                                         })
             output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')

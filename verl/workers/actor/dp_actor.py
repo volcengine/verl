@@ -43,7 +43,7 @@ class DataParallelPPOActor(BasePPOActor):
         config,
         actor_module: nn.Module,
         actor_optimizer: torch.optim.Optimizer = None,
-        role = 'actor',
+        role='actor',
     ):
         """When optimizer is None, it is Reference Policy"""
         super().__init__(config)
@@ -60,7 +60,10 @@ class DataParallelPPOActor(BasePPOActor):
             if self.config.get('use_torch_compile', True)  #  use torch compile by default
             else verl_F.entropy_from_logits)
 
-    def _forward_micro_batch(self, micro_batch, temperature, recompute: bool=False) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _forward_micro_batch(self,
+                             micro_batch,
+                             temperature,
+                             recompute: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns: 
             entropy: # (bs, response_len)
@@ -140,9 +143,9 @@ class DataParallelPPOActor(BasePPOActor):
                 # pad back to (bsz, seqlen)
                 if self.role == "actor" and (recompute or entropy_coeff != 0):
                     full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
-                                            indices=indices,
-                                            batch=batch_size,
-                                            seqlen=seqlen)
+                                             indices=indices,
+                                             batch=batch_size,
+                                             seqlen=seqlen)
                 full_log_probs = pad_input(hidden_states=log_probs.unsqueeze(-1),
                                            indices=indices,
                                            batch=batch_size,
