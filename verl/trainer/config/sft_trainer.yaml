@@ -7,6 +7,8 @@ data:
   # Single-turn settings
   prompt_key: question
   response_key: answer
+  prompt_dict_keys: ['question']
+  response_dict_keys: ['answer']
   # Multi-turn settings
   multiturn:
     enable: false  # Set to true to use multi-turn dataset

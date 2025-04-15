@@ -18,6 +18,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import os
 import uuid
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -43,7 +44,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import RandomSampler, SequentialSampler
+from torch.utils.data import Dataset, RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 
 WorkerType = Type[Worker]
@@ -408,19 +409,22 @@ class RayPPOTrainer(object):
 
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
-                                         tokenizer=self.tokenizer,
-                                         processor=self.processor,
-                                         prompt_key=self.config.data.prompt_key,
-                                         image_key=self.config.data.get('image_key', 'images'),
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation=self.config.data.get('truncation', 'error'),
-                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts,
-                                         num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
-        assert self.train_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        from verl.utils.import_utils import load_extern_type
+        if "custom_cls" in self.config.data and self.config.data.custom_cls.get("path", None) is not None:
+            dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
+            if not issubclass(dataset_cls, Dataset):
+                raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from "
+                                f"'{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+        else:
+            dataset_cls = RLHFDataset
+
+        self.train_dataset = dataset_cls(
+            data_files=self.config.data.train_files,
+            tokenizer=self.tokenizer,
+            processor=self.processor,
+            config=self.config.data,
+        )
+
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -437,19 +441,12 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                       tokenizer=self.tokenizer,
-                                       processor=self.processor,
-                                       prompt_key=self.config.data.prompt_key,
-                                       image_key=self.config.data.get('image_key', 'images'),
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation=self.config.data.get('truncation', 'error'),
-                                       filter_overlong_prompts=self.config.data.filter_overlong_prompts,
-                                       num_workers=self.config.data.get('filter_overlong_prompts_workers', None))
-        assert self.val_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        self.val_dataset = dataset_cls(
+            data_files=self.config.data.val_files,
+            tokenizer=self.tokenizer,
+            processor=self.processor,
+            config=self.config.data,
+        )
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
@@ -593,9 +590,9 @@ class RayPPOTrainer(object):
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
                 for metric_name, metric_val in metric2val.items():
-                    if var_name == core_var and any(
-                            metric_name.startswith(pfx)
-                            for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
+                    if (var_name == core_var) and any(
+                            metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"]) and (f"@{n_max}"
+                                                                                                 in metric_name):
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"

@@ -28,7 +28,6 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--backend', type=str, required=True, help="The backend of the model", choices=["fsdp", "megatron"])
 parser.add_argument('--tie-word-embedding', action='store_true', help="Whether to tie word embedding weights")
@@ -87,7 +86,8 @@ def convert_fsdp_checkpoints_to_hfmodels():
     assert world_size, "No model file with the proper format"
 
     state_dict = torch.load(os.path.join(local_dir, f'model_world_size_{world_size}_rank_{rank}.pt'),
-                            map_location='cpu')
+                            map_location='cpu',
+                            weights_only=False)
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
 

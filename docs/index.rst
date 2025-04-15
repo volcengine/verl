@@ -67,6 +67,7 @@ verl is fast with:
    workers/ray_trainer
    workers/fsdp_workers
    workers/megatron_workers
+   workers/sglang_worker
 
 .. toctree::
    :maxdepth: 1
@@ -74,6 +75,7 @@ verl is fast with:
    
    perf/perf_tuning
    README_vllm0.8.md
+   perf/device_tuning
 
 .. toctree::
    :maxdepth: 1

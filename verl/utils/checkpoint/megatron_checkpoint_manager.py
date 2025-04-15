@@ -114,8 +114,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             pp_size = mpu.get_pipeline_model_parallel_world_size()
             tp_rank = mpu.get_tensor_model_parallel_rank()
             tp_size = mpu.get_tensor_model_parallel_world_size()
+            cp_rank = mpu.get_context_parallel_rank()
+            cp_size = mpu.get_context_parallel_world_size()
             rng_state_list = ShardedObject('rng_state',
-                                           rng_state_list, (pp_size, tp_size), (pp_rank, tp_rank),
+                                           rng_state_list, (pp_size, tp_size, cp_size), (pp_rank, tp_rank, cp_rank),
                                            replica_id=mpu.get_data_parallel_rank(with_context_parallel=True))
 
         return rng_state_list
@@ -125,6 +127,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                             pipeline_parallel=None,
                             tensor_rank=None,
                             pipeline_rank=None,
+                            cp_rank=None,
                             expert_parallel=None,
                             expert_rank=None,
                             return_base_dir=True,
@@ -137,6 +140,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             tensor_rank = mpu.get_tensor_model_parallel_rank()
         if pipeline_rank is None:
             pipeline_rank = mpu.get_pipeline_model_parallel_rank()
+        if cp_rank is None:
+            cp_rank = mpu.get_context_parallel_rank()
         if expert_parallel is None:
             expert_parallel = (mpu.get_expert_model_parallel_world_size() > 1)
         if expert_rank is None:
@@ -145,6 +150,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Use both the tensor and pipeline MP rank. If using the distributed
         # optimizer, then the optimizer's path must additionally include the
         # data parallel rank.
+
+        # due to the fact that models are identical across cp ranks, cp rank is not used in the checkpoint path
         if not pipeline_parallel:
             common_path = os.path.join(checkpoints_path, f'mp_rank_{tensor_rank:02d}')
         else:
@@ -166,9 +173,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.optimizer.load_parameter_state(optimizer_path)
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
-        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+        rng_state_path = get_rng_states_checkpoint_path(ckpt_path, only_rank0_save=False)
         print(f"Loading rng states from {rng_state_path}")
-        rng_state = torch.load(rng_state_path)
+        rng_state = torch.load(rng_state_path, weights_only=False)
         # access rng_state for data parallel rank
         if not use_dist_ckpt:
             if data_parallel_random_init:
@@ -191,7 +198,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
-            state_dicts = torch.load(os.path.join(ckpt_name))
+            state_dicts = torch.load(os.path.join(ckpt_name), weights_only=False)
             assert len(state_dicts) == len(
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
             for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
@@ -293,10 +300,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'extra' in self.checkpoint_contents:
             torch.distributed.barrier()
 
-            rng_state_path = get_rng_states_checkpoint_path(local_path)
+            rng_state_path = get_rng_states_checkpoint_path(local_path, only_rank0_save=False)
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
-            if self.rank == 0:
-                print(f"saving rng states to {rng_state_path}")
+            print(f"Rank {self.rank} saving rng states to {rng_state_path}")
 
         self.previous_saved_paths.append(local_path)

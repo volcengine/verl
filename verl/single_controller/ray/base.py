@@ -70,10 +70,10 @@ def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[Placement
 class RayResourcePool(ResourcePool):
 
     def __init__(self,
-                 process_on_nodes: List[int] = None,
+                 process_on_nodes: Optional[List[int]] = None,
                  use_gpu: bool = True,
                  name_prefix: str = "",
-                 max_colocate_count: int = 5,
+                 max_colocate_count: int = 10,
                  detached=False) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
@@ -90,10 +90,10 @@ class RayResourcePool(ResourcePool):
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
         pg_scheme = [[{
-            "CPU": self.max_collocate_count,
+            "CPU": self.max_colocate_count,
             "GPU": 1
         } if self.use_gpu else {
-            "CPU": self.max_collocate_count
+            "CPU": self.max_colocate_count
         } for _ in range(process_count)] for process_count in self._store]
 
         lifetime = 'detached' if self.detached else None
@@ -134,7 +134,7 @@ def extract_pg_from_exist(resource_pools: Dict[str, RayResourcePool], src_role_n
 
 def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResourcePool:
     assert rp1.use_gpu == rp2.use_gpu, 'Both RayResourcePool must either use_gpu or not'
-    assert rp1.max_collocate_count == rp2.max_collocate_count, 'Both RayResourcePool must has the same max_collocate_count'
+    assert rp1.max_colocate_count == rp2.max_colocate_count, 'Both RayResourcePool must has the same max_colocate_count'
     assert rp1.n_gpus_per_node == rp2.n_gpus_per_node, 'Both RayResourcePool must has the same n_gpus_per_node'
     assert rp1.detached == rp2.detached, 'Detached ResourcePool cannot be merged with non-detached ResourcePool'
 
@@ -244,7 +244,7 @@ class RayWorkerGroup(WorkerGroup):
         world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
-        num_gpus = 1 / resource_pool.max_collocate_count
+        num_gpus = 1 / resource_pool.max_colocate_count
 
         rank = -1
         local_world_size = resource_pool.store[0]

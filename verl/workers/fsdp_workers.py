@@ -1096,7 +1096,10 @@ class RewardModelWorker(Worker):
 
         for i in range(data.batch.batch_size[0]):
             # extract raw prompt
-            chat: list = data.non_tensor_batch['raw_prompt'][i].tolist()
+            if isinstance(data.non_tensor_batch['raw_prompt'][i], list):
+                chat: list = data.non_tensor_batch['raw_prompt'][i]
+            else:
+                chat: list = data.non_tensor_batch['raw_prompt'][i].tolist()
 
             # extract response
             response_ids = data.batch['responses'][i]
