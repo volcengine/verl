@@ -161,7 +161,7 @@ class RLHFDataset(Dataset):
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
 
-        is_multi_modal = self.image_key in row_dict
+        is_multi_modal = self.image_key in row_dict and not pd.isna(row_dict[self.image_key])
         if is_multi_modal:  # expand image token
             raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
             row_dict['multi_modal_data'] = {'image': [process_image(image) for image in row_dict.pop(self.image_key)]}
