@@ -459,7 +459,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs = self.actor.compute_log_prob(data=output)
+        old_log_probs, metrics = self.actor.compute_log_prob(data=output)
+        output.meta_info['metrics'] = metrics
         output.batch['old_log_probs'] = old_log_probs
         output = output.to('cpu')
         # clear kv cache

@@ -177,6 +177,7 @@ class MegatronPPOActor(BasePPOActor):
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be handled by user outside
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
+        metrics = {}
         if recompute_old_log_prob or 'old_log_probs' not in data.batch.keys():
             select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
@@ -200,11 +201,14 @@ class MegatronPPOActor(BasePPOActor):
                                             src=mpu.get_pipeline_model_parallel_last_rank(),
                                             group=mpu.get_pipeline_model_parallel_group(),
                                             async_op=False)
+                for o in output:
+                    if o.get('actor/entropy_loss') is not None:
+                        append_to_dict(metrics, {'actor/entropy_loss': o['actor/entropy_loss']})
 
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
-        return log_probs
+        return log_probs, metrics
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor
@@ -269,11 +273,16 @@ class MegatronPPOActor(BasePPOActor):
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):
+            # For memory efficiency
+            # We move calculation of entropy to compute_log_probs, forward_only == True
+
+            metrics = {}
             if forward_only:
                 if post_process_fn is None:
-                    return 1.0, {'logits': output}
+                    metrics['logits'] = output
                 else:
-                    return 1.0, post_process_fn(output, data)
+                    stats = post_process_fn(output, data)
+                    metrics.update(stats)
 
             responses = data['responses']
             response_length = responses.size(1)
@@ -292,41 +301,60 @@ class MegatronPPOActor(BasePPOActor):
             # compute policy loss
             logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
-            logits_back = logits.clone()
-            log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
-            logits = logits_back
-            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                  log_prob=log_prob,
-                                                                                  advantages=advantages,
-                                                                                  response_mask=response_mask,
-                                                                                  cliprange=clip_ratio,
-                                                                                  cliprange_low=clip_ratio_low,
-                                                                                  cliprange_high=clip_ratio_high,
-                                                                                  clip_ratio_c=clip_ratio_c,
-                                                                                  loss_agg_mode=loss_agg_mode)
-            entropy = vocab_parallel_entropy(logits)
-            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-            policy_loss = pg_loss - entropy_loss * entropy_coeff
+            if forward_only:
+                entropy = vocab_parallel_entropy(logits)
+                entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+            else:
+                if entropy_coeff == 0:
+                    log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                        log_prob=log_prob,
+                                                                                        advantages=advantages,
+                                                                                        response_mask=response_mask,
+                                                                                        cliprange=clip_ratio,
+                                                                                        cliprange_low=clip_ratio_low,
+                                                                                        cliprange_high=clip_ratio_high,
+                                                                                        clip_ratio_c=clip_ratio_c,
+                                                                                        loss_agg_mode=loss_agg_mode)
+                    policy_loss = pg_loss
+                else:
+                    entropy = vocab_parallel_entropy(logits)
+                    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                    log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+                    pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                        log_prob=log_prob,
+                                                                                        advantages=advantages,
+                                                                                        response_mask=response_mask,
+                                                                                        cliprange=clip_ratio,
+                                                                                        cliprange_low=clip_ratio_low,
+                                                                                        cliprange_high=clip_ratio_high,
+                                                                                        clip_ratio_c=clip_ratio_c,
+                                                                                        loss_agg_mode=loss_agg_mode)
+                    policy_loss = pg_loss - entropy_coeff * entropy_loss
 
-            metrics = {}
-            if self.config.use_kl_loss:
-                ref_log_prob = data['ref_log_prob']
-                # compute kl loss
-                kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
-                policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                metrics['actor/kl_loss'] = kl_loss.detach().item()
-                metrics['actor/kl_coef'] = self.config.kl_loss_coef
+            stats = {}
+            if forward_only:
+                policy_loss = 1.0
+                stats.update({'actor/entropy_loss': entropy_loss.detach().item()})
+            else:
+                if self.config.use_kl_loss:
+                    ref_log_prob = data['ref_log_prob']
+                    # compute kl loss
+                    kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
+                    kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
-            # return loss and stats
-            stats = {
-                'actor/entropy_loss': entropy_loss.detach().item(),
-                'actor/pg_loss': pg_loss.detach().item(),
-                'actor/pg_clipfrac': pg_clipfrac.detach().item(),
-                'actor/ppo_kl': ppo_kl.detach().item(),
-                'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
-            }
+                    policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                    metrics['actor/kl_loss'] = kl_loss.detach().item()
+                    metrics['actor/kl_coef'] = self.config.kl_loss_coef
+
+                # return loss and stats
+                stats.update({
+                    'actor/pg_loss': pg_loss.detach().item(),
+                    'actor/pg_clipfrac': pg_clipfrac.detach().item(),
+                    'actor/ppo_kl': ppo_kl.detach().item(),
+                    'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
+                })
             append_to_dict(stats, metrics)
             return policy_loss, stats
 
