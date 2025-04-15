@@ -181,4 +181,15 @@ Then, make sure you are at top level of verl repo and run
 ```bash
 bash scripts/format.sh
 ```
+
+### Adding CI tests
+
+If possible, please add CI test(s) for your new feature:
+
+1. Find the most relevant workflow yml file, which usually corresponds to a `hydra` default config (e.g. `ppo_trainer`, `ppo_megatron_trainer`, `sft_trainer`, etc).
+2. Add related path patterns to the `paths` section if not already included.
+3. Minimize the workload of the test script(s) (see existing scripts for examples).
+
+---
+
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.
