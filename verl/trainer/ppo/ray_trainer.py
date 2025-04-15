@@ -293,10 +293,10 @@ def load_reward_manager(config, tokenizer, num_examine, take_reward_kwargs):
     if take_reward_kwargs:
         reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
     return reward_manager_cls(tokenizer=tokenizer,
-                               num_examine=num_examine,
-                               compute_score=compute_score,
-                               reward_fn_key=config.data.reward_fn_key,
-                               **reward_kwargs)
+                              num_examine=num_examine,
+                              compute_score=compute_score,
+                              reward_fn_key=config.data.reward_fn_key,
+                              **reward_kwargs)
 
 
 @ray.remote(num_cpus=1)
