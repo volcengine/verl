@@ -242,6 +242,7 @@ Megatron Hybrid Engine:
 from .base import BaseShardingManager
 
 import torch
+import inspect
 from torch import nn
 import torch.distributed
 from torch.distributed import new_group
@@ -423,11 +424,21 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
         else:
             per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=True)
-            self.inference_engine.wake_up()
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                self.inference_engine.wake_up(tags=["weights"])
+            else:
+                self.inference_engine.wake_up()
+
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-        log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
+            log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
+            del per_tensor_param
+            torch.cuda.empty_cache()
+
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                self.inference_engine.wake_up(tags=["kv_cache"])
+
         log_gpu_memory_usage('After delete params sharding manager memory', logger=logger)
 
     def __exit__(self, exc_type, exc_value, traceback):
