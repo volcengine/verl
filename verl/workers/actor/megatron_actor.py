@@ -179,7 +179,7 @@ class MegatronPPOActor(BasePPOActor):
 
         metrics = {}
         if recompute_old_log_prob:
-            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs']
+            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
             input_ids = batch['input_ids']
             batch_size = input_ids.size(0)
