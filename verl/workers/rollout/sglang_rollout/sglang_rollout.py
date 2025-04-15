@@ -154,7 +154,7 @@ class SGLangRollout(BaseRollout):
                                           dist_group=device_mesh_cpu.get_group("tp"),
                                           src=device_mesh_cpu["tp"].mesh[0].item())
         dist_init_addr = f"{ip}:{port_args.nccl_port}"
-        load_format = 'dummy' if self.config.load_format.startswith('dummy') else self.config.load_format
+        load_format = 'dummy' if config.load_format.startswith('dummy') else config.load_format
         self.inference_engine = VerlEngine(
             model_path=actor_module,
             dtype=config.dtype,
