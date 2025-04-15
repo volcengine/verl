@@ -1,5 +1,12 @@
 # Dr. GRPO Open-Source Implementation
 
+
+https://github.com/sail-sg/understand-r1-zero
+
+
+This paper suggests a way to calculate the unbiased policy gradient.
+
+
 ## Configuration
 ```yaml
 actor_rollout_ref:
