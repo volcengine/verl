@@ -108,7 +108,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
                                    response_mask: torch.Tensor,
                                    index: np.ndarray,
                                    epsilon: float = 1e-6,
-                                   scale_grpo_adv: str = True):
+                                   norm_adv_by_std_in_grpo: str = True):
     """
     Compute advantage for GRPO, operating only on Outcome reward 
     (with only one scalar reward for each response).
@@ -117,7 +117,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
-        scale_grpo_adv: (bool)
+        norm_adv_by_std_in_grpo: (bool)
             whether to scale the GRPO advantage. 
             If True, the advantage is scaled by the std, as in the original GRPO.
             If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
@@ -148,7 +148,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            if scale_grpo_adv:
+            if norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
             else:
                 scores[i] = (scores[i] - id2mean[index[i]])

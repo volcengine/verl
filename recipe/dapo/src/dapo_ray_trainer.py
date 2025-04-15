@@ -242,13 +242,13 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                     with _timer('adv', timing_raw):
                         # compute advantages, executed on the driver process
-                        scale_grpo_adv = self.config.algorithm.get('scale_grpo_adv', True)
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get('norm_adv_by_std_in_grpo', True)
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n,
-                                                  scale_grpo_adv=scale_grpo_adv)
+                                                  norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo)
 
                     # update critic
                     if self.use_critic:
