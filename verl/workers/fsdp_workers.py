@@ -549,10 +549,7 @@ class ActorRolloutRefWorker(Worker):
             data = self.ulysses_sharding_manager.preprocess_data(data)
             output, metrics = self.actor.compute_log_prob(data=data)
             output = DataProto.from_dict(tensors={'old_log_probs': output},
-                                         meta_info={
-                                             'temperature': self.config.rollout.temperature,
-                                             'metrics': metrics
-                                         })
+                                         meta_info={'temperature': self.config.rollout.temperature})
             output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')
@@ -566,7 +563,7 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
         log_gpu_memory_usage('After compute_log_prob', logger=logger)
-        return output
+        return output, metrics
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):

@@ -885,10 +885,10 @@ class RayPPOTrainer(object):
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        old_log_prob, old_log_prob_metrics = self.actor_rollout_wg.compute_log_prob(batch)
                         batch = batch.union(old_log_prob)
-                        old_log_output_metrics = reduce_metrics(old_log_prob.meta_info['metrics'])
-                        metrics.update(old_log_output_metrics)
+                        old_log_prob_metrics = reduce_metrics(old_log_prob_metrics)
+                        metrics.update(old_log_prob_metrics)
 
                     if self.use_reference_policy:
                         # compute reference log_prob
