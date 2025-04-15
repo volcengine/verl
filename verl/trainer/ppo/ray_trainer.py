@@ -369,7 +369,7 @@ class RayPPOTrainer(object):
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
         assert config.actor_rollout_ref.actor.loss_agg_mode in [
-            "token-mean", "seq-mean-token-sum", "seq-mean-token-mean"
+            "token-mean", "seq-mean-token-sum", "seq-mean-token-mean", "seq-mean-token-sum-norm"
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
         if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:

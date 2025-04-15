@@ -322,7 +322,10 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
             shape: (bs, response_length)
         loss_mask: `(torch.Tensor)`
             shape: (bs, response_length)
-        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+        loss_agg_mode: (str) choices: "token-mean" / 
+                                      "seq-mean-token-sum" /
+                                      "seq-mean-token-mean" / 
+                                      "seq-mean-token-sum-norm" /
             "token-mean" is the default behavior
     Returns:
         loss: `a scalar torch.Tensor`
@@ -336,6 +339,13 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     elif loss_agg_mode == "seq-mean-token-mean":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)  # token-mean
         loss = torch.mean(seq_losses)  # seq-mean
+    elif loss_agg_mode == "seq-mean-token-sum-norm":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
+        loss = torch.sum(seq_losses) / loss_mask.shape[-1] # The divisor 
+                # (loss_mask.shape[-1]) should ideally be constant 
+                # throughout training to well-replicate the DrGRPO paper.
+                # TODO: Perhaps add user-defined normalizer argument to
+                # agg_loss to ensure divisor stays constant throughout.
     else:
         raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
@@ -369,7 +379,10 @@ def compute_policy_loss(old_log_prob,
             The higher clip range used in PPO.
         clip_ratio_c: (float) default: 3.0
             The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+        loss_agg_mode: (str) choices: "token-mean" / 
+                                      "seq-mean-token-sum" / 
+                                      "seq-mean-token-mean" /
+                                      "seq-mean-token-sum-norm" /
             "token-mean" is the default behavior        
 
     Returns:
