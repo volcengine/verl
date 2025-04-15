@@ -78,7 +78,8 @@ class DataParallelPPOActor(BasePPOActor):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
-            entropy_coeff = self.config.entropy_coeff
+            if self.role == "actor":
+                entropy_coeff = self.config.entropy_coeff
             entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
@@ -124,20 +125,20 @@ class DataParallelPPOActor(BasePPOActor):
                 log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
 
                 # compute entropy
-                if recompute or entropy_coeff != 0:
+                if self.role == "actor" and (recompute or entropy_coeff != 0):
                     entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
                     # gather and unpad for the ulysses sp
                     log_probs = gather_outpus_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                    if recompute and entropy_coeff != 0:
+                    if self.role == "actor" and (recompute or entropy_coeff != 0):
                         entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
                                                                 gather_dim=0,
                                                                 unpad_dim=0,
                                                                 padding_size=pad_size)
                 # pad back to (bsz, seqlen)
-                if recompute or entropy_coeff != 0:
+                if self.role == "actor" and (recompute or entropy_coeff != 0):
                     full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
                                             indices=indices,
                                             batch=batch_size,
@@ -148,7 +149,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            seqlen=seqlen)
 
                 # only return response part:
-                if recompute or entropy_coeff != 0:
+                if self.role == "actor" and (recompute or entropy_coeff != 0):
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
@@ -162,7 +163,7 @@ class DataParallelPPOActor(BasePPOActor):
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length, vocab_size)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
-                if recompute or entropy_coeff != 0:
+                if self.role == "actor" and (recompute or entropy_coeff != 0):
                     entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
 
             return entropy, log_probs
