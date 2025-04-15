@@ -41,6 +41,7 @@ from megatron.core.optimizer import DistributedOptimizer
 from omegaconf import OmegaConf
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
+from verl.utils.debug import log_gpu_memory_usage
 from verl import DataProto
 from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
 from verl.workers.actor import BasePPOActor
@@ -284,6 +285,7 @@ class MegatronPPOActor(BasePPOActor):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
 
+            log_gpu_memory_usage(f'before loss_func')
             metrics = {}
             if forward_only:
                 if post_process_fn is None:
@@ -367,6 +369,7 @@ class MegatronPPOActor(BasePPOActor):
                     'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
                 })
             append_to_dict(metrics, stats)
+            log_gpu_memory_usage(f'after loss_func')
             return policy_loss, metrics
 
         def forward_step(batch_iter, model):
