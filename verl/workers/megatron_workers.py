@@ -291,7 +291,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After building vllm rollout', logger=logger)
 
             # perform weight resharding between actor and rollout
-            sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
+            sharding_manager = MegatronVLLMShardingManager(
                                                            inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
                                                            layer_name_mapping=layer_name_mapping,
