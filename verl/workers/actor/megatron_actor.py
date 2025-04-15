@@ -178,8 +178,8 @@ class MegatronPPOActor(BasePPOActor):
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
         metrics = {}
-        if recompute_old_log_prob or 'old_log_probs' not in data.batch.keys():
-            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        if recompute_old_log_prob:
+            select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs']
             batch = data.select(batch_keys=select_keys).batch
             input_ids = batch['input_ids']
             batch_size = input_ids.size(0)
@@ -288,14 +288,6 @@ class MegatronPPOActor(BasePPOActor):
             response_length = responses.size(1)
             attention_mask = data['attention_mask']
             response_mask = attention_mask[:, -response_length:]
-            old_log_prob = data['old_log_probs']
-            advantages = data['advantages']
-
-            clip_ratio = meta_info['clip_ratio']
-            clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
-            clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
-            clip_ratio_c = meta_info['clip_ratio_c']
-            entropy_coeff = meta_info['entropy_coeff']
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
@@ -305,6 +297,14 @@ class MegatronPPOActor(BasePPOActor):
                 entropy = vocab_parallel_entropy(logits)
                 entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
             else:
+                old_log_prob = data['old_log_probs']
+                advantages = data['advantages']
+
+                clip_ratio = meta_info['clip_ratio']
+                clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
+                clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
+                clip_ratio_c = meta_info['clip_ratio_c']
+                entropy_coeff = meta_info['entropy_coeff']
                 if entropy_coeff == 0:
                     log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
