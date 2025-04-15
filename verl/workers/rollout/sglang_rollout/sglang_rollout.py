@@ -135,6 +135,67 @@ class SGLangRollout(BaseRollout):
             mesh_shape=(world_size // tp_size, tp_size, 1),
             mesh_dim_names=["dp", "tp", "pp"],
         )
+
+
+        ########################
+        # import torch.distributed as dist
+
+        # # 正确的方式是使用 Backend 的属性
+        # print("Available backends:")
+        # print(f"- {dist.Backend.GLOO}")
+        # print(f"- {dist.Backend.NCCL}")
+        # print(f"- {dist.Backend.MPI}")
+
+        # # 检查特定 backend 是否可用
+        # print("\nBackend availability:")
+        # print(f"NCCL available: {dist.is_nccl_available()}")
+        # print(f"GLOO available: {dist.is_gloo_available()}")
+        # print(f"MPI available: {dist.is_mpi_available()}")
+
+        # # 如果是 ROCm 环境，还可以检查
+        # if hasattr(dist, 'is_rccl_available'):
+        #     print(f"RCCL available: {dist.is_rccl_available()}")
+        ###(WorkerDict pid=544967) NCCL available: True
+        ###(WorkerDict pid=544967) GLOO available: True
+        ###(WorkerDict pid=544967) MPI available: False
+
+        #################
+
+        # # 确保在创建 device mesh 之前初始化 process group
+        # if not torch.distributed.is_initialized():
+        #     # 对于 CPU 操作使用 GLOO backend
+        #     torch.distributed.init_process_group(backend='gloo')
+        # else:
+        #     # 如果已经初始化，检查当前 backend
+        #     current_backend = torch.distributed.get_backend()
+        #     if current_backend != 'gloo':
+        #         # 如果不是 gloo，需要重新初始化
+        #         torch.distributed.destroy_process_group()
+        #         torch.distributed.init_process_group(backend='gloo')
+
+        # # 打印当前配置用于调试
+        # print(f"Current backend: {torch.distributed.get_backend()}")
+        # print(f"World size: {torch.distributed.get_world_size()}")
+        # print(f"Rank: {torch.distributed.get_rank()}")
+        
+        
+        ########################
+        ########################
+        ########################
+        # current_backend = torch.distributed.get_backend()
+        # print(f"当前 backend: {current_backend}")
+        # if current_backend == "undefined" or current_backend != "gloo":
+        #     print("后端不正确，重新初始化...")
+        #     torch.distributed.destroy_process_group()
+        #     torch.distributed.init_process_group(backend='gloo')
+        #     print(f"重新初始化完成，当前 backend: {torch.distributed.get_backend()}")
+        ########################
+        ########################
+        ########################
+
+        ########################
+
+
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
@@ -149,11 +210,14 @@ class SGLangRollout(BaseRollout):
         nnodes = -(-tp_size // len(visible_devices_set))
         server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
         ip, port_args = get_ip(), PortArgs.init_new(server_args)
+
+
         [ip, port_args] = broadcast_pyobj([ip, port_args],
-                                          rank=tp_rank,
-                                          dist_group=device_mesh_cpu.get_group("tp"),
-                                          src=device_mesh_cpu["tp"].mesh[0].item())
+                                        rank=tp_rank,
+                                        dist_group=device_mesh_cpu.get_group("tp"),
+                                        src=device_mesh_cpu["tp"].mesh[0].item())
         dist_init_addr = f"{ip}:{port_args.nccl_port}"
+        
 
         self.inference_engine = VerlEngine(
             model_path=actor_module,
@@ -164,7 +228,7 @@ class SGLangRollout(BaseRollout):
             base_gpu_id=0,
             gpu_id_step=1,
             dist_init_addr=dist_init_addr,
-            nnodes=nnodes
+            nnodes=nnodes,
             # NOTE(Chenyang): if you want to debug the sglang engine
             # please set the following parameters
             # Otherwise, it will make the engine run too slow
