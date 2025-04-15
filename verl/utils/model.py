@@ -244,6 +244,36 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
                 normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
                 yield normalized_name, param
 
+def custom_normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers):
+    """
+    change for module layer number
+    """
+    if vpp_size > 1:
+        # print(f'try to bind vpp params to inference engine...')
+        layers_per_pp = num_layers // pp_size
+        layers_per_vpp = layers_per_pp // vpp_size
+        pp_offset = layers_per_vpp * pp_rank
+        vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
+        layer_offset = pp_offset + vpp_offset
+    else:
+        layers_per_pp = num_layers // pp_size
+        layer_offset = layers_per_pp * pp_rank
+
+    if 'layers' in name:  # belong to an intermediate layer
+        split_name = name.split('.')
+        # find the num next to split_name
+        for i, name in enumerate(split_name):
+            if name == 'layers':
+                break
+        layer_num_idx = i + 1
+        # check the name
+        assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
+        assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
+        # increment layer_num_idx by layer_offset
+        split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
+        name = '.'.join(split_name)  # weight name in inference_tp_model
+    return name
+
 
 def get_parallel_model_from_config(config,
                                    megatron_config,
