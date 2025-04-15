@@ -355,8 +355,8 @@ class MegatronPPOActor(BasePPOActor):
                     'actor/ppo_kl': ppo_kl.detach().item(),
                     'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
                 })
-            append_to_dict(stats, metrics)
-            return policy_loss, stats
+            append_to_dict(metrics, stats)
+            return policy_loss, metrics
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
