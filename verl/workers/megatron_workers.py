@@ -462,11 +462,12 @@ class ActorRolloutRefWorker(MegatronWorker):
         output.meta_info['temperature'] = self.config.rollout.temperature
         old_log_probs, metrics = self.actor.compute_log_prob(data=output)
         output.batch['old_log_probs'] = old_log_probs
+        output.meta_info['metrics'] = metrics
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After generate_sequences', logger=logger)
-        return output, metrics
+        return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):

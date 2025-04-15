@@ -398,6 +398,9 @@ class RayPRIMETrainer(RayPPOTrainer):
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        old_log_prob_metrics = reduce_metrics(old_log_prob.meta_info['metrics'])
+                        metrics.update(old_log_prob_metrics)
+                        old_log_prob.meta_info.pop('metrics')
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:
