@@ -58,8 +58,11 @@ jobs:
           pip3 install vllm==0.5.4
       - name: Download Model to Use
         run: |
+          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
+          export HF_HUB_OFFLINE=1
+        # Disable requests to avoid network errors
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
@@ -72,10 +75,12 @@ jobs:
       - name: Run Qwen 0.5B generation test
         run: |
           cd tests/generation
-          bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet 2
-          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
+          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
+          rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
           cd tests/generation
-          bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
-          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
+          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
+          rm -rf "${OUTPUT_PATH}"
