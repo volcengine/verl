@@ -1025,6 +1025,14 @@ class RewardModelWorker(Worker):
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
 
+            multi_modal_inputs = {}
+            if 'multi_modal_inputs' in micro_batch:
+                for key in micro_batch['multi_modal_inputs'][0].keys():
+                    multi_modal_inputs[key] = torch.cat(
+                        [inputs[key] for inputs in micro_batch['multi_modal_inputs']],
+                        dim=0,
+                    )
+
             if self.use_remove_padding:
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
                                                            attention_mask)  # input_ids_rmpad (total_nnz, ...)
