@@ -205,7 +205,7 @@ def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
         optimizer='adam',
         lr=optim_config.get('lr'),
         clip_grad=optim_config.get('clip_grad'),
-        weight_decay=1e-2,
+        weight_decay=optim_config.get('weight_decay'),
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
