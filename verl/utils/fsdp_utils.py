@@ -419,23 +419,26 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict):
 
 def prepare_for_cpu_offload(model: torch.nn.Module, cpu_offload=None):
     if cpu_offload:
-        model.to('cpu')
+        model.to('cpu', non_blocking=True)
         for buf in model.buffers():
-            buf.to(torch.cuda.current_device())
+            buf.data = buf.data.to(torch.cuda.current_device())
     
 
-def apply_fsdp2(model, fsdp_kwargs):
+def apply_fsdp2(model, fsdp_kwargs, is_infer=False):
     '''model: AutoModelForCausalLM
     '''
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
-    assert hasattr(model.model, 'layers'), "TransformerBlock layer was not found in model.model, please check model structure"
 
     fsdp_mesh = fsdp_kwargs.get('mesh')
+    reshard_after_forward = fsdp2_sharding_strategy(fsdp_mesh)
+    
+    modules = []
+    for name, module in model.named_modules():
+        if module.__class__.__name__ in model._no_split_modules:
+            modules.append(module)
 
-    # refer torchtitan
-    for idx, layer in enumerate(model.model.layers):
-        reshard_after_forward = fsdp2_sharding_strategy(fsdp_mesh)
-        if idx == len(model.model.layers) - 1:
+    for idx, module in enumerate(modules):
+        if not is_infer and idx == len(modules) - 1:
             reshard_after_forward = False
-        fully_shard(layer, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)
-    fully_shard(model, **fsdp_kwargs, reshard_after_forward=False)
+        fully_shard(module, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)
+    fully_shard(model, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)

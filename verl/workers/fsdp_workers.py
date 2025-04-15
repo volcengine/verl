@@ -282,13 +282,14 @@ class ActorRolloutRefWorker(Worker):
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
             cpu_offload = None if role == 'actor' else CPUOffloadPolicy(pin_memory=True)
+            is_infer = role != 'actor'
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
             }
             full_sd = actor_module.state_dict()
-            apply_fsdp2(actor_module, fsdp_kwargs)
+            apply_fsdp2(actor_module, fsdp_kwargs, is_infer=is_infer)
             fsdp2_load_full_state_dict(actor_module, full_sd)
             prepare_for_cpu_offload(actor_module, cpu_offload)
             actor_module_fsdp = actor_module
@@ -1106,7 +1107,7 @@ class RewardModelWorker(Worker):
                 "offload_policy": cpu_offload,
             }            
             full_sd = reward_module.state_dict()
-            apply_fsdp2(reward_module, fsdp_kwargs)
+            apply_fsdp2(reward_module, fsdp_kwargs, is_infer=True)
             fsdp2_load_full_state_dict(reward_module, full_sd)
             prepare_for_cpu_offload(reward_module, cpu_offload)
         else:
