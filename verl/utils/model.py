@@ -200,7 +200,7 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     Normalize the pp vpp params into a complete named parameters.
     This is useful when gather parameters from pp ranks and passed to a model without pp
 
-    params: List[List[Dict[str, param]]]
+    params: Iterable[List[Dict[str, param]]]
         params contains a list of pp, with a list of vpp named_parameters in each vpp chunk.
     output: Dict[str, param]
 
@@ -237,15 +237,12 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
         return name
 
     pp_size = len(params)
-    normalized_name_to_param = {}
     for pp_rank in range(len(params)):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
                 normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
-                normalized_name_to_param[normalized_name] = param
-
-    return normalized_name_to_param
+                yield normalized_name, param
 
 
 def get_parallel_model_from_config(config,
@@ -270,6 +267,7 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
     architectures = getattr(config, "architectures", [])
     for arch in architectures:
         model_cls = ModelRegistry.load_model_cls(arch, value)
+        print(f'after load model cls')
         if model_cls is not None:
             return model_cls
     raise ValueError(f"Model architectures {architectures} are not supported for now. "
@@ -292,8 +290,8 @@ def load_megatron_model_weights(config,
         local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
         print('finish download')
     else:
-        print(f"load from local dir {config.model.path}")
         local_model_path = config.model.path
+        print(f"load from local dir {local_model_path}")
 
     # TODO: to find a better way to load mistral7b-rm lm_head
     from verl.utils.fsdp_utils import get_init_weight_context_manager
@@ -302,14 +300,17 @@ def load_megatron_model_weights(config,
         warnings.simplefilter("ignore")
         if 'mistral7b-rm' in config.model.path:
             model = MistralForSequenceClassification.from_pretrained(
-                local_model_path)  # use score head instead of lm_head
+                local_model_path, device_map="auto", low_cpu_mem_usage=True)  # use score head instead of lm_head
             state_dict = model.state_dict()
             state_dict['lm_head.weight'] = state_dict['score.weight']
             state_dict['model.embed_tokens.weight'] = state_dict[
                 'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
             is_value_model = True
         else:
-            model = AutoModelForCausalLM.from_pretrained(local_model_path)
+            model = AutoModelForCausalLM.from_pretrained(local_model_path,
+                                                         torch_dtype="auto",
+                                                         device_map="auto",
+                                                         low_cpu_mem_usage=True)
             state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
@@ -361,3 +362,98 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
         max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
 
     return unpad_tokens, cu_seqlens, max_seqlen_in_batch
+
+
+def load_megatron_gptmodel_weights(config,
+                                   model_config,
+                                   parallel_model,
+                                   params_dtype,
+                                   is_value_model=False,
+                                   local_cache_path='~/.cache/verl/rlhf'):
+    assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
+    architectures = getattr(model_config, "architectures", [])
+    local_cache_path = os.path.expanduser(local_cache_path)
+
+    if config.model.path.startswith("hdfs:"):
+        from verl.utils.fs import copy_to_local
+        print(f'start download from {config.model.path}')
+        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
+        print('finish download')
+    else:
+        print(f"load from local dir {config.model.path}")
+        local_model_path = config.model.path
+
+    # TODO: to find a better way to load mistral7b-rm lm_head
+    if 'mistral7b-rm' in config.model.path:
+        model = MistralForSequenceClassification.from_pretrained(local_model_path)  # use score head instead of lm_head
+        state_dict = model.state_dict()
+        state_dict['lm_head.weight'] = state_dict['score.weight']
+        state_dict['model.embed_tokens.weight'] = state_dict[
+            'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
+        is_value_model = True
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+        model = AutoModelForCausalLM.from_pretrained(local_model_path)
+        state_dict = model.state_dict()
+
+    from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
+    load_state_dict_to_megatron_gptmodel(state_dict=state_dict,
+                                         wrapped_models=parallel_model,
+                                         config=model.config,
+                                         params_dtype=params_dtype,
+                                         is_value_model=is_value_model)
+    del state_dict, model
+
+
+def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
+    from megatron.core import dist_checkpointing
+    from megatron.core.dist_checkpointing.serialization import StrictHandling
+
+    # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
+    strict = StrictHandling.ASSUME_OK_UNEXPECTED
+    for model in parallel_model:
+        ssd = model.module.module.sharded_state_dict()
+        if is_value_model:
+            for k in list(ssd.keys()):
+                if "output_layer" in k:
+                    ssd.pop(k)
+        dist_checkpointing.load(ssd, dist_weight_path, strict=strict)
+
+    return
+
+
+def get_parallel_gptmodel_from_config(tfconfig,
+                                      hf_config,
+                                      pre_process=None,
+                                      post_process=None,
+                                      share_embeddings_and_output_weights=False,
+                                      value=False):
+    from megatron.core.models.gpt.gpt_model import GPTModel
+    from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+    from megatron.core import parallel_state as mpu
+    from megatron.core import tensor_parallel
+    use_te = True
+    assert tfconfig.normalization == "RMSNorm", 'only RMSNorm is supported for now'
+    transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=use_te)
+    rope_scaling_args = {}
+    if hf_config.rope_scaling is not None:
+        assert hf_config.rope_scaling['type'] == 'linear', "only linear scaling is supported for now"
+        rope_scaling_args['seq_len_interpolation_factor'] = hf_config.rope_scaling['factor']
+    parallel_model = GPTModel(config=tfconfig,
+                              transformer_layer_spec=transformer_layer_spec,
+                              vocab_size=hf_config.vocab_size,
+                              max_sequence_length=hf_config.max_position_embeddings,
+                              pre_process=pre_process,
+                              post_process=post_process,
+                              share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+                              position_embedding_type='rope',
+                              rotary_base=hf_config.rope_theta,
+                              **rope_scaling_args)
+    # # for layer in parallel_model.decoder.layers: layer.self_attention.core_attention.flash_attention.softmax_scale = None
+    if post_process and value:
+        from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
+        parallel_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size,
+                                                         output_size=1,
+                                                         config=tfconfig)
+    return parallel_model

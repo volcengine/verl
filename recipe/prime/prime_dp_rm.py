@@ -97,7 +97,8 @@ class DataParallelPRIMERewardModel:
         else:
             rm_output_logits = self.reward_module(input_ids=micro_batch['input_ids'],
                                                   attention_mask=micro_batch['attention_mask'],
-                                                  position_ids=micro_batch['position_ids']).logits
+                                                  position_ids=micro_batch['position_ids'],
+                                                  use_cache=False).logits
             rm_log_prob = torch.nn.functional.log_softmax(rm_output_logits[:, :-1, :],
                                                           dim=-1)  # (batch_size, seq_length, vocab_size)
             rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch['input_ids'][:, 1:].unsqueeze(-1)).squeeze(
@@ -124,7 +125,8 @@ class DataParallelPRIMERewardModel:
                 else:
                     ref_output_logits = self.ref_module(input_ids=micro_batch['input_ids'],
                                                         attention_mask=micro_batch['attention_mask'],
-                                                        position_ids=micro_batch['position_ids']).logits
+                                                        position_ids=micro_batch['position_ids'],
+                                                        use_cache=False).logits
                     ref_log_prob = torch.nn.functional.log_softmax(ref_output_logits[:, :-1, :],
                                                                    dim=-1)  # (batch_size, seq_length, vocab_size)
                     ref_log_labels = ref_log_prob.gather(dim=-1,
@@ -275,7 +277,7 @@ class DataParallelPRIMERewardModel:
                 prompt_ids = data['prompts']
                 prompt_length = prompt_ids.shape[-1]
 
-                eos_mask = attention_mask[:, prompt_length:]
+                response_mask = attention_mask[:, prompt_length:]
 
                 rm_score, q = self._forward_micro_batch(data, prompt_length)
 
@@ -283,14 +285,14 @@ class DataParallelPRIMERewardModel:
                 q_lst.append(q.detach())
 
                 if self.config.model.loss_type == 'ce':
-                    dpo_loss = compute_ce_dpo_loss_rm(q, acc, eos_mask=eos_mask, beta=beta)
+                    dpo_loss = compute_ce_dpo_loss_rm(q, acc, response_mask=response_mask, beta=beta)
                 elif self.config.model.loss_type == 'dpo':
                     # the implementation of dpo is actually detached, which means we have to know the average value of w/l reward before the update.
                     dpo_loss = compute_detach_dpo_loss_rm(q,
                                                           acc,
                                                           Q_bc=data['Q_bc'],
                                                           acc_bc=data['acc_bc'],
-                                                          eos_mask=eos_mask,
+                                                          response_mask=response_mask,
                                                           beta=beta)
                 elif self.config.model.loss_type == 'bon_acc':
                     # change the original distribution of each sample to BoN distribution, then update reward model
@@ -298,7 +300,7 @@ class DataParallelPRIMERewardModel:
                                                           acc,
                                                           Q_bc=data['Q_bc'],
                                                           acc_bc=data['acc_bc'],
-                                                          eos_mask=eos_mask,
+                                                          response_mask=response_mask,
                                                           beta=beta,
                                                           bon_mode='bon_acc')
                 elif self.config.model.loss_type == 'bon_rm':
@@ -306,7 +308,7 @@ class DataParallelPRIMERewardModel:
                                                           acc,
                                                           Q_bc=data['Q_bc'],
                                                           acc_bc=data['acc_bc'],
-                                                          eos_mask=eos_mask,
+                                                          response_mask=response_mask,
                                                           beta=beta,
                                                           bon_mode='bon_rm')
                 else:

@@ -8,13 +8,15 @@ hydra-core
 liger-kernel
 numpy
 pandas
+datasets
 peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
-ray[data,train,tune,serve]
-tensordict<0.6
+pylint==3.3.6
+ray[default]
+tensordict<=0.6.2
 torchdata
 transformers
-vllm<=0.6.3
+# vllm==0.6.3.post1
 wandb

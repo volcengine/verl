@@ -18,10 +18,10 @@ import tempfile
 from typing import Union
 import torch
 import torch.distributed
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType
 from transformers import PreTrainedTokenizer, ProcessorMixin
 import numpy as np
 import random
+import re
 
 
 class BaseCheckpointManager:
@@ -39,38 +39,48 @@ class BaseCheckpointManager:
     - huggingface tokenizer and config for ckpt merge
     """
 
-    def __init__(self, model: FSDP, optimizer: torch.optim.Optimizer,
-                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler, processing_class: Union[PreTrainedTokenizer,
-                                                                                             ProcessorMixin]):
+    def __init__(self,
+                 model,
+                 optimizer: torch.optim.Optimizer,
+                 lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
+                 processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra']):
         self.previous_global_step = None
-        self.previous_save_local_path = None
+        self.previous_saved_paths = []
 
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.processing_class = processing_class
+        self.checkpoint_contents = checkpoint_contents
 
-        assert isinstance(self.model, FSDP)
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
-    def load_checkpoint(self, *args, **kwargs):
+    def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, *args, **kwargs):
+    def save_checkpoint(self,
+                        local_path: str,
+                        hdfs_path: str = None,
+                        global_step: int = 0,
+                        max_ckpt_to_keep: int = None):
         raise NotImplementedError
 
-    def remove_previous_save_local_path(self):
-        if not self.previous_save_local_path:
-            return
+    @staticmethod
+    def checkpath(local_path: str, hdfs_path: str):
+        assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"
+        return True if local_path is not None else False, local_path if local_path is not None else hdfs_path
 
-        abs_path = os.path.abspath(self.previous_save_local_path)
-        print(f'Checkpoint manager remove previous save local path: {abs_path}')
-        if not os.path.exists(abs_path):
-            return
-
-        # remove previous local_path
-        shutil.rmtree(abs_path, ignore_errors=True)
+    def remove_previous_save_local_path(self, path):
+        if isinstance(path, str):
+            path = [path]
+        for p in path:
+            abs_path = os.path.abspath(p)
+            print(f'Checkpoint manager remove previous save local path: {abs_path}')
+            if not os.path.exists(abs_path):
+                continue
+            shutil.rmtree(abs_path, ignore_errors=True)
 
     @staticmethod
     def local_mkdir(path):

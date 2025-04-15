@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from omegaconf import ListConfig
 import os
 from typing import List, Union, Optional
 import copy
-import pandas as pd
+import datasets
 from collections import defaultdict
 
 import torch
 import numpy as np
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+from omegaconf import ListConfig, DictConfig
 
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
@@ -77,37 +77,33 @@ class RLHFDataset(Dataset):
     We assume the dataset contains a column that contains prompts and other information
     """
 
-    def __init__(self,
-                 parquet_files: Union[str, List[str]],
-                 tokenizer: PreTrainedTokenizer,
-                 processor: Optional[ProcessorMixin] = None,
-                 prompt_key='prompt',
-                 image_key='images',
-                 max_prompt_length=1024,
-                 filter_prompts=True,
-                 cache_dir='~/.cache/verl/rlhf',
-                 chat_template_func=None,
-                 return_raw_chat=False,
-                 truncation='error',
-                 filter_overlong_prompts=False):
-        if not isinstance(parquet_files, (List, ListConfig)):
-            parquet_files = [parquet_files]
+    def __init__(
+        self,
+        data_files: Union[str, List[str]],
+        tokenizer: PreTrainedTokenizer,
+        config: DictConfig,
+        processor: Optional[ProcessorMixin] = None,
+    ):
+        if not isinstance(data_files, (List, ListConfig)):
+            data_files = [data_files]
 
-        self.parquet_files = copy.deepcopy(parquet_files)
-        self.original_parquet_files = copy.deepcopy(parquet_files)  # use for resume
-        self.cache_dir = os.path.expanduser(cache_dir)
+        self.data_files = copy.deepcopy(data_files)
+        self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
+        self.config = config
 
-        self.prompt_key = prompt_key
-        self.image_key = image_key
-        self.max_prompt_length = max_prompt_length
-        self.filter_prompts = filter_prompts
+        self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
+        self.prompt_key = config.get("prompt_key", "prompt")
+        self.image_key = config.get("image_key", "images")
+        self.max_prompt_length = config.get("max_prompt_length", 1024)
 
-        self.return_raw_chat = return_raw_chat
-        self.chat_template_func = chat_template_func
-        self.truncation = truncation
-        self.filter_overlong_prompts = filter_overlong_prompts
+        self.return_raw_chat = config.get('return_raw_chat', False)
+        self.truncation = config.get('truncation', 'error')
+        self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+
+        self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
+        self.num_workers = min(self.num_workers, os.cpu_count())
 
         # whether to store the dataset in state_dict()
         # default not store
@@ -117,17 +113,17 @@ class RLHFDataset(Dataset):
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
-        parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
-        for i, parquet_file in enumerate(parquet_files):
-            self.parquet_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
+        data_files = self.data_files if not use_origin_parquet else self.original_data_files
+        for i, parquet_file in enumerate(data_files):
+            self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
 
     def _read_files_and_tokenize(self):
         dataframes = []
-        for parquet_file in self.parquet_files:
+        for parquet_file in self.data_files:
             # read parquet files and cache
-            dataframe = pd.read_parquet(parquet_file)
+            dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
-        self.dataframe = pd.concat(dataframes)
+        self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
         print(f'dataset len: {len(self.dataframe)}')
 
@@ -135,14 +131,16 @@ class RLHFDataset(Dataset):
         if self.filter_overlong_prompts:
             tokenizer = self.tokenizer
             prompt_key = self.prompt_key
-            self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-                tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                                 axis=1)]
+            self.dataframe = self.dataframe.filter(
+                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
+                               ) <= self.max_prompt_length,
+                num_proc=self.num_workers,
+                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens")
 
             print(f'filter dataset len: {len(self.dataframe)}')
 
     def resume_dataset_state(self):
-        self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
+        self.serialize_dataset = False if hasattr(self, 'original_data_files') else True
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
             self._download(use_origin_parquet=True)  # download and resume from original parquet files
@@ -157,7 +155,7 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        row_dict: dict = self.dataframe.iloc[item].to_dict()
+        row_dict: dict = self.dataframe[item]
 
         chat = row_dict.pop(self.prompt_key)
 
@@ -214,7 +212,7 @@ class RLHFDataset(Dataset):
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat.tolist()
+            row_dict['raw_prompt'] = chat
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)

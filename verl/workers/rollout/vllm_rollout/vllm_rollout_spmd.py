@@ -24,6 +24,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
+import os
 import numpy as np
 from typing import List
 from contextlib import contextmanager
@@ -34,7 +35,7 @@ from tensordict import TensorDict
 from torch import nn
 from typing import Any, Union
 from verl import DataProto
-from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
+from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
 from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
@@ -86,16 +87,29 @@ class vLLMRollout(BaseRollout):
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
-            import os
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
-            train_tp = kwargs.get('train_tp', None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                              num_tp_per_train_tp=num_tp_per_train_tp)
+            if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
+                train_tp = kwargs.get('train_tp', None)
+                num_tp_per_train_tp = train_tp // tensor_parallel_size
+                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
+                                                  num_tp_per_train_tp=num_tp_per_train_tp)
+            else:
+                vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
+
+        max_model_len = self.config.max_model_len if self.config.max_model_len \
+                        else config.prompt_length + config.response_length
+        max_model_len = int(max_model_len)
+
+        if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
+            raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
+                             please increase max_num_batched_tokens or disable chunked prefill')
+
+        trust_remote_code = kwargs.get('trust_remote_code', False)
+        load_format = 'dummy' if config.load_format.startswith('dummy') else config.load_format
 
         self.inference_engine = LLM(
             model=model_path,
@@ -106,12 +120,16 @@ class vLLMRollout(BaseRollout):
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
+            disable_mm_preprocessor_cache=True,
             skip_tokenizer_init=False,
-            max_model_len=config.prompt_length + config.response_length,
+            max_model_len=max_model_len,
+            load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
+            trust_remote_code=trust_remote_code,
+            seed=int(os.getenv("RANK", "0")) // tensor_parallel_size,
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -187,7 +205,17 @@ class vLLMRollout(BaseRollout):
                 'prompt_token_ids': raw_prompt_ids
             } for raw_prompt_ids in non_tensor_batch.pop('raw_prompt_ids')]
 
+        # ensure the type of `prompt_token_ids` passed to vllm is list[int]
+        # https://github.com/volcengine/verl/pull/772
+        for input_data in vllm_inputs:
+            if isinstance(input_data['prompt_token_ids'], np.ndarray):
+                input_data['prompt_token_ids'] = input_data['prompt_token_ids'].tolist()
+            elif not isinstance(input_data['prompt_token_ids'], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
+
         do_sample = prompts.meta_info.get('do_sample', True)
+        is_validate = prompts.meta_info.get('validate', False)
         if not do_sample:
             kwargs = {
                 'best_of': 1,
@@ -197,6 +225,14 @@ class vLLMRollout(BaseRollout):
                 'temperature': 0,
                 'n': 1  # if greedy, only 1 response
             }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                'top_k': self.config.val_kwargs.top_k,
+                'top_p': self.config.val_kwargs.top_p,
+                'temperature': self.config.val_kwargs.temperature,
+                'n': 1,  # if validate, already repeat in ray_trainer
+            }
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -205,27 +241,27 @@ class vLLMRollout(BaseRollout):
                 sampling_params=self.sampling_params,
                 use_tqdm=False)
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+            # TODO(sgm): disable logprob when recompute_log_prob is enable
+            # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
-        response = []
-        for output in outputs:
-            for sample_id in range(len(output.outputs)):
-                response.append(output.outputs[sample_id].token_ids)
+            response = []
+            for output in outputs:
+                for sample_id in range(len(output.outputs)):
+                    response.append(output.outputs[sample_id].token_ids)
 
-        response = pad_2d_list_to_length(response, self.pad_token_id,
-                                         max_length=self.config.response_length).to(idx.device)
+            response = pad_2d_list_to_length(response, self.pad_token_id,
+                                             max_length=self.config.response_length).to(idx.device)
 
-        if self.config.n > 1 and do_sample:
-            idx = _repeat_interleave(idx, self.config.n)
-            attention_mask = _repeat_interleave(attention_mask, self.config.n)
-            position_ids = _repeat_interleave(position_ids, self.config.n)
-            batch_size = batch_size * self.config.n
-            if 'multi_modal_inputs' in non_tensor_batch.keys():
-                non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
-                                                                            self.config.n)
+            if self.sampling_params.n > 1 and do_sample:
+                idx = _repeat_interleave(idx, self.sampling_params.n)
+                attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
+                position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
+                batch_size = batch_size * self.sampling_params.n
+                if 'multi_modal_inputs' in non_tensor_batch.keys():
+                    non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
+                                                                                self.sampling_params.n)
 
-        seq = torch.cat([idx, response], dim=-1)
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
@@ -239,7 +275,9 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(response_id=response,
+                                                    eos_token=eos_token_id,
+                                                    dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid

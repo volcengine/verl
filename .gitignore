@@ -33,6 +33,7 @@ lib64/
 parts/
 sdist/
 var/
+tmp/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -93,6 +94,7 @@ celerybeat-schedule
 
 # virtualenv
 venv/
+.venv/
 ENV/
 
 # Spyder project settings
@@ -123,3 +125,4 @@ tests/e2e/toy_examples/deepspeed/synchronous/output.txt
 # local logs
 logs
 log
+outputs

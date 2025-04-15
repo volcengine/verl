@@ -29,8 +29,8 @@ from omegaconf import OmegaConf, open_dict
 from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _compute_response_info, \
-    _timer
+from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _timer
+from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from . import prime_core_algos
@@ -177,13 +177,9 @@ class RayPRIMETrainer(RayPPOTrainer):
     def _create_dataloader(self):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
+        self.train_dataset = RLHFDataset(data_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
-                                         prompt_key=self.config.data.prompt_key,
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         filter_prompts=True,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation='error')
+                                         config=self.config.data)
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -199,13 +195,9 @@ class RayPRIMETrainer(RayPPOTrainer):
                                            collate_fn=collate_fn,
                                            sampler=sampler)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+        self.val_dataset = RLHFDataset(data_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
-                                       prompt_key=self.config.data.prompt_key,
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       filter_prompts=True,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation='error')
+                                       config=self.config.data)
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
@@ -236,6 +228,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
                                                 f'global_step_{self.global_steps}')
+        print(f'local_global_step_folder: {local_global_step_folder}')
         actor_local_path = os.path.join(local_global_step_folder, 'actor')
 
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
@@ -285,10 +278,10 @@ class RayPRIMETrainer(RayPPOTrainer):
                 print('Training from scratch')
                 return 0
         else:
-            if not (self.config.trainer.resume_from_path and global_step_folder is not None):
-                assert isinstance(self.config.trainer.resume_mode, str), "resume ckpt must be str type"
-                assert 'global_step_' in self.config.trainer.resume_mode, "resume ckpt must specify the global_steps"
-                global_step_folder = self.config.trainer.resume_mode
+            if self.config.trainer.resume_mode == "resume_path":
+                assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
+                assert 'global_step_' in self.config.trainer.resume_from_path, "resume ckpt must specify the global_steps"
+                global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
                     global_step_folder = os.path.join(working_dir, global_step_folder)

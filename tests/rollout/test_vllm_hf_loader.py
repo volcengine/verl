@@ -116,7 +116,7 @@ def test_vllm_with_hf():
         kwargs['detokenize'] = False
     sampling_params = SamplingParams(**kwargs)
 
-    tensor_parallel_size = 2
+    tensor_parallel_size = 4
 
     llm = LLM(model=actor_model,
               tokenizer=tokenizer,

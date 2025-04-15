@@ -16,6 +16,7 @@ import os
 import logging
 import torch
 import numpy as np
+from packaging import version
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
@@ -27,8 +28,10 @@ from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_t
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
+from vllm.version import __version__ as VLLM_VERSION
 
 from .base import BaseShardingManager
+from .patch import patched_ds_v3_load_weights
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -58,6 +61,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                                      state_dict_type=StateDictType.SHARDED_STATE_DICT,
                                      state_dict_config=ShardedStateDictConfig())
 
+        self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
+        self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
+
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
         # get a random rng states
@@ -70,6 +76,15 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.gen_random_states = None
 
     def __enter__(self):
+        # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
+        # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
+        # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory
+        # to speed up memory allocations.
+        #
+        # pytorch: https://pytorch.org/docs/stable/notes/cuda.html#memory-management
+        # vllm: https://github.com/vllm-project/vllm/blob/v0.7.3/vllm/device_allocator/cumem.py#L103
+        torch.cuda.empty_cache()
+
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
         params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
@@ -78,19 +93,27 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
+            log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+            del params
         else:
-            self.inference_engine.wake_up()
-            # TODO(ZSL): deal with 'hf' format
-            if load_format == 'dtensor':
-                from verl.third_party.vllm import load_dtensor_weights
-                load_dtensor_weights(
-                    params, self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model)
-            else:
-                raise NotImplementedError(f'load_format {load_format} not implemented')
-        log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+            if version.parse(VLLM_VERSION) >= version.parse("0.8.3"):
+                # wake up only weights
+                self.inference_engine.wake_up(tags=["weights"])
+                # update model params
+                self.update_params(params)
 
-        del params
-        torch.cuda.empty_cache()
+                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+                del params
+                torch.cuda.empty_cache()
+
+                # wake up kv
+                self.inference_engine.wake_up(tags=["kv_cache"])
+            else:
+                self.inference_engine.wake_up()
+                self.update_params(params)
+                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+                del params
+
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
@@ -128,8 +151,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def preprocess_data(self, data: DataProto) -> DataProto:
+        """All gather across tp group to make each rank has identical input."""
+        if self.tp_size == 1:
+            return data
+
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
             group = vllm_ps.get_tensor_model_parallel_group()
         else:
@@ -139,20 +165,20 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        local_world_size = vllm_ps.get_tensor_model_parallel_world_size()
-        src_rank = (torch.distributed.get_rank() // local_world_size) * local_world_size
-        if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
-            broadcast_dict_tensor(data.batch, src=src_rank, group=vllm_ps.get_tensor_model_parallel_group())
+        """Get chunk data of this tp rank since we do all gather in preprocess."""
+        if self.tp_size == 1:
+            return data
+
+        return data.chunk(chunks=self.tp_size)[self.tp_rank]
+
+    def update_params(self, updated_params):
+        model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        world_size = torch.distributed.get_world_size()
+        if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
+            loaded_params = patched_ds_v3_load_weights(
+                model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
+                        for name, param in updated_params.items()))
         else:
-            broadcast_dict_tensor(data.batch,
-                                  src=src_rank,
-                                  group=vllm_ps.get_tensor_model_parallel_group().device_group)
-        dp_rank = torch.distributed.get_rank()
-        dp_size = torch.distributed.get_world_size()  # not consider torch micro-dp
-        tp_size = vllm_ps.get_tensor_model_parallel_world_size()
-        if tp_size > 1:
-            # TODO: shall we build a micro_dp group for vllm when integrating with vLLM?
-            local_prompts = data.chunk(chunks=tp_size)
-            data = local_prompts[dp_rank % tp_size]
-        return data
+            loaded_params = model.load_weights(
+                ((name, param.full_tensor() if world_size != 1 else param) for name, param in updated_params.items()))
+        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")

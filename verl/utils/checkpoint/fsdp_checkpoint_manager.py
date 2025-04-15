@@ -49,23 +49,30 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                  optimizer: torch.optim.Optimizer,
                  lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
                  processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
+                 checkpoint_contents: list = ['model', 'optimizer', 'extra'],
                  **kwargs):
 
         if processing_class is None:
             assert "tokenizer" in kwargs, "tokenizer or processor must be provided"
             warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
             processing_class = kwargs.pop("tokenizer")
+        assert "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents, f"FSDPCheckpointManager must include ['model', 'optimizer', 'extra'], got {checkpoint_contents}"
 
-        super().__init__(model, optimizer, lr_scheduler, processing_class)
+        super().__init__(model,
+                         optimizer,
+                         lr_scheduler=lr_scheduler,
+                         processing_class=processing_class,
+                         checkpoint_contents=checkpoint_contents)
 
-    def load_checkpoint(self, path=None, del_local_after_load=False, *args, **kwargs):
-        if path is None:
+    def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
+        if local_path is None:
             return
 
         # every rank download its own checkpoint
-        remote_model_path = os.path.join(path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_model_path = os.path.join(local_path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_optim_path = os.path.join(local_path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
+        remote_extra_state_path = os.path.join(local_path,
+                                               f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
         print(
             f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
         )
@@ -73,9 +80,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         local_optim_path = copy_to_local(remote_optim_path)
         local_extra_state_path = copy_to_local(remote_extra_state_path)
 
-        model_state_dict = torch.load(local_model_path)
-        optimizer_state_dict = torch.load(local_optim_path)
-        extra_state_dict = torch.load(local_extra_state_path)
+        model_state_dict = torch.load(local_model_path, weights_only=False)
+        optimizer_state_dict = torch.load(local_optim_path, weights_only=False)
+        extra_state_dict = torch.load(local_extra_state_path, weights_only=False)
 
         if del_local_after_load:
             try:
@@ -103,14 +110,20 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, global_step: int, remove_previous_ckpt=False, *args, **kwargs):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+        if local_path is None:
+            return
+
         # record the previous global step
         self.previous_global_step = global_step
 
         # remove previous local_path
-        # TODO: shall we remove previous ckpt every save?
-        if remove_previous_ckpt:
-            self.remove_previous_save_local_path()
+        if max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(
+                self.previous_saved_paths) >= max_ckpt_to_keep:
+            keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
+            self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
+            self.previous_saved_paths = self.previous_saved_paths[keep_start:]
+
         local_path = self.local_mkdir(local_path)
         torch.distributed.barrier()
 
@@ -145,15 +158,16 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
 
-        # wait for everyone to dump to local
+        if "hf_model" in self.checkpoint_contents:
+            # wait for everyone to dump to local
+            torch.distributed.barrier()
+
+            if self.rank == 0:
+                hf_local_path = os.path.join(local_path, 'huggingface')
+                os.makedirs(hf_local_path, exist_ok=True)
+                self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
+                self.processing_class.save_pretrained(hf_local_path)
+
         torch.distributed.barrier()
 
-        if self.rank == 0:
-            hf_local_path = os.path.join(local_path, 'huggingface')
-            os.makedirs(hf_local_path, exist_ok=True)
-            self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-            self.processing_class.save_pretrained(hf_local_path)
-
-        torch.distributed.barrier()
-
-        self.previous_save_local_path = local_path
+        self.previous_saved_paths.append(local_path)

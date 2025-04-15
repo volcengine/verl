@@ -13,7 +13,7 @@ verl is flexible and easy to use with:
 
 - **Flexible device mapping and parallelism**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
 
-- Readily integration with popular HuggingFace models
+- Ready integration with popular HuggingFace models
 
 
 verl is fast with:
@@ -32,6 +32,7 @@ verl is fast with:
 
    start/install
    start/quickstart
+   start/multinode
 
 .. toctree::
    :maxdepth: 4
@@ -66,13 +67,15 @@ verl is fast with:
    workers/ray_trainer
    workers/fsdp_workers
    workers/megatron_workers
+   workers/sglang_worker
 
 .. toctree::
    :maxdepth: 1
    :caption: Performance Tuning Guide
    
    perf/perf_tuning
-   README_vllm0.7.md
+   README_vllm0.8.md
+   perf/device_tuning
 
 .. toctree::
    :maxdepth: 1
@@ -88,6 +91,7 @@ verl is fast with:
    advance/dpo_extension
    advance/fsdp_extension
    advance/megatron_extension
+   advance/checkpoint
 
 .. toctree::
    :maxdepth: 1
@@ -117,3 +121,12 @@ We use yapf (Google style) to enforce strict code formatting when reviewing MRs.
 
    pip3 install yapf
    yapf -ir -vv --style ./.style.yapf verl examples tests
+
+Adding CI tests
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+If possible, please add CI test(s) for your new feature:
+
+1. Find the most relevant workflow yml file, which usually corresponds to a ``hydra`` default config (e.g. ``ppo_trainer``, ``ppo_megatron_trainer``, ``sft_trainer``, etc).
+2. Add related path patterns to the ``paths`` section if not already included.
+3. Minimize the workload of the test script(s) (see existing scripts for examples).
