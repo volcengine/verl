@@ -19,6 +19,7 @@ import logging
 
 def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
     if (not dist.is_initialized()) or (rank is None) or (dist.get_rank() == rank):
+        # take care of vllm sleep mem, see https://github.com/volcengine/verl/pull/1101
         free_mem, total_mem = torch.cuda.mem_get_info()
         vllm_sleep_mem = torch.cuda.memory_reserved() - (total_mem - free_mem)
         memory_allocated = (torch.cuda.memory_allocated() - vllm_sleep_mem) / 1024**3
