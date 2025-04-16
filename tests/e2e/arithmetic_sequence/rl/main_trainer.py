@@ -87,15 +87,15 @@ def make_reward_function(tokenizer, num_examine):
 
 @hydra.main(config_path='../../../../verl/trainer/config', config_name='ppo_trainer', version_base=None)
 def main(config):
-    ray.init(
-        runtime_env={
-            'env_vars': {
-                'MEGATRON_USE_CUDA_TIMER': '0',
-                'MEGATRON_START_PROCESS_TIMER': 'False',
-                'TOKENIZERS_PARALLELISM': 'true',
-                'NCCL_DEBUG': 'WARN'
-            }
-        })
+    ray.init(runtime_env={
+        'env_vars': {
+            'MEGATRON_USE_CUDA_TIMER': '0',
+            'MEGATRON_START_PROCESS_TIMER': 'False',
+            'TOKENIZERS_PARALLELISM': 'true',
+            'NCCL_DEBUG': 'WARN'
+        }
+    },
+             num_cpus=config.ray_init.num_cpus)
 
     # print initial config
     from pprint import pprint

@@ -67,7 +67,7 @@ def run_ppo(config) -> None:
                 'VLLM_LOGGING_LEVEL': 'WARN'
             }
         },
-                 num_cpus=1)
+                 num_cpus=config.ray_init.num_cpus)
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
