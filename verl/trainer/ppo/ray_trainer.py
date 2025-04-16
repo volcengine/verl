@@ -900,8 +900,7 @@ class RayPPOTrainer(object):
                                                     loss_mask=response_mask,
                                                     loss_agg_mode=loss_agg_mode)
                             append_to_dict(entropy_loss_dict, {
-                                'actor/entropy_loss',
-                                entropy_loss.detach().item(),
+                                'actor/entropy_loss': entropy_loss.detach().item(),
                             })
                         old_log_prob_metrics = reduce_metrics(entropy_loss_dict)
                         metrics.update(old_log_prob_metrics)
