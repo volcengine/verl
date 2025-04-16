@@ -246,6 +246,7 @@ Megatron Hybrid Engine:
 from .base import BaseShardingManager
 
 import torch
+import inspect
 from torch import nn
 import torch.distributed
 from torch.distributed import new_group
@@ -505,7 +506,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
             log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
-            self.inference_engine.wake_up(tags=["kv_cache"])     
+            self.inference_engine.wake_up(tags=["kv_cache"])
+            del per_tensor_param
+            torch.cuda.empty_cache()
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
