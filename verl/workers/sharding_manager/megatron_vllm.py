@@ -321,8 +321,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         def _in_built_generator():
             for scan_vpp_idx in range(vpp_size):
                 for name, param in self.actor_module[scan_vpp_idx].named_parameters():
-                    yield name, param
-            return None, None
+                    try:
+                        yield name, param
+                    except StopIteration:
+                        yield None, None
 
         meta_info = []
         for scan_vpp_idx in range(vpp_size):
