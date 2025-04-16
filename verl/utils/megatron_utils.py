@@ -433,9 +433,7 @@ def convert_megatron_model_to_transformers_model(name,
 
 
 def broadcast_from_megatron_pp(tensor: torch.Tensor):
-    from megatron.core import parallel_state as mpu
     # tensor is not None only in one of the pp ranks
-
     if tensor is not None:
         shape = tensor.shape
         dtype = tensor.dtype
@@ -476,11 +474,8 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
 
 
 def broadcast_str_from_megatron_pp(obj: Any):
-    from megatron.core import parallel_state as mpu
-    import torch.distributed as dist
-
     obj_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-    dist.all_gather_object(object_list=obj_output, obj=obj, group=mpu.get_pipeline_model_parallel_group())
+    torch.distributed.all_gather_object(object_list=obj_output, obj=obj, group=mpu.get_pipeline_model_parallel_group())
 
     src_rank = None
     target_obj = None
@@ -493,10 +488,12 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     assert target_obj is not None, "No valid object found to broadcast."
 
-    global_rank = dist.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
+    global_rank = torch.distributed.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
 
-    obj_output = [None] * dist.get_world_size(group=mpu.get_pipeline_model_parallel_group())
+    obj_output = [None] * torch.distributed.get_world_size(group=mpu.get_pipeline_model_parallel_group())
     obj_output[0] = target_obj
-    dist.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
+    torch.distributed.broadcast_object_list(object_list=obj_output,
+                                            src=global_rank,
+                                            group=mpu.get_pipeline_model_parallel_group())
 
     return obj_output[0]
