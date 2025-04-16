@@ -205,7 +205,7 @@ class MegatronPPOActor(BasePPOActor):
                                             src=mpu.get_pipeline_model_parallel_last_rank(),
                                             group=mpu.get_pipeline_model_parallel_group(),
                                             async_op=False)
-                if self.role == "actor":
+                if calculate_entropy:
                     for o in output:
                         if o.get('actor/entropy_loss') is not None:
                             append_to_dict(metrics, {'actor/entropy_loss': o['actor/entropy_loss']})
