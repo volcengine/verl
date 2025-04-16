@@ -1,0 +1,370 @@
+Logs are printed to python-core-driver-01000000ffffffffffffffffffffffffffffffffffffffffffffffff_1083535.log
+(TaskRunner pid=1093272) {'actor_rollout_ref': {'actor': {'checkpoint': {'contents': ['model',
+(TaskRunner pid=1093272)                                                              'optimizer',
+(TaskRunner pid=1093272)                                                              'extra']},
+(TaskRunner pid=1093272)                                  'clip_ratio': 0.2,
+(TaskRunner pid=1093272)                                  'clip_ratio_c': 3.0,
+(TaskRunner pid=1093272)                                  'clip_ratio_high': 0.2,
+(TaskRunner pid=1093272)                                  'clip_ratio_low': 0.2,
+(TaskRunner pid=1093272)                                  'entropy_coeff': 0,
+(TaskRunner pid=1093272)                                  'fsdp_config': {'fsdp_size': -1,
+(TaskRunner pid=1093272)                                                  'optimizer_offload': False,
+(TaskRunner pid=1093272)                                                  'param_offload': False,
+(TaskRunner pid=1093272)                                                  'wrap_policy': {'min_num_params': 0}},
+(TaskRunner pid=1093272)                                  'grad_clip': 1.0,
+(TaskRunner pid=1093272)                                  'kl_loss_coef': 0.001,
+(TaskRunner pid=1093272)                                  'kl_loss_type': 'low_var_kl',
+(TaskRunner pid=1093272)                                  'loss_agg_mode': 'token-mean',
+(TaskRunner pid=1093272)                                  'optim': {'lr': 1e-06,
+(TaskRunner pid=1093272)                                            'lr_warmup_steps': -1,
+(TaskRunner pid=1093272)                                            'lr_warmup_steps_ratio': 0.0,
+(TaskRunner pid=1093272)                                            'min_lr_ratio': None,
+(TaskRunner pid=1093272)                                            'total_training_steps': -1,
+(TaskRunner pid=1093272)                                            'warmup_style': 'constant',
+(TaskRunner pid=1093272)                                            'weight_decay': 0.01},
+(TaskRunner pid=1093272)                                  'ppo_epochs': 1,
+(TaskRunner pid=1093272)                                  'ppo_max_token_len_per_gpu': 16384,
+(TaskRunner pid=1093272)                                  'ppo_micro_batch_size': None,
+(TaskRunner pid=1093272)                                  'ppo_micro_batch_size_per_gpu': 2,
+(TaskRunner pid=1093272)                                  'ppo_mini_batch_size': 128,
+(TaskRunner pid=1093272)                                  'shuffle': False,
+(TaskRunner pid=1093272)                                  'strategy': 'fsdp',
+(TaskRunner pid=1093272)                                  'ulysses_sequence_parallel_size': 1,
+(TaskRunner pid=1093272)                                  'use_dynamic_bsz': False,
+(TaskRunner pid=1093272)                                  'use_kl_loss': True,
+(TaskRunner pid=1093272)                                  'use_torch_compile': True},
+(TaskRunner pid=1093272)                        'hybrid_engine': True,
+(TaskRunner pid=1093272)                        'model': {'enable_gradient_checkpointing': True,
+(TaskRunner pid=1093272)                                  'external_lib': None,
+(TaskRunner pid=1093272)                                  'override_config': {},
+(TaskRunner pid=1093272)                                  'path': '/home/tiger/models/Qwen/Qwen2.5-0.5B',
+(TaskRunner pid=1093272)                                  'use_liger': False,
+(TaskRunner pid=1093272)                                  'use_remove_padding': True},
+(TaskRunner pid=1093272)                        'ref': {'fsdp_config': {'param_offload': False,
+(TaskRunner pid=1093272)                                                'wrap_policy': {'min_num_params': 0}},
+(TaskRunner pid=1093272)                                'log_prob_max_token_len_per_gpu': 16384,
+(TaskRunner pid=1093272)                                'log_prob_micro_batch_size': None,
+(TaskRunner pid=1093272)                                'log_prob_micro_batch_size_per_gpu': 2,
+(TaskRunner pid=1093272)                                'log_prob_use_dynamic_bsz': False,
+(TaskRunner pid=1093272)                                'strategy': 'fsdp',
+(TaskRunner pid=1093272)                                'ulysses_sequence_parallel_size': 1},
+(TaskRunner pid=1093272)                        'rollout': {'disable_log_stats': True,
+(TaskRunner pid=1093272)                                    'do_sample': True,
+(TaskRunner pid=1093272)                                    'dtype': 'bfloat16',
+(TaskRunner pid=1093272)                                    'enable_chunked_prefill': True,
+(TaskRunner pid=1093272)                                    'enforce_eager': True,
+(TaskRunner pid=1093272)                                    'engine_kwargs': {'swap_space': None},
+(TaskRunner pid=1093272)                                    'free_cache_engine': True,
+(TaskRunner pid=1093272)                                    'gpu_memory_utilization': 0.8,
+(TaskRunner pid=1093272)                                    'ignore_eos': False,
+(TaskRunner pid=1093272)                                    'load_format': 'dummy_dtensor',
+(TaskRunner pid=1093272)                                    'log_prob_max_token_len_per_gpu': 16384,
+(TaskRunner pid=1093272)                                    'log_prob_micro_batch_size': None,
+(TaskRunner pid=1093272)                                    'log_prob_micro_batch_size_per_gpu': 2,
+(TaskRunner pid=1093272)                                    'log_prob_use_dynamic_bsz': False,
+(TaskRunner pid=1093272)                                    'max_model_len': None,
+(TaskRunner pid=1093272)                                    'max_num_batched_tokens': 8192,
+(TaskRunner pid=1093272)                                    'max_num_seqs': 1024,
+(TaskRunner pid=1093272)                                    'n': 1,
+(TaskRunner pid=1093272)                                    'name': 'vllm',
+(TaskRunner pid=1093272)                                    'prompt_length': 512,
+(TaskRunner pid=1093272)                                    'response_length': 512,
+(TaskRunner pid=1093272)                                    'temperature': 1.0,
+(TaskRunner pid=1093272)                                    'tensor_model_parallel_size': 2,
+(TaskRunner pid=1093272)                                    'top_k': -1,
+(TaskRunner pid=1093272)                                    'top_p': 1,
+(TaskRunner pid=1093272)                                    'use_fire_sampling': False,
+(TaskRunner pid=1093272)                                    'val_kwargs': {'do_sample': False,
+(TaskRunner pid=1093272)                                                   'n': 1,
+(TaskRunner pid=1093272)                                                   'temperature': 0,
+(TaskRunner pid=1093272)                                                   'top_k': -1,
+(TaskRunner pid=1093272)                                                   'top_p': 1.0}}},
+(TaskRunner pid=1093272)  'algorithm': {'adv_estimator': 'gae',
+(TaskRunner pid=1093272)                'gamma': 1.0,
+(TaskRunner pid=1093272)                'kl_ctrl': {'horizon': 10000,
+(TaskRunner pid=1093272)                            'kl_coef': 0.001,
+(TaskRunner pid=1093272)                            'target_kl': 0.1,
+(TaskRunner pid=1093272)                            'type': 'fixed'},
+(TaskRunner pid=1093272)                'kl_penalty': 'kl',
+(TaskRunner pid=1093272)                'lam': 1.0,
+(TaskRunner pid=1093272)                'use_kl_in_reward': True},
+(TaskRunner pid=1093272)  'critic': {'checkpoint': {'contents': ['model', 'optimizer', 'extra']},
+(TaskRunner pid=1093272)             'cliprange_value': 0.5,
+(TaskRunner pid=1093272)             'forward_max_token_len_per_gpu': 32768,
+(TaskRunner pid=1093272)             'forward_micro_batch_size': None,
+(TaskRunner pid=1093272)             'forward_micro_batch_size_per_gpu': 2,
+(TaskRunner pid=1093272)             'grad_clip': 1.0,
+(TaskRunner pid=1093272)             'model': {'enable_gradient_checkpointing': False,
+(TaskRunner pid=1093272)                       'external_lib': None,
+(TaskRunner pid=1093272)                       'fsdp_config': {'fsdp_size': -1,
+(TaskRunner pid=1093272)                                       'optimizer_offload': False,
+(TaskRunner pid=1093272)                                       'param_offload': False,
+(TaskRunner pid=1093272)                                       'wrap_policy': {'min_num_params': 0}},
+(TaskRunner pid=1093272)                       'override_config': {},
+(TaskRunner pid=1093272)                       'path': '/home/tiger/models/Qwen/Qwen2.5-0.5B',
+(TaskRunner pid=1093272)                       'tokenizer_path': '/home/tiger/models/Qwen/Qwen2.5-0.5B',
+(TaskRunner pid=1093272)                       'use_remove_padding': True},
+(TaskRunner pid=1093272)             'optim': {'lr': 1e-05,
+(TaskRunner pid=1093272)                       'lr_warmup_steps_ratio': 0.0,
+(TaskRunner pid=1093272)                       'min_lr_ratio': None,
+(TaskRunner pid=1093272)                       'total_training_steps': -1,
+(TaskRunner pid=1093272)                       'warmup_style': 'constant',
+(TaskRunner pid=1093272)                       'weight_decay': 0.01},
+(TaskRunner pid=1093272)             'ppo_epochs': 1,
+(TaskRunner pid=1093272)             'ppo_max_token_len_per_gpu': 32768,
+(TaskRunner pid=1093272)             'ppo_micro_batch_size': None,
+(TaskRunner pid=1093272)             'ppo_micro_batch_size_per_gpu': 2,
+(TaskRunner pid=1093272)             'ppo_mini_batch_size': 128,
+(TaskRunner pid=1093272)             'rollout_n': 1,
+(TaskRunner pid=1093272)             'shuffle': False,
+(TaskRunner pid=1093272)             'strategy': 'fsdp',
+(TaskRunner pid=1093272)             'ulysses_sequence_parallel_size': 1,
+(TaskRunner pid=1093272)             'use_dynamic_bsz': False},
+(TaskRunner pid=1093272)  'custom_reward_function': {'name': None, 'path': None},
+(TaskRunner pid=1093272)  'data': {'custom_cls': {'name': None, 'path': None},
+(TaskRunner pid=1093272)           'filter_overlong_prompts': False,
+(TaskRunner pid=1093272)           'filter_overlong_prompts_workers': 1,
+(TaskRunner pid=1093272)           'image_key': 'images',
+(TaskRunner pid=1093272)           'max_prompt_length': 512,
+(TaskRunner pid=1093272)           'max_response_length': 512,
+(TaskRunner pid=1093272)           'prompt_key': 'prompt',
+(TaskRunner pid=1093272)           'return_raw_chat': False,
+(TaskRunner pid=1093272)           'return_raw_input_ids': False,
+(TaskRunner pid=1093272)           'reward_fn_key': 'data_source',
+(TaskRunner pid=1093272)           'shuffle': True,
+(TaskRunner pid=1093272)           'tokenizer': None,
+(TaskRunner pid=1093272)           'train_batch_size': 256,
+(TaskRunner pid=1093272)           'train_files': '/home/tiger/data/gsm8k/train.parquet',
+(TaskRunner pid=1093272)           'truncation': 'error',
+(TaskRunner pid=1093272)           'val_batch_size': None,
+(TaskRunner pid=1093272)           'val_files': '/home/tiger/data/gsm8k/test.parquet',
+(TaskRunner pid=1093272)           'video_key': 'videos'},
+(TaskRunner pid=1093272)  'reward_model': {'enable': False,
+(TaskRunner pid=1093272)                   'forward_max_token_len_per_gpu': 32768,
+(TaskRunner pid=1093272)                   'max_length': None,
+(TaskRunner pid=1093272)                   'micro_batch_size': None,
+(TaskRunner pid=1093272)                   'micro_batch_size_per_gpu': None,
+(TaskRunner pid=1093272)                   'model': {'external_lib': None,
+(TaskRunner pid=1093272)                             'fsdp_config': {'fsdp_size': -1,
+(TaskRunner pid=1093272)                                             'param_offload': False,
+(TaskRunner pid=1093272)                                             'wrap_policy': {'min_num_params': 0}},
+(TaskRunner pid=1093272)                             'input_tokenizer': '/home/tiger/models/Qwen/Qwen2.5-0.5B',
+(TaskRunner pid=1093272)                             'path': '~/models/FsfairX-LLaMA3-RM-v0.1',
+(TaskRunner pid=1093272)                             'use_remove_padding': False},
+(TaskRunner pid=1093272)                   'reward_manager': 'naive',
+(TaskRunner pid=1093272)                   'strategy': 'fsdp',
+(TaskRunner pid=1093272)                   'ulysses_sequence_parallel_size': 1,
+(TaskRunner pid=1093272)                   'use_dynamic_bsz': False},
+(TaskRunner pid=1093272)  'trainer': {'balance_batch': True,
+(TaskRunner pid=1093272)              'critic_warmup': 0,
+(TaskRunner pid=1093272)              'default_hdfs_dir': None,
+(TaskRunner pid=1093272)              'default_local_dir': 'checkpoints/verl-test/qwen2.5-0.5b-function-reward-minimal',
+(TaskRunner pid=1093272)              'del_local_ckpt_after_load': False,
+(TaskRunner pid=1093272)              'experiment_name': 'qwen2.5-0.5b-function-reward-minimal',
+(TaskRunner pid=1093272)              'log_val_generations': 0,
+(TaskRunner pid=1093272)              'logger': ['console'],
+(TaskRunner pid=1093272)              'max_actor_ckpt_to_keep': None,
+(TaskRunner pid=1093272)              'max_critic_ckpt_to_keep': None,
+(TaskRunner pid=1093272)              'n_gpus_per_node': 8,
+(TaskRunner pid=1093272)              'nnodes': 1,
+(TaskRunner pid=1093272)              'project_name': 'verl-test',
+(TaskRunner pid=1093272)              'ray_wait_register_center_timeout': 300,
+(TaskRunner pid=1093272)              'resume_from_path': None,
+(TaskRunner pid=1093272)              'resume_mode': 'disable',
+(TaskRunner pid=1093272)              'save_freq': -1,
+(TaskRunner pid=1093272)              'test_freq': -1,
+(TaskRunner pid=1093272)              'total_epochs': 2,
+(TaskRunner pid=1093272)              'total_training_steps': 1,
+(TaskRunner pid=1093272)              'val_before_train': False}}
+(TaskRunner pid=1093272) NOTICE: You have both enabled in-reward kl and kl loss.
+(TaskRunner pid=1093272) [validate_config] All configuration checks passed successfully!
+(TaskRunner pid=1093272) dataset len: 7473
+(TaskRunner pid=1093272) dataset len: 1319
+(TaskRunner pid=1093272) Size of train dataloader: 29
+(TaskRunner pid=1093272) Total training steps: 1
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Critic overriding config {'bos_token_id': None, 'eos_token_id': 151643, 'pad_token_id': 151643}
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Qwen2ForTokenClassification contains 494.03M parameters
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Before critic FSDP, memory allocated (GB): 0.0, memory reserved (GB): 0.0
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) NCCL version 2.21.5+cuda12.4
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) After critic FSDP, memory allocated (GB): 0.23005437850952148, memory reserved (GB): 1.931640625
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Critic use_remove_padding=True
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Model config after override: Qwen2Config {
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "architectures": [
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)     "Qwen2ForCausalLM"
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   ],
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "attention_dropout": 0.0,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "eos_token_id": 151643,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "hidden_act": "silu",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "hidden_size": 896,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "initializer_range": 0.02,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "intermediate_size": 4864,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "max_position_embeddings": 32768,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "max_window_layers": 24,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "model_type": "qwen2",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_attention_heads": 14,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_hidden_layers": 24,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_key_value_heads": 2,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "pad_token_id": 151643,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rms_norm_eps": 1e-06,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rope_scaling": null,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rope_theta": 1000000.0,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "sliding_window": 32768,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "tie_word_embeddings": true,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "torch_dtype": "bfloat16",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "transformers_version": "4.50.1",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_cache": true,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_mrope": false,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_sliding_window": false,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "vocab_size": 151936
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) }
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) 
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Qwen2ForCausalLM contains 494.03M parameters
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) wrap_policy: functools.partial(<function _or_policy at 0x7f07d06fe440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f07d06fe320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) wrap_policy: functools.partial(<function _or_policy at 0x7ed13c8d2440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7ed13c8d2320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) wrap_policy: functools.partial(<function _or_policy at 0x7f2f906ba440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f2f906ba320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) wrap_policy: functools.partial(<function _or_policy at 0x7ed8dcce6440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7ed8dcce6320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) wrap_policy: functools.partial(<function _or_policy at 0x7f2477e82440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f2477e82320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) wrap_policy: functools.partial(<function _or_policy at 0x7edb1815a440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7edb1815a320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) wrap_policy: functools.partial(<function _or_policy at 0x7f9f64eee440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f9f64eee320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) wrap_policy: functools.partial(<function _or_policy at 0x7fc50b89a440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7fc50b89a320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Model config after override: Qwen2Config {
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "architectures": [
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)     "Qwen2ForCausalLM"
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   ],
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "attention_dropout": 0.0,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "eos_token_id": 151643,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "hidden_act": "silu",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "hidden_size": 896,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "initializer_range": 0.02,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "intermediate_size": 4864,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "max_position_embeddings": 32768,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "max_window_layers": 24,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "model_type": "qwen2",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_attention_heads": 14,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_hidden_layers": 24,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "num_key_value_heads": 2,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "pad_token_id": 151643,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rms_norm_eps": 1e-06,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rope_scaling": null,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "rope_theta": 1000000.0,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "sliding_window": 32768,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "tie_word_embeddings": true,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "torch_dtype": "bfloat16",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "transformers_version": "4.50.1",
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_cache": true,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_mrope": false,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "use_sliding_window": false,
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912)   "vocab_size": 151936
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) }
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) 
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Qwen2ForCausalLM contains 494.03M parameters
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) wrap_policy: functools.partial(<function _or_policy at 0x7f07d06fe440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f07d06fe320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) wrap_policy: functools.partial(<function _or_policy at 0x7ed13c8d2440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7ed13c8d2320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) wrap_policy: functools.partial(<function _or_policy at 0x7f2f906ba440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f2f906ba320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) wrap_policy: functools.partial(<function _or_policy at 0x7ed8dcce6440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7ed8dcce6320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) wrap_policy: functools.partial(<function _or_policy at 0x7f2477e82440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f2477e82320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Monkey patch _flash_attention_forward in transformers.integrations.flash_attention
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) wrap_policy: functools.partial(<function _or_policy at 0x7edb1815a440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7edb1815a320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) wrap_policy: functools.partial(<function _or_policy at 0x7f9f64eee440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7f9f64eee320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) wrap_policy: functools.partial(<function _or_policy at 0x7fc50b89a440>, policies=[functools.partial(<function transformer_auto_wrap_policy at 0x7fc50b89a320>, transformer_layer_cls={<class 'transformers.models.qwen2.modeling_qwen2.Qwen2DecoderLayer'>})])
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) Before building vllm rollout, memory allocated (GB): 0.46010923385620117, memory reserved (GB): 2.439453125
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Total steps: 1, num_warmup_steps: 0
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) Actor use_remove_padding=True
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) WARNING 04-17 01:26:48 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) WARNING 04-17 01:26:48 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) WARNING 04-17 01:26:49 [cuda.py:95] To see benefits of async output processing, enable CUDA graph. Since, enforce-eager is enabled, async output processor cannot be used
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7f2bd9cb79d0>
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7ed525457850>
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7ed764533850>
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7f0419bf45e0>
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7ecda562b970>
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7f20c435b700>
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7f9bc461f7c0>
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) WARNING 04-17 01:26:49 [utils.py:2321] Methods determine_num_available_blocks,device_config,get_cache_block_size_bytes,initialize_cache not implemented in <vllm.v1.worker.gpu_worker.Worker object at 0x7fc1585839d0>
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) NCCL version 2.21.5+cuda12.4
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) NCCL version 2.21.5+cuda12.4
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) NCCL version 2.21.5+cuda12.4
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) WARNING 04-17 01:26:52 [topk_topp_sampler.py:63] FlashInfer is not available. Falling back to the PyTorch-native implementation of top-p & top-k sampling. For the best performance, please install FlashInfer.
+(IUuUCpWorkerDict_0:3 WorkerDict pid=1104806) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:4 WorkerDict pid=1104807) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:6 WorkerDict pid=1104809) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(TaskRunner pid=1093272) Using LocalLogger is deprecated. The constructor API will change 
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) After building vllm rollout, memory allocated (GB): 67.53806018829346, memory reserved (GB): 73.8203125
+(IUuUCpWorkerDict_0:0 WorkerDict pid=1102912) After building sharding manager, memory allocated (GB): 67.53806018829346, memory reserved (GB): 73.8203125
+(IUuUCpWorkerDict_0:1 WorkerDict pid=1104804) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:2 WorkerDict pid=1104805) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:5 WorkerDict pid=1104808) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
+(IUuUCpWorkerDict_0:7 WorkerDict pid=1104810) kwargs: {'n': 1, 'logprobs': 0, 'max_tokens': 512, 'detokenize': False, 'temperature': 1.0, 'top_k': -1, 'top_p': 1, 'ignore_eos': False}
