@@ -443,7 +443,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+        output, _, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={'ref_log_prob': output})
         output = output.to('cpu')
         if self._is_offload_param:
@@ -459,9 +459,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs, metrics = self.actor.compute_log_prob(data=output, calculate_entropy=True)
+        old_log_probs, entropy_lst, response_mask_lst = self.actor.compute_log_prob(data=output, calculate_entropy=True)
         output.batch['old_log_probs'] = old_log_probs
-        output.meta_info['metrics'] = metrics
+        output.non_tensors['entropy_lst'] = entropy_lst
+        output.non_tensors['response_mask_lst'] = response_mask_lst
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()

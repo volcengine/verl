@@ -224,7 +224,8 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batches = batch.split(micro_batch_size)
 
         log_probs_lst = []
-        metrics = {}
+        entropy_lst = []
+        response_mask_lst = []
         for micro_batch in micro_batches:
             if isinstance(micro_batch, DataProto):
                 micro_batch = {**micro_batch.batch, **micro_batch.non_tensor_batch}
@@ -236,10 +237,8 @@ class DataParallelPPOActor(BasePPOActor):
                                                                calculate_entropy=calculate_entropy)
             log_probs_lst.append(log_probs)
             if calculate_entropy:
-                loss_agg_mode = self.config.loss_agg_mode
-                # compute entropy loss from entropy
-                entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                append_to_dict(metrics, {'actor/entropy_loss': entropy_loss.detach().item()})
+                entropy_lst.append(entropy)
+                response_mask_lst.append(response_mask)
 
         log_probs = torch.concat(log_probs_lst, dim=0)
         if use_dynamic_bsz:
@@ -248,7 +247,7 @@ class DataParallelPPOActor(BasePPOActor):
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             log_probs = log_probs[revert_indices]
 
-        return log_probs, metrics
+        return log_probs, entropy_lst, response_mask_lst
 
     def update_policy(self, data: DataProto):
         # make sure we are in training mode

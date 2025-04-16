@@ -177,7 +177,8 @@ class MegatronPPOActor(BasePPOActor):
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be handled by user outside
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
-        metrics = {}
+        entropy_lst = []
+        response_mask_lst = []
         if recompute_old_log_prob:
             select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
@@ -205,14 +206,16 @@ class MegatronPPOActor(BasePPOActor):
                                             group=mpu.get_pipeline_model_parallel_group(),
                                             async_op=False)
                 if calculate_entropy:
+                    # Note that o[0] is metrics, o[1] is entropy
                     for o in output:
-                        if o.get('actor/entropy_loss') is not None:
-                            append_to_dict(metrics, {'actor/entropy_loss': o['actor/entropy_loss']})
+                        assert o[1] is not None
+                        entropy_lst.append(o[1])
+                        response_mask_lst.append(o[1])
 
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
-        return log_probs, metrics
+        return log_probs, entropy_lst, response_mask_lst
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor
@@ -302,6 +305,8 @@ class MegatronPPOActor(BasePPOActor):
             # compute policy loss
             logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
+            ret_entropy = None
+            ret_response_mask = None
             if not forward_only:
                 old_log_prob = data['old_log_probs']
                 advantages = data['advantages']
@@ -323,15 +328,17 @@ class MegatronPPOActor(BasePPOActor):
                 policy_loss = pg_loss
             if calculate_entropy:
                 entropy = vocab_parallel_entropy(logits)
-                entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                 if not forward_only:
+                    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                     entropy_coeff = meta_info['entropy_coeff']
                     policy_loss = pg_loss - entropy_coeff * entropy_loss
+                else:
+                    ret_entropy = entropy
+                    ret_response_mask = response_mask
 
             stats = {}
             if forward_only:
                 policy_loss = 1.0
-                stats.update({'actor/entropy_loss': entropy_loss.detach().item()})
             else:
                 if self.config.use_kl_loss:
                     ref_log_prob = data['ref_log_prob']
@@ -351,7 +358,7 @@ class MegatronPPOActor(BasePPOActor):
                     'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
                 })
             append_to_dict(metrics, stats)
-            return policy_loss, metrics
+            return policy_loss, [metrics, ret_entropy, ret_response_mask]
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -431,7 +438,8 @@ class MegatronPPOActor(BasePPOActor):
                 calculate_entropy = False
             metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy)
             for metric in metric_micro_batch:
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
+                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
+                append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
 
