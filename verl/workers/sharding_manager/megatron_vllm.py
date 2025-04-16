@@ -321,10 +321,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         def _in_built_generator():
             for scan_vpp_idx in range(vpp_size):
                 for name, param in self.actor_module[scan_vpp_idx].named_parameters():
-                    try:
                         yield name, param
-                    except StopIteration:
-                        yield None, None
+            return None, None
+                    
 
         meta_info = []
         for scan_vpp_idx in range(vpp_size):
@@ -341,7 +340,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
             if cur_pp_rank == pp_rank:
-                cur_name, cur_tensor = next(gen_func)
+                try:
+                    cur_name, cur_tensor = next(gen_func)
+                except StopIteration:
+                    cur_name, cur_tensor = None, None
                 cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size,
                                                 self.model_config.num_hidden_layers)
             else:
