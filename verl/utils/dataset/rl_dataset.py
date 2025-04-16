@@ -176,9 +176,9 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.is_multimodal:
+            # This is kinda hard coded for qwen2 vl
             from verl.utils.dataset.vision_utils import process_image, process_video
 
-            # For Qwen2 VL, we should use mrope even for text inputs.
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             multi_modal_data = {}
 
@@ -189,7 +189,7 @@ class RLHFDataset(Dataset):
 
             videos = None
             if self.video_key in row_dict:
-                videos = [process_video(video) for video in row_dict.pop(self.image_key)]
+                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
                 multi_modal_data["video"] = [video.numpy() for video in videos]
 
             model_inputs = self.processor(
