@@ -193,7 +193,10 @@ class MegatronPPOActor(BasePPOActor):
                                                      calculate_entropy=calculate_entropy)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
-                    log_probs = torch.cat([o[0]['log_probs'] for o in output], dim=0)  # (bs, seq_size)
+                    if calculate_entropy:
+                        log_probs = torch.cat([o[0]['log_probs'] for o in output], dim=0)  # (bs, seq_size)
+                    else:
+                        log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
                     log_probs = log_probs.to(torch.float32)
                 else:
                     log_probs = torch.empty(size=(batch_size, response_length),
