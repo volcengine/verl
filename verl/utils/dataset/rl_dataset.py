@@ -189,10 +189,8 @@ class RLHFDataset(Dataset):
             row_dict["multi_modal_data"] = multi_modal_data
             row_dict["multi_modal_inputs"] = dict(model_inputs)
 
-            # second_per_grid_ts isn't used for training, just for rope
-            # calculations
-            if "second_per_grid_ts" in row_dict["multi_modal_inputs"]:
-                row_dict["multi_modal_inputs"].pop("second_per_grid_ts")
+            # second_per_grid_ts isn't used for training, just for mrope
+            row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
