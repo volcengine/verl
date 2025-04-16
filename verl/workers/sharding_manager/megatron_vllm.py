@@ -262,7 +262,6 @@ from verl.third_party.vllm import vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.third_party.vllm import LLM
 from packaging import version
-from vllm.version import __version__ as VLLM_VERSION
 from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
@@ -476,7 +475,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 yield converted_name, infer_param
 
     def __enter__(self):
-        if version.parse(VLLM_VERSION) < version.parse("0.8.3"):
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=logger)
             # create a new cuda space for parameters not in this pp rank
             self.module.load_params_to_cuda()
@@ -491,31 +490,22 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                                         num_hidden_layers=self.model_config.num_hidden_layers,
                                                         layer_name='layers')
             log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                per_tensor_param = self._post_process_params(cur_tp_rank_param,
-                                                             convert_qkv_gate_up_by_simple_split=False)
-                self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
-            else:
-                # include 0.7~
-                per_tensor_param = self._post_process_params(cur_tp_rank_param,
-                                                             convert_qkv_gate_up_by_simple_split=True)
-                self.inference_engine.wake_up()
-                model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-                loaded_params = model.load_weights(per_tensor_param)
-                logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-                log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
-                del per_tensor_param
-                torch.cuda.empty_cache()
-
+            per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=False)
+            self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
         else:
-            # up to 0.8.3
-            self.inference_engine.wake_up(tags=["weights"])
+            # > 0.7.2
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                self.inference_engine.wake_up(tags=["weights"])
+            else:
+                self.inference_engine.wake_up()
             per_tensor_param = self.per_tensor_generator()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
             log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
-            self.inference_engine.wake_up(tags=["kv_cache"])
+
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                self.inference_engine.wake_up(tags=["kv_cache"])
             del per_tensor_param
             torch.cuda.empty_cache()
 
