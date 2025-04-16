@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts_workers: 1
   truncation: error
   image_key: images
+  video_key: videos
   custom_cls:
       path: null
       name: null
