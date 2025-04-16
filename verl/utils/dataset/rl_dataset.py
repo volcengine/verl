@@ -182,13 +182,17 @@ class RLHFDataset(Dataset):
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
 
-            # second_per_grid_ts isn't a tensor like other multi modal inputs
-            # refactor collate first before adding this
             if "second_per_grid_ts" in model_inputs:
                 model_inputs.pop("second_per_grid_ts")
 
+            # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
             row_dict["multi_modal_data"] = multi_modal_data
             row_dict["multi_modal_inputs"] = dict(model_inputs)
+
+            # second_per_grid_ts isn't used for training, just for rope
+            # calculations
+            if "second_per_grid_ts" in row_dict["multi_modal_inputs"]:
+                row_dict["multi_modal_inputs"].pop("second_per_grid_ts")
 
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
@@ -212,7 +216,7 @@ class RLHFDataset(Dataset):
                     input_ids=input_ids[0],
                     image_grid_thw=model_inputs.get("image_grid_thw"),
                     video_grid_thw=model_inputs.get("video_grid_thw"),
-                    second_per_grid_ts=None,
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
                     attention_mask=attention_mask[0],
                 )
             ]  # (1, 3, seq_len)
