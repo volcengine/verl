@@ -194,6 +194,7 @@ def create_random_mask(input_ids: torch.Tensor,
 def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
+
 def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers, layer_name="layers"):
     """
     Transform the model name in each model_chunk in each pp stage into the name in inference engine
@@ -224,6 +225,7 @@ def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers,
         name = '.'.join(split_name)  # weight name in inference_tp_model
     return name
 
+
 def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     """
     Normalize the pp vpp params into a complete named parameters.
@@ -239,7 +241,13 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
-                normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers,layer_name=layer_name)
+                normalized_name = normalize_model_name(name,
+                                                       pp_rank,
+                                                       vpp_rank,
+                                                       pp_size,
+                                                       vpp_size,
+                                                       num_hidden_layers,
+                                                       layer_name=layer_name)
                 yield normalized_name, param
 
 

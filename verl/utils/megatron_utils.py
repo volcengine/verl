@@ -431,10 +431,11 @@ def convert_megatron_model_to_transformers_model(name,
         raise ValueError(f"Unknown param name: {name}")
     return new_params.keys(), new_params.values()
 
+
 def broadcast_from_megatron_pp(tensor: torch.Tensor):
     from megatron.core import parallel_state as mpu
     # tensor is not None only in one of the pp ranks
-        
+
     if tensor is not None:
         shape = tensor.shape
         dtype = tensor.dtype
@@ -462,8 +463,8 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
     assert target_tensor_spec is not None
     if tensor is None:
         tensor = torch.empty(size=target_tensor_spec[0],
-                            dtype=target_tensor_spec[1],
-                            device=torch.cuda.current_device())
+                             dtype=target_tensor_spec[1],
+                             device=torch.cuda.current_device())
         if target_tensor_spec[2] is not None:
             tensor.tensor_model_parallel = target_tensor_spec[2]
         if target_tensor_spec[3] is not None:
@@ -474,18 +475,12 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
     return tensor
 
 
-
-
 def broadcast_str_from_megatron_pp(obj: Any):
     from megatron.core import parallel_state as mpu
     import torch.distributed as dist
-    
+
     obj_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-    dist.all_gather_object(
-        object_list=obj_output,
-        obj=obj,
-        group=mpu.get_pipeline_model_parallel_group()
-    )
+    dist.all_gather_object(object_list=obj_output, obj=obj, group=mpu.get_pipeline_model_parallel_group())
 
     src_rank = None
     target_obj = None
@@ -495,22 +490,13 @@ def broadcast_str_from_megatron_pp(obj: Any):
                 raise ValueError('An object exists on two pp ranks')
             target_obj = item
             src_rank = rank
-    
+
     assert target_obj is not None, "No valid object found to broadcast."
-    
-    global_rank = dist.get_global_rank(
-        group=mpu.get_pipeline_model_parallel_group(), 
-        group_rank=src_rank
-    )
-    
-    obj_output = [None] * dist.get_world_size(
-        group=mpu.get_pipeline_model_parallel_group()
-    )
+
+    global_rank = dist.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
+
+    obj_output = [None] * dist.get_world_size(group=mpu.get_pipeline_model_parallel_group())
     obj_output[0] = target_obj
-    dist.broadcast_object_list(
-        object_list=obj_output,
-        src=global_rank,
-        group=mpu.get_pipeline_model_parallel_group()
-    )
-    
+    dist.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
+
     return obj_output[0]

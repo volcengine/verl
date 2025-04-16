@@ -273,7 +273,12 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 class MegatronVLLMShardingManager(BaseShardingManager):
 
-    def __init__(self, module: AllGatherPPModel, inference_engine: LLM, model_config, layer_name_mapping, actor_module: nn.ModuleList = None):
+    def __init__(self,
+                 module: AllGatherPPModel,
+                 inference_engine: LLM,
+                 model_config,
+                 layer_name_mapping,
+                 actor_module: nn.ModuleList = None):
         from megatron.core import parallel_state as mpu
         self.module = module
         self.inference_engine = inference_engine
@@ -317,33 +322,31 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             for scan_vpp_idx in range(vpp_size):
                 for name, param in self.actor_module[scan_vpp_idx].named_parameters():
                     yield name, param
-        
+
         meta_info = []
-        for scan_vpp_idx in range(vpp_size): 
+        for scan_vpp_idx in range(vpp_size):
             for idx, (name, param) in enumerate(self.actor_module[scan_vpp_idx].named_parameters()):
                 meta_info.append((pp_rank, scan_vpp_idx, idx, name))
-        
+
         tensor_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
         torch.distributed.all_gather_object(object_list=tensor_spec_output,
                                             obj=meta_info,
                                             group=mpu.get_pipeline_model_parallel_group())
         layer_list_meta = [item for sublist in tensor_spec_output for item in sublist]
-        
+
         gen_func = _in_built_generator()
 
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
             if cur_pp_rank == pp_rank:
                 cur_name, cur_tensor = next(gen_func)
-                cur_name = normalize_model_name(
-                    name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size,
-                    self.model_config.num_hidden_layers
-                )
+                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size,
+                                                self.model_config.num_hidden_layers)
             else:
-                cur_tensor, cur_name = None,None
+                cur_tensor, cur_name = None, None
 
             cur_name = broadcast_str_from_megatron_pp(cur_name)
             broad_pp_t = broadcast_from_megatron_pp(cur_tensor)
-            
+
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
                 cur_name = cur_name[len("module."):]
@@ -358,8 +361,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 infer_params = self.default_tp_concat_fn(cur_name, broad_pp_t, infer_params, self.model_config, True)
             else:
                 infer_params = broad_pp_t
-            
-            
+
             converted_names, converted_params = convert_megatron_model_to_transformers_model(
                 cur_name,
                 infer_params,
@@ -367,9 +369,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.train_tp_size,
                 0,
                 convert_qkv_gate_up_by_trunk_concat=False)
-            
+
             for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param            
+                yield converted_name, infer_param
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
@@ -389,7 +391,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             v_lst = []
             assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
             num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
-            assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
+            assert infer_params[0].shape[0] % (
+                num_q_per_kv +
+                2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
             for infer_param in infer_params:
@@ -485,11 +489,13 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                                         layer_name='layers')
             log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
             if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=False)
+                per_tensor_param = self._post_process_params(cur_tp_rank_param,
+                                                             convert_qkv_gate_up_by_simple_split=False)
                 self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
             else:
                 # include 0.7~
-                per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=True)
+                per_tensor_param = self._post_process_params(cur_tp_rank_param,
+                                                             convert_qkv_gate_up_by_simple_split=True)
                 self.inference_engine.wake_up()
                 model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
                 loaded_params = model.load_weights(per_tensor_param)
@@ -524,7 +530,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             for model in self.actor_module:
                 model.train()
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
-
 
         torch.cuda.empty_cache()
 
