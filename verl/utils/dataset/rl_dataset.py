@@ -223,7 +223,7 @@ class RLHFDataset(Dataset):
                                                             left_pad=True,
                                                             truncation=self.truncation)
 
-        if self.is_multimodal:
+        if self.processor_type.startswith("qwen2"):
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [
