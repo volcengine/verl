@@ -165,7 +165,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         metric_name = self.config.algorithm.filter_groups.metric
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
-                            new_batch.non_tensor_batch["seq_final_reward"] = new_batch.batch['token_level_scores'].sum(
+                            new_batch.non_tensor_batch["seq_final_reward"] = new_batch.batch['token_level_rewards'].sum(
                                 dim=-1).numpy()
                         elif metric_name == "seq_reward":
                             new_batch.non_tensor_batch["seq_reward"] = new_batch.batch['token_level_scores'].sum(

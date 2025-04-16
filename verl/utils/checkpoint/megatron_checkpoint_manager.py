@@ -173,9 +173,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.optimizer.load_parameter_state(optimizer_path)
 
     def load_rng_states(self, ckpt_path, data_parallel_random_init=False, use_dist_ckpt=False):
-        rng_state_path = get_rng_states_checkpoint_path(ckpt_path)
+        rng_state_path = get_rng_states_checkpoint_path(ckpt_path, only_rank0_save=False)
         print(f"Loading rng states from {rng_state_path}")
-        rng_state = torch.load(rng_state_path)
+        rng_state = torch.load(rng_state_path, weights_only=False)
         # access rng_state for data parallel rank
         if not use_dist_ckpt:
             if data_parallel_random_init:
@@ -198,7 +198,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'model' in self.checkpoint_contents:
             model_path = get_model_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_path, return_base_dir=False)
-            state_dicts = torch.load(os.path.join(ckpt_name))
+            state_dicts = torch.load(os.path.join(ckpt_name), weights_only=False)
             assert len(state_dicts) == len(
                 self.model), f'state_dicts length: {len(state_dicts)} mismatch with model length: {len(self.model)}'
             for vpp_rank, (state_dict, model) in enumerate(zip(state_dicts, self.model)):
@@ -300,10 +300,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if 'extra' in self.checkpoint_contents:
             torch.distributed.barrier()
 
-            rng_state_path = get_rng_states_checkpoint_path(local_path)
+            rng_state_path = get_rng_states_checkpoint_path(local_path, only_rank0_save=False)
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
-            if self.rank == 0:
-                print(f"saving rng states to {rng_state_path}")
+            print(f"Rank {self.rank} saving rng states to {rng_state_path}")
 
         self.previous_saved_paths.append(local_path)

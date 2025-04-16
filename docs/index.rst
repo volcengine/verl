@@ -67,6 +67,7 @@ verl is fast with:
    workers/ray_trainer
    workers/fsdp_workers
    workers/megatron_workers
+   workers/sglang_worker
 
 .. toctree::
    :maxdepth: 1
@@ -74,6 +75,7 @@ verl is fast with:
    
    perf/perf_tuning
    README_vllm0.8.md
+   perf/device_tuning
 
 .. toctree::
    :maxdepth: 1
@@ -119,3 +121,12 @@ We use yapf (Google style) to enforce strict code formatting when reviewing MRs.
 
    pip3 install yapf
    yapf -ir -vv --style ./.style.yapf verl examples tests
+
+Adding CI tests
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+If possible, please add CI test(s) for your new feature:
+
+1. Find the most relevant workflow yml file, which usually corresponds to a ``hydra`` default config (e.g. ``ppo_trainer``, ``ppo_megatron_trainer``, ``sft_trainer``, etc).
+2. Add related path patterns to the ``paths`` section if not already included.
+3. Minimize the workload of the test script(s) (see existing scripts for examples).

@@ -108,7 +108,7 @@ def check_verl():
     except Exception as e:
         import traceback
         if not isinstance(e, IOError):
-            print("An error occured trying to import verl.")
+            print("An error occurred trying to import verl.")
             print("This is very likely due to missing missing or incompatible library files.")
         print(traceback.format_exc())
 

@@ -1,7 +1,7 @@
 set -x
 
-gsm8k_train_path=$HOME/data/rlhf/gsm8k/test.parquet
-gsm8k_val_path=$HOME/data/rlhf/math/deepseek_v2_lite_gen_test.parquet
+gsm8k_train_path=$HOME/data/rlhf/gsm8k/train.parquet
+gsm8k_val_path=$HOME/data/rlhf/math/test.parquet
 model_path=Qwen/Qwen2-72B-Instruct
 
 python3 -m verl.trainer.main_ppo \
@@ -35,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_example_gsm8k' \
-    trainer.experiment_name='deepseek_llm_7b_function_rm_seq_packing' \
+    trainer.experiment_name='Qwen2_72B_Instruct' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=4 \
     trainer.save_freq=-1 \

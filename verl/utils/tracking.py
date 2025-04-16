@@ -139,7 +139,8 @@ class _MlflowLoggingAdapter:
 
     def log(self, data, step):
         import mlflow
-        mlflow.log_metrics(metrics=data, step=step)
+        results = {k.replace('@', '_at_'): v for k, v in data.items()}
+        mlflow.log_metrics(metrics=results, step=step)
 
 
 def _compute_mlflow_params_from_objects(params) -> Dict[str, Any]:
