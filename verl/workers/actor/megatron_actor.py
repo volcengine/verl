@@ -40,7 +40,7 @@ from megatron.core.optimizer import DistributedOptimizer
 
 from omegaconf import OmegaConf
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
-from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator
+from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
 from verl import DataProto
 from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
 from verl.workers.actor import BasePPOActor
