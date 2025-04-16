@@ -83,16 +83,6 @@ class RLHFDataset(Dataset):
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
 
-        self.processor_type = None
-        if self.processor is not None:
-            processor_cls_name = self.processor.__class__.__name__
-            if "Qwen2VL" in processor_cls_name:
-                self.processor_type = "qwen2_vl"
-            elif "Qwen2_5_VL" in processor_cls_name:
-                self.processor_type = "qwen2_5_vl"
-            else:
-                raise NotImplementedError(f"RLHFDataset currently does not support {processor_cls_name}")
-
         # whether to store the dataset in state_dict()
         # default not store
         self.serialize_dataset = False
@@ -101,9 +91,7 @@ class RLHFDataset(Dataset):
 
     @property
     def is_multimodal(self) -> bool:
-        # Currently only Qwen2VL & Qwen2.5VL are supported as multi-modal models.
-        # So we also use this flag to determine if we do mrope.
-        return self.processor_type is not None
+        return self.processor is not None
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
@@ -148,10 +136,7 @@ class RLHFDataset(Dataset):
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
 
-        if self.processor_type is not None:
-            pass
-
-        if self.is_multimodal:
+        if self.image_key in example or self.video_key in example:
             for message in messages:
                 content = message["content"]
                 content_list = []
@@ -175,8 +160,7 @@ class RLHFDataset(Dataset):
         messages = self._build_messages(row_dict)
         model_inputs = {}
 
-        if self.is_multimodal:
-            # This is kinda hard coded for qwen2 vl
+        if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
 
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
@@ -223,7 +207,7 @@ class RLHFDataset(Dataset):
                                                             left_pad=True,
                                                             truncation=self.truncation)
 
-        if self.processor_type.startswith("qwen2"):
+        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [
