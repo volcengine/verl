@@ -17,6 +17,34 @@ def process_image(image: Union[dict, Image.Image]) -> Image.Image:
     return fetch_image(image)
 
 
+VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.
+Refer to https://github.com/QwenLM/Qwen2.5-VL?tab=readme-ov-file#using---transformers-to-chat.
+
+eg.
+{
+    "type": "video",
+    "video": [
+        "file:///path/to/frame1.jpg",
+        "file:///path/to/frame2.jpg"
+    ]
+}
+
+{
+    "type": "video",
+    "video": "file:///path/to/video.mp4"
+}
+# Defaults to fps=2, min_frames=4, max_frames=768
+
+{
+    "type": "video",
+    "video": "file:///path/to/video.mp4",
+    "fps": 2,
+    "min_frames": 1,
+    "max_frames": 32
+}
+"""
+
+
 def process_video(
     video: dict,
     nframes: Optional[int] = None,
@@ -30,7 +58,7 @@ def process_video(
     """
 
     if not isinstance(video, dict) or "video" not in video:
-        raise NotImplementedError("Currently we only support qwen2-vl format")
+        raise NotImplementedError(VIDEO_FORMAT_HELP)
     assert nframes is None or fps is None, "Can't use both `nframes` or `fps`"
 
     # Shallow copy... since we might want to add some keys
@@ -43,8 +71,8 @@ def process_video(
         elif fps is not None:
             video["fps"] = fps
             if fps_min_frames is not None:
-                video["fps_min_frames"] = fps_min_frames
+                video["min_frames"] = fps_min_frames
             if fps_max_frames is not None:
-                video["fps_max_frames"] = fps_max_frames
+                video["max_frames"] = fps_max_frames
 
     return fetch_video(video)
