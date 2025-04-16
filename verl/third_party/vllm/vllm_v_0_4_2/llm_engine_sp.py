@@ -276,7 +276,7 @@ class LLMEngine(LLMEngine):
         )
         return engine
 
-    def sync_model_weights(self, actor_weights: Iterable[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.model_executor.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
     def offload_model_weights(self) -> None:

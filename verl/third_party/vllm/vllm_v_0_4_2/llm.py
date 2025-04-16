@@ -299,7 +299,7 @@ class LLM:
             logprobs = pad_sequence(logprobs, batch_first=True, padding_value=pad_token_id)
         return output_token_ids, logprobs
 
-    def sync_model_weights(self, actor_weights: Iterable[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.llm_engine.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
     def offload_model_weights(self) -> None:
