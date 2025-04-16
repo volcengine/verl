@@ -320,7 +320,7 @@ class DataParallelPPOActor(BasePPOActor):
                         if self.config.use_kl_loss_important_sampling:
                             ratio = (log_prob - old_log_prob).exp()
                             surr1 = ratio * kld.detach()
-                            surr2 = ratio.clamp(1 - self.clip_eps, 1 + self.clip_eps) * kld.detach()
+                            surr2 = ratio.clamp(1 - clip_ratio, 1 + clip_ratio) * kld.detach()
                             kld = torch.max(surr1, surr2)
                         
                         kl_loss = agg_loss(loss_mat=kld,
