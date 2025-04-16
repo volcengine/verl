@@ -264,7 +264,7 @@ __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__ = {
 
 # the actor model is .state_dict()
 # Load megatron weights
-def load_megatron_weights(actor_weights: Dict, vllm_model: nn.Module):
+def load_megatron_weights(actor_weights: Iterable, vllm_model: nn.Module):
     weight_loader = _get_model_weight_loader(vllm_model.__class__.__name__)
     weight_loader(actor_weights, vllm_model)
     # NOTE(sgm) to reduce peak memory usage, we offload vllm model to cpu

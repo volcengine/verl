@@ -192,10 +192,9 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
-            hybrid_engine = None
             actor_module = get_model(megatron_actor_model_provider,
-                                        wrap_with_ddp=True,
-                                        use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
+                                     wrap_with_ddp=True,
+                                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
@@ -246,7 +245,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
 
-        return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
+        return actor_module, actor_optimizer, actor_model_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == 'vllm':
@@ -284,8 +283,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After building vllm rollout', logger=logger)
 
             # perform weight resharding between actor and rollout
-            sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
-                                                           inference_engine=rollout.inference_engine,
+            sharding_manager = MegatronVLLMShardingManager(inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
                                                            layer_name_mapping=layer_name_mapping,
                                                            actor_module=self.actor.actor_module)
@@ -317,7 +315,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optim_config = self.config.actor.optim
             else:
                 optim_config = None
-            self.actor_module, self.hybrid_engine, self.actor_optimizer, \
+            self.actor_module, self.actor_optimizer, \
             self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 megatron_config=megatron_config,

@@ -34,7 +34,7 @@ from verl.utils.memory_buffer import (
     get_weight_buffer_meta_from_module,
 )
 
-from verl.utils.model import normalize_pp_vpp_params, normalize_model_name
+from verl.utils.model import normalize_model_name
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.utils.megatron_utils import broadcast_from_megatron_pp, broadcast_str_from_megatron_pp
 
@@ -45,7 +45,9 @@ logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 class AllGatherPPModel:
 
     def __init__(self, model_provider, use_distributed_optimizer=True) -> None:
-
+        print(
+            "[WARNING] This class is deprecated and will no longer be supported. Consider using the `MegatronPPOActor` class directly as a replacement."
+        )
         self._pp_group = mpu.get_pipeline_model_parallel_group()
         self._pp_rank = mpu.get_pipeline_model_parallel_rank()
         self._pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -273,17 +275,17 @@ _MICRO_DATA_PARALLEL_GROUP = None
 class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __init__(self,
-                 module: AllGatherPPModel,
+                 actor_module: nn.ModuleList,
                  inference_engine: LLM,
                  model_config,
                  layer_name_mapping,
-                 actor_module: nn.ModuleList = None):
+                 module: AllGatherPPModel = None):
         from megatron.core import parallel_state as mpu
-        self.module = module
+        self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.layer_name_mapping = layer_name_mapping
-        self.actor_module = actor_module
+        self.module = module
         # initialize micro_dp group for vllm inference
         global _MICRO_DATA_PARALLEL_GROUP
         world_size = torch.distributed.get_world_size()
@@ -310,7 +312,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             if rank in ranks:
                 _MICRO_DATA_PARALLEL_GROUP = group
 
-    def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split):
+    def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         from megatron.core import parallel_state as mpu
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -500,9 +502,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
-        # offload parameters doesn't belong to this pp rank
-
-        # self.inference_engine.sync_model_weights(params)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
             self.inference_engine.offload_model_weights()
         else:
