@@ -241,7 +241,7 @@ class DataParallelPPOActor(BasePPOActor):
                 response_mask_lst.append(response_mask)
 
         log_probs = torch.concat(log_probs_lst, dim=0)
-        entropys= torch.concat(entropy_lst, dim=0)
+        entropys = torch.concat(entropy_lst, dim=0)
         response_masks = torch.concat(response_mask_lst, dim=0)
         if use_dynamic_bsz:
             indices = list(itertools.chain.from_iterable(indices))
