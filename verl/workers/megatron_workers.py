@@ -356,8 +356,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                megatron_config=megatron_config,
                                                actor_module=self.ref_module,
                                                actor_optimizer=None,
-                                               actor_optimizer_config=None,
-                                               role="ref")
+                                               actor_optimizer_config=None)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -444,7 +443,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output, _ = self.ref_policy.compute_log_prob(data=data)
+        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={'ref_log_prob': output})
         output = output.to('cpu')
         if self._is_offload_param:
@@ -460,7 +459,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs, metrics = self.actor.compute_log_prob(data=output)
+        old_log_probs, metrics = self.actor.compute_log_prob(data=output, calculate_entropy=True)
         output.batch['old_log_probs'] = old_log_probs
         output.meta_info['metrics'] = metrics
         output = output.to('cpu')

@@ -433,8 +433,7 @@ class ActorRolloutRefWorker(Worker):
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
             self.ref_policy = DataParallelPPOActor(config=self.config.ref,
-                                                   actor_module=self.ref_module_fsdp,
-                                                   role="ref")
+                                                   actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -547,7 +546,7 @@ class ActorRolloutRefWorker(Worker):
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
-            output, metrics = self.actor.compute_log_prob(data=data)
+            output, metrics = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(tensors={'old_log_probs': output},
                                          meta_info={
                                              'temperature': self.config.rollout.temperature,
@@ -582,7 +581,7 @@ class ActorRolloutRefWorker(Worker):
         data.meta_info['use_dynamic_bsz'] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
-            output, _ = self.ref_policy.compute_log_prob(data=data)
+            output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
             output = DataProto.from_dict(tensors={'ref_log_prob': output})
             output = self.ulysses_sharding_manager.postprocess_data(output)
 

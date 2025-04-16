@@ -42,8 +42,7 @@ class DataParallelPPOActor(BasePPOActor):
         self,
         config,
         actor_module: nn.Module,
-        actor_optimizer: torch.optim.Optimizer = None,
-        role='actor',
+        actor_optimizer: torch.optim.Optimizer = None
     ):
         """When optimizer is None, it is Reference Policy"""
         super().__init__(config)
@@ -53,7 +52,6 @@ class DataParallelPPOActor(BasePPOActor):
         print(f'Actor use_remove_padding={self.use_remove_padding}')
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
-        self.role = role
 
         self.compute_entropy_from_logits = (
             torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -63,7 +61,7 @@ class DataParallelPPOActor(BasePPOActor):
     def _forward_micro_batch(self,
                              micro_batch,
                              temperature,
-                             recompute: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+                             calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns: 
             entropy: # (bs, response_len)
@@ -81,8 +79,6 @@ class DataParallelPPOActor(BasePPOActor):
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
-            if self.role == "actor":
-                entropy_coeff = self.config.entropy_coeff
             entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
@@ -125,23 +121,26 @@ class DataParallelPPOActor(BasePPOActor):
                 logits_rmpad.div_(temperature)
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)
+                inplace_backward = True
+                if calculate_entropy:
+                    inplace_backward = False
+                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled, inplace_backward=inplace_backward)
 
                 # compute entropy
-                if self.role == "actor" and (recompute or entropy_coeff != 0):
+                if calculate_entropy:
                     entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
                     # gather and unpad for the ulysses sp
                     log_probs = gather_outpus_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                    if self.role == "actor" and (recompute or entropy_coeff != 0):
+                    if calculate_entropy:
                         entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad,
                                                                 gather_dim=0,
                                                                 unpad_dim=0,
                                                                 padding_size=pad_size)
                 # pad back to (bsz, seqlen)
-                if self.role == "actor" and (recompute or entropy_coeff != 0):
+                if calculate_entropy:
                     full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
                                              indices=indices,
                                              batch=batch_size,
@@ -152,7 +151,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            seqlen=seqlen)
 
                 # only return response part:
-                if self.role == "actor" and (recompute or entropy_coeff != 0):
+                if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
@@ -166,7 +165,7 @@ class DataParallelPPOActor(BasePPOActor):
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length, vocab_size)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
-                if self.role == "actor" and (recompute or entropy_coeff != 0):
+                if calculate_entropy:
                     entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
 
             return entropy, log_probs
@@ -187,7 +186,7 @@ class DataParallelPPOActor(BasePPOActor):
             self.actor_optimizer.step()
         return grad_norm
 
-    def compute_log_prob(self, data: DataProto) -> torch.Tensor:
+    def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -235,9 +234,9 @@ class DataParallelPPOActor(BasePPOActor):
 
             response_mask = micro_batch['attention_mask'][:, -micro_batch['responses'].size(-1):]
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature, recompute=True)
+                entropy, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature, calculate_entropy=calculate_entropy)
             log_probs_lst.append(log_probs)
-            if entropy is not None and self.role == "actor":
+            if calculate_entropy:
                 loss_agg_mode = self.config.loss_agg_mode
                 # compute entropy loss from entropy
                 entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
@@ -313,7 +312,10 @@ class DataParallelPPOActor(BasePPOActor):
                     loss_agg_mode = self.config.loss_agg_mode
 
                     # all return: (bsz, response_length)
-                    entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
+                    calculate_entropy = False
+                    if entropy_coeff != 0:
+                        calculate_entropy = True
+                    entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                         old_log_prob=old_log_prob,
