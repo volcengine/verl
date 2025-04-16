@@ -25,7 +25,6 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 from omegaconf import ListConfig, DictConfig
 
-from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
 
@@ -177,6 +176,8 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.is_multimodal:
+            from verl.utils.dataset.vision_utils import process_image, process_video
+
             # For Qwen2 VL, we should use mrope even for text inputs.
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             multi_modal_data = {}
