@@ -984,7 +984,7 @@ class RayPPOTrainer(object):
                         if self.config.reward_model.reward_manager_during_log_prob:
                             future_reward = compute_reward_asyn.remote(batch, self.config, self.tokenizer)
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.rm_wg)
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
 
                     # recompute old_log_probs
