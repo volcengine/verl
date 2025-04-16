@@ -53,13 +53,8 @@ __all__ = ['MegatronPPOActor']
 
 class MegatronPPOActor(BasePPOActor):
 
-    def __init__(self,
-                 config,
-                 model_config,
-                 megatron_config: ModelParallelConfig,
-                 actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer,
-                 actor_optimizer_config: OptimizerConfig):
+    def __init__(self, config, model_config, megatron_config: ModelParallelConfig, actor_module: nn.ModuleList,
+                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -192,7 +187,10 @@ class MegatronPPOActor(BasePPOActor):
             response = batch['responses']
             response_length = response.size(1)
             with torch.no_grad():
-                output = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn, calculate_entropy=calculate_entropy)
+                output = self.forward_backward_batch(data,
+                                                     forward_only=True,
+                                                     post_process_fn=compute_logprobs_fn,
+                                                     calculate_entropy=calculate_entropy)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
                     log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
@@ -248,7 +246,11 @@ class MegatronPPOActor(BasePPOActor):
                                   seed=self.config.data_loader_seed,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
-    def forward_backward_batch(self, data: DataProto, forward_only=False, post_process_fn=None, calculate_entropy=False):
+    def forward_backward_batch(self,
+                               data: DataProto,
+                               forward_only=False,
+                               post_process_fn=None,
+                               calculate_entropy=False):
         """
         We assume:
         - The model takes input: (input_ids, attention_mask, position_ids). No rmpad for the input
@@ -312,16 +314,15 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
                 clip_ratio_c = meta_info['clip_ratio_c']
                 log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
-                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
-                    old_log_prob=old_log_prob,
-                    log_prob=log_prob,
-                    advantages=advantages,
-                    response_mask=response_mask,
-                    cliprange=clip_ratio,
-                    cliprange_low=clip_ratio_low,
-                    cliprange_high=clip_ratio_high,
-                    clip_ratio_c=clip_ratio_c,
-                    loss_agg_mode=loss_agg_mode)
+                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                      log_prob=log_prob,
+                                                                                      advantages=advantages,
+                                                                                      response_mask=response_mask,
+                                                                                      cliprange=clip_ratio,
+                                                                                      cliprange_low=clip_ratio_low,
+                                                                                      cliprange_high=clip_ratio_high,
+                                                                                      clip_ratio_c=clip_ratio_c,
+                                                                                      loss_agg_mode=loss_agg_mode)
                 policy_loss = pg_loss
             if calculate_entropy:
                 entropy = vocab_parallel_entropy(logits)

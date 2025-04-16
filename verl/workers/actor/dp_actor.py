@@ -38,12 +38,7 @@ __all__ = ['DataParallelPPOActor']
 
 class DataParallelPPOActor(BasePPOActor):
 
-    def __init__(
-        self,
-        config,
-        actor_module: nn.Module,
-        actor_optimizer: torch.optim.Optimizer = None
-    ):
+    def __init__(self, config, actor_module: nn.Module, actor_optimizer: torch.optim.Optimizer = None):
         """When optimizer is None, it is Reference Policy"""
         super().__init__(config)
         self.actor_module = actor_module
@@ -124,7 +119,9 @@ class DataParallelPPOActor(BasePPOActor):
                 inplace_backward = True
                 if calculate_entropy:
                     inplace_backward = False
-                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled, inplace_backward=inplace_backward)
+                log_probs = logprobs_from_logits(logits=logits_rmpad,
+                                                 labels=input_ids_rmpad_rolled,
+                                                 inplace_backward=inplace_backward)
 
                 # compute entropy
                 if calculate_entropy:
@@ -234,7 +231,9 @@ class DataParallelPPOActor(BasePPOActor):
 
             response_mask = micro_batch['attention_mask'][:, -micro_batch['responses'].size(-1):]
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(micro_batch, temperature=temperature, calculate_entropy=calculate_entropy)
+                entropy, log_probs = self._forward_micro_batch(micro_batch,
+                                                               temperature=temperature,
+                                                               calculate_entropy=calculate_entropy)
             log_probs_lst.append(log_probs)
             if calculate_entropy:
                 loss_agg_mode = self.config.loss_agg_mode
@@ -315,7 +314,9 @@ class DataParallelPPOActor(BasePPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
+                    entropy, log_prob = self._forward_micro_batch(micro_batch=data,
+                                                                  temperature=temperature,
+                                                                  calculate_entropy=calculate_entropy)
 
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                         old_log_prob=old_log_prob,

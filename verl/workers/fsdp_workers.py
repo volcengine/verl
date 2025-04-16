@@ -432,8 +432,7 @@ class ActorRolloutRefWorker(Worker):
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
-            self.ref_policy = DataParallelPPOActor(config=self.config.ref,
-                                                   actor_module=self.ref_module_fsdp)
+            self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
