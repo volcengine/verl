@@ -259,9 +259,9 @@ class MegatronPPOActor(BasePPOActor):
         def loss_func(output, data, meta_info):
             if forward_only:
                 if post_process_fn is None:
-                    return 1.0, {'logits': output}
+                    return torch.tensor(1.0, device=output.device), {'logits': output}
                 else:
-                    return 1.0, post_process_fn(output, data)
+                    return torch.tensor(1.0, device=output.device), post_process_fn(output, data)
 
             responses = data['responses']
             response_length = responses.size(1)

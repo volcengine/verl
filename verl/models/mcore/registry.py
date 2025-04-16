@@ -83,3 +83,21 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig):
         raise ValueError(f"Model architectures {arch} forward function are not supported for now. "
                          f"Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}")
     return MODEL_FORWARD_REGISTRY[arch]
+
+
+from .weight_converter import McoreToHFWeightConverterDense, McoreToHFWeightConverterQwen2Moe
+
+
+def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype):
+    MODEL_WEIGHT_CONVERTER_REGISTRY = {
+        "LlamaForCausalLM": McoreToHFWeightConverterDense,
+        "Qwen2ForCausalLM": McoreToHFWeightConverterDense,
+        "Qwen2MoeForCausalLM": McoreToHFWeightConverterQwen2Moe,
+    }
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    arch = hf_config.architectures[0]
+    if arch not in MODEL_WEIGHT_CONVERTER_REGISTRY:
+        raise ValueError(f"Model architectures {arch} weight converter are not supported for now. "
+                         f"Supported architectures: {MODEL_WEIGHT_CONVERTER_REGISTRY.keys()}")
+    tfconfig = hf_to_mcore_config(hf_config, dtype)
+    return MODEL_WEIGHT_CONVERTER_REGISTRY[arch](hf_config, tfconfig)

@@ -258,6 +258,7 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.third_party.vllm import LLM
 from verl.utils.model import normalize_pp_vpp_params
 from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
+from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
 # NOTICE: in new version of vLLM, We need to all-gather all tp rank's model weights
@@ -267,12 +268,14 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 class MegatronVLLMShardingManager(BaseShardingManager):
 
-    def __init__(self, module: AllGatherPPModel, inference_engine: LLM, model_config, layer_name_mapping):
+    def __init__(self, module: AllGatherPPModel, inference_engine: LLM, model_config, layer_name_mapping,
+                 weight_converter: McoreToHFWeightConverterBase):
         from megatron.core import parallel_state as mpu
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.layer_name_mapping = layer_name_mapping
+        self.weight_converter = weight_converter
 
         # initialize micro_dp group for vllm inference
         global _MICRO_DATA_PARALLEL_GROUP
@@ -362,6 +365,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             else:
                 infer_params = [gate, up]
 
+        elif "mlp.experts.linear_fc2.weight" in name:  # moe
+            infer_params = torch.cat(infer_params, dim=1)
+
         else:
             # concat tensor
             infer_params = torch.cat(infer_params, dim=tp_utils.get_tensor_parallel_partition_dim(param))
@@ -393,13 +399,18 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                                          convert_qkv_gate_up_by_simple_split)
             else:
                 infer_params = param
-            converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                name,
-                infer_params,
-                self.model_config,
-                self.train_tp_size,
-                self.module.pp_models[0][0].config.num_query_groups,
-                convert_qkv_gate_up_by_trunk_concat=False)
+            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+                converted_names, converted_params = convert_megatron_model_to_transformers_model(
+                    name,
+                    infer_params,
+                    self.model_config,
+                    self.train_tp_size,
+                    self.module.pp_models[0][0].config.num_query_groups,
+                    convert_qkv_gate_up_by_trunk_concat=False)
+            else:
+                if not isinstance(infer_params, list):
+                    infer_params = [infer_params]
+                converted_names, converted_params = self.weight_converter.convert_param(name, infer_params)
             for converted_name, infer_param in zip(converted_names, converted_params):
                 yield converted_name, infer_param
 
@@ -425,6 +436,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=True)
             self.inference_engine.wake_up()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+            _patch_vllm_qwen2_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
@@ -484,3 +496,31 @@ def get_micro_data_parallel_world_size():
 
 def get_micro_data_parallel_rank():
     return torch.distributed.get_rank(group=get_micro_data_parallel_group())
+
+
+def _patch_vllm_qwen2_moe_model_weight_loader(model):
+    # this is a work around to load the weight of vllm qwen2 moe model
+    # it is from a bug from vllm 0.8.2
+    # all the weights are supposed to have a weight_loader, but the moe weights
+    # do not have a weight_loader, so we need to patch it
+    # (True, 'model.embed_tokens.weight')
+    # (True, 'model.layers.0.self_attn.qkv_proj.weight')
+    # (True, 'model.layers.0.self_attn.qkv_proj.bias')
+    # (True, 'model.layers.0.self_attn.o_proj.weight')
+    # (True, 'model.layers.0.mlp.gate.weight')
+    # (True, 'model.layers.0.mlp.shared_expert.gate_up_proj.weight')
+    # (True, 'model.layers.0.mlp.shared_expert.down_proj.weight')
+    # (False, 'model.layers.0.mlp.shared_expert_gate.weight')   use default
+    # (False, 'model.layers.0.input_layernorm.weight')          use default
+    # (False, 'model.layers.0.post_attention_layernorm.weight') use default
+    # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
+    # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    if not isinstance(model, Qwen2MoeForCausalLM):
+        return
+    for layer in model.model.layers:
+        mlp = layer.mlp
+        param_dict = dict(mlp.named_parameters())
+        for name, param in param_dict.items():
+            if "w13_weight" in name or "w2_weight" in name:
+                param.weight_loader = mlp.experts.weight_loader

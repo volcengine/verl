@@ -210,6 +210,7 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
         """
         Transform the model name in each model_chunk in each pp stage into the name in inference engine
         """
+        # TODO for mcore uneven pp/vpp, things are different
         if vpp_size > 1:
             # print(f'try to bind vpp params to inference engine...')
             layers_per_pp = num_layers // pp_size

@@ -137,7 +137,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
         def loss_func(output, data, meta_info):
             if forward_only:
-                return 1.0, {'vpreds': output}
+                return torch.tensor(1.0, device=output.device), {'vpreds': output}
 
             responses = data['responses']
             attention_mask = data['attention_mask']
