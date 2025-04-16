@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import inspect
 import logging
 import torch
 import numpy as np
@@ -24,7 +25,6 @@ from torch.distributed.device_mesh import DeviceMesh
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl import DataProto
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
@@ -96,23 +96,19 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
             del params
         else:
-            if version.parse(VLLM_VERSION) >= version.parse("0.8.3"):
-                # wake up only weights
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["weights"])
-                # update model params
-                self.update_params(params)
-
-                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
-                del params
-                torch.cuda.empty_cache()
-
-                # wake up kv
-                self.inference_engine.wake_up(tags=["kv_cache"])
             else:
                 self.inference_engine.wake_up()
-                self.update_params(params)
-                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
-                del params
+
+            # update model params
+            self.update_params(params)
+            log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+            del params
+            torch.cuda.empty_cache()
+
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                self.inference_engine.wake_up(tags=["kv_cache"])
 
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
