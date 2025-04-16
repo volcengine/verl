@@ -89,10 +89,6 @@ class RLHFDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
-    @property
-    def is_multimodal(self) -> bool:
-        return self.processor is not None
-
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
         data_files = self.data_files if not use_origin_parquet else self.original_data_files
