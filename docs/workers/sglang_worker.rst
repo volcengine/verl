@@ -37,6 +37,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
 
 .. code-block:: bash
 
+    export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
         data.train_files=$HOME/data/gsm8k/train.parquet \
         data.val_files=$HOME/data/gsm8k/test.parquet \
