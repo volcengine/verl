@@ -20,12 +20,21 @@ import torch.distributed as dist
 from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 
 
-def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
+def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0, precision: int = 2):
     if (not dist.is_initialized()) or (rank is None) or (dist.get_rank() == rank):
         memory_allocated = torch.cuda.memory_allocated() / 1024**3
         memory_reserved = torch.cuda.memory_reserved() / 1024**3
 
-        message = f"{head}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
+        free, total = torch.cuda.mem_get_info(torch.cuda.current_device())
+        used = total - free
+        total = total / 1024**3
+        used = used / 1024**3
+
+        message = (
+            f"{head}, memory allocated (GB): {memory_allocated:.{precision}f}, "
+            f"memory reserved (GB): {memory_reserved:.{precision}f}, "
+            f"system memory used/total (GB): {used:.{precision}f}/{total:.{precision}f}"
+        )
 
         if logger is None:
             print(message)
