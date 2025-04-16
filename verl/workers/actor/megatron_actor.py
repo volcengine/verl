@@ -177,8 +177,8 @@ class MegatronPPOActor(BasePPOActor):
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be handled by user outside
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
-        entropy_lst = []
-        response_mask_lst = []
+        entropys = torch.Tensor()
+        response_masks = torch.Tensor()
         if recompute_old_log_prob:
             select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
@@ -193,7 +193,7 @@ class MegatronPPOActor(BasePPOActor):
                                                      calculate_entropy=calculate_entropy)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
-                    log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
+                    log_probs = torch.cat([o[0]['log_probs'] for o in output], dim=0)  # (bs, seq_size)
                     log_probs = log_probs.to(torch.float32)
                 else:
                     log_probs = torch.empty(size=(batch_size, response_length),
@@ -207,15 +207,32 @@ class MegatronPPOActor(BasePPOActor):
                                             async_op=False)
                 if calculate_entropy:
                     # Note that o[0] is metrics, o[1] is entropy
-                    for o in output:
-                        assert o[1] is not None
-                        entropy_lst.append(o[1])
-                        response_mask_lst.append(o[1])
+                    if mpu.is_pipeline_last_stage(ignore_virtual=True):
+                        entropys = torch.cat([o[1] for o in output], dim=0)
+                        entropys = entropys.to(torch.float32)
+                        response_masks = torch.cat([o[2] for o in output], dim=0)
+                        response_masks = response_masks.to(torch.float32)
+                    else:
+                        entropys = torch.empty(size=(batch_size, response_length),
+                                               dtype=torch.float32,
+                                               device=input_ids.device)
+                        response_masks = torch.empty(size=(batch_size, response_length),
+                                                     dtype=torch.float32,
+                                                     device=input_ids.device)
+                    # broadcast across pp ranks
+                    torch.distributed.broadcast(tensor=entropys,
+                                                src=mpu.get_pipeline_model_parallel_last_rank(),
+                                                group=mpu.get_pipeline_model_parallel_group(),
+                                                async_op=False)
+                    torch.distributed.broadcast(tensor=response_masks,
+                                                src=mpu.get_pipeline_model_parallel_last_rank(),
+                                                group=mpu.get_pipeline_model_parallel_group(),
+                                                async_op=False)
 
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
-        return log_probs, entropy_lst, response_mask_lst
+        return log_probs, entropys, response_masks
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor

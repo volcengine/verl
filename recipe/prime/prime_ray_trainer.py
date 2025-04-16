@@ -31,6 +31,8 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager, reduce_metrics, _timer
 from verl.trainer.ppo.metric_utils import _compute_response_info
+from verl.trainer.ppo.core_algos import agg_loss
+from verl.utils.py_functional import append_to_dict
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from . import prime_core_algos
@@ -398,9 +400,20 @@ class RayPRIMETrainer(RayPPOTrainer):
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        old_log_prob_metrics = reduce_metrics(old_log_prob.meta_info['metrics'])
+                        entropys = old_log_prob.batch['entropys']
+                        response_masks= old_log_prob.batch['response_masks']
+                        entropy_list = torch.chunk(entropys, batch.batch.batch_size[0], dim=0)
+                        response_mask_list = torch.chunk(response_masks, batch.batch.batch_size[0], dim=0)
+                        entropy_loss_dict = {}
+                        for entropy, response_mask in zip(entropy_list, response_mask_list):
+                            loss_agg_mode = self.config.actor.loss_agg_mode
+                            # compute entropy loss from entropy
+                            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                            append_to_dict(entropy_loss_dict, {'actor/entropy_loss', entropy_loss})
+                        old_log_prob_metrics = reduce_metrics(entropy_loss_dict)
                         metrics.update(old_log_prob_metrics)
-                        old_log_prob.meta_info.pop('metrics')
+                        old_log_prob.batch.pop('entropys')
+                        old_log_prob.batch.pop('response_masks')
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:

@@ -888,17 +888,20 @@ class RayPPOTrainer(object):
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropy_lst = old_log_prob.non_tensors['entropy_lst']
-                        response_mask_lst = old_log_prob.non_tensors['response_mask_lst']
+                        entropys = old_log_prob.batch['entropys']
+                        response_masks= old_log_prob.batch['response_masks']
+                        entropy_list = torch.chunk(entropys, batch.batch.batch_size[0], dim=0)
+                        response_mask_list = torch.chunk(response_masks, batch.batch.batch_size[0], dim=0)
                         entropy_loss_dict = {}
-                        for entropy, response_mask in zip(entropy_lst, response_mask_lst):
+                        for entropy, response_mask in zip(entropy_list, response_mask_list):
                             loss_agg_mode = self.config.actor.loss_agg_mode
                             # compute entropy loss from entropy
                             entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                             append_to_dict(entropy_loss_dict, {'actor/entropy_loss', entropy_loss})
                         old_log_prob_metrics = reduce_metrics(entropy_loss_dict)
                         metrics.update(old_log_prob_metrics)
-                        old_log_prob.non_tensors.pop('entropy_lst')
+                        old_log_prob.batch.pop('entropys')
+                        old_log_prob.batch.pop('response_masks')
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:
