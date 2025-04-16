@@ -13,7 +13,7 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/model_loader
 
-from typing import Dict
+from typing import Dict, Iterable
 
 import torch
 import torch.nn as nn
@@ -202,19 +202,19 @@ def _replace_name(megatron_name, name_mapping):
             return param_name
 
 
-def mistral_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+def mistral_megatron_weight_loader(actor_weights: Iterable, vllm_model: nn.Module) -> nn.Module:
     # TODO: need to implement a general way to deal with prefix
     params_dict = dict(vllm_model.named_parameters())
-    for name, loaded_weight in actor_weights.items():
+    for name, weight in actor_weights:
         if "rotary_emb.inv_freq" in name:
             continue
         else:
             param = params_dict[name]
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, loaded_weight)
+            weight_loader(param, weight)
 
 
-def megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+def megatron_core_te_weight_loader(actor_weights: Iterable, vllm_model: nn.Module) -> nn.Module:
     params_mapping = [
         # (megatron core gpt model name, vllm model name)
         ("self_attention.linear_qkv.layer_norm_weight", "input_layernorm.weight"),
@@ -232,18 +232,10 @@ def megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -
     ]
     # NOTE(shengguangming): the megatron llama may have this prefix
     params_dict = dict(vllm_model.named_parameters())
-    for original_name, loaded_weight in actor_weights.items():
-        name = _replace_name(original_name, params_mapping)
-        if not name or name.endswith(".bias") and name not in params_dict:
-            continue
-        if "rotary_emb.inv_freq" in name:
-            continue
-        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
-            continue
-        else:
-            param = params_dict[name]
-            weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, loaded_weight)
+    for name, weight in actor_weights:
+        param = params_dict[name]
+        weight_loader = getattr(param, "weight_loader", default_weight_loader)
+        weight_loader(param, weight)
 
 
 __LAYER_WEIGHT_MEGATRON_LOADER_REGISTRY__ = {

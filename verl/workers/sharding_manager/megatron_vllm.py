@@ -310,14 +310,19 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             if rank in ranks:
                 _MICRO_DATA_PARALLEL_GROUP = group
 
-    def per_tensor_generator(self):
+    def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split):
         from megatron.core import parallel_state as mpu
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
-        train_tp_size = mpu.get_tensor_model_parallel_world_size()
 
-        def _in_built_generator():
+        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            all_gather_group = get_micro_data_parallel_group()
+        else:
+            all_gather_group = self.train_tp_group
+        all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
+
+        def tensor_generator():
             for scan_vpp_idx in range(vpp_size):
                 for name, param in self.actor_module[scan_vpp_idx].named_parameters():
                     yield name, param
@@ -333,7 +338,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                                             group=mpu.get_pipeline_model_parallel_group())
         layer_list_meta = [item for sublist in tensor_spec_output for item in sublist]
 
-        gen_func = _in_built_generator()
+        gen_func = tensor_generator()
 
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
             if cur_pp_rank == pp_rank:
@@ -348,19 +353,19 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
             cur_name = broadcast_str_from_megatron_pp(cur_name)
             broad_pp_t = broadcast_from_megatron_pp(cur_tensor)
-
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
                 cur_name = cur_name[len("module."):]
 
             if tp_utils.is_tensor_parallel_param(broad_pp_t):
                 # allocate a new tensor with proper size
-                if train_tp_size <= 1:
+                if all_gather_group_size <= 1:
                     infer_params = [broad_pp_t]
                 else:
-                    infer_params = [torch.empty_like(broad_pp_t) for _ in range(train_tp_size)]
+                    infer_params = [torch.empty_like(broad_pp_t) for _ in range(all_gather_group_size)]
                     torch.distributed.all_gather(infer_params, broad_pp_t, group=mpu.get_tensor_model_parallel_group())
-                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_t, infer_params, self.model_config, True)
+                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_t, infer_params, self.model_config,
+                                                         convert_qkv_gate_up_by_simple_split)
             else:
                 infer_params = broad_pp_t
 
@@ -476,21 +481,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __enter__(self):
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            log_gpu_memory_usage('Just enter MegatronVLLMShardingManager sharding manager memory', logger=logger)
-            # create a new cuda space for parameters not in this pp rank
-            self.module.load_params_to_cuda()
-            log_gpu_memory_usage('After load_params_to_cuda sharding manager memory', logger=logger)
-            # broadcast the parameters from pp rank to other ranks
-            self.module.allgather_params()
-            # obtain name to parameters in pp/vpp
-            params = self.module.get_all_params()
-
-            # bind the params to inference engine
-            cur_tp_rank_param = normalize_pp_vpp_params(params=params,
-                                                        num_hidden_layers=self.model_config.num_hidden_layers,
-                                                        layer_name='layers')
-            log_gpu_memory_usage('After normalize_pp_vpp_params sharding manager memory', logger=logger)
-            per_tensor_param = self._post_process_params(cur_tp_rank_param, convert_qkv_gate_up_by_simple_split=False)
+            per_tensor_param = self.per_tensor_generator(False)
             self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
         else:
             # > 0.7.2
@@ -506,8 +497,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
-            del per_tensor_param
-            torch.cuda.empty_cache()
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
@@ -515,13 +504,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # self.inference_engine.sync_model_weights(params)
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            self.module.offload_params_to_cpu()
             self.inference_engine.offload_model_weights()
-            self.module.train()
         else:
             self.inference_engine.sleep(level=1)
-            for model in self.actor_module:
-                model.train()
+        for model in self.actor_module:
+            model.train()
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
         torch.cuda.empty_cache()

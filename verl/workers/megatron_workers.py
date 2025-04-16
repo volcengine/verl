@@ -192,21 +192,10 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                # Initialize the 3D HybridEngine
-                hybrid_engine = AllGatherPPModel(
-                    model_provider=megatron_actor_model_provider,
-                    use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
-                actor_module = hybrid_engine.this_rank_models
-                actor_modules_list = []
-                for module in actor_module:
-                    actor_modules_list.append(module)
-                actor_module = actor_modules_list
-            else:
-                hybrid_engine = None
-                actor_module = get_model(megatron_actor_model_provider,
-                                         wrap_with_ddp=True,
-                                         use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
+            hybrid_engine = None
+            actor_module = get_model(megatron_actor_model_provider,
+                                        wrap_with_ddp=True,
+                                        use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:

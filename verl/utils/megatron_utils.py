@@ -449,8 +449,6 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
     # find the src rank
     target_tensor_spec = None
     src_rank = None
-    target_tensor_parallel = None
-    target_partition_dim = None
     for rank, tensor_spec in enumerate(tensor_spec_output):
         if tensor_spec is not None:
             if target_tensor_spec is None:
@@ -488,12 +486,10 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     assert target_obj is not None, "No valid object found to broadcast."
 
-    global_rank = torch.distributed.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
+    global_rank = dist.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
 
-    obj_output = [None] * torch.distributed.get_world_size(group=mpu.get_pipeline_model_parallel_group())
+    obj_output = [None] * dist.get_world_size(group=mpu.get_pipeline_model_parallel_group())
     obj_output[0] = target_obj
-    torch.distributed.broadcast_object_list(object_list=obj_output,
-                                            src=global_rank,
-                                            group=mpu.get_pipeline_model_parallel_group())
+    dist.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
 
     return obj_output[0]
