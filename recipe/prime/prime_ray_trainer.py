@@ -406,7 +406,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                         response_mask_list = torch.chunk(response_masks, batch.batch.batch_size[0], dim=0)
                         entropy_loss_dict = {}
                         for entropy, response_mask in zip(entropy_list, response_mask_list):
-                            loss_agg_mode = self.config.actor.loss_agg_mode
+                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
                             # compute entropy loss from entropy
                             entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                             append_to_dict(entropy_loss_dict, {'actor/entropy_loss', entropy_loss})
