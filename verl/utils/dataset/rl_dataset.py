@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 from typing import List, Union, Optional
 import copy
 import datasets
@@ -24,6 +25,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 from omegaconf import ListConfig, DictConfig
 
+from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
 
@@ -46,30 +48,6 @@ def collate_fn(data_list: list[dict]) -> dict:
         non_tensors[key] = np.array(val, dtype=object)
 
     return {**tensors, **non_tensors}
-
-
-def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 512 * 512):
-    import math
-    from io import BytesIO
-    from PIL import Image
-
-    if isinstance(image, dict):
-        image = Image.open(BytesIO(image['bytes']))
-
-    if (image.width * image.height) > max_pixels:
-        resize_factor = math.sqrt(max_pixels / (image.width * image.height))
-        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
-        image = image.resize((width, height))
-
-    if (image.width * image.height) < min_pixels:
-        resize_factor = math.sqrt(min_pixels / (image.width * image.height))
-        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
-        image = image.resize((width, height))
-
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-
-    return image
 
 
 class RLHFDataset(Dataset):
@@ -96,6 +74,7 @@ class RLHFDataset(Dataset):
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
+        self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
 
         self.return_raw_chat = config.get('return_raw_chat', False)
@@ -105,11 +84,27 @@ class RLHFDataset(Dataset):
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
 
+        self.processor_type = None
+        if self.processor is not None:
+            processor_cls_name = self.processor.__class__.__name__
+            if "Qwen2VL" in processor_cls_name:
+                self.processor_type = "qwen2_vl"
+            elif "Qwen2_5_VL" in processor_cls_name:
+                self.processor_type = "qwen2_5_vl"
+            else:
+                raise NotImplementedError(f"RLHFDataset currently does not support {processor_cls_name}")
+
         # whether to store the dataset in state_dict()
         # default not store
         self.serialize_dataset = False
         self._download()
         self._read_files_and_tokenize()
+
+    @property
+    def is_multimodal(self) -> bool:
+        # Currently only Qwen2VL & Qwen2.5VL are supported as multi-modal models.
+        # So we also use this flag to determine if we do mrope.
+        return self.processor_type is not None
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
@@ -153,18 +148,23 @@ class RLHFDataset(Dataset):
 
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
-        if self.image_key in example:
-            # https://huggingface.co/docs/transformers/en/tasks/image_text_to_text
-            content_list = []
-            last_user_message: str = messages.pop(-1)['content']
-            for i, content in enumerate(last_user_message.split("<image>")):
-                if i != 0:
-                    content_list.append({"type": "image"})
 
-                if content:
-                    content_list.append({"type": "text", "text": content})
+        if self.processor_type is not None:
+            pass
 
-            messages.append({"role": "user", "content": content_list})
+        if self.is_multimodal:
+            for message in messages:
+                content = message["content"]
+                content_list = []
+                for segment in re.split("(<image>|<video>)", content):
+                    if segment == "<image>":
+                        content_list.append({"type": "image"})
+                    elif segment == "<video>":
+                        content_list.append({"type": "video"})
+                    else:
+                        content_list.append({"type": "text", "text": segment})
+
+                message["content"] = content_list
 
         return messages
 
@@ -174,15 +174,41 @@ class RLHFDataset(Dataset):
         """
         row_dict: dict = self.dataframe[item]
         messages = self._build_messages(row_dict)
+        model_inputs = {}
 
-        if self.image_key in row_dict:  # process multimodal data
+        if self.is_multimodal:
+            # For Qwen2 VL, we should use mrope even for text inputs.
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-            images = [process_image(image) for image in row_dict.pop(self.image_key)]
-            model_inputs = self.processor(images, [raw_prompt], return_tensors="pt", add_special_tokens=False)
-            input_ids = model_inputs.pop('input_ids')
-            attention_mask = model_inputs.pop('attention_mask')
-            row_dict["multi_modal_data"] = {"image": images}
+            multi_modal_data = {}
+
+            images = None
+            if self.image_key in row_dict:
+                images = [process_image(image) for image in row_dict.pop(self.image_key)]
+                multi_modal_data["image"] = images
+
+            videos = None
+            if self.video_key in row_dict:
+                videos = [process_video(video) for video in row_dict.pop(self.image_key)]
+                multi_modal_data["video"] = [video.numpy() for video in videos]
+
+            model_inputs = self.processor(
+                text=[raw_prompt],
+                images=images,
+                videos=videos,
+                return_tensors="pt"
+            )
+
+            input_ids = model_inputs.pop("input_ids")
+            attention_mask = model_inputs.pop("attention_mask")
+
+            # second_per_grid_ts isn't a tensor like other multi modal inputs
+            # refactor collate first before adding this
+            if "second_per_grid_ts" in model_inputs:
+                model_inputs.pop("second_per_grid_ts")
+
+            row_dict["multi_modal_data"] = multi_modal_data
             row_dict["multi_modal_inputs"] = dict(model_inputs)
+
         else:
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             model_inputs = self.tokenizer(raw_prompt, return_tensors='pt', add_special_tokens=False)
@@ -196,7 +222,7 @@ class RLHFDataset(Dataset):
                                                             left_pad=True,
                                                             truncation=self.truncation)
 
-        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
+        if self.is_multimodal:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [
@@ -204,9 +230,12 @@ class RLHFDataset(Dataset):
                     self.processor,
                     input_ids=input_ids[0],
                     image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=None,
                     attention_mask=attention_mask[0],
                 )
             ]  # (1, 3, seq_len)
+
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
