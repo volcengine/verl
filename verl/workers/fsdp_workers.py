@@ -1125,9 +1125,11 @@ class RewardModelWorker(Worker):
             max_length = self.config.get('max_length', src_max_length)
             if max_length is None:
                 max_length = src_max_length
-            input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
-                prompt=prompt_with_chat_template,
-                tokenizer=target_tokenizer,
+
+            model_inputs = target_tokenizer(prompt_with_chat_template, return_tensors='pt', add_special_tokens=False)
+            input_ids, attention_mask = verl_F.postprocess_data(
+                input_ids=model_inputs['input_ids'],
+                attention_mask=model_inputs['attention_mask'],
                 max_length=max_length,
                 pad_token_id=target_tokenizer.pad_token_id,
                 left_pad=False,  # right padding

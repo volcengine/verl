@@ -26,11 +26,11 @@ from .decorator import MAGIC_ATTR, Dispatch, get_predefined_dispatch_fn, get_pre
 class ResourcePool:
     """The resource pool with meta info such as world_size."""
 
-    def __init__(self, process_on_nodes=None, max_collocate_count: int = 10, n_gpus_per_node=8) -> None:
+    def __init__(self, process_on_nodes=None, max_colocate_count: int = 10, n_gpus_per_node=8) -> None:
         if process_on_nodes is None:
             process_on_nodes = []
         self._store = process_on_nodes
-        self.max_collocate_count = max_collocate_count
+        self.max_colocate_count = max_colocate_count
         self.n_gpus_per_node = n_gpus_per_node  # this is left for future huawei GPU that contains 16 GPUs per node
 
     def add_node(self, process_count):

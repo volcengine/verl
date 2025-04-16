@@ -187,7 +187,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         batch_p2p_comm=batch_p2p_comm,
         pipeline_dtype=dt,
         params_dtype=dt,
-        sequence_parallel=True,
+        sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
@@ -291,9 +291,143 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
     return os.path.join(checkpoint_path, f"optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
 
 
-def get_rng_states_checkpoint_path(checkpoint_path, data_parallel_random_init=False):
+def get_rng_states_checkpoint_path(checkpoint_path, only_rank0_save=True):
+    # save rng states cause interrupts
     os.makedirs(os.path.join(checkpoint_path, "rng_states"), exist_ok=True)
-    if not data_parallel_random_init:
+    if only_rank0_save:
         return os.path.join(checkpoint_path, f'rng_states', "rng_states.pt")
     dp_rank = mpu.get_data_parallel_rank()
-    return os.path.join(checkpoint_path, f'rng_states', f"rng_states_{dp_rank}.pt")
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    cp_rank = mpu.get_context_parallel_rank()
+    return os.path.join(checkpoint_path, f'rng_states',
+                        f"rng_states_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
+
+
+def convert_megatron_model_to_transformers_model(name,
+                                                 param,
+                                                 config: PretrainedConfig,
+                                                 tp_size: int,
+                                                 num_query_groups: int,
+                                                 convert_qkv_gate_up_by_trunk_concat=False):
+    """Convert megatron model to transformers model."""
+    new_params = {}
+
+    def convert_qkv_shard(full_tensor, q_name, k_name, v_name):
+        nonlocal config
+        nonlocal tp_size
+        nonlocal num_query_groups
+
+        q_shard_list = []
+        k_shard_list = []
+        v_shard_list = []
+        hidden_size_per_head = config.hidden_size // config.num_attention_heads
+
+        if config.num_key_value_heads >= tp_size:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
+            total_size = q_size_tp + 2 * kv_size_tp
+            for i in range(tp_size):
+                num_query_groups_per_partition = num_query_groups // tp_size
+                qkv_part = full_tensor[i * total_size:(i + 1) * total_size]
+                q_size_chunk = q_size_tp // num_query_groups_per_partition
+                kv_size_chunk = kv_size_tp // num_query_groups_per_partition
+                for qkv_part_chunk in qkv_part.chunk(num_query_groups_per_partition):
+                    q_part = qkv_part_chunk[:q_size_chunk]
+                    k_part = qkv_part_chunk[q_size_chunk:q_size_chunk + kv_size_chunk]
+                    v_part = qkv_part_chunk[q_size_chunk + kv_size_chunk:]
+                    q_shard_list.append(q_part)
+                    k_shard_list.append(k_part)
+                    v_shard_list.append(v_part)
+        else:
+            q_size_tp = config.hidden_size // tp_size
+            kv_size_tp = hidden_size_per_head
+            total_size = q_size_tp + 2 * kv_size_tp
+            for i in range(tp_size):
+                num_query_groups_per_partition = num_query_groups // tp_size
+                qkv_part = full_tensor[i * total_size:(i + 1) * total_size]
+                q_size_chunk = q_size_tp // num_query_groups_per_partition
+                kv_size_chunk = kv_size_tp // num_query_groups_per_partition
+                for qkv_part_chunk in qkv_part.chunk(num_query_groups_per_partition):
+                    q_part = qkv_part_chunk[:q_size_chunk]
+                    k_part = qkv_part_chunk[q_size_chunk:q_size_chunk + kv_size_chunk]
+                    v_part = qkv_part_chunk[q_size_chunk + kv_size_chunk:]
+                    q_shard_list.append(q_part)
+                    if i * config.num_key_value_heads % tp_size == 0:
+                        k_shard_list.append(k_part)
+                        v_shard_list.append(v_part)
+
+        new_params[q_name] = torch.cat(q_shard_list, dim=0)
+        new_params[k_name] = torch.cat(k_shard_list, dim=0)
+        new_params[v_name] = torch.cat(v_shard_list, dim=0)
+
+    def convert_gate_up_shard(full_tensor, gate_name, up_name):
+        nonlocal config
+        nonlocal tp_size
+
+        intermediate_size_tp = config.intermediate_size // tp_size
+        gate_weight_list = []
+        up_weight_list = []
+        for i in range(tp_size):
+            gate_up_weight_tp = full_tensor[intermediate_size_tp * 2 * i:intermediate_size_tp * 2 * (i + 1)]
+            gate_weight_tp = gate_up_weight_tp[:intermediate_size_tp]
+            up_weight_tp = gate_up_weight_tp[intermediate_size_tp:]
+            gate_weight_list.append(gate_weight_tp)
+            up_weight_list.append(up_weight_tp)
+
+        new_params[gate_name] = torch.cat(gate_weight_list, dim=0)
+        new_params[up_name] = torch.cat(up_weight_list, dim=0)
+
+    if name == 'embedding.word_embeddings.weight':
+        new_params['model.embed_tokens.weight'] = param
+    elif 'self_attention' in name:
+        splitted_name = name.split('.')
+        layer_number = splitted_name[2]
+        component = splitted_name[4]
+        param_type = splitted_name[5]
+        if component == 'linear_proj':
+            new_params[f'model.layers.{layer_number}.self_attn.o_proj.weight'] = param
+        elif component == 'linear_qkv' and not isinstance(param, list):
+            if param_type == 'layer_norm_weight':
+                new_params[f'model.layers.{layer_number}.input_layernorm.weight'] = param
+            else:
+                if convert_qkv_gate_up_by_trunk_concat:
+                    convert_qkv_shard(param, f'model.layers.{layer_number}.self_attn.q_proj.{param_type}',
+                                      f'model.layers.{layer_number}.self_attn.k_proj.{param_type}',
+                                      f'model.layers.{layer_number}.self_attn.v_proj.{param_type}')
+                else:
+                    new_params[f'model.layers.{layer_number}.self_attn.qkv_proj.{param_type}'] = param
+        else:
+            assert isinstance(param, list) and len(param) == 3
+            assert param_type == 'weight' or param_type == 'bias'
+            new_params[f'model.layers.{layer_number}.self_attn.q_proj.{param_type}'] = param[0]
+            new_params[f'model.layers.{layer_number}.self_attn.k_proj.{param_type}'] = param[1]
+            new_params[f'model.layers.{layer_number}.self_attn.v_proj.{param_type}'] = param[2]
+    elif 'mlp' in name:
+        splitted_name = name.split('.')
+        layer_number = splitted_name[2]
+        component = splitted_name[4]
+        param_type = splitted_name[5]
+        if component == 'linear_fc1' and not isinstance(param, list):
+            if param_type == 'layer_norm_weight':
+                new_params[f'model.layers.{layer_number}.post_attention_layernorm.weight'] = param
+            elif param_type == 'weight':
+                if convert_qkv_gate_up_by_trunk_concat:
+                    convert_gate_up_shard(param, f'model.layers.{layer_number}.mlp.gate_proj.weight',
+                                          f'model.layers.{layer_number}.mlp.up_proj.weight')
+                else:
+                    new_params[f'model.layers.{layer_number}.mlp.gate_up_proj.weight'] = param
+        elif component == 'linear_fc1' and isinstance(param, list):
+            assert len(param) == 2
+            assert param_type == 'weight' or param_type == 'bias'
+            new_params[f'model.layers.{layer_number}.mlp.gate_proj.weight'] = param[0]
+            new_params[f'model.layers.{layer_number}.mlp.up_proj.weight'] = param[1]
+        elif component == 'linear_fc2':
+            new_params[f'model.layers.{layer_number}.mlp.down_proj.weight'] = param
+    elif name == "decoder.final_layernorm.weight":
+        new_params['model.norm.weight'] = param
+    elif name == "output_layer.weight":
+        new_params["lm_head.weight"] = param
+    else:
+        raise ValueError(f"Unknown param name: {name}")
+    return new_params.keys(), new_params.values()
