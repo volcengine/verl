@@ -299,10 +299,15 @@ def load_reward_manager(config, tokenizer, num_examine, take_reward_kwargs):
                               **reward_kwargs)
 
 
-@ray.remote(num_cpus=1)
-def compute_reward_fn(data: DataProto, config, tokenizer):
-    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, take_reward_kwargs=True)
-
+def compute_reward(data: DataProto, reward_fn):
+    """
+    Compute reward for a batch of data.
+    Args:
+        data: DataProto object containing the input data.
+        reward_fn: Reward function to compute the reward.
+    Returns:
+        Tuple of reward tensor and extra info dictionary.
+    """
     try:
         reward_result = reward_fn(data, return_dict=True)
         reward_tensor = reward_result['reward_tensor']
@@ -313,6 +318,16 @@ def compute_reward_fn(data: DataProto, config, tokenizer):
         reward_extra_infos_dict = {}
 
     return reward_tensor, reward_extra_infos_dict
+
+
+@ray.remote(num_cpus=1)
+def compute_reward_asyn(data: DataProto, config, tokenizer):
+    """
+    Load the reward manager and compute the reward for a batch of data.
+    This is meant to be run in a separate Ray worker.
+    """
+    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, take_reward_kwargs=True)
+    return compute_reward(data, reward_fn)
 
 
 class RayPPOTrainer(object):
@@ -966,7 +981,11 @@ class RayPPOTrainer(object):
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
-                        future_reward = compute_reward_fn.remote(batch, self.config, self.tokenizer)
+                        if self.config.reward_model.reward_manager_during_log_prob:
+                            future_reward = compute_reward_asyn.remote(batch, self.config, self.tokenizer)
+                        else:
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.rm_wg)
+
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
@@ -988,7 +1007,8 @@ class RayPPOTrainer(object):
                     with _timer('adv', timing_raw):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        if self.config.reward_model.reward_manager_during_log_prob:
+                            reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch['token_level_scores'] = reward_tensor
 
                         print(f'{list(reward_extra_infos_dict.keys())=}')

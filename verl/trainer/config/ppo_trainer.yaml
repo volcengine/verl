@@ -178,6 +178,7 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  reward_manager_during_log_prob: False # call the reward manager on CPU, during log_prob
 
 custom_reward_function:
   path: null
