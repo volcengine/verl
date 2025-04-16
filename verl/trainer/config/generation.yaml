@@ -44,3 +44,8 @@ actor:
   ulysses_sequence_parallel_size: 1 # sp size
   fsdp_config:
     fsdp_size: -1
+
+multi_model:
+ fsdp_config:
+    wrap_policy:
+      transformer_layer_cls_to_wrap: null

@@ -350,6 +350,7 @@ __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
     "Phi3ForCausalLM": llama_dtensor_weight_loader,
     "GemmaForCausalLM": gemma_dtensor_weight_loader,
     "Gemma2ForCausalLM": gemma_dtensor_weight_loader,
+    "Gemma3ForCausalLM": gemma_dtensor_weight_loader,
     "GPTBigCodeForCausalLM": gptbigcode_dtensor_load_weights,
     "Starcoder2ForCausalLM": starcoder2_dtensor_load_weights,
     "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,

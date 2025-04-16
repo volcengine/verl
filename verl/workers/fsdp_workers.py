@@ -389,6 +389,10 @@ class ActorRolloutRefWorker(Worker):
             else:
                 optim_config = None
                 fsdp_config = OmegaConf.create()
+                if "multi_model" in self.config:
+                    # this is for model like gemma3 which has both text and vision.
+                    fsdp_config = self.config.multi_model.fsdp_config
+
             self.actor_module_fsdp, self.actor_optimizer, self.actor_lr_scheduler, self.actor_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 fsdp_config=fsdp_config,
