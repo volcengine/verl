@@ -202,7 +202,7 @@ reward_model:
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
-  reward_manager_during_log_prob: False # custom reward function async on CPU, during log_prob
+  reward_manager_during_log_prob: False # custom reward function executed async on CPU, during log_prob
 
 custom_reward_function:
   path: null
