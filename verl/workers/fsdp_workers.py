@@ -1052,6 +1052,7 @@ class RewardModelWorker(Worker):
                 output = self.reward_module(input_ids=input_ids_rmpad,
                                             attention_mask=None,
                                             position_ids=position_ids_rmpad,
+                                            **multi_modal_inputs,
                                             use_cache=False)  # prevent model thinks we are generating
                 reward_rmpad = output.logits
                 reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
@@ -1069,6 +1070,7 @@ class RewardModelWorker(Worker):
                 output = self.reward_module(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             position_ids=position_ids,
+                                            **multi_modal_inputs,
                                             use_cache=False)
                 rm_score = output.logits  # (batch_size, seq_len, 1)
                 rm_score = rm_score.squeeze(-1)
