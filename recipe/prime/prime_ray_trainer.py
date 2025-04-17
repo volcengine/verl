@@ -408,8 +408,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                     with _timer('old_log_prob', timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch['entropys']
-                        batch.batch['response_mask'] = compute_response_mask(batch)
-                        response_masks = old_log_prob.batch['response_masks']
+                        response_masks = compute_response_mask(batch)
                         entropy_list = torch.chunk(entropys, batch.batch.batch_size[0], dim=0)
                         response_mask_list = torch.chunk(response_masks, batch.batch.batch_size[0], dim=0)
                         entropy_loss_dict = {}
