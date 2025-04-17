@@ -15,7 +15,7 @@
 """A GPU worker class."""
 import gc
 import os
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional, Tuple, Type, Union, Iterable
 
 import torch
 import torch.distributed
@@ -271,11 +271,11 @@ class Worker(Worker):
         )
 
     # assume the input is .state_dict()
-    def sync_model_weights(self, actor_weights: Dict, load_format: str):
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str):
         if load_format in [LoadFormat.MEGATRON, LoadFormat.AUTO]:
             load_megatron_weights(actor_weights, self.model_runner.model)
         elif load_format == LoadFormat.HF:
-            # full model state dict without no sharding
+            # full model state iterable without no sharding
             load_hf_weights(actor_weights, self.model_runner.model)
         elif load_format == LoadFormat.DTENSOR:
             load_dtensor_weights(actor_weights, self.model_runner.model)
