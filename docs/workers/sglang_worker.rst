@@ -37,7 +37,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
 
 .. code-block:: bash
 
-    export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=True  \
+    export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=True
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
         data.train_files=$HOME/data/gsm8k/train.parquet \
         data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -87,7 +87,7 @@ Why might there be inconsistent GPU memory?
 
 ``verl`` uses Ray-based multi-process, multi-GPU concurrent training. Each ``WorkerDict`` may be called at different times:
 
-::
+.. code-block:: python
 
 self.rollout = SGLangRollout(...)
 
@@ -109,7 +109,7 @@ Although ``SGLangRollout`` may only involve subset of GPUs, its ``VerlEngine`` i
 
 If using:
 
-::
+.. code-block:: bash
 
 actor.fsdp_config.param_offload=True  
 ref.fsdp_config.param_offload=True
