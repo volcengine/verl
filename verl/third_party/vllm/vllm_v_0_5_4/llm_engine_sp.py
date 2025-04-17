@@ -14,7 +14,7 @@
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/engine/llm_engine.py
 
 import torch
-from typing import Dict, Optional, Union, Type
+from typing import Dict, Optional, Union, Type, Iterable
 
 import vllm.envs as envs
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig, EngineConfig, LoRAConfig, MultiModalConfig,
@@ -321,7 +321,7 @@ class LLMEngine(LLMEngine):
         )
         return engine
 
-    def sync_model_weights(self, actor_weights: Dict[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.model_executor.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
     def offload_model_weights(self) -> None:
