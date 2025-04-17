@@ -37,10 +37,9 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.model import load_megatron_model_weights, load_megatron_gptmodel_weights, load_mcore_dist_weights
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.megatron_utils import mcore_model_parallel_config
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
-
+from verl.third_party.vllm import vllm_version
 from codetiming import Timer
 
 from megatron.core import parallel_state as mpu
@@ -134,55 +133,20 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
-    def _build_model_optimizer(self,
-                               model_path,
-                               megatron_config: ModelParallelConfig,
-                               optim_config,
-                               override_model_config,
-                               enable_gradient_checkpointing=False):
+    def _build_model_optimizer(self, model_path, optim_config, override_model_config):
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config, get_generation_config
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
-        from transformers import AutoConfig
+        from verl.utils.model import print_model_size, get_generation_config
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
 
-        # Step 1: initialize the tokenizer
-        local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path)
-
-        # Step 2: get the actor_model_config
-        actor_model_config = AutoConfig.from_pretrained(local_path)
-
-        self.generation_config = get_generation_config(local_path)
-
-        override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
-
-        if self.rank == 0:
-            print(f'Model config after override: {actor_model_config}')
-
-        self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
-        self.architectures = getattr(actor_model_config, "architectures", None)
-
-        tfconfig = convert_config(actor_model_config, megatron_config)
-        if enable_gradient_checkpointing:
-            gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
-            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
-            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
-            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
-        print(f'TF config: {tfconfig}')
-        self.hf_config = actor_model_config
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self.generation_config = get_generation_config(self.local_path)
 
         def megatron_actor_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(
-                tfconfig,
-                actor_model_config,
+            from verl.models.mcore import init_mcore_model
+            parallel_model = init_mcore_model(
+                self.tf_config,
+                self.hf_config,
                 pre_process,
                 post_process,
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
@@ -192,17 +156,9 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
-            # Initialize the 3D HybridEngine
-            hybrid_engine = AllGatherPPModel(
-                model_provider=megatron_actor_model_provider,
-                use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
-            # Fetch the model at current rank
-            actor_module = hybrid_engine.this_rank_models
-            actor_modules_list = []
-            if isinstance(actor_module, nn.ModuleList):
-                for module in actor_module:
-                    actor_modules_list.append(module)
-            actor_module = actor_modules_list
+            actor_module = get_model(megatron_actor_model_provider,
+                                     wrap_with_ddp=True,
+                                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
@@ -211,9 +167,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                                             is_value_model=False)
                 else:
                     load_megatron_gptmodel_weights(self.config,
-                                                   actor_model_config,
+                                                   self.hf_config,
                                                    actor_module,
-                                                   params_dtype=megatron_config.params_dtype,
+                                                   params_dtype=self.dtype,
                                                    is_value_model=False)
 
             if self.rank == 0:
@@ -236,12 +192,12 @@ class ActorRolloutRefWorker(MegatronWorker):
                                             is_value_model=False)
                 else:
                     load_megatron_gptmodel_weights(self.config,
-                                                   actor_model_config,
+                                                   self.hf_config,
                                                    ref_module,
-                                                   params_dtype=megatron_config.params_dtype,
+                                                   params_dtype=self.dtype,
                                                    is_value_model=False)
             log_gpu_memory_usage('After ref module init', logger=logger)
-            return ref_module, actor_model_config
+            return ref_module, self.hf_config
 
         # TODO: add more optimizer args into config
         if self._is_actor:
@@ -253,7 +209,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
 
-        return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
+        return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == 'vllm':
@@ -291,10 +247,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After building vllm rollout', logger=logger)
 
             # perform weight resharding between actor and rollout
-            sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
-                                                           inference_engine=rollout.inference_engine,
+            sharding_manager = MegatronVLLMShardingManager(inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
-                                                           layer_name_mapping=layer_name_mapping)
+                                                           layer_name_mapping=layer_name_mapping,
+                                                           actor_module=self.actor.actor_module)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
             raise NotImplementedError('Only vllmRollout is supported with Megatron now')
@@ -313,32 +269,29 @@ class ActorRolloutRefWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
 
-        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.actor.megatron.get(
-            'sequence_parallel', True),
-                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
-
+        self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:
                 optim_config = self.config.actor.optim
             else:
                 optim_config = None
-            self.actor_module, self.hybrid_engine, self.actor_optimizer, \
+            self.actor_module, self.actor_optimizer, \
             self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
-                megatron_config=megatron_config,
                 optim_config=optim_config,
-                override_model_config=override_model_config,
-                enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False)
+                override_model_config=override_model_config
             )
 
         if self._is_actor:
-            self.actor = MegatronPPOActor(config=self.config.actor,
-                                          model_config=self.actor_model_config,
-                                          megatron_config=megatron_config,
-                                          actor_module=self.actor_module,
-                                          actor_optimizer=self.actor_optimizer,
-                                          actor_optimizer_config=self.actor_optim_config)
+            self.actor = MegatronPPOActor(
+                config=self.config.actor,
+                model_config=self.actor_model_config,
+                hf_config=self.hf_config,
+                tf_config=self.tf_config,
+                actor_module=self.actor_module,
+                actor_optimizer=self.actor_optimizer,
+            )
 
         if self._is_rollout:
             self.rollout, self.sharding_manager = self._build_rollout(
@@ -347,16 +300,15 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_ref:
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
-                megatron_config=megatron_config,
                 optim_config=None,
                 override_model_config=override_model_config,
-                enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
+            )
             self.ref_policy = MegatronPPOActor(config=self.config.ref,
                                                model_config=self.ref_model_config,
-                                               megatron_config=megatron_config,
+                                               hf_config=self.hf_config,
+                                               tf_config=self.tf_config,
                                                actor_module=self.ref_module,
-                                               actor_optimizer=None,
-                                               actor_optimizer_config=None)
+                                               actor_optimizer=None)
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -443,7 +395,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output = self.ref_policy.compute_log_prob(data=data)
+        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={'ref_log_prob': output})
         output = output.to('cpu')
         if self._is_offload_param:
@@ -459,8 +411,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs = self.actor.compute_log_prob(data=output)
+        old_log_probs, entropys = self.actor.compute_log_prob(data=output, calculate_entropy=True)
         output.batch['old_log_probs'] = old_log_probs
+        output.batch['entropys'] = entropys
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
@@ -526,53 +479,22 @@ class CriticWorker(MegatronWorker):
 
         # TODO(sgm): support critic model offload
 
-    def _build_critic_model_optimizer(self,
-                                      model_path,
-                                      megatron_config: ModelParallelConfig,
-                                      optim_config,
-                                      override_model_config,
-                                      enable_gradient_checkpointing=False):
+    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.model import print_model_size
         from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, convert_config
-        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
 
-        # Step 1: initialize the tokenizer
-        local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path)
-
-        # Step 2: get the critic_model_config
-        critic_model_config = AutoConfig.from_pretrained(local_path)
-
-        override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config)
-        self.share_embeddings_and_output_weights = getattr(critic_model_config, "tie_word_embeddings", False)
-        update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
-        self.architectures = getattr(critic_model_config, "architectures", None)
-        if self.rank == 0:
-            print(f'Model config after override: {critic_model_config}')
-        tfconfig = convert_config(critic_model_config, megatron_config)
-        if enable_gradient_checkpointing:
-            gradient_checkpointing_cfg = dict(self.config.model.get('gradient_checkpointing_kwargs', dict()))
-            tfconfig.recompute_method = gradient_checkpointing_cfg['activations_checkpoint_method']
-            tfconfig.recompute_granularity = gradient_checkpointing_cfg['activations_checkpoint_granularity']
-            tfconfig.recompute_num_layers = gradient_checkpointing_cfg['activations_checkpoint_num_layers']
-        print(f'Critic TF config: {tfconfig}')
-        self.hf_config = critic_model_config
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
 
         def megatron_critic_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(tfconfig,
-                                                               critic_model_config,
-                                                               pre_process,
-                                                               post_process,
-                                                               share_embeddings_and_output_weights=False,
-                                                               value=True)
+            from verl.models.mcore import init_mcore_model
+            parallel_model = init_mcore_model(self.tf_config,
+                                              self.hf_config,
+                                              pre_process,
+                                              post_process,
+                                              share_embeddings_and_output_weights=False,
+                                              value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -593,9 +515,9 @@ class CriticWorker(MegatronWorker):
                                         is_value_model=True)
             else:
                 load_megatron_gptmodel_weights(self.config,
-                                               critic_model_config,
+                                               self.hf_config,
                                                critic_module,
-                                               params_dtype=megatron_config.params_dtype,
+                                               params_dtype=self.dtype,
                                                is_value_model=True)
             t1 = time.time()
             if torch.distributed.get_rank() == 0:
@@ -607,7 +529,7 @@ class CriticWorker(MegatronWorker):
         optim_config = init_megatron_optim_config(optim_config)
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config)
         torch.cuda.empty_cache()
-        return critic_module, critic_optimizer, critic_model_config, optim_config
+        return critic_module, critic_optimizer, self.hf_config, optim_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -621,19 +543,15 @@ class CriticWorker(MegatronWorker):
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
         self.param_dtype = torch.bfloat16
-
-        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.megatron.get(
-            'sequence_parallel', True),
-                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
+        self.dtype = PrecisionType.to_dtype(self.param_dtype)
         self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
-            megatron_config=megatron_config,
             optim_config=self.config.optim,
-            override_model_config=override_model_config,
-            enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False))
+            override_model_config=override_model_config)
         self.critic = MegatronPPOCritic(config=self.config,
                                         model_config=self.critic_model_config,
-                                        megatron_config=megatron_config,
+                                        hf_config=self.hf_config,
+                                        tf_config=self.tf_config,
                                         critic_module=self.critic_module,
                                         critic_optimizer=self.critic_optimizer,
                                         critic_optimizer_config=critic_optimizer_config)
@@ -728,42 +646,22 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
+    def _build_rm_model(self, model_path, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import update_model_config
-        from verl.utils.megatron_utils import get_model
-        from transformers import AutoConfig
+        from verl.utils.model import print_model_size
+        from verl.utils.megatron.optimizer import get_megatron_optimizer
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
 
-        # Step 1: initialize the tokenizer
-        local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path)
-
-        # Step 2: get the actor_model_config
-        rm_model_config = AutoConfig.from_pretrained(local_path)
-
-        override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(rm_model_config, override_config_kwargs=override_config_kwargs)
-
-        if self.rank == 0:
-            print(f'Model config after override: rm_model_config {rm_model_config}')
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
 
         def megatron_rm_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_model_from_config
-            # vpp is not supported yet because it will hang for some reason. Need debugging
-            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
-            # this_megatron_config = copy.deepcopy(megatron_config)
-            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(config=rm_model_config,
-                                                            megatron_config=megatron_config,
-                                                            pre_process=pre_process,
-                                                            post_process=post_process,
-                                                            share_embeddings_and_output_weights=False,
-                                                            value=True)
+            from verl.models.mcore import init_mcore_model
+            parallel_model = init_mcore_model(self.tf_config,
+                                              self.hf_config,
+                                              pre_process,
+                                              post_process,
+                                              share_embeddings_and_output_weights=False,
+                                              value=True)
             parallel_model.cuda()
             return parallel_model
 
@@ -777,15 +675,18 @@ class RewardModelWorker(MegatronWorker):
         # reward_model = nn.ModuleList(reward_model)
 
         if self.config.load_weight:
-            load_megatron_model_weights(self.config,
-                                        rm_model_config,
-                                        reward_model,
-                                        params_dtype=megatron_config.params_dtype,
-                                        is_value_model=True)
+            if self.config.megatron.use_dist_checkpointing:
+                load_mcore_dist_weights(reward_model, self.config.megatron.dist_checkpointing_path, is_value_model=True)
+            else:
+                load_megatron_gptmodel_weights(self.config,
+                                               self.hf_config,
+                                               reward_model,
+                                               params_dtype=self.dtype,
+                                               is_value_model=True)
 
         # TODO: add more optimizer args into config
         torch.cuda.empty_cache()
-        return reward_model, rm_model_config
+        return reward_model, self.hf_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -808,14 +709,10 @@ class RewardModelWorker(MegatronWorker):
             rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path)
 
         self.param_dtype = torch.bfloat16
-
-        megatron_config = mcore_model_parallel_config(sequence_parallel=self.config.megatron.get(
-            'sequence_parallel', True),
-                                                      params_dtype=PrecisionType.to_dtype(self.param_dtype))
+        self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
-            megatron_config=megatron_config,
             override_model_config=override_model_config,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
@@ -823,7 +720,8 @@ class RewardModelWorker(MegatronWorker):
         self.rm = MegatronRewardModel(config=self.config,
                                       reward_model_module=reward_model_module,
                                       model_config=reward_model_config,
-                                      megatron_config=megatron_config,
+                                      hf_config=self.hf_config,
+                                      tf_config=self.tf_config,
                                       sft_tokenizer=sft_tokenizer,
                                       rm_tokenizer=rm_tokenizer)
 
