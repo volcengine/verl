@@ -22,12 +22,14 @@ from vllm.model_executor.models.utils import is_pp_missing_parameter
 
 import re
 
+
 def get_layer_index(layer_name: str) -> int:
     pattern = r"layers\.(\d+)"
     match = re.search(pattern, layer_name)
     if match:
         return int(match.group(1))
     raise ValueError(f"Unable to parse layer index from '{layer_name}'")
+
 
 def patched_ds_v3_load_weights(model: nn.Module, weights: Iterable[Tuple[str, torch.Tensor]]) -> Set[str]:
 
@@ -38,8 +40,6 @@ def patched_ds_v3_load_weights(model: nn.Module, weights: Iterable[Tuple[str, to
                 if weight_name.startswith(f"model.layers.{layer_idx+i}."):
                     return layer_idx + i
         return None
-
-    
 
     stacked_params_mapping = [
         ("gate_up_proj", "gate_proj", 0),
@@ -113,8 +113,8 @@ def patched_ds_v3_load_weights(model: nn.Module, weights: Iterable[Tuple[str, to
             loaded_params.add(name)
     return loaded_params
 
-def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str,
-                                                   torch.Tensor]]) -> Set[str]:
+
+def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str, torch.Tensor]]) -> Set[str]:
     stacked_params_mapping = [
         # (param_name, shard_name, shard_id)
         ("qkv_proj", "q_proj", "q"),
@@ -126,11 +126,10 @@ def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str,
 
     # Params for weights, fp8 weight scales, fp8 activation scales
     # (param_name, weight_name, expert_id, shard_id)
-    expert_params_mapping = FusedMoE.make_expert_params_mapping(
-        ckpt_gate_proj_name="gate_proj",
-        ckpt_down_proj_name="down_proj",
-        ckpt_up_proj_name="up_proj",
-        num_experts=model.config.num_experts)
+    expert_params_mapping = FusedMoE.make_expert_params_mapping(ckpt_gate_proj_name="gate_proj",
+                                                                ckpt_down_proj_name="down_proj",
+                                                                ckpt_up_proj_name="up_proj",
+                                                                num_experts=model.config.num_experts)
 
     params_dict = dict(model.named_parameters())
     loaded_params: Set[str] = set()
@@ -151,8 +150,7 @@ def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str,
                 continue
             name = name.replace(weight_name, param_name)
             # Skip loading extra bias for GPTQ models.
-            if ((name.endswith(".bias") or name.endswith("_bias"))
-                    and name not in params_dict):
+            if ((name.endswith(".bias") or name.endswith("_bias")) and name not in params_dict):
                 continue
             # Skip layers on other devices.
             if is_pp_missing_parameter(name, model):
@@ -174,39 +172,31 @@ def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str,
                 if is_pp_missing_parameter(name, model):
                     continue
                 # Skip loading extra bias for GPTQ models.
-                if ((name.endswith(".bias") or name.endswith("_bias"))
-                        and name not in params_dict):
+                if ((name.endswith(".bias") or name.endswith("_bias")) and name not in params_dict):
                     continue
                 # custom weight_loader
                 layer_idx = get_layer_index(name)
                 weight_loader = model.model.layers[layer_idx].mlp.experts.weight_loader
                 # replace
                 # weight_loader = param.weight_loader
-                weight_loader(param,
-                                loaded_weight,
-                                name,
-                                shard_id=shard_id,
-                                expert_id=expert_id)
+                weight_loader(param, loaded_weight, name, shard_id=shard_id, expert_id=expert_id)
                 break
             else:
                 # Skip loading extra bias for GPTQ models.
-                if ((name.endswith(".bias") or name.endswith("_bias"))
-                        and name not in params_dict):
+                if ((name.endswith(".bias") or name.endswith("_bias")) and name not in params_dict):
                     continue
                 # Skip layers on other devices.
                 if is_pp_missing_parameter(name, model):
                     continue
                 # Remapping the name of FP8 kv-scale.
                 if name.endswith("kv_scale"):
-                    remapped_kv_scale_name = name.replace(
-                        ".kv_scale", ".attn.kv_scale")
+                    remapped_kv_scale_name = name.replace(".kv_scale", ".attn.kv_scale")
                     if remapped_kv_scale_name not in params_dict:
                         continue
                     else:
                         name = remapped_kv_scale_name
                 param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader",
-                                        default_weight_loader)
+                weight_loader = getattr(param, "weight_loader", default_weight_loader)
                 weight_loader(param, loaded_weight)
         loaded_params.add(name)
     return loaded_params
