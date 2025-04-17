@@ -256,6 +256,7 @@ class SGLangRollout(BaseRollout):
         image_list = [input_data.get('image_data', None) for input_data in sglang_inputs]
 
         do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get('validate', False)
         if not do_sample:
             kwargs = dict(
                 n=1,
@@ -289,7 +290,7 @@ class SGLangRollout(BaseRollout):
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-        if self.config.n > 1 and do_sample:
+        if self.config.n > 1 and do_sample and not is_validate:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
