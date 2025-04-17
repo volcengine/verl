@@ -93,16 +93,20 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             lora_params = OrderedDict()
             with FSDP.summon_full_params(self.module):
                 self.module.merge_adapter()
-                params = self.module._fsdp_wrapped_module.base_model.model.state_dict()
-                for name, param in params.items():
+                base_model = self.module._fsdp_wrapped_module.base_model.model
+                # don't use model.state_dict() to avoid OOM
+                for name, param in base_model.named_parameters():
+                    if ".lora_" in name:
+                        continue
+                    
+                    clean_name = name.replace(".base_layer.", ".").replace("._fsdp_wrapped_module.",".")
                     if hasattr(param, 'full_tensor'):
-                        param = param.full_tensor()
+                        tensor = param.full_tensor().detach().cpu()
                     else:
-                        param = param.clone()
-                    lora_params[name] = param
-                
-            # FIXME: use more rigorous way to filter out the adapter weights
-            params = OrderedDict((k.replace(".base_layer.", "."), v) for k, v in lora_params.items() if not ".lora_" in k)
+                        tensor = param.detach().cpu().clone()
+                    lora_params[clean_name] = tensor
+
+            params = lora_params  
         else:
             params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
@@ -127,12 +131,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
-            else:
-                self.inference_engine.wake_up()
-                self.update_params(params)
-                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
-                del params
-        
+
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
             with FSDP.summon_full_params(self.module):
                 self.module.unmerge_adapter()
