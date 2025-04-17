@@ -123,6 +123,7 @@ def compute_data_metrics(batch, use_critic=True):
     }
     return metrics
 
+
 def compute_response_mask(data: DataProto):
     responses = data.batch['responses']
     response_length = responses.size(1)
