@@ -498,10 +498,22 @@ class RayPPOTrainer(object):
             return
 
         # Extract inputs, outputs and scores from the batch
-        input_ids = batch.batch['input_ids']
-        input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+        if 'raw_prompt_ids' in batch.non_tensor_batch:
+            raw_prompt_ids = batch.non_tensor_batch['raw_prompt_ids']
+            # Ensure it's a list of lists/tensors before decoding
+            if isinstance(raw_prompt_ids, (list, np.ndarray)) and len(raw_prompt_ids) > 0:
+                 input_texts = self.tokenizer.batch_decode(raw_prompt_ids, skip_special_tokens=True)
+            else:
+                 print(f"Warning: 'raw_prompt_ids' in non_tensor_batch is not a valid list/array: {type(raw_prompt_ids)}. Falling back to decoding input_ids.")
+                 input_ids = batch.batch['input_ids']
+                 input_texts = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+        else:
+            print(f"Warning: 'raw_prompt_ids' not found in non_tensor_batch. Falling back to decoding input_ids for logging.")
+            input_ids = batch.batch['input_ids']
+            input_texts = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+
         output_ids = batch.batch['responses']
-        output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+        output_texts = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
         # Assuming token_level_scores exist in the batch after reward calculation
         scores = batch.batch['token_level_scores'].sum(-1).cpu().tolist()
 
@@ -511,8 +523,13 @@ class RayPPOTrainer(object):
 
         self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch)
 
-    def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None):
-        """Log a table of validation samples to the configured logger (wandb or swanlab)"""
+    def _maybe_log_val_generations(self, batch: DataProto, epoch=None):
+        """
+        Log a table of validation samples to the configured logger (wand, mlflow, swanlab or database)
+        Args:
+            batch: The DataProto object containing the batch data, including 'input_ids',
+                   'responses', and 'token_level_scores'.
+            epoch: The current epoch number."""
 
         generations_to_log = self.config.trainer.logger_kwargs.log_val_generations
         num_generations_to_log = self.config.trainer.logger_kwargs.num_log_val_generations
@@ -521,6 +538,34 @@ class RayPPOTrainer(object):
             return
 
         import numpy as np
+
+        # Extract inputs, outputs and scores from the batch
+        if 'raw_prompt_ids' in batch.non_tensor_batch:
+            raw_prompt_ids = batch.non_tensor_batch['raw_prompt_ids']
+             # Ensure it's a list of lists/tensors before decoding
+            if isinstance(raw_prompt_ids, (list, np.ndarray)) and len(raw_prompt_ids) > 0:
+                 inputs = self.tokenizer.batch_decode(raw_prompt_ids, skip_special_tokens=True)
+            else:
+                 print(f"Warning: 'raw_prompt_ids' in non_tensor_batch is not a valid list/array: {type(raw_prompt_ids)}. Falling back to decoding input_ids.")
+                 input_ids = batch.batch['input_ids']
+                 inputs = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+        else:
+            print(f"Warning: 'raw_prompt_ids' not found in non_tensor_batch. Falling back to decoding input_ids for validation logging.")
+            input_ids = batch.batch['input_ids']
+            inputs = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+
+        output_ids = batch.batch['responses']
+        outputs = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        # Assuming token_level_scores exist in the batch after reward calculation
+        if 'token_level_scores' in batch.batch:
+             scores = batch.batch['token_level_scores'].sum(-1).cpu().tolist()
+        # Fallback if reward_tensor is directly available
+        elif 'reward_tensor' in batch.batch: 
+             scores = batch.batch['reward_tensor'].sum(-1).cpu().tolist()
+        else:
+             print("Warning: Neither 'token_level_scores' nor 'reward_tensor' found in batch for validation logging.")
+             scores = [0.0] * len(inputs) # Placeholder scores
+
 
         # Create tuples of (input, output, score) and sort by input text
         samples = list(zip(inputs, outputs, scores))
@@ -540,27 +585,10 @@ class RayPPOTrainer(object):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
-        # Lists to collect samples for the table
-        sample_inputs = []
-        sample_outputs = []
-        sample_scores = []
+        all_val_batches = [] # Collect batches to log at the end
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
-
-            # repeat test batch
-            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
-                                           interleave=True)
-
-            # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
-                return {}
-
-            # Store original inputs
-            input_ids = test_batch.batch['input_ids']
-            # TODO: Can we keep special tokens except for padding tokens?
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
 
             if 'multi_modal_inputs' in test_batch.non_tensor_batch.keys():
                 test_gen_batch = test_batch.pop(
@@ -590,18 +618,14 @@ class RayPPOTrainer(object):
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
 
-            # Store generated outputs
-            output_ids = test_output_gen_batch.batch['responses']
-            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-            sample_outputs.extend(output_texts)
-
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
+            # Add reward tensor to batch for logging
+            test_batch.batch['reward_tensor'] = reward_tensor
             scores = reward_tensor.sum(-1).cpu().tolist()
-            sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
             if "reward_extra_info" in result:
@@ -609,34 +633,46 @@ class RayPPOTrainer(object):
                     reward_extra_infos_dict[key].extend(lst)
 
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+            all_val_batches.append(test_batch) # Collect the batch
 
-        self._maybe_log_val_generations(inputs=sample_inputs,
-                                        outputs=sample_outputs,
-                                        scores=sample_scores,
-                                        epoch=epoch)
+        # Combine all validation batches into one DataProto for logging
+        if all_val_batches:
+            combined_val_batch = DataProto.concat(all_val_batches)
+            # Extract necessary info again for process_validation_metrics
+            final_input_ids = combined_val_batch.batch['input_ids']
+            final_input_texts = self.tokenizer.batch_decode(final_input_ids, skip_special_tokens=True)
+            final_scores = combined_val_batch.batch['reward_tensor'].sum(-1).cpu().tolist()
 
-        for key_info, lst in reward_extra_infos_dict.items():
-            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
+            self._maybe_log_val_generations(batch=combined_val_batch, epoch=epoch)
 
-        data_sources = np.concatenate(data_source_lst, axis=0)
+            for key_info, lst in reward_extra_infos_dict.items():
+                assert len(lst) == 0 or len(lst) == len(final_scores), f"{key_info}: {len(lst)=}, {len(final_scores)=}"
 
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
-        metric_dict = {}
-        for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "reward"
-            for var_name, metric2val in var2metric2val.items():
-                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
-                for metric_name, metric_val in metric2val.items():
-                    if var_name == core_var and any(
-                            metric_name.startswith(pfx)
-                            for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
-                        metric_sec = "val-core"
-                    else:
-                        metric_sec = "val-aux"
-                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
-                    metric_dict[pfx] = metric_val
+            data_sources = np.concatenate(data_source_lst, axis=0)
 
-        return metric_dict
+            data_src2var2metric2val = process_validation_metrics(data_sources, final_input_texts, reward_extra_infos_dict)
+            metric_dict = {}
+            for data_source, var2metric2val in data_src2var2metric2val.items():
+                core_var = "acc" if "acc" in var2metric2val else "reward"
+                for var_name, metric2val in var2metric2val.items():
+                    # Handle cases where metric2val might be empty if validation fails or yields no metrics
+                    if not metric2val:
+                        print(f"Warning: No metrics found for {data_source}/{var_name}")
+                        continue
+                    n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                    for metric_name, metric_val in metric2val.items():
+                        if var_name == core_var and any(
+                                metric_name.startswith(pfx)
+                                for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
+                            metric_sec = "val-core"
+                        else:
+                            metric_sec = "val-aux"
+                        pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
+                        metric_dict[pfx] = metric_val
+
+            return metric_dict
+        else:
+            return {} # Return empty dict if no validation batches were processed
 
     def init_workers(self):
         """Init resource pool and worker group"""
