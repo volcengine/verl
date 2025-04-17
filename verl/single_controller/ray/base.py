@@ -15,6 +15,7 @@
 import logging
 import time
 from typing import Dict, List, Any, Tuple, Optional
+import functools
 
 import ray
 from ray.util import list_named_actors
@@ -192,7 +193,11 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         # print("args: ", self.args)
         # print("kwargs: ", self.kwargs)
         return self.cls.options(**options).remote(*self.args, **self.kwargs)
-
+    
+    def _unwrap(self):
+        if hasattr(self.cls, '__ray_actor_class__'):
+            return self.cls.__ray_actor_class__
+        return self.cls
 
 class RayWorkerGroup(WorkerGroup):
 
@@ -451,49 +456,51 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
                 raise ValueError(f'Fail to set method_name {method_name}')
 
 
-def _unwrap_ray_remote(cls):
-    if hasattr(cls, '__ray_actor_class__'):
-        cls = cls.__ray_actor_class__
-    return cls
-
-
 def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     """
     This function should return a class instance that delegates the calls to every 
     cls in cls_dict
     """
-    cls_dict = {}
-    init_args_dict = {}
-    worker_cls = None
-    for key, cls in class_dict.items():
-        if worker_cls == None:
-            worker_cls = cls.cls.__ray_actor_class__.__base__
-        else:
-            assert worker_cls == cls.cls.__ray_actor_class__.__base__, \
-                'the worker class should be the same when share the same process'
-        cls_dict[key] = cls.cls
-        init_args_dict[key] = {'args': cls.args, 'kwargs': cls.kwargs}
-
-    assert cls_dict.keys() == init_args_dict.keys()
+    # validate constraint
+    assert len(class_dict) > 0, "class_dict should not be empty"
+    base_cls_list = [ray_cls._unwrap().__base__ for _, ray_cls in class_dict.items()]
+    base_cls = base_cls_list[0]
+    assert all(x is base_cls_list[0] for x in base_cls_list), "all classes should have the same base class"
 
     # TODO: create a class with customizable name
-    class WorkerDict(worker_cls):
+    class WorkerDict(base_cls):
 
         def __init__(self):
             super().__init__()
             self.worker_dict = {}
-            for key, user_defined_cls in cls_dict.items():
-                user_defined_cls = _unwrap_ray_remote(user_defined_cls)
+            for key, ray_cls in class_dict.items():
+                user_cls = ray_cls._unwrap()
                 # directly instantiate the class without remote
                 # in worker class, e.g. <verl.single_controller.base.worker.Worker> when DISABLE_WORKER_INIT == 1 it will return immediately
                 with patch.dict(os.environ, {'DISABLE_WORKER_INIT': '1'}):
-                    self.worker_dict[key] = user_defined_cls(*init_args_dict[key].get('args', ()),
-                                                             **init_args_dict[key].get('kwargs', {}))
+                    self.worker_dict[key] = user_cls(*ray_cls.args, **ray_cls.kwargs)
+        
+        @functools.cached_property
+        def _repr(self):
+            """
+            use `set()` instead of `list()`, because hybrid engine gives
+            `clas_dict = {'ref': ActorRollout, 'actor_rollout': ActorRollout}`
+            """
+            names = set(str(user_cls) for _, user_cls in self.worker_dict.items())
+            joined_names = ','.join(names)
+            return "WorkerDict[{name}]".format(name=joined_names)
+        
+        def __repr__(self):
+            """
+            this support print(...) in ray Actor.
+            see https://docs.ray.io/en/latest/ray-observability/user-guides/configure-logging.html#customizing-prefixes-for-actor-logs
+            """
+            return self._repr
 
     # now monkey-patch the methods from inner class to WorkerDict
-    for key, user_defined_cls in cls_dict.items():
-        user_defined_cls = _unwrap_ray_remote(user_defined_cls)
-        _bind_workers_method_to_parent(WorkerDict, key, user_defined_cls)
+    for key, ray_cls in class_dict.items():
+        user_cls = ray_cls._unwrap()
+        _bind_workers_method_to_parent(WorkerDict, key, user_cls)
 
     remote_cls = ray.remote(WorkerDict)
     remote_cls = RayClassWithInitArgs(cls=remote_cls)
