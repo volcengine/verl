@@ -86,8 +86,10 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         attention_backend=AttnBackend.flash,
+        # attention_backend=AttnBackend.fused,
         bf16=dtype is torch.bfloat16,
         layernorm_epsilon=hf_config.rms_norm_eps,
+        ffn_hidden_size=hf_config.intermediate_size,
 
         # parallel config
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
@@ -99,25 +101,33 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
 
         # moe specific
-        ffn_hidden_size=hf_config.moe_intermediate_size,
+        moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_token_dispatcher_type="alltoall",
         moe_router_bias_update_rate=0.001,
         moe_router_topk=hf_config.num_experts_per_tok,
         num_moe_experts=hf_config.num_experts,
         moe_shared_expert_intermediate_size=hf_config.shared_expert_intermediate_size,
-        # moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
-        moe_aux_loss_coeff=0.0,
+        moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
+        # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="aux_loss",
-        moe_router_pre_softmax=False,  #?
         moe_shared_expert_overlap=True,
-        # moe_permute_fusion=True,
+        # moe_permute_fusion=True, # need TE 2.1+
         moe_grouped_gemm=True,
+        moe_router_score_function="softmax",
 
-        # mcore 0.12
-        moe_router_dtype="fp64",
-        disable_bf16_reduced_precision_matmul=True,
+        # # mcore 0.12 moe
+        # moe_router_dtype="fp64",
+        # disable_bf16_reduced_precision_matmul=True,
+
+        # other
+        # deallocate_pipeline_outputs=True,
+        # gradient_accumulation_fusion=True,
+        persist_layer_norm=True,
+        bias_activation_fusion=True,
+        bias_dropout_fusion=True,
 
         # qwen specific
+        moe_router_pre_softmax=True,
         add_qkv_bias=True)
     return transformer_config
 

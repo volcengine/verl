@@ -21,7 +21,8 @@ def init_mcore_model_dense(tfconfig,
                            pre_process=None,
                            post_process=None,
                            share_embeddings_and_output_weights=False,
-                           value=False):
+                           value=False,
+                           **extra_kwargs):
     # for LlamaForCausalLM, Qwen2ForCausalLM
     from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
@@ -53,11 +54,15 @@ def init_mcore_model_qwen2_moe(tfconfig,
                                pre_process=None,
                                post_process=None,
                                share_embeddings_and_output_weights=False,
-                               value=False):
+                               value=False,
+                               freeze_moe_router=True,
+                               **extra_kwargs):
 
     from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
     use_te = True
+    if freeze_moe_router:
+        tfconfig.moe_router_load_balancing_type = "none"
 
     def patch_layer_spec(transformer_layer_spec):
         # shared_experts.gate=True
@@ -82,6 +87,10 @@ def init_mcore_model_qwen2_moe(tfconfig,
                      position_embedding_type='rope',
                      rotary_base=hf_config.rope_theta,
                      **rope_scaling_args)
+    if freeze_moe_router:
+        for layer in model.decoder.layers:
+            layer.mlp.router.weight.requires_grad = False
+            layer.mlp.shared_experts.gate_weight.requires_grad = False
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
         model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
@@ -93,9 +102,10 @@ def init_mcore_model_llama4(tfconfig,
                             pre_process=None,
                             post_process=None,
                             share_embeddings_and_output_weights=False,
-                            value=False):
+                            value=False,
+                            **extra_kwargs):
     return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights,
-                                  value)
+                                  value, **extra_kwargs)
 
 
 def init_mcore_model_dpskv3(tfconfig,
@@ -103,9 +113,10 @@ def init_mcore_model_dpskv3(tfconfig,
                             pre_process=None,
                             post_process=None,
                             share_embeddings_and_output_weights=False,
-                            value=False):
+                            value=False,
+                            **extra_kwargs):
     return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights,
-                                  value)
+                                  value, **extra_kwargs)
 
 
 def init_mcore_model_qwen2_5_vl(tfconfig,
@@ -113,6 +124,7 @@ def init_mcore_model_qwen2_5_vl(tfconfig,
                                 pre_process=None,
                                 post_process=None,
                                 share_embeddings_and_output_weights=False,
-                                value=False):
+                                value=False,
+                                **extra_kwargs):
     # Qwen2_5_VLForConditionalGeneration
     raise NotImplementedError("VLM is not supported yet")

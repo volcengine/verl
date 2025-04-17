@@ -46,7 +46,7 @@ def init_mcore_model(
         post_process=None,
         share_embeddings_and_output_weights=False,
         value=False,
-        **extra_kwargs  # may be used for vlm
+        **extra_kwargs  # may be used for vlm and moe
 ) -> nn.Module:
     MODEL_INITIALIZER_REGISTRY = {
         "LlamaForCausalLM": init_mcore_model_dense,
