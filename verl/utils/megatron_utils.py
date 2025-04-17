@@ -490,6 +490,8 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     obj_output = [None] * torch.distributed.get_world_size(group=mpu.get_pipeline_model_parallel_group())
     obj_output[0] = target_obj
-    torch.distributed.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
+    torch.distributed.broadcast_object_list(object_list=obj_output,
+                                            src=global_rank,
+                                            group=mpu.get_pipeline_model_parallel_group())
 
     return obj_output[0]

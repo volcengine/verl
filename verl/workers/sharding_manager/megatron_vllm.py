@@ -252,9 +252,7 @@ import inspect
 from torch import nn
 import torch.distributed
 from torch.distributed import new_group
-from torch.distributed._tensor import DTensor
 from typing import Dict, Iterable, Union, Tuple
-import numpy as np
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
@@ -263,7 +261,6 @@ import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.third_party.vllm import vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.third_party.vllm import LLM
-from packaging import version
 from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
@@ -313,6 +310,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 _MICRO_DATA_PARALLEL_GROUP = group
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
+        """
+        convert_qkv_gate_up_by_simple_split is a parameter affected by the vLLM version.
+        """
         from megatron.core import parallel_state as mpu
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -329,19 +329,21 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 for name, param in self.actor_module[scan_vpp_idx].named_parameters():
                     yield name, param
 
+        # we need first make all rank get full model information
         meta_info = []
         for scan_vpp_idx in range(vpp_size):
-            for idx, (name, param) in enumerate(self.actor_module[scan_vpp_idx].named_parameters()):
+            for idx, (name, _) in enumerate(self.actor_module[scan_vpp_idx].named_parameters()):
                 meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
-        tensor_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-        torch.distributed.all_gather_object(object_list=tensor_spec_output,
+        obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+        torch.distributed.all_gather_object(object_list=obj_spec_output,
                                             obj=meta_info,
                                             group=mpu.get_pipeline_model_parallel_group())
-        layer_list_meta = [item for sublist in tensor_spec_output for item in sublist]
+        layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
         gen_func = tensor_generator()
 
+        # lazy load tensor for full model
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
             if cur_pp_rank == pp_rank:
                 try:
@@ -353,31 +355,37 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             else:
                 cur_tensor, cur_name = None, None
 
+            # pp broadcast model tensor and name
             cur_name = broadcast_str_from_megatron_pp(cur_name)
-            broad_pp_t = broadcast_from_megatron_pp(cur_tensor)
+            broad_pp_tensor = broadcast_from_megatron_pp(cur_tensor)
+
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
                 cur_name = cur_name[len("module."):]
 
-            if tp_utils.is_tensor_parallel_param(broad_pp_t):
+            # tp all gather
+            if tp_utils.is_tensor_parallel_param(broad_pp_tensor):
                 # allocate a new tensor with proper size
                 if all_gather_group_size <= 1:
-                    infer_params = [broad_pp_t]
+                    infer_params = [broad_pp_tensor]
                 else:
-                    infer_params = [torch.empty_like(broad_pp_t) for _ in range(all_gather_group_size)]
-                    torch.distributed.all_gather(infer_params, broad_pp_t, group=mpu.get_tensor_model_parallel_group())
-                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_t, infer_params, self.model_config,
+                    infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
+                    torch.distributed.all_gather(infer_params,
+                                                 broad_pp_tensor,
+                                                 group=mpu.get_tensor_model_parallel_group())
+                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_tensor, infer_params, self.model_config,
                                                          convert_qkv_gate_up_by_simple_split)
             else:
-                infer_params = broad_pp_t
+                infer_params = broad_pp_tensor
 
+            # change megatron tensor name to hf model name
             converted_names, converted_params = convert_megatron_model_to_transformers_model(
                 cur_name,
                 infer_params,
                 self.model_config,
                 self.train_tp_size,
-                0,
-                convert_qkv_gate_up_by_trunk_concat=False)
+                0,  # no impact
+                convert_qkv_gate_up_by_trunk_concat=False)  # defualt false
 
             for converted_name, infer_param in zip(converted_names, converted_params):
                 yield converted_name, infer_param
@@ -483,7 +491,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __enter__(self):
         if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            per_tensor_param = self.per_tensor_generator(False)
+            per_tensor_param = self.per_tensor_generator(convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
         else:
             # > 0.7.2
