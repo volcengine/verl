@@ -47,7 +47,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         device_mesh: DeviceMesh = None,
     ):
         self.module = module
+        # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
+        self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
         self.model_config = model_config
         self.device_mesh = device_mesh
 
@@ -64,8 +66,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 state_dict_config=ShardedStateDictConfig(),
             )
 
-        self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
-        self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
+        self.tp_size = self.device_mesh["infer_tp"].size()
+        self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
@@ -182,7 +184,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
     def update_params(self, updated_params):
-        model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
         loaded_params = model.load_weights(

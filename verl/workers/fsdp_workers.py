@@ -349,27 +349,24 @@ class ActorRolloutRefWorker(Worker):
             # TODO: a sharding manager that do nothing?
 
         elif rollout_name == "vllm":
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMAsyncRollout, vLLMRollout
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
             local_path = copy_to_local(self.config.model.path)
             if vllm_mode == "customized":
-                rollout = vLLMRollout(
-                    actor_module=self.actor_module_fsdp,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                )
+                rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
+                                      config=self.config.rollout,
+                                      tokenizer=self.tokenizer,
+                                      model_hf_config=self.actor_model_config)
             elif vllm_mode == "spmd":
-                rollout = vLLMRollout(
-                    model_path=local_path,
-                    config=self.config.rollout,
-                    tokenizer=self.tokenizer,
-                    model_hf_config=self.actor_model_config,
-                    device_mesh=rollout_device_mesh,
-                    trust_remote_code=trust_remote_code,
-                )
+                vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
+                rollout = vllm_rollout_cls(model_path=local_path,
+                                           config=self.config.rollout,
+                                           tokenizer=self.tokenizer,
+                                           model_hf_config=self.actor_model_config,
+                                           device_mesh=rollout_device_mesh,
+                                           trust_remote_code=trust_remote_code)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)

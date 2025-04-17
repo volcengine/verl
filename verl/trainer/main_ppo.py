@@ -83,7 +83,8 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
-    def run(self, config):
+
+    async def run(self, config):
         # print initial config
         from pprint import pprint
 
@@ -111,6 +112,9 @@ class TaskRunner:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
+
+            if config.actor_rollout_ref.rollout.mode == "async":
+                from verl.workers.fsdp_async_workers import AsyncActorRolloutRefWorker as ActorRolloutRefWorker
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
@@ -176,7 +180,7 @@ class TaskRunner:
             val_reward_fn=val_reward_fn,
         )
         trainer.init_workers()
-        trainer.fit()
+        await trainer.fit()
 
 
 if __name__ == "__main__":

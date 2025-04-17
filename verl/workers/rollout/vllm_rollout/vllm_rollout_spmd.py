@@ -28,21 +28,24 @@ When working with Megatron:
 import logging
 import os
 from contextlib import contextmanager
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
 import torch.distributed
 from omegaconf import DictConfig
 from tensordict import TensorDict
+from torch import nn
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
+from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.sharding_manager import FSDPVLLMShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -338,3 +341,57 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+
+class vLLMAsyncRollout:
+    """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase,
+    which is engine in single worker process.
+    """
+
+    def __init__(self, *args, **kwargs):
+        # Engine is deferred to be initialized in init_worker
+        self.inference_engine: WorkerWrapperBase = None
+        self.sharding_manager: FSDPVLLMShardingManager = None
+        self.is_sleep = False
+
+    def init_worker(self, all_kwargs: List[Dict[str, Any]]):
+        """Initialize worker engine."""
+        all_kwargs[0]["rank"] = int(os.environ["RANK"])
+        all_kwargs[0]["local_rank"] = 0
+
+        self.vllm_config = all_kwargs[0]["vllm_config"]
+        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+        self.inference_engine.init_worker(all_kwargs)
+
+    def load_model(self, *args, **kwargs):
+        self.inference_engine.load_model(*args, **kwargs)
+
+        # inference engine is intialized now, update sharding manager
+        self.sharding_manager.inference_engine = self.inference_engine
+        self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
+
+    def sleep(self, *args, **kwargs):
+        """Offload model weights and discard kv cache."""
+        if self.is_sleep:
+            return
+        self.sharding_manager.__exit__(None, None, None)
+        self.is_sleep = True
+
+    def wake_up(self, *args, **kwargs):
+        """Load model weights and build kv cache."""
+        if not self.is_sleep:
+            return
+        self.sharding_manager.__enter__()  # pylint: disable=C2801
+        self.is_sleep = False
+
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        if method == "init_worker":
+            return self.init_worker(*args, **kwargs)
+        elif method == "load_model":
+            return self.load_model(*args, **kwargs)
+        elif method == "sleep":
+            return self.sleep(*args, **kwargs)
+        elif method == "wake_up":
+            return self.wake_up(*args, **kwargs)
+        else:
+            return self.inference_engine.execute_method(method, *args, **kwargs)
