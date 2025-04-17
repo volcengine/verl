@@ -178,7 +178,6 @@ class MegatronPPOActor(BasePPOActor):
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
         entropys = torch.Tensor()
-        response_masks = torch.Tensor()
         if recompute_old_log_prob:
             select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
@@ -213,21 +212,12 @@ class MegatronPPOActor(BasePPOActor):
                     if mpu.is_pipeline_last_stage(ignore_virtual=True):
                         entropys = torch.cat([o[1] for o in output], dim=0)
                         entropys = entropys.to(torch.float32)
-                        response_masks = torch.cat([o[2] for o in output], dim=0)
-                        response_masks = response_masks.to(torch.float32)
                     else:
                         entropys = torch.empty(size=(batch_size, response_length),
                                                dtype=torch.float32,
                                                device=input_ids.device)
-                        response_masks = torch.empty(size=(batch_size, response_length),
-                                                     dtype=torch.float32,
-                                                     device=input_ids.device)
                     # broadcast across pp ranks
                     torch.distributed.broadcast(tensor=entropys,
-                                                src=mpu.get_pipeline_model_parallel_last_rank(),
-                                                group=mpu.get_pipeline_model_parallel_group(),
-                                                async_op=False)
-                    torch.distributed.broadcast(tensor=response_masks,
                                                 src=mpu.get_pipeline_model_parallel_last_rank(),
                                                 group=mpu.get_pipeline_model_parallel_group(),
                                                 async_op=False)
@@ -235,7 +225,7 @@ class MegatronPPOActor(BasePPOActor):
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
-        return log_probs, entropys, response_masks
+        return log_probs, entropys
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor
@@ -326,7 +316,6 @@ class MegatronPPOActor(BasePPOActor):
             logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
             ret_entropy = None
-            ret_response_mask = None
             if not forward_only:
                 old_log_prob = data['old_log_probs']
                 advantages = data['advantages']
@@ -354,7 +343,6 @@ class MegatronPPOActor(BasePPOActor):
                     policy_loss = pg_loss - entropy_coeff * entropy_loss
                 else:
                     ret_entropy = entropy
-                    ret_response_mask = response_mask
 
             stats = {}
             if forward_only:
@@ -378,7 +366,7 @@ class MegatronPPOActor(BasePPOActor):
                     'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
                 })
             append_to_dict(metrics, stats)
-            return policy_loss, [metrics, ret_entropy, ret_response_mask]
+            return policy_loss, [metrics, ret_entropy]
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)

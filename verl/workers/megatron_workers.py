@@ -459,10 +459,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs, entropys, response_masks = self.actor.compute_log_prob(data=output, calculate_entropy=True)
+        old_log_probs, entropys = self.actor.compute_log_prob(data=output, calculate_entropy=True)
         output.batch['old_log_probs'] = old_log_probs
         output.batch['entropys'] = entropys
-        output.batch['response_masks'] = response_masks
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()

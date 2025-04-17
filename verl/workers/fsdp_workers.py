@@ -545,11 +545,10 @@ class ActorRolloutRefWorker(Worker):
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
-            output, entropys, response_masks = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+            output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(tensors={
                 'old_log_probs': output,
-                'entropys': entropys,
-                'response_masks': response_masks
+                'entropys': entropys
             },
                                          meta_info={'temperature': self.config.rollout.temperature})
             output = self.ulysses_sharding_manager.postprocess_data(output)
