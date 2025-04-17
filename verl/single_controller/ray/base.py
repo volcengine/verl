@@ -486,7 +486,7 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
             use `set()` instead of `list()`, because hybrid engine gives
             `clas_dict = {'ref': ActorRollout, 'actor_rollout': ActorRollout}`
             """
-            names = set(str(user_cls) for _, user_cls in self.worker_dict.items())
+            names = set(type(user_cls).__name__ for _, user_cls in self.worker_dict.items())
             joined_names = ','.join(names)
             return "WorkerDict[{name}]".format(name=joined_names)
         
