@@ -42,12 +42,13 @@ from megatron.core.optimizer import DistributedOptimizer
 
 class MegatronPPOCritic(BasePPOCritic):
 
-    def __init__(self, config, model_config, megatron_config, critic_module: nn.ModuleList,
+    def __init__(self, config, model_config, hf_config, tf_config, critic_module: nn.ModuleList,
                  critic_optimizer: DistributedOptimizer, critic_optimizer_config: OptimizerConfig):
         super().__init__(config=config)
         self._validate_config(config)
         self.model_config = model_config
-        self.megatron_config = megatron_config
+        self.hf_config = hf_config  # huggingface config
+        self.tf_config = tf_config  # mcore transformer config
 
         self.critic_module = critic_module
         self.critic_optimizer = critic_optimizer
@@ -59,7 +60,7 @@ class MegatronPPOCritic(BasePPOCritic):
             'overlap_dp_param_comm': False,
             'overlap_dp_grad_comm': False,
             'gradient_accumulation_steps': 1,
-            'sequence_parallel': self.megatron_config.sequence_parallel,
+            'sequence_parallel': self.tf_config.sequence_parallel,
             'DDP_impl': 'local',
             'layernorm_allreduce_bucket_threshold': 0,
             'pipeline_model_parallel_split_rank': None,
@@ -126,12 +127,11 @@ class MegatronPPOCritic(BasePPOCritic):
         seq_len = batches[0]['input_ids'].shape[1]
 
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                'sequence_parallel': self.megatron_config.sequence_parallel,
-                'hidden_size': self.model_config.hidden_size
-            })
+        input_shapes = compute_transformers_input_shapes(batches,
+                                                         meta_info={
+                                                             'sequence_parallel': self.tf_config.sequence_parallel,
+                                                             'hidden_size': self.model_config.hidden_size
+                                                         })
 
         forward_backward_func = get_forward_backward_func()
 
@@ -170,14 +170,15 @@ class MegatronPPOCritic(BasePPOCritic):
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            from verl.models.mcore import gptmodel_forward
+            from verl.models.mcore import get_mcore_forward_fn
+            forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = gptmodel_forward(model,
-                                      input_ids,
-                                      attention_mask,
-                                      position_ids,
-                                      sequence_parallel=self.megatron_config.sequence_parallel,
-                                      value_model=True)
+            output = forward_fn(model,
+                                input_ids,
+                                attention_mask,
+                                position_ids,
+                                sequence_parallel=self.tf_config.sequence_parallel,
+                                value_model=True)
 
             return output, partial(loss_func, data=batch, meta_info={})
 

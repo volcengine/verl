@@ -217,6 +217,13 @@ def mcore_model_parallel_config(
     sequence_parallel: bool,
     params_dtype: torch.dtype,
 ) -> ModelParallelConfig:
+    # WARNING: Code should not reach this point. This function is deprecated and will be removed.
+    # Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.
+    warnings.warn(
+        "Code should not reach this point. This function is deprecated and will be removed. "
+        "Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
+        DeprecationWarning,
+        stacklevel=2)
     return ModelParallelConfig(
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),

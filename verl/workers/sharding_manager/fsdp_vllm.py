@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import inspect
 import logging
 import torch
 import numpy as np
@@ -26,7 +27,6 @@ from collections import OrderedDict
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl import DataProto
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.third_party.vllm import vllm_version
@@ -114,17 +114,18 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
             del params
         else:
-            if version.parse(VLLM_VERSION) >= version.parse("0.8.3"):
-                # wake up only weights
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["weights"])
-                # update model params
-                self.update_params(params)
+            else:
+                self.inference_engine.wake_up()
 
-                log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
-                del params
-                torch.cuda.empty_cache()
+            # update model params
+            self.update_params(params)
+            log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+            del params
+            torch.cuda.empty_cache()
 
-                # wake up kv
+            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
             else:
                 self.inference_engine.wake_up()
@@ -135,7 +136,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
             with FSDP.summon_full_params(self.module):
                 self.module.unmerge_adapter()
-        
+
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
