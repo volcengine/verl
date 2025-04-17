@@ -21,7 +21,6 @@ from torch.nn import init
 import torch.distributed as dist
 from megatron.core import ModelParallelConfig
 from megatron.core import parallel_state as mpu, tensor_parallel
-import verl.utils.torch_functional as verl_F
 
 
 def update_kwargs_with_config(dictionary: Dict, config: ModelParallelConfig):
