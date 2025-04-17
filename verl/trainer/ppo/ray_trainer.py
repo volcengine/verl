@@ -940,7 +940,8 @@ class RayPPOTrainer(object):
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
                         # compute advantages, executed on the driver process
-                        norm_adv_by_std_in_grpo = self.config.algorithm.get('norm_adv_by_std_in_grpo', True) # GRPO adv normalization factor
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get('norm_adv_by_std_in_grpo',
+                                                                            True)  # GRPO adv normalization factor
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
