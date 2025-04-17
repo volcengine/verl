@@ -18,6 +18,9 @@ import json
 import math
 import itertools
 import os
+import re
+from pathlib import Path
+from collections import defaultdict
 from contextlib import contextmanager
 from torch.distributed import DeviceMesh
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
@@ -340,3 +343,54 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
         return sub_mod
 
     return init_fn
+
+
+def load_sharded_model(fsdp_checkpoint_path):
+    state_dict = defaultdict(list)
+    checkpoint_dir = Path(fsdp_checkpoint_path)
+
+    shard_files = list(checkpoint_dir.glob("model_world_size_*_rank_*.pt"))
+    print("fsdp_checkpoint_path: ", fsdp_checkpoint_path)
+    print("shard_files: ", shard_files)
+    if not shard_files:
+        raise ValueError(f"No checkpoint files found in {fsdp_checkpoint_path}")
+
+    pattern = re.compile(r"model_world_size_(\d+)_rank_(\d+)\.pt")
+    world_sizes = set()
+    for file in shard_files:
+        match = pattern.match(file.name)
+        if match:
+            world_sizes.add(int(match.group(1)))
+
+    if len(world_sizes) != 1:
+        raise ValueError(
+            f"Inconsistent world_size found in checkpoint files: {world_sizes}"
+        )
+
+    world_size = world_sizes.pop()
+    print(f"Found checkpoints with world_size = {world_size}")
+
+    for rank in range(world_size):
+        filepath = checkpoint_dir / f"model_world_size_{world_size}_rank_{rank}.pt"
+        if not filepath.exists():
+            raise ValueError(f"Missing shard file: {filepath}")
+
+        print(f"Loading shard: {filepath}")
+        shard_dict = torch.load(filepath, weights_only=False)
+
+        for key, value in shard_dict.items():
+            if hasattr(value, "to_local"):
+                value = value.to_local()
+            state_dict[key].append(value)
+
+    consolidated_state_dict = {}
+    for key in state_dict:
+        try:
+            consolidated_state_dict[key] = torch.cat(state_dict[key], dim=0)
+        except (RuntimeError, TypeError):
+            consolidated_state_dict[key] = state_dict[key][0]
+            print(
+                f"Parameter '{key}' does not need concatenation, using first shard value"
+            )
+
+    return consolidated_state_dict
