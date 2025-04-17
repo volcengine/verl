@@ -134,7 +134,7 @@ class MegatronPPOActor(BasePPOActor):
             config.megatron.sequence_parallel = False
         self.config = config
 
-    def compute_log_prob(self, data: DataProto) -> torch.Tensor:
+    def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -166,7 +166,8 @@ class MegatronPPOActor(BasePPOActor):
         # TODO (zhangchi.usc1992): actually, this function should only return log_prob and this logic should be handled by user outside
         recompute_old_log_prob = self.config.get('recompute_old_log_prob', True)
 
-        if recompute_old_log_prob or 'old_log_probs' not in data.batch.keys():
+        entropys = torch.Tensor()
+        if recompute_old_log_prob:
             select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
             batch = data.select(batch_keys=select_keys).batch
             input_ids = batch['input_ids']
@@ -174,10 +175,16 @@ class MegatronPPOActor(BasePPOActor):
             response = batch['responses']
             response_length = response.size(1)
             with torch.no_grad():
-                output = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn)
+                output = self.forward_backward_batch(data,
+                                                     forward_only=True,
+                                                     post_process_fn=compute_logprobs_fn,
+                                                     calculate_entropy=calculate_entropy)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
-                    log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
+                    if calculate_entropy:
+                        log_probs = torch.cat([o[0]['log_probs'] for o in output], dim=0)  # (bs, seq_size)
+                    else:
+                        log_probs = torch.cat([o['log_probs'] for o in output], dim=0)  # (bs, seq_size)
                     log_probs = log_probs.to(torch.float32)
                 else:
                     log_probs = torch.empty(size=(batch_size, response_length),
@@ -189,11 +196,25 @@ class MegatronPPOActor(BasePPOActor):
                                             src=mpu.get_pipeline_model_parallel_last_rank(),
                                             group=mpu.get_pipeline_model_parallel_group(),
                                             async_op=False)
+                if calculate_entropy:
+                    # Note that o[0] is metrics, o[1] is entropy
+                    if mpu.is_pipeline_last_stage(ignore_virtual=True):
+                        entropys = torch.cat([o[1] for o in output], dim=0)
+                        entropys = entropys.to(torch.float32)
+                    else:
+                        entropys = torch.empty(size=(batch_size, response_length),
+                                               dtype=torch.float32,
+                                               device=input_ids.device)
+                    # broadcast across pp ranks
+                    torch.distributed.broadcast(tensor=entropys,
+                                                src=mpu.get_pipeline_model_parallel_last_rank(),
+                                                group=mpu.get_pipeline_model_parallel_group(),
+                                                async_op=False)
 
         # add empty cache after each compute
         torch.cuda.empty_cache()
 
-        return log_probs
+        return log_probs, entropys
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
         """Make minibatch iterator for updating the actor
@@ -226,7 +247,11 @@ class MegatronPPOActor(BasePPOActor):
                                   seed=self.config.data_loader_seed,
                                   dataloader_kwargs={'shuffle': self.config.shuffle})
 
-    def forward_backward_batch(self, data: DataProto, forward_only=False, post_process_fn=None):
+    def forward_backward_batch(self,
+                               data: DataProto,
+                               forward_only=False,
+                               post_process_fn=None,
+                               calculate_entropy=False):
         """
         We assume:
         - The model takes input: (input_ids, attention_mask, position_ids). No rmpad for the input
@@ -257,66 +282,79 @@ class MegatronPPOActor(BasePPOActor):
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):
+            # For memory efficiency
+            # We move calculation of entropy to compute_log_probs, forward_only == True
+            metrics = {}
             if forward_only:
                 if post_process_fn is None:
-                    return 1.0, {'logits': output}
+                    metrics['logits'] = output
                 else:
-                    return 1.0, post_process_fn(output, data)
+                    stats = post_process_fn(output, data)
+                    metrics.update(stats)
+                if not calculate_entropy:
+                    return 1.0, metrics
 
             responses = data['responses']
             response_length = responses.size(1)
             attention_mask = data['attention_mask']
             response_mask = attention_mask[:, -response_length:]
-            old_log_prob = data['old_log_probs']
-            advantages = data['advantages']
-
-            clip_ratio = meta_info['clip_ratio']
-            clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
-            clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
-            clip_ratio_c = meta_info['clip_ratio_c']
-            entropy_coeff = meta_info['entropy_coeff']
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
             logits = output
             logits = logits[:, -response_length - 1:-1].contiguous()
-            logits_back = logits.clone()
-            log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
-            logits = logits_back
-            pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
-                                                                                  log_prob=log_prob,
-                                                                                  advantages=advantages,
-                                                                                  response_mask=response_mask,
-                                                                                  cliprange=clip_ratio,
-                                                                                  cliprange_low=clip_ratio_low,
-                                                                                  cliprange_high=clip_ratio_high,
-                                                                                  clip_ratio_c=clip_ratio_c,
-                                                                                  loss_agg_mode=loss_agg_mode)
-            entropy = vocab_parallel_entropy(logits)
-            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-            policy_loss = pg_loss - entropy_loss * entropy_coeff
+            ret_entropy = None
+            if not forward_only:
+                old_log_prob = data['old_log_probs']
+                advantages = data['advantages']
 
-            metrics = {}
-            if self.config.use_kl_loss:
-                ref_log_prob = data['ref_log_prob']
-                # compute kl loss
-                kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+                clip_ratio = meta_info['clip_ratio']
+                clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
+                clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
+                clip_ratio_c = meta_info['clip_ratio_c']
+                log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
+                pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(old_log_prob=old_log_prob,
+                                                                                      log_prob=log_prob,
+                                                                                      advantages=advantages,
+                                                                                      response_mask=response_mask,
+                                                                                      cliprange=clip_ratio,
+                                                                                      cliprange_low=clip_ratio_low,
+                                                                                      cliprange_high=clip_ratio_high,
+                                                                                      clip_ratio_c=clip_ratio_c,
+                                                                                      loss_agg_mode=loss_agg_mode)
+                policy_loss = pg_loss
+            if calculate_entropy:
+                entropy = vocab_parallel_entropy(logits)
+                if not forward_only:
+                    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                    entropy_coeff = meta_info['entropy_coeff']
+                    policy_loss = pg_loss - entropy_coeff * entropy_loss
+                else:
+                    ret_entropy = entropy
 
-                policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                metrics['actor/kl_loss'] = kl_loss.detach().item()
-                metrics['actor/kl_coef'] = self.config.kl_loss_coef
+            stats = {}
+            if forward_only:
+                policy_loss = 1.0
+            else:
+                if self.config.use_kl_loss:
+                    ref_log_prob = data['ref_log_prob']
+                    # compute kl loss
+                    kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
+                    kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
 
-            # return loss and stats
-            stats = {
-                'actor/entropy_loss': entropy_loss.detach().item(),
-                'actor/pg_loss': pg_loss.detach().item(),
-                'actor/pg_clipfrac': pg_clipfrac.detach().item(),
-                'actor/ppo_kl': ppo_kl.detach().item(),
-                'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
-            }
-            append_to_dict(stats, metrics)
-            return policy_loss, stats
+                    policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                    metrics['actor/kl_loss'] = kl_loss.detach().item()
+                    metrics['actor/kl_coef'] = self.config.kl_loss_coef
+
+                # return loss and stats
+                stats.update({
+                    'actor/pg_loss': pg_loss.detach().item(),
+                    'actor/pg_clipfrac': pg_clipfrac.detach().item(),
+                    'actor/ppo_kl': ppo_kl.detach().item(),
+                    'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item()
+                })
+            append_to_dict(metrics, stats)
+            return policy_loss, [metrics, ret_entropy]
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -391,9 +429,14 @@ class MegatronPPOActor(BasePPOActor):
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
                 chunk.zero_grad_buffer()
 
-            metric_micro_batch = self.forward_backward_batch(data)
+            if self.config.entropy_coeff != 0:
+                calculate_entropy = True
+            else:
+                calculate_entropy = False
+            metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy)
             for metric in metric_micro_batch:
-                append_to_dict(metrics, metric)  # append the metric from this micro-batch to global metrics.
+                # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
+                append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
 
