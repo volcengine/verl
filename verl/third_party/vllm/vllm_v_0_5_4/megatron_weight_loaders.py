@@ -13,7 +13,7 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 
-from typing import Dict
+from typing import Dict, Iterable
 import torch
 import torch.nn as nn
 
@@ -227,30 +227,7 @@ def llama_megatron_core_weight_loader(actor_weights: Dict, vllm_model: nn.Module
             weight_loader(param, loaded_weight)
 
 
-def _replace_name(megatron_name, name_mapping):
-    for m_name, v_name in name_mapping:
-        if m_name not in megatron_name:
-            continue
-        if 'layers' in megatron_name:  # deal with decoder layers
-            megatron_name = megatron_name.replace('decoder', 'model')
-            megatron_name_list = megatron_name.split('.')
-            if 'layer_norm_weight' in megatron_name_list or 'layer_norm_bias' in megatron_name_list:
-                param_name_list = megatron_name_list[:3]
-                param_name_list.append(v_name)
-                param_name = '.'.join(param_name_list)
-            else:
-                param_name_list = megatron_name_list[:3]
-                weight_or_bias = megatron_name_list[-1]
-                param_name_list.append(v_name)
-                param_name_list.append(weight_or_bias)
-                param_name = '.'.join(param_name_list)
-            return param_name
-        else:
-            param_name = megatron_name.replace(m_name, v_name)
-            return param_name
-
-
-def mistral_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+def mistral_megatron_weight_loader(actor_weights: Iterable, vllm_model: nn.Module) -> nn.Module:
     # TODO: need to implement a general way to deal with prefix
     params_dict = dict(vllm_model.named_parameters())
     for name, loaded_weight in actor_weights.items():
@@ -287,7 +264,7 @@ __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__ = {
 
 # the actor model is .state_dict()
 # Load megatron weights
-def load_megatron_weights(actor_weights: Dict, vllm_model: nn.Module):
+def load_megatron_weights(actor_weights: Iterable, vllm_model: nn.Module):
     weight_loader = _get_model_weight_loader(vllm_model.__class__.__name__)
     weight_loader(actor_weights, vllm_model)
     # NOTE(sgm) to reduce peak memory usage, we offload vllm model to cpu

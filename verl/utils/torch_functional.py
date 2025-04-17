@@ -45,7 +45,7 @@ def gather_from_labels(data, label):
     return output
 
 
-def logprobs_from_logits(logits, labels):
+def logprobs_from_logits(logits, labels, inplace_backward=True):
     """
     See: https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591
     """
@@ -54,15 +54,15 @@ def logprobs_from_logits(logits, labels):
         last_dim = logits.shape[-1]
         logits = logits.reshape(-1, last_dim)
         labels = labels.reshape(-1)
-        output = logprobs_from_logits_flash_attn(logits, labels)
+        output = logprobs_from_logits_flash_attn(logits, labels, inplace_backward=inplace_backward)
         output = output.view(*batch_dim)
     else:
         output = logprobs_from_logits_v2(logits, labels)
     return output
 
 
-def logprobs_from_logits_flash_attn(logits, labels):
-    output = cross_entropy_loss(logits, labels)
+def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
+    output = cross_entropy_loss(logits, labels, inplace_backward=inplace_backward)
     assert isinstance(
         output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
     return -output[0]
@@ -255,25 +255,16 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     return F.pad(tensors, pad_tuple, 'constant', pad_token_id)
 
 
-from transformers import PreTrainedTokenizer
-
-
-def tokenize_and_postprocess_data(prompt: str,
-                                  tokenizer: PreTrainedTokenizer,
-                                  max_length: int,
-                                  pad_token_id: int,
-                                  left_pad=True,
-                                  truncation='error'):
+def postprocess_data(input_ids: torch.Tensor,
+                     attention_mask: torch.Tensor,
+                     max_length: int,
+                     pad_token_id: int,
+                     left_pad=True,
+                     truncation='error'):
     """
     input_data is the output from tokenizer.
     """
     assert truncation in ['left', 'right', 'error']
-
-    input_data = tokenizer(prompt, return_tensors='pt', add_special_tokens=False)
-
-    input_ids = input_data['input_ids']
-    attention_mask = input_data['attention_mask']
-
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
@@ -526,3 +517,58 @@ def get_unpad_data(attention_mask):
         cu_seqlens,
         max_seqlen_in_batch,
     )
+
+
+def get_wsd_schedule_with_warmup(
+    optimizer: Optimizer,
+    num_warmup_steps: int,
+    num_training_steps: int,
+    min_lr_ratio: float = 0.0,
+    num_cycles: float = 0.5,
+    last_epoch: int = -1,
+    stable_ratio: float = 0.9,
+):
+    """
+    Create a Warmup-Stable-Decay learning rate scheduler.
+
+    The schedule follows three phases:
+    1. Warmup: Learning rate increases linearly from 0 to the initial LR
+    2. Stable: Learning rate remains constant at the initial LR
+    3. Decay: Learning rate decreases following a cosine curve to min_lr_ratio * initial LR
+
+    Args:
+        optimizer (:class:`~torch.optim.Optimizer`):
+            The optimizer for which to schedule the learning rate.
+        num_warmup_steps (:obj:`int`):
+            The number of steps for the warmup phase.
+        num_training_steps (:obj:`int`):
+            The total number of training steps.
+        min_lr_ratio (:obj:`float`, `optional`, defaults to 0.0):
+            The minimum learning rate ratio w.r.t the initial learning rate.
+        num_cycles (:obj:`float`, `optional`, defaults to 0.5):
+            The number of waves in the cosine schedule during decay phase.
+        last_epoch (:obj:`int`, `optional`, defaults to -1):
+            The index of the last epoch when resuming training.
+        stable_ratio (:obj:`float`, `optional`, defaults to 0.0):
+            The ratio of non-warmup steps that should maintain a constant learning rate.
+            Set to 0.0 to behave exactly like cosine schedule.
+
+    Return:
+        :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
+    """
+    remaining_steps = max(0, num_training_steps - num_warmup_steps)
+    num_stable_steps = int(remaining_steps * stable_ratio)
+    num_decay_steps = remaining_steps - num_stable_steps
+
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        if current_step < num_warmup_steps + num_stable_steps:
+            return 1.0
+        if current_step < num_training_steps:
+            progress = float(current_step - num_warmup_steps - num_stable_steps) / float(max(1, num_decay_steps))
+            value = max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress)))
+            return (1.0 - min_lr_ratio) * value + min_lr_ratio
+        return min_lr_ratio
+
+    return LambdaLR(optimizer, lr_lambda, last_epoch)

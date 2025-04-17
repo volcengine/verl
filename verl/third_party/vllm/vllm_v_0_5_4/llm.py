@@ -14,7 +14,7 @@
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/entrypoints/llm.py
 
 from contextlib import contextmanager
-from typing import ClassVar, List, Optional, Sequence, Union, cast, overload, Dict, Tuple
+from typing import ClassVar, List, Optional, Sequence, Union, cast, overload, Dict, Tuple, Iterable
 
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -232,7 +232,7 @@ class LLM(LLM):
             logprobs = pad_sequence(logprobs, batch_first=True, padding_value=pad_token_id)
         return output_token_ids, logprobs
 
-    def sync_model_weights(self, actor_weights: Dict[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.llm_engine.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
     def offload_model_weights(self) -> None:

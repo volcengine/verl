@@ -24,7 +24,6 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-import os
 import numpy as np
 from typing import List
 from contextlib import contextmanager
@@ -87,6 +86,7 @@ class vLLMRollout(BaseRollout):
 
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
+            import os
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             if vllm_version in ('0.3.1', '0.4.2', '0.5.4', '0.6.3'):
@@ -100,9 +100,7 @@ class vLLMRollout(BaseRollout):
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
 
-        max_model_len = self.config.max_model_len if self.config.max_model_len \
-                        else config.prompt_length + config.response_length
-        max_model_len = int(max_model_len)
+        max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
         if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
             raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
@@ -110,6 +108,10 @@ class vLLMRollout(BaseRollout):
 
         trust_remote_code = kwargs.get('trust_remote_code', False)
         load_format = 'dummy' if config.load_format.startswith('dummy') else config.load_format
+
+        limit_mm_per_prompt = None
+        if config.get('limit_images', None):  # support for multi-image data
+            limit_mm_per_prompt = {"image": config.get('limit_images')}
 
         self.inference_engine = LLM(
             model=model_path,
@@ -121,6 +123,7 @@ class vLLMRollout(BaseRollout):
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
             disable_mm_preprocessor_cache=True,
+            limit_mm_per_prompt=limit_mm_per_prompt,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
             load_format=load_format,
@@ -129,7 +132,7 @@ class vLLMRollout(BaseRollout):
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
-            seed=int(os.getenv("RANK", "0")) // tensor_parallel_size,
+            seed=config.get('seed', 0),
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -273,7 +276,7 @@ class vLLMRollout(BaseRollout):
         # prompt: left pad + response: right pad
         # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-        response_position_ids = position_ids[:, -1:] + delta_position_id
+        response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
         response_attention_mask = get_response_mask(response_id=response,
                                                     eos_token=eos_token_id,

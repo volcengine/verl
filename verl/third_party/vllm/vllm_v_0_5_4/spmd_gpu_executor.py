@@ -15,7 +15,7 @@
 
 import os
 import socket
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Iterable
 
 import torch
 import vllm.envs as envs
@@ -206,7 +206,7 @@ class SPMDGPUExecutor(ExecutorBase):
     def offload_model_weights(self) -> None:
         self.worker.offload_model_weights()
 
-    def sync_model_weights(self, actor_weights: Dict[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.worker.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
 

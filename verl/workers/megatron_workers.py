@@ -39,7 +39,7 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.megatron_utils import offload_megatron_param_and_grad, load_megatron_param_and_grad
 from verl.utils import hf_tokenizer
-
+from verl.third_party.vllm import vllm_version
 from codetiming import Timer
 
 from megatron.core import parallel_state as mpu
@@ -156,17 +156,9 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # Step 3: initialize the megatron model
         if self._is_actor and self._is_rollout:
-            # Initialize the 3D HybridEngine
-            hybrid_engine = AllGatherPPModel(
-                model_provider=megatron_actor_model_provider,
-                use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
-            # Fetch the model at current rank
-            actor_module = hybrid_engine.this_rank_models
-            actor_modules_list = []
-            if isinstance(actor_module, nn.ModuleList):
-                for module in actor_module:
-                    actor_modules_list.append(module)
-            actor_module = actor_modules_list
+            actor_module = get_model(megatron_actor_model_provider,
+                                     wrap_with_ddp=True,
+                                     use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer)
             print(f'actor_module: {len(actor_module)}')
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
@@ -217,7 +209,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         log_gpu_memory_usage('After actor optimizer init', logger=logger)
 
-        return actor_module, hybrid_engine, actor_optimizer, self.hf_config, optim_config
+        return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == 'vllm':
@@ -257,10 +249,10 @@ class ActorRolloutRefWorker(MegatronWorker):
             # perform weight resharding between actor and rollout
             from verl.models.mcore import get_mcore_weight_converter
             weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
-                                                           inference_engine=rollout.inference_engine,
+            sharding_manager = MegatronVLLMShardingManager(inference_engine=rollout.inference_engine,
                                                            model_config=self.actor_model_config,
                                                            layer_name_mapping=layer_name_mapping,
+                                                           actor_module=self.actor.actor_module,
                                                            weight_converter=weight_converter)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
@@ -287,8 +279,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optim_config = self.config.actor.optim
             else:
                 optim_config = None
-            self.actor_module, self.hybrid_engine, self.actor_optimizer, \
-            self.actor_model_config, self.actor_hf_config = self._build_model_optimizer(
+            self.actor_module, self.actor_optimizer, \
+            self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=optim_config,
                 override_model_config=override_model_config
@@ -406,7 +398,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info['micro_batch_size'] = micro_batch_size
         data.meta_info['temperature'] = self.config.rollout.temperature
-        output = self.ref_policy.compute_log_prob(data=data)
+        output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={'ref_log_prob': output})
         output = output.to('cpu')
         if self._is_offload_param:
@@ -422,8 +414,9 @@ class ActorRolloutRefWorker(MegatronWorker):
         # we should always recompute old_log_probs when it is HybridEngine
         output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         output.meta_info['temperature'] = self.config.rollout.temperature
-        old_log_probs = self.actor.compute_log_prob(data=output)
+        old_log_probs, entropys = self.actor.compute_log_prob(data=output, calculate_entropy=True)
         output.batch['old_log_probs'] = old_log_probs
+        output.batch['entropys'] = entropys
         output = output.to('cpu')
         # clear kv cache
         torch.cuda.empty_cache()
