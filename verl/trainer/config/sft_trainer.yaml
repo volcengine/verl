@@ -4,12 +4,22 @@ data:
   micro_batch_size_per_gpu: 4  # this is also val batch size
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
+  # Single-turn settings
   prompt_key: question
   response_key: answer
+  prompt_dict_keys: ['question']
+  response_dict_keys: ['answer']
+  # Multi-turn settings
+  multiturn:
+    enable: false  # Set to true to use multi-turn dataset
+    messages_key: messages  # Key for messages list in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
   chat_template: null
+  custom_cls:
+    path: null
+    name: null
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   fsdp_config:
@@ -30,6 +40,7 @@ optim:
   weight_decay: 0.01
   warmup_steps_ratio: 0.1
   clip_grad: 1.0
+  lr_scheduler: cosine
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:

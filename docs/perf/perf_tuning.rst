@@ -7,7 +7,7 @@ In this section, we will discuss how to tune the performance of all the stages i
 
 1. Rollout generation throughput.
 
-2. Enable `use_remove_padding=True` for sequence packing (i.e., data packing and remove padding).
+2. Enable ``use_remove_padding=True`` for sequence packing (i.e., data packing and remove padding).
 
 3. Batch size tuning for forward and backward computation
 

@@ -34,6 +34,7 @@ def extract_reward_from_line(line):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_file', required=True, type=str)
+    parser.add_argument('--target', type=float, default=0.2, help='target reward score')
 
     args = parser.parse_args()
 
@@ -48,5 +49,5 @@ if __name__ == '__main__':
                 best_reward = reward
 
     print(f'Best reward is {best_reward}')
-    assert best_reward > 0.2, f'Best reward must be greater than 0.2. best_reward: {best_reward}'
+    assert best_reward > args.target, f'Best reward must be greater than {args.target}. best_reward: {best_reward}'
     print('Check passes')

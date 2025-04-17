@@ -25,6 +25,7 @@ class DistRankInfo:
     tp_rank: int
     dp_rank: int
     pp_rank: int
+    cp_rank: int
 
 
 @dataclass
@@ -32,6 +33,7 @@ class DistGlobalInfo:
     tp_size: int
     dp_size: int
     pp_size: int
+    cp_size: int
 
 
 class WorkerHelper:
