@@ -88,7 +88,7 @@ def patched_ds_v3_load_weights(model: nn.Module, weights: Iterable[Tuple[str, to
                     continue
                 param = params_dict[name]
 
-                # custom weight_loader
+                # custom weight_loader·
                 layer_idx = get_layer_index(name)
                 weight_loader = model.model.layers[layer_idx].mlp.experts.weight_loader
                 # replace
@@ -175,6 +175,7 @@ def patched_qwen_moe_load_weights(model: nn.Module, weights: Iterable[Tuple[str,
                 if ((name.endswith(".bias") or name.endswith("_bias")) and name not in params_dict):
                     continue
                 # custom weight_loader
+                param = params_dict[name]
                 layer_idx = get_layer_index(name)
                 weight_loader = model.model.layers[layer_idx].mlp.experts.weight_loader
                 # replace
