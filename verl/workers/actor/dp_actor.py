@@ -303,7 +303,8 @@ class DataParallelPPOActor(BasePPOActor):
                         cliprange=clip_ratio,
                         cliprange_low=clip_ratio_low,
                         cliprange_high=clip_ratio_high,
-                        clip_ratio_c=clip_ratio_c)
+                        clip_ratio_c=clip_ratio_c,
+                        loss_agg_mode=loss_agg_mode)
                     # compute entropy loss from entropy
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 

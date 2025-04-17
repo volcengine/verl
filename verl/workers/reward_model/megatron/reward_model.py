@@ -35,12 +35,14 @@ class MegatronRewardModel(BasePPORewardModel):
                  config,
                  model_config,
                  reward_model_module: torch.nn.ModuleList,
-                 megatron_config,
+                 hf_config,
+                 tf_config,
                  sft_tokenizer=None,
                  rm_tokenizer=None):
         self.config = config
         self.reward_model_module = reward_model_module
-        self.megatron_config = megatron_config
+        self.hf_config = hf_config
+        self.tf_config = tf_config
         self.model_config = model_config
         self.device = 'cuda'
         self.sft_tokenizer = sft_tokenizer
@@ -133,7 +135,7 @@ class MegatronRewardModel(BasePPORewardModel):
         with torch.no_grad():
             output = self.forward_batch(data)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                logits = torch.cat([o['logits'] for o in output], dim=0)
+                logits = torch.cat([output], dim=0)
             else:
                 logits = torch.empty(
                     (input_ids.shape[0], input_ids.shape[1]),
@@ -202,24 +204,32 @@ class MegatronRewardModel(BasePPORewardModel):
         seq_len = batches[0]['input_ids'].shape[1]
 
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                'sequence_parallel': self.megatron_config.sequence_parallel,
-                'hidden_size': self.model_config.hidden_size
-            })
+        input_shapes = compute_transformers_input_shapes(batches,
+                                                         meta_info={
+                                                             'sequence_parallel': self.tf_config.sequence_parallel,
+                                                             'hidden_size': self.model_config.hidden_size
+                                                         })
         # compute input shapes for pp stages
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output):
-            return 1., {'logits': output.logits}
+            return 1., {'logits': output}
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            output = model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+            from verl.models.mcore import get_mcore_forward_fn
+            forward_fn = get_mcore_forward_fn(self.hf_config)
+
+            output = forward_fn(model,
+                                input_ids,
+                                attention_mask,
+                                position_ids,
+                                sequence_parallel=self.tf_config.sequence_parallel,
+                                value_model=True)
+
             return output, loss_func
 
         # batch should be a list of batches inside micro-batches

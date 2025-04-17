@@ -52,8 +52,8 @@ __all__ = ['MegatronPPOActor']
 
 class MegatronPPOActor(BasePPOActor):
 
-    def __init__(self, config, model_config, megatron_config: ModelParallelConfig, actor_module: nn.ModuleList,
-                 actor_optimizer: DistributedOptimizer, actor_optimizer_config: OptimizerConfig):
+    def __init__(self, config, model_config, hf_config, tf_config, actor_module: nn.ModuleList,
+                 actor_optimizer: DistributedOptimizer):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
         Args:
@@ -72,13 +72,8 @@ class MegatronPPOActor(BasePPOActor):
                 ``entropy_coeff``: entropy coefficient of the PPO loss. See https://arxiv.org/abs/1707.06347.
             model_config (OmegaConf): model configuration. It must contains ``model_config.vocab_size`` and
                 ``model_config.hidden_size``
-            megatron_config (OmegaConf): megatron configuration. It must contains
-
-                ``sequence_parallel_enabled``: whether the sequence parallel is enabled.
-
-                ``param_dtype``: the dtype of the parameters.
-
-                ``virtual_pipeline_model_parallel_size``: virtual pipeline model parallel size. a.k.a number of chunks in each pp stage.
+            hf_config (PretrainedConfig): huggingface config
+            tf_config (TransformerConfig): mcore transformer config
             actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this pp stage.
                 each nn.Module in this rank holds a vpp module chunk. See https://arxiv.org/pdf/2104.04473.pdf for more details.
                 The actor module has some constraints to follow in order to use the updating logics implemented here
@@ -93,13 +88,6 @@ class MegatronPPOActor(BasePPOActor):
             actor_optimizer (DistributedOptimizer): currently, we only support DistributedOptimizer in Megatron. It implements
                 zero1 optimizer that shards the optimizer state across dp ranks.
 
-        >>> def megatron_actor_model_provider(pre_process, post_process):
-        >>>     vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()
-        >>>     parallel_model = ParallelMistralForCausalLMRmPadPP(config=actor_model_config,
-        >>>                                                        megatron_config=megatron_config,
-        >>>                                                        pre_process=pre_process,
-        >>>                                                        post_process=post_process).cuda()
-        >>>     return parallel_model
         >>> from megatron.training import get_model
         >>> from megatron.optimizer import get_megatron_optimizer
         >>> actor_module = get_model(megatron_actor_model_provider, wrap_with_ddp=True)
@@ -107,24 +95,25 @@ class MegatronPPOActor(BasePPOActor):
         >>> actor_optimizer = get_megatron_optimizer(actor_module)
         >>> actor = MegatronPPOActor(config=config,
         >>>                          model_config=actor_model_config,
-        >>>                          megatron_config=megatron_config,
+        >>>                          hf_config=hf_config,
+        >>>                          tf_config=tf_config,
         >>>                          actor_module=actor_module,
         >>>                          actor_optimizer=actor_optimizer)
         """
         super().__init__(config)
         self._validate_config(config)
         self.model_config = model_config
-        self.megatron_config = megatron_config
+        self.hf_config = hf_config
+        self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-        self.actor_optimizer_config = actor_optimizer_config
 
         self.optimizer_step_args = OmegaConf.create({
             'skip_grad': None,
             'overlap_dp_param_comm': False,
             'overlap_dp_grad_comm': False,
             'gradient_accumulation_steps': 1,
-            'sequence_parallel': self.megatron_config.sequence_parallel,
+            'sequence_parallel': self.tf_config.sequence_parallel,
             'DDP_impl': 'local',
             'layernorm_allreduce_bucket_threshold': 0,
             'pipeline_model_parallel_split_rank': None,
@@ -257,12 +246,11 @@ class MegatronPPOActor(BasePPOActor):
             batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                'sequence_parallel': self.megatron_config.sequence_parallel,
-                'hidden_size': self.model_config.hidden_size
-            })
+        input_shapes = compute_transformers_input_shapes(batches,
+                                                         meta_info={
+                                                             'sequence_parallel': self.tf_config.sequence_parallel,
+                                                             'hidden_size': self.model_config.hidden_size
+                                                         })
         n_micro_batch = len(batches)
         seq_len = batches[0]['input_ids'].shape[1]
 
@@ -335,13 +323,14 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch['input_ids']
             attention_mask = batch['attention_mask']
             position_ids = batch['position_ids']
-            from verl.models.mcore import gptmodel_forward
+            from verl.models.mcore import get_mcore_forward_fn
+            forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = gptmodel_forward(model,
-                                      input_ids,
-                                      attention_mask,
-                                      position_ids,
-                                      sequence_parallel=self.megatron_config.sequence_parallel)
+            output = forward_fn(model,
+                                input_ids,
+                                attention_mask,
+                                position_ids,
+                                sequence_parallel=self.tf_config.sequence_parallel)
             if forward_only:
                 meta_info = None
             else:
