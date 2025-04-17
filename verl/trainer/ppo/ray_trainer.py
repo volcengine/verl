@@ -890,19 +890,11 @@ class RayPPOTrainer(object):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch['entropys']
                         response_masks = batch.batch['response_mask']
-                        entropy_list = torch.chunk(entropys, batch.batch.batch_size[0], dim=0)
-                        response_mask_list = torch.chunk(response_masks, batch.batch.batch_size[0], dim=0)
-                        entropy_loss_dict = {}
-                        for entropy, response_mask in zip(entropy_list, response_mask_list):
-                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                            # compute entropy loss from entropy
-                            entropy_loss = agg_loss(loss_mat=entropy,
-                                                    loss_mask=response_mask,
-                                                    loss_agg_mode=loss_agg_mode)
-                            append_to_dict(entropy_loss_dict, {
-                                'actor/entropy_loss': entropy_loss.detach().item(),
-                            })
-                        old_log_prob_metrics = reduce_metrics(entropy_loss_dict)
+                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                        entropy_loss = agg_loss(loss_mat=entropys,
+                                                loss_mask=response_masks,
+                                                loss_agg_mode=loss_agg_mode)
+                        old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop('entropys')
                         batch = batch.union(old_log_prob)
