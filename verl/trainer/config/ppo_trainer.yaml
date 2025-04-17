@@ -195,10 +195,12 @@ trainer:
   project_name: verl_examples
   experiment_name: gsm8k
   logger: [ 'console', 'database' ]
-  validation_data_dir: ~/validation_data # directory for logging the validation data
-  log_val_generations: 1 # 0 for no logging, any other value logs the validation data
-  rollout_data_dir: ~/rollout_data # directory for logging the rollout data
-  log_rollout_generations: 1 # 0 for no logging, any other value logs the rollout data
+  logger_kwargs:
+    validation_data_dir: ~/validation_data # directory for logging the validation data
+    log_val_generations: true # true/false
+    num_log_val_generations: 5 # number of validation generations to log
+    rollout_data_dir: ~/rollout_data # directory for logging the rollout data
+    log_rollout_generations: true # true/false
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1

@@ -25,7 +25,6 @@ from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
 from collections import defaultdict
-from functools import partial
 from tqdm import tqdm
 
 import ray
@@ -273,10 +272,10 @@ class RayPPOTrainer(object):
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        self.validation_generations_logger = ValidationGenerationsLogger()
-        self.validation_data_dir = config.trainer.get('validation_data_dir', None)
-        self.rollout_logger = RolloutLogger()
-        self.rollout_data_dir = config.trainer.get('rollout_data_dir', None)
+        validation_data_dir = config.trainer.logger_kwargs.get('validation_data_dir', None)
+        self.validation_generations_logger = ValidationGenerationsLogger(data_dir=validation_data_dir)
+        rollout_data_dir = config.trainer.logger_kwargs.get('rollout_data_dir', None)
+        self.rollout_logger = RolloutLogger(data_dir=rollout_data_dir)
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -484,25 +483,41 @@ class RayPPOTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
-    def _log_all_generations(self, inputs, outputs, scores, epoch=None):
-        """Log a table of rollout samples to the configured logger (upload to Hub preffered)"""
+    def _maybe_log_all_generations(self, batch: DataProto, epoch=None):
+        """Log a table of rollout samples to the configured database logger if enabled.
 
-        generations_to_log = self.config.trainer.log_rollout_generations
+        Args:
+            batch: The DataProto object containing the batch data, including 'input_ids',
+                   'responses', and 'token_level_scores'.
+            epoch: The current epoch number.
+        """
 
-        if generations_to_log == 0:
+        generations_to_log = self.config.trainer.logger_kwargs.log_rollout_generations
+
+        if generations_to_log is False:
             return
 
-        # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
+        # Extract inputs, outputs and scores from the batch
+        input_ids = batch.batch['input_ids']
+        input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+        output_ids = batch.batch['responses']
+        output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+        # Assuming token_level_scores exist in the batch after reward calculation
+        scores = batch.batch['token_level_scores'].sum(-1).cpu().tolist()
 
-        self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch, self.rollout_data_dir)
+        # Create tuples of (input, output, score)
+        # samples format: List[Tuple[str, str, float]]
+        samples = list(zip(input_texts, output_texts, scores))
 
-    def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None, data_dir=None):
+        self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch)
+
+    def _maybe_log_val_generations(self, inputs, outputs, scores, epoch=None):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
-        generations_to_log = self.config.trainer.log_val_generations
+        generations_to_log = self.config.trainer.logger_kwargs.log_val_generations
+        num_generations_to_log = self.config.trainer.logger_kwargs.num_log_val_generations
 
-        if generations_to_log == 0:
+        if generations_to_log is False:
             return
 
         import numpy as np
@@ -516,10 +531,10 @@ class RayPPOTrainer(object):
         rng.shuffle(samples)
 
         # Take first N samples after shuffling
-        samples = samples[:generations_to_log]
+        samples = samples[:num_generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch, data_dir)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch)
 
     def _validate(self, epoch=-1):
         data_source_lst = []
@@ -598,8 +613,7 @@ class RayPPOTrainer(object):
         self._maybe_log_val_generations(inputs=sample_inputs,
                                         outputs=sample_outputs,
                                         scores=sample_scores,
-                                        epoch=epoch,
-                                        data_dir=self.validation_data_dir)
+                                        epoch=epoch)
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
@@ -939,17 +953,8 @@ class RayPPOTrainer(object):
 
                         batch.batch['token_level_scores'] = reward_tensor
 
-                        if self.config.trainer.log_rollout_generations > 0:
-                            # Extract inputs, outputs and scores from the batch
-                            input_ids = batch.batch['input_ids']
-                            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-                            output_ids = batch.batch['responses']
-                            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-                            scores = reward_tensor.sum(-1).cpu().tolist()
-                            self._log_all_generations(inputs=input_texts,
-                                                      outputs=output_texts,
-                                                      scores=scores,
-                                                      epoch=epoch)
+                        # Log rollout generations if enabled
+                        self._maybe_log_all_generations(batch=batch, epoch=epoch)
 
                         print(f'{list(reward_extra_infos_dict.keys())=}')
                         if reward_extra_infos_dict:
