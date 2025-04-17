@@ -89,7 +89,7 @@ Why might there be inconsistent GPU memory?
 
 .. code-block:: python
 
-self.rollout = SGLangRollout(...)
+    self.rollout = SGLangRollout(...)
 
 Different workers initialize the model at different times → different memory usage.
 
@@ -111,8 +111,8 @@ If using:
 
 .. code-block:: bash
 
-actor.fsdp_config.param_offload=True  
-ref.fsdp_config.param_offload=True
+    actor.fsdp_config.param_offload=True  
+    ref.fsdp_config.param_offload=True
 
 Then some workers keep params on CPU while others already sharded to GPU → leads to asymmetric memory layout.
 
