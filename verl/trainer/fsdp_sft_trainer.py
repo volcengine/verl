@@ -434,18 +434,18 @@ class FSDPSFTTrainer(object):
 
         if not self.optim_bwd_hook:
             self.optimizer.zero_grad()
-        else:
-            for opt in self.optim_dict.values():
-                opt.zero_grad()
-
         # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
-
-        micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
-        n_micro_batches = len(micro_batches)
+        
         step_loss = 0
-        for micro_batch in micro_batches:
-            loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+        if self.optim_bwd_hook:
+            loss = self._compute_loss_and_backward(batch)
             step_loss += loss.item()
+        else:
+            micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
+            n_micro_batches = len(micro_batches)
+            for micro_batch in micro_batches:
+                loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+                step_loss += loss.item()
 
         grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 

@@ -28,20 +28,20 @@ def register_optim_in_bwd_hooks(
     """
     def optim_step(param) -> None:
         # Get or initialize an accumulation counter on the parameter.
-        if not hasattr(param, '_accumulation_counter'):
-            param._accumulation_counter = 0
-        param._accumulation_counter += 1
+        # if not hasattr(param, '_accumulation_counter'):
+        #     param._accumulation_counter = 0
+        # param._accumulation_counter += 1
 
         # Only update when we've accumulated gradients from all microbatches.
-        if param._accumulation_counter % acc_steps == 0:
-            # print("Autocast enabled before optimizer step:", torch.is_autocast_enabled())
-            # with torch.amp.autocast(device_type='cuda', enabled=False):
-                # print("Autocast Enabled before optimizer step:", torch.is_autocast_enabled())
-            param.data = param.data.float()
-            print(f"Param data type: {param.data.dtype}")
-            optim_dict[param].step()
-            # optim_dict[param].zero_grad()
-            # Resetting or implicitly allowing counter to roll-over
+        # if param._accumulation_counter % acc_steps == 0:
+        #     # print("Autocast enabled before optimizer step:", torch.is_autocast_enabled())
+        #     # with torch.amp.autocast(device_type='cuda', enabled=False):
+        #         # print("Autocast Enabled before optimizer step:", torch.is_autocast_enabled())
+        #     param.data = param.data.float()
+        #     print(f"Param data type: {param.data.dtype}")
+        optim_dict[param].step()
+        optim_dict[param].zero_grad()
+        # Resetting or implicitly allowing counter to roll-over
             # (optional: you could set param._accumulation_counter = 0)
     
     for p in model.parameters():
