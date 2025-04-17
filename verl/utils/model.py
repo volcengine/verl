@@ -195,6 +195,37 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
+def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers, layer_name="layers"):
+    """
+    Transform the model name in each model_chunk in each pp stage into the name in inference engine
+    """
+    if vpp_size > 1:
+        # print(f'try to bind vpp params to inference engine...')
+        layers_per_pp = num_layers // pp_size
+        layers_per_vpp = layers_per_pp // vpp_size
+        pp_offset = layers_per_vpp * pp_rank
+        vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
+        layer_offset = pp_offset + vpp_offset
+    else:
+        layers_per_pp = num_layers // pp_size
+        layer_offset = layers_per_pp * pp_rank
+
+    if layer_name in name:  # belong to an intermediate layer
+        split_name = name.split('.')
+        # find the num next to split_name
+        for i, name in enumerate(split_name):
+            if name == layer_name:
+                break
+        layer_num_idx = i + 1
+        # check the name
+        assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
+        assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
+        # increment layer_num_idx by layer_offset
+        split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
+        name = '.'.join(split_name)  # weight name in inference_tp_model
+    return name
+
+
 def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     """
     Normalize the pp vpp params into a complete named parameters.
@@ -205,43 +236,18 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     output: Dict[str, param]
 
     """
-
-    def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers):
-        """
-        Transform the model name in each model_chunk in each pp stage into the name in inference engine
-        """
-        if vpp_size > 1:
-            # print(f'try to bind vpp params to inference engine...')
-            layers_per_pp = num_layers // pp_size
-            layers_per_vpp = layers_per_pp // vpp_size
-            pp_offset = layers_per_vpp * pp_rank
-            vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
-            layer_offset = pp_offset + vpp_offset
-        else:
-            layers_per_pp = num_layers // pp_size
-            layer_offset = layers_per_pp * pp_rank
-
-        if layer_name in name:  # belong to an intermediate layer
-            split_name = name.split('.')
-            # find the num next to split_name
-            for i, name in enumerate(split_name):
-                if name == layer_name:
-                    break
-            layer_num_idx = i + 1
-            # check the name
-            assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
-            assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
-            # increment layer_num_idx by layer_offset
-            split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
-            name = '.'.join(split_name)  # weight name in inference_tp_model
-        return name
-
     pp_size = len(params)
     for pp_rank in range(len(params)):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
-                normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
+                normalized_name = normalize_model_name(name,
+                                                       pp_rank,
+                                                       vpp_rank,
+                                                       pp_size,
+                                                       vpp_size,
+                                                       num_hidden_layers,
+                                                       layer_name=layer_name)
                 yield normalized_name, param
 
 
