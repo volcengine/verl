@@ -18,5 +18,5 @@ ray[default]
 tensordict<=0.6.2
 torchdata
 transformers
-# vllm==0.6.3.post1
+vllm>=0.7.3
 wandb

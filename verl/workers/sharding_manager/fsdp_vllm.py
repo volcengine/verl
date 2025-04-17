@@ -17,9 +17,11 @@ import logging
 import torch
 import numpy as np
 from packaging import version
+from peft import PeftModel
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
 from torch.distributed.device_mesh import DeviceMesh
+from collections import OrderedDict
 
 from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
@@ -86,7 +88,23 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
-        params = self.module.state_dict()
+        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
+            # the model to sync weights to is a vLLM model (not a peft model), so we need to merge the adapters
+            lora_params = OrderedDict()
+            with FSDP.summon_full_params(self.module):
+                self.module.merge_adapter()
+                params = self.module._fsdp_wrapped_module.base_model.model.state_dict()
+                for name, param in params.items():
+                    if hasattr(param, 'full_tensor'):
+                        param = param.full_tensor()
+                    else:
+                        param = param.clone()
+                    lora_params[name] = param
+                
+            # FIXME: use more rigorous way to filter out the adapter weights
+            params = OrderedDict((k.replace(".base_layer.", "."), v) for k, v in lora_params.items() if not ".lora_" in k)
+        else:
+            params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
         # Copy, not share memory
         load_format = 'hf' if self.full_params else 'dtensor'
@@ -113,7 +131,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 self.update_params(params)
                 log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
                 del params
-
+        
+        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
+            with FSDP.summon_full_params(self.module):
+                self.module.unmerge_adapter()
+        
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
         # TODO: offload FSDP model weights
@@ -173,12 +195,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def update_params(self, updated_params):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        world_size = torch.distributed.get_world_size()
         if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
             loaded_params = patched_ds_v3_load_weights(
-                model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
+                model, ((name, param.full_tensor() if hasattr(param, 'full_tensor') else param)
                         for name, param in updated_params.items()))
         else:
             loaded_params = model.load_weights(
-                ((name, param.full_tensor() if world_size != 1 else param) for name, param in updated_params.items()))
+                ((name, param.full_tensor() if hasattr(param, 'full_tensor') else param) for name, param in updated_params.items()))
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")

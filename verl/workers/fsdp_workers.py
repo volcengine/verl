@@ -40,11 +40,22 @@ from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
+from peft import LoraConfig, TaskType, get_peft_model
 from codetiming import Timer
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
+def convert_to_regular_types(obj):
+    """Convert Hydra configs and other special types to regular Python types."""
+    from omegaconf import ListConfig, DictConfig
+    if isinstance(obj, (ListConfig, DictConfig)):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_regular_types(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_regular_types(v) for k, v in obj.items()}
+    return obj
 
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
@@ -95,6 +106,7 @@ class ActorRolloutRefWorker(Worker):
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+        self._is_lora = self.config.model.get('lora_rank', 0) > 0
 
         self.role = role
         assert self.role in ['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']
@@ -216,6 +228,18 @@ class ActorRolloutRefWorker(Worker):
 
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+            if self._is_lora:
+                print("Applying LoRA to actor module")
+                actor_module.enable_input_require_grads()
+                # Convert config to regular Python types before creating PEFT model
+                lora_config = {
+                    'task_type': TaskType.CAUSAL_LM,
+                    'r': self.config.model.lora_rank,
+                    'lora_alpha': self.config.model.lora_alpha,
+                    'target_modules': convert_to_regular_types(self.config.model.target_modules),
+                    'bias': "none"
+                }
+                actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
         torch.distributed.barrier()
 
         if self.rank == 0:
@@ -236,7 +260,7 @@ class ActorRolloutRefWorker(Worker):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None))
+        auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get('wrap_policy', None), is_lora=self.config.model.get('lora_rank', 0) > 0)
 
         if self._is_rollout and self.config.rollout.name == 'hf':
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
@@ -530,43 +554,57 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_log_prob(self, data: DataProto):
+    def compute_log_prob(self, data: DataProto, no_lora=False):
+        # when no_lora is True, we use the actor without lora applied to calculate the log_prob
+        # which is mostly used for ref log_prob calculation
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-
+        
         # Support all hardwares
-        data = data.to(torch.cuda.current_device())
-        # we should always recompute old_log_probs when it is HybridEngine
-        data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
-        data.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
-        data.meta_info['temperature'] = self.config.rollout.temperature
-        # perform recompute log_prob
-        with self.ulysses_sharding_manager:
-            data = self.ulysses_sharding_manager.preprocess_data(data)
-            output = self.actor.compute_log_prob(data=data)
-            output = DataProto.from_dict(tensors={'old_log_probs': output},
-                                         meta_info={'temperature': self.config.rollout.temperature})
-            output = self.ulysses_sharding_manager.postprocess_data(output)
+        from contextlib import nullcontext
+        adapter_ctx = self.actor.actor_module.disable_adapter() if no_lora else nullcontext()
+        with adapter_ctx:
+            data = data.to(torch.cuda.current_device())
+            # we should always recompute old_log_probs when it is HybridEngine
+            data.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+            data.meta_info['max_token_len'] = self.config.rollout.log_prob_max_token_len_per_gpu
+            data.meta_info['use_dynamic_bsz'] = self.config.rollout.log_prob_use_dynamic_bsz
+            data.meta_info['temperature'] = self.config.rollout.temperature
+            # perform recompute log_prob
+            with self.ulysses_sharding_manager:
+                data = self.ulysses_sharding_manager.preprocess_data(data)
+                output = self.actor.compute_log_prob(data=data)
+                output = DataProto.from_dict(tensors={'old_log_probs': output},
+                                            meta_info={'temperature': self.config.rollout.temperature})
+                output = self.ulysses_sharding_manager.postprocess_data(output)
 
-        output = output.to('cpu')
+            output = output.to('cpu')
 
-        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
-        # unshard the root FSDP module
-        if self.world_size > 1:
-            self.actor.actor_module._handle.reshard(True)
+            # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+            # unshard the root FSDP module
+            if self.world_size > 1:
+                self.actor.actor_module._handle.reshard(True)
+            
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            log_gpu_memory_usage('After compute_log_prob', logger=logger)
 
-        log_gpu_memory_usage('After compute_log_prob', logger=logger)
-        return output
+            torch.cuda.empty_cache()
+            return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
+        if self._is_lora:
+            # if _is_lora, actor without lora applied is the ref
+            data = self.compute_log_prob(data, no_lora=True)
+            # this old_log_probs is in fact ref_log_prob
+            data = DataProto.from_dict(tensors={'ref_log_prob': data.batch['old_log_probs']})
+            return data
         assert self._is_ref
-
+        # else:
+        # otherwise, the class have a standalone ref model
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
 
@@ -590,13 +628,36 @@ class ActorRolloutRefWorker(Worker):
 
         return output
 
+
+    
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         # only support save and load ckpt for actor
         assert self._is_actor
-        import torch
+
+        import torch.distributed as dist
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+        from peft import PeftModel
+        import transformers
+
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
+
+        if self._is_lora:
+            if isinstance(self.actor_module, PeftModel) and dist.get_rank() == 0:
+                lora_save_path = os.path.join(local_path, "lora_adapter")
+                if isinstance(self.actor_module_fsdp, FSDP):
+                    self.actor_module_fsdp.save_pretrained(
+                        lora_save_path,
+                        state_dict=transformers.utils.SAFE_WEIGHTS_NAME,
+                        safe_serialization=True
+                    )
+                else:
+                    self.actor_module.save_pretrained(lora_save_path)
+                print(f"[rank-{self.rank}]: LoRA adapter saved to {lora_save_path}")
+
+            dist.barrier()
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
@@ -667,6 +728,7 @@ class CriticWorker(Worker):
                 f'normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}'
             assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, \
                 f'normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}'
+        self._is_lora = self.config.model.get('lora_rank', 0) > 0
 
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
@@ -727,6 +789,20 @@ class CriticWorker(Worker):
 
             if config.model.get('enable_gradient_checkpointing', False):
                 critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+        
+        if self._is_lora:
+            print("Applying LoRA to critic module")
+            critic_module.enable_input_require_grads()
+            # Convert config to regular Python types before creating PEFT model
+            lora_config = {
+                'task_type': TaskType.CAUSAL_LM,
+                'r': self.config.model.lora_rank,
+                'lora_alpha': self.config.model.lora_alpha,
+                'target_modules': convert_to_regular_types(self.config.model.target_modules),
+                'bias': "none",
+            }
+            critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+
         if self.rank == 0:
             print_model_size(critic_module)
 
@@ -745,7 +821,7 @@ class CriticWorker(Worker):
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
 
-        auto_wrap_policy = get_fsdp_wrap_policy(module=critic_module, config=self.config.model.fsdp_config.wrap_policy)
+        auto_wrap_policy = get_fsdp_wrap_policy(module=critic_module, config=self.config.model.fsdp_config.wrap_policy, is_lora=self.config.model.get('lora_rank', 0) > 0)
 
         log_gpu_memory_usage('Before critic FSDP', logger=None)
 

@@ -27,6 +27,9 @@ actor_rollout_ref:
     override_config: { }
     enable_gradient_checkpointing: True
     use_remove_padding: False
+    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
+    lora_alpha: 16  # LoRA scaling factor
+    target_modules: all-linear  # all-linear or [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -139,6 +142,9 @@ critic:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
       fsdp_size: -1
+    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
+    lora_alpha: 16  # LoRA scaling factor
+    target_modules: all-linear  # all-linear or [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
