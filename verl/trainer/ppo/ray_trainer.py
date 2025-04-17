@@ -30,7 +30,7 @@ import numpy as np
 import ray
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
-from torch.utils.data import Dataset, RandomSampler, SequentialSampler
+from torch.utils.data import Dataset, RandomSampler, SequentialSampler, WeightedRandomSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -451,6 +451,32 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
+    def _create_train_sampler(self):
+        # `data.shuffle` is False, use deterministic sampling
+        if not self.config.data.shuffle:
+            print('Using SequentialSampler')
+            return SequentialSampler(data_source=self.train_dataset)
+
+        # `data.shuffle` is True, can be various probabilistic samplings
+
+        train_dataloader_generator = torch.Generator()
+        train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+
+        dataframe_weights = None if not hasattr(self.train_dataset, 'dataframe_weights') \
+                            else self.train_dataset.dataframe_weights
+        # `train_dataset.dataframe_weights` not exists, use plain uniform random sampling
+        if dataframe_weights is None:
+            print('Using RandomSampler')
+            return RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
+
+        # `train_dataset.dataframe_weights` does exist, use weighted sampling
+        assert len(dataframe_weights) == len(self.train_dataset), \
+            f'the sampling weights {len(dataframe_weights)=} must have the same length as the dataset {len(self.train_dataset)=}'
+        print('Using WeightedRandomSampler')
+        return WeightedRandomSampler(weights=dataframe_weights,
+                                     num_samples=len(self.train_dataset),
+                                     generator=train_dataloader_generator)
+
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.utils.import_utils import load_extern_type
@@ -467,26 +493,22 @@ class RayPPOTrainer:
 
         self.train_dataset = dataset_cls(
             data_files=self.config.data.train_files,
+            data_file_weights=self.config.data.get('train_file_weights', None),
             tokenizer=self.tokenizer,
             processor=self.processor,
             config=self.config.data,
         )
 
         # use sampler for better ckpt resume
-        if self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get("seed", 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
-        else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
+        train_sampler = self._create_train_sampler()
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_size=self.config.data.get('gen_batch_size', self.config.data.train_batch_size),
             num_workers=8,
             drop_last=True,
             collate_fn=collate_fn,
-            sampler=sampler,
+            sampler=train_sampler
         )
 
         self.val_dataset = dataset_cls(
