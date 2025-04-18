@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .naive import NaiveRewardManager
-from .prime import PrimeRewardManager
 from .batch import BatchRewardManager
 from .dapo import DAPORewardManager
+from .naive import NaiveRewardManager
+from .prime import PrimeRewardManager

@@ -15,17 +15,17 @@
 
 import enum
 import json
+from dataclasses import dataclass, field
 from typing import List, Optional, Union
-from dataclasses import dataclass, field, fields
 
 from transformers import PretrainedConfig
 
+# Add for verl
+from vllm.config import ModelConfig, _get_and_verify_dtype, _get_and_verify_max_len
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization import get_quantization_config
 from vllm.transformers_utils.config import get_hf_text_config
 from vllm.utils import is_hip
-# Add for verl
-from vllm.config import ModelConfig, _get_and_verify_dtype, _get_and_verify_max_len
 
 GPTQMarlinConfig = get_quantization_config("gptq_marlin")
 
@@ -90,8 +90,8 @@ class ModelConfig(ModelConfig):
         skip_tokenizer_init: If true, skip initialization of tokenizer and
             detokenizer.
         served_model_name: The model name used in metrics tag `model_name`,
-            matches the model name exposed via the APIs. If multiple model 
-            names provided, the first name will be used. If not specified, 
+            matches the model name exposed via the APIs. If multiple model
+            names provided, the first name will be used. If not specified,
             the model name will be the same as `model`.
     """
 
@@ -124,9 +124,8 @@ class ModelConfig(ModelConfig):
         self.enforce_eager = enforce_eager
         self.max_context_len_to_capture = max_context_len_to_capture
         if self.max_context_len_to_capture is not None:
-            raise ValueError("`max_context_len_to_capture` is deprecated. "
-                             "Use `max_seq_len_to_capture` instead.")
-        self.max_seq_len_to_capture = (max_seq_len_to_capture or max_context_len_to_capture)
+            raise ValueError("`max_context_len_to_capture` is deprecated. Use `max_seq_len_to_capture` instead.")
+        self.max_seq_len_to_capture = max_seq_len_to_capture or max_context_len_to_capture
         self.max_logprobs = max_logprobs
         self.skip_tokenizer_init = skip_tokenizer_init
 
@@ -145,32 +144,32 @@ class ModelConfig(ModelConfig):
 
 
 class LoadFormat(str, enum.Enum):
-    AUTO = 'auto'
+    AUTO = "auto"
     MEGATRON = "megatron"
     HF = "hf"
-    DTENSOR = 'dtensor'
-    DUMMY_HF = 'dummy_hf'
-    DUMMY_MEGATRON = 'dummy_megatron'
-    DUMMY_DTENSOR = 'dummy_dtensor'
+    DTENSOR = "dtensor"
+    DUMMY_HF = "dummy_hf"
+    DUMMY_MEGATRON = "dummy_megatron"
+    DUMMY_DTENSOR = "dummy_dtensor"
 
 
 @dataclass
 class LoadConfig:
     """
-        download_dir: Directory to download and load the weights, default to the
-            default cache directory of huggingface.
-        load_format: The format of the model weights to load:
-            "auto" will try to load the weights in the safetensors format and
-                fall back to the pytorch bin format if safetensors format is
-                not available.
-            "pt" will load the weights in the pytorch bin format.
-            "safetensors" will load the weights in the safetensors format.
-            "npcache" will load the weights in pytorch format and store
-                a numpy cache to speed up the loading.
-            "dummy" will initialize the weights with random values, which is
-                mainly for profiling.
-            "tensorizer" will use CoreWeave's tensorizer library for
-                fast weight loading.
+    download_dir: Directory to download and load the weights, default to the
+        default cache directory of huggingface.
+    load_format: The format of the model weights to load:
+        "auto" will try to load the weights in the safetensors format and
+            fall back to the pytorch bin format if safetensors format is
+            not available.
+        "pt" will load the weights in the pytorch bin format.
+        "safetensors" will load the weights in the safetensors format.
+        "npcache" will load the weights in pytorch format and store
+            a numpy cache to speed up the loading.
+        "dummy" will initialize the weights with random values, which is
+            mainly for profiling.
+        "tensorizer" will use CoreWeave's tensorizer library for
+            fast weight loading.
     """
 
     load_format: Union[str, LoadFormat, "BaseModelLoader"] = LoadFormat.AUTO
@@ -195,6 +194,8 @@ class LoadConfig:
             rocm_supported_load_format = [
                 f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)
             ]
-            raise ValueError(f"load format '{load_format}' is not supported in ROCm. "
-                             f"Supported load formats are "
-                             f"{rocm_supported_load_format}")
+            raise ValueError(
+                f"load format '{load_format}' is not supported in ROCm. "
+                f"Supported load formats are "
+                f"{rocm_supported_load_format}"
+            )

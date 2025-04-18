@@ -13,13 +13,11 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 
-from typing import Dict, Iterable, Tuple
-import torch
-import torch.nn as nn
-from torch.distributed._tensor import DTensor, Shard, Replicate
+from typing import Dict
 
+import torch.nn as nn
+from torch.distributed._tensor import DTensor
 from vllm.model_executor.layers.linear import *
-from vllm.model_executor.models import ModelRegistry
 from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 
 
@@ -35,7 +33,7 @@ def gemma_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> n
 
     params_dict = dict(vllm_model.named_parameters())
     for name, loaded_weight in actor_weights.items():
-        for (param_name, shard_name, shard_id) in stacked_params_mapping:
+        for param_name, shard_name, shard_id in stacked_params_mapping:
             if shard_name not in name:
                 continue
             stacked_name = name.replace(shard_name, param_name)
@@ -99,7 +97,7 @@ def starcoder2_dtensor_load_weights(actor_weights: Dict, vllm_model: nn.Module):
         if "rotary_emb.inv_freq" in name:
             continue
 
-        for (param_name, weight_name, shard_id) in stacked_params_mapping:
+        for param_name, weight_name, shard_id in stacked_params_mapping:
             if weight_name not in name:
                 continue
             name = name.replace(weight_name, param_name)
@@ -130,7 +128,7 @@ def llama_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> n
     for name, loaded_weight in actor_weights.items():
         if "rotary_emb.inv_freq" in name:
             continue
-        if ("rotary_emb.cos_cached" in name or "rotary_emb.sin_cached" in name):
+        if "rotary_emb.cos_cached" in name or "rotary_emb.sin_cached" in name:
             # Models trained using ColossalAI may include these tensors in
             # the checkpoint. Skip them.
             continue
@@ -139,7 +137,7 @@ def llama_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> n
         # processed with quantization, LoRA, fine-tuning, etc.
         if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
             continue
-        for (param_name, weight_name, shard_id) in stacked_params_mapping:
+        for param_name, weight_name, shard_id in stacked_params_mapping:
             if weight_name not in name:
                 continue
             name = name.replace(weight_name, param_name)
@@ -176,7 +174,7 @@ def qwen2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> n
             continue
         if vllm_model.config.tie_word_embeddings and "lm_head.weight" in name:
             continue
-        for (param_name, weight_name, shard_id) in stacked_params_mapping:
+        for param_name, weight_name, shard_id in stacked_params_mapping:
             if weight_name not in name:
                 continue
             name = name.replace(weight_name, param_name)
@@ -205,11 +203,13 @@ def gpt2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn
 def redistribute_dtensor(param_name: str, loaded_weights: DTensor, parallelize_plan: Dict = None):
     param_name = _process_parameter_names(name=param_name)
     if parallelize_plan is not None:
-        assert param_name in parallelize_plan.keys(), \
+        assert param_name in parallelize_plan, (
             f"param name: {param_name} not in parallelize_plan :{parallelize_plan.keys()}"
+        )
         placement = parallelize_plan[param_name]
-        local_loaded_weights = loaded_weights.redistribute(device_mesh=loaded_weights.device_mesh,
-                                                           placements=placement).to_local()
+        local_loaded_weights = loaded_weights.redistribute(
+            device_mesh=loaded_weights.device_mesh, placements=placement
+        ).to_local()
     else:
         local_loaded_weights = loaded_weights.full_tensor()
     return local_loaded_weights
@@ -222,9 +222,9 @@ def _process_parameter_names(name):
 
     # Remove 'model.layers.x.' or 'model.' prefix
     if "model.layers" in name:
-        parts = name.split('.')
+        parts = name.split(".")
         # Reconstruct the string without 'model.layers.x.'
-        name = '.'.join(parts[3:])  # parts[0] is 'model', parts[1] is 'layers', parts[2] is 'x'
+        name = ".".join(parts[3:])  # parts[0] is 'model', parts[1] is 'layers', parts[2] is 'x'
     elif name.startswith("model."):
         name = name[6:]  # Remove 'model.'
 
@@ -232,18 +232,18 @@ def _process_parameter_names(name):
 
 
 __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
-    'GPT2LMHeadModel': gpt2_dtensor_weight_loader,
-    'LlamaForCausalLM': llama_dtensor_weight_loader,
-    'LLaMAForCausalLM': llama_dtensor_weight_loader,
-    'MistralForCausalLM': llama_dtensor_weight_loader,  # mistral is the same as llama in vLLM
-    'InternLMForCausalLM': llama_dtensor_weight_loader,
-    'AquilaModel': llama_dtensor_weight_loader,
-    'AquilaForCausalLM': llama_dtensor_weight_loader,
-    'Phi3ForCausalLM': llama_dtensor_weight_loader,
-    'GemmaForCausalLM': gemma_dtensor_weight_loader,
-    'GPTBigCodeForCausalLM': gptbigcode_dtensor_load_weights,
-    'Starcoder2ForCausalLM': starcoder2_dtensor_load_weights,
-    'Qwen2ForCausalLM': qwen2_dtensor_weight_loader
+    "GPT2LMHeadModel": gpt2_dtensor_weight_loader,
+    "LlamaForCausalLM": llama_dtensor_weight_loader,
+    "LLaMAForCausalLM": llama_dtensor_weight_loader,
+    "MistralForCausalLM": llama_dtensor_weight_loader,  # mistral is the same as llama in vLLM
+    "InternLMForCausalLM": llama_dtensor_weight_loader,
+    "AquilaModel": llama_dtensor_weight_loader,
+    "AquilaForCausalLM": llama_dtensor_weight_loader,
+    "Phi3ForCausalLM": llama_dtensor_weight_loader,
+    "GemmaForCausalLM": gemma_dtensor_weight_loader,
+    "GPTBigCodeForCausalLM": gptbigcode_dtensor_load_weights,
+    "Starcoder2ForCausalLM": starcoder2_dtensor_load_weights,
+    "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,
 }
 
 
@@ -260,8 +260,10 @@ def load_dtensor_weights(actor_weights: Dict, vllm_model: nn.Module):
 def _get_model_weight_loader(arch: str):
     if arch in __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__:
         return __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__[arch]
-    raise ValueError(f"Model architectures {arch} are not supported for now. "
-                     f"Supported architectures: {__MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} are not supported for now. "
+        f"Supported architectures: {__MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__.keys()}"
+    )
 
 
 # NOTE(sgm): we use per-parameter weight loader in each vllm sub
