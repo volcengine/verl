@@ -15,13 +15,13 @@
 
 
 def compute_score(solution_str, ground_truth) -> float:
-    retval = 0.
+    retval = 0.0
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
-                retval = 1.
+                retval = 1.0
     except Exception as e:
         print(e)
 
@@ -49,15 +49,15 @@ def is_equiv(str1, str2, verbose=False):
 def remove_boxed(s):
     if "\\boxed " in s:
         left = "\\boxed "
-        assert s[:len(left)] == left
-        return s[len(left):]
+        assert s[: len(left)] == left
+        return s[len(left) :]
 
     left = "\\boxed{"
 
-    assert s[:len(left)] == left
+    assert s[: len(left)] == left
     assert s[-1] == "}"
 
-    return s[len(left):-1]
+    return s[len(left) : -1]
 
 
 def last_boxed_only_string(string):
@@ -85,7 +85,7 @@ def last_boxed_only_string(string):
     if right_brace_idx is None:
         retval = None
     else:
-        retval = string[idx:right_brace_idx + 1]
+        retval = string[idx : right_brace_idx + 1]
 
     return retval
 

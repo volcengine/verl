@@ -13,30 +13,27 @@
 # limitations under the License.
 
 import ast
-import json
-import sys
 import faulthandler
+import json
 import platform
-
-# used for debugging to time steps
-from datetime import datetime
 
 # to run the solution files we're using a timing based approach
 import signal
+import sys
+import traceback
 
-import numpy as np
+# used for debugging to time steps
+from datetime import datetime
+from enum import Enum
 
 # for capturing the stdout
 from io import StringIO
 
 # used for testing the code that reads from input
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
+import numpy as np
 from pyext import RuntimeModule
-
-from enum import Enum
-
-import traceback
 
 
 def truncatefn(s, length=300):
@@ -44,7 +41,7 @@ def truncatefn(s, length=300):
     if len(s) <= length:
         return s
 
-    return s[:length // 2] + "...(truncated) ..." + s[-length // 2:]
+    return s[: length // 2] + "...(truncated) ..." + s[-length // 2 :]
 
 
 class CODE_TYPE(Enum):
@@ -72,7 +69,6 @@ signal.signal(signal.SIGALRM, timeout_handler)
 # from https://stackoverflow.com/a/16571630/6416660
 # alternative use redirect_stdout() from contextlib
 class Capturing(list):
-
     def __enter__(self):
         self._stdout = sys.stdout
         sys.stdout = self._stringio = StringIO()
@@ -99,7 +95,7 @@ def combined_int_check(val):
 
 
 def clean_traceback(error_traceback):
-    file_start = error_traceback.find('File \"<string>\"')
+    file_start = error_traceback.find('File "<string>"')
     # print(file_start)
     error_traceback = "Traceback (most recent call last):\n  " + error_traceback[file_start:]
     return error_traceback
@@ -137,7 +133,6 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             print(f"loading test code = {datetime.now().time()}")
 
         if which_type == CODE_TYPE.call_based:
-
             sol += test
             if debug:
                 print(f"sol = {sol}")
@@ -172,7 +167,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 if isinstance(last_block, ast.If):
                     condition = last_block.test
                     if ast.unparse(condition).strip() == "__name__ == '__main__'":
-                        test = (ast.unparse(astree.body[:-1]) + "\n" + ast.unparse(last_block.body))
+                        test = ast.unparse(astree.body[:-1]) + "\n" + ast.unparse(last_block.body)
             except:
                 pass
 
@@ -249,7 +244,8 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
                 truncate_line_size = 300 // (raw_inputs.count("\n") + 1)
                 raw_inputs = "\n".join(
-                    [truncatefn(line, truncate_line_size) for line in raw_inputs.strip().split("\n")])
+                    [truncatefn(line, truncate_line_size) for line in raw_inputs.strip().split("\n")]
+                )
                 raw_outputs = truncatefn(raw_outputs, 200)
             else:
                 raw_inputs = truncatefn(raw_inputs)
@@ -290,7 +286,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         output = list(output)
 
                     tmp_result = output == in_outs["outputs"][index]
-                    if (isinstance(in_outs["outputs"][index], list) and in_outs["outputs"][index]):
+                    if isinstance(in_outs["outputs"][index], list) and in_outs["outputs"][index]:
                         tmp_result = tmp_result or (output == in_outs["outputs"][index][0])
 
                     # ground truth sequences are not tuples
@@ -390,7 +386,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         nl = "\n"
                         if not isinstance(inputs, list):
                             print(
-                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl,' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                                f"not passed output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
                             )
                         else:
                             print(
@@ -459,7 +455,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     nl = "\n"
                     if not isinstance(inputs, list):
                         print(
-                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl,' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
+                            f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
                         )
                     else:
                         print(
@@ -488,18 +484,22 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 try:
                     all_ints = all(
                         combined_int_check(e1) and combined_int_check(e2)
-                        for e1, e2 in zip(output, in_outs["outputs"][index]))
+                        for e1, e2 in zip(output, in_outs["outputs"][index])
+                    )
                     if not all_ints:
                         if debug:
-                            print([
-                                combined_int_check(e1) and combined_int_check(e2)
-                                for e1, e2 in zip(output, in_outs["outputs"][index])
-                            ])
+                            print(
+                                [
+                                    combined_int_check(e1) and combined_int_check(e2)
+                                    for e1, e2 in zip(output, in_outs["outputs"][index])
+                                ]
+                            )
                         output_float = [float(e) for e in output]
                         gt_float = [float(e) for e in in_outs["outputs"][index]]
-                        tmp_result = tmp_result or ((len(output_float) == len(gt_float)) and
-                                                    np.allclose(output_float, gt_float))
-                except Exception as e:
+                        tmp_result = tmp_result or (
+                            (len(output_float) == len(gt_float)) and np.allclose(output_float, gt_float)
+                        )
+                except Exception:
                     pass
 
                 if debug:
@@ -509,13 +509,15 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     if isinstance(output[0], list):
                         all_ints = all(
                             combined_int_check(e1) and combined_int_check(e2)
-                            for e1, e2 in zip(output[0], in_outs["outputs"][index]))
+                            for e1, e2 in zip(output[0], in_outs["outputs"][index])
+                        )
                         if not all_ints:
                             output_float = [float(e) for e in output[0]]
                             gt_float = [float(e) for e in in_outs["outputs"][index][0]]
-                            tmp_result = tmp_result or ((len(output_float) == len(gt_float)) and
-                                                        np.allclose(output_float, gt_float))
-                except Exception as e:
+                            tmp_result = tmp_result or (
+                                (len(output_float) == len(gt_float)) and np.allclose(output_float, gt_float)
+                            )
+                except Exception:
                     pass
 
                 if tmp_result == True:
@@ -580,7 +582,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     nl = "\n"
                     if not isinstance(inputs, list):
                         print(
-                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl,' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
+                            f"@2 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]}"
                         )
                     else:
                         print(
@@ -593,7 +595,6 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
 
 def custom_compare_(output, ground_truth):
-
     if isinstance(output, list):
         output_1 = "\n".join(output)
         if stripped_string_compare(output_1, ground_truth):
@@ -615,7 +616,6 @@ def stripped_string_compare(s1, s2):
 
 
 def call_method(method, inputs):
-
     if isinstance(inputs, list):
         inputs = "\n".join(inputs)
 
@@ -633,7 +633,7 @@ def call_method(method, inputs):
     def _inner_call_method(_method):
         try:
             return _method()
-        except SystemExit as e:
+        except SystemExit:
             pass
         finally:
             pass

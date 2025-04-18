@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 import os
 import subprocess
+import time
 
 
 def test():
@@ -34,12 +34,13 @@ def test():
 
     print(
         time.time(),
-        f"wait 1.5 wait time {wait_time*1.5} to let signal returned to process but still not exceed process wait time")
+        f"wait 1.5 wait time {wait_time * 1.5} to let signal returned to process but still not exceed process wait time",
+    )
     time.sleep(wait_time * 1.5)
-    print(time.time(), f"start checking")
+    print(time.time(), "start checking")
     assert p.poll() is not None, f"process {p} still alive, expecting signal raised abort"
     assert p.returncode != 0, f"process {p} exit with code 0, expecting not-zero exit code"
-    print(f"test passed")
+    print("test passed")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@
 
 import torch
 import torch.distributed
-
 import vllm.model_executor.parallel_utils.parallel_state as ps
+
 """
 This version is strongly tied with Megatron to implement HybridEngine and weight sharing between vllm and Megatron.
 - We assume the Megatron tp+dp+pp world is already established before calling this function.
@@ -24,10 +24,11 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 def initialize_model_parallel_from_megatron(
-        tensor_model_parallel_size=None  # we set None for backward compatibility to set infer_tp = train_tp
+    tensor_model_parallel_size=None,  # we set None for backward compatibility to set infer_tp = train_tp
 ) -> None:
     from megatron.core import parallel_state as mpu
     from megatron.distributed import new_group
+
     # Get world size and rank. Ensure some consistencies.
     assert torch.distributed.is_initialized()
 
@@ -37,10 +38,11 @@ def initialize_model_parallel_from_megatron(
         assert isinstance(tensor_model_parallel_size, int)
 
     # Build the tensor model-parallel groups.
-    assert ps._TENSOR_MODEL_PARALLEL_GROUP is None, ("tensor model parallel group is already initialized")
+    assert ps._TENSOR_MODEL_PARALLEL_GROUP is None, "tensor model parallel group is already initialized"
 
-    assert tensor_model_parallel_size <= mpu.get_tensor_model_parallel_world_size(
-    ), 'Not implemented for infer_tp > train_tp'
+    assert tensor_model_parallel_size <= mpu.get_tensor_model_parallel_world_size(), (
+        "Not implemented for infer_tp > train_tp"
+    )
 
     global _TENSOR_MODEL_PARALLEL_GROUP
     global _MICRO_DATA_PARALLEL_GROUP
@@ -56,10 +58,10 @@ def initialize_model_parallel_from_megatron(
     rank = torch.distributed.get_rank()
 
     # Build the micro dp groups.
-    assert _MICRO_DATA_PARALLEL_GROUP is None, ("micro data parallel group is already initialized")
+    assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
     for i in range(num_micro_dp_groups):
         ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-        group = new_group(rank=rank, ranks=ranks, group_type='micro_dp')
+        group = new_group(rank=rank, ranks=ranks, group_type="micro_dp")
         if rank in ranks:
             _MICRO_DATA_PARALLEL_GROUP = group
 
@@ -78,7 +80,7 @@ def initialize_model_parallel_from_megatron(
         train_tp = mpu.get_tensor_model_parallel_world_size()
         num_tensor_model_parallel_groups_per_train_tp = train_tp // tensor_model_parallel_size
         num_tensor_model_parallel_groups = world_size // tensor_model_parallel_size
-        assert _TENSOR_MODEL_PARALLEL_GROUP is None, ("tensor model parallel group is already initialized")
+        assert _TENSOR_MODEL_PARALLEL_GROUP is None, "tensor model parallel group is already initialized"
         for i in range(num_tensor_model_parallel_groups // num_tensor_model_parallel_groups_per_train_tp):
             start = train_tp * i
             end = train_tp * (i + 1)
@@ -87,7 +89,7 @@ def initialize_model_parallel_from_megatron(
                 for i in range(len(ranks)):
                     ranks[i] += j
                 # group = torch.distributed.new_group(ranks)
-                group = new_group(rank=rank, ranks=ranks, group_type='infer_tp')
+                group = new_group(rank=rank, ranks=ranks, group_type="infer_tp")
                 if rank in ranks:
                     _TENSOR_MODEL_PARALLEL_GROUP = group
                     ps._TENSOR_MODEL_PARALLEL_GROUP = _TENSOR_MODEL_PARALLEL_GROUP
@@ -107,7 +109,7 @@ Tensor model parallel utilities
 
 def get_tensor_model_parallel_group():
     """Get the tensor model parallel group the caller rank belongs to."""
-    assert _TENSOR_MODEL_PARALLEL_GROUP is not None, ("tensor model parallel group is not initialized")
+    assert _TENSOR_MODEL_PARALLEL_GROUP is not None, "tensor model parallel group is not initialized"
     return _TENSOR_MODEL_PARALLEL_GROUP
 
 
