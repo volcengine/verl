@@ -96,6 +96,13 @@ actor_rollout_ref:
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: 1
+    profile:
+      use_profile: False
+      profile_ranks: null
+      step_start: -1
+      step_end: -1
+      save_path: null
+      use_pytorch_profiler: False
     load_weight: True
     param_offload: False
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
