@@ -65,6 +65,8 @@ actor_rollout_ref:
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
     megatron:
+      param_offload: False
+      optimizer_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
@@ -80,6 +82,8 @@ actor_rollout_ref:
   ref:
     strategy: megatron
     megatron:
+      param_offload: False
+      optimizer_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
@@ -155,6 +159,8 @@ critic:
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
   megatron:
+    param_offload: False
+    optimizer_offload: False
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
