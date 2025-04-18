@@ -46,7 +46,7 @@ from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_los
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits, masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
-from verl.utils.debug.profile import Profile
+from verl.utils.debug.profile import Profiler
 
 __all__ = ['MegatronPPOActor']
 
@@ -108,7 +108,7 @@ class MegatronPPOActor(BasePPOActor):
         self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-        self.prof = Profile(self.config.profile) if self.config.use_profile else None
+        self.prof = Profiler(self.config.profile)
         self.optimizer_step_args = OmegaConf.create({
             'skip_grad': None,
             'overlap_dp_param_comm': False,
