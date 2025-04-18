@@ -118,8 +118,8 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, take_reward_kwargs=True)
-        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, take_reward_kwargs=False)
+        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
+        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RayPPOTrainer(config=config,

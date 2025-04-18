@@ -50,7 +50,7 @@ def get_custom_reward_fn(config):
     return wrapped_fn
 
 
-def load_reward_manager(config, tokenizer, num_examine, take_reward_kwargs):
+def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     if reward_manager_name == 'naive':
         from verl.workers.reward_manager import NaiveRewardManager
@@ -68,9 +68,6 @@ def load_reward_manager(config, tokenizer, num_examine, take_reward_kwargs):
         raise NotImplementedError
 
     compute_score = get_custom_reward_fn(config)
-    reward_kwargs = {}
-    if take_reward_kwargs:
-        reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
     return reward_manager_cls(tokenizer=tokenizer,
                               num_examine=num_examine,
                               compute_score=compute_score,
@@ -105,5 +102,5 @@ def compute_reward_async(data: DataProto, config, tokenizer):
     Load the reward manager and compute the reward for a batch of data.
     This is meant to be run in a separate Ray worker.
     """
-    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, take_reward_kwargs=True)
+    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
     return compute_reward(data, reward_fn)
