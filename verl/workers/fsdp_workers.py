@@ -54,6 +54,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.activation_offload import enable_activation_offload_for_fsdp_model
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -160,6 +161,7 @@ class ActorRolloutRefWorker(Worker):
         trust_remote_code=False,
         use_liger=False,
         role="actor",
+        enable_activation_offload=False,
     ):
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
@@ -308,6 +310,9 @@ class ActorRolloutRefWorker(Worker):
             actor_module_fsdp = actor_module
         else:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
+        
+        if enable_activation_offload:
+            enable_activation_offload_for_fsdp_model(actor_module_fsdp, enable_gradient_checkpointing)
 
         log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
 
@@ -511,6 +516,7 @@ class ActorRolloutRefWorker(Worker):
                 trust_remote_code=self.config.model.get("trust_remote_code", False),
                 use_liger=self.config.model.get("use_liger", False),
                 role="actor",
+                enable_activation_offload=self.config.model.get('enable_activation_offload', False),
             )
 
             # get the original unwrapped module
@@ -899,6 +905,10 @@ class CriticWorker(Worker):
             fsdp2_load_full_state_dict(critic_module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {config.strategy}")
+
+        if config.model.get('enable_activation_offload', False):
+            enable_gradient_checkpointing = config.model.get('enable_gradient_checkpointing', False)
+            enable_activation_offload_for_fsdp_model(critic_module, enable_gradient_checkpointing)
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
