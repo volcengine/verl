@@ -25,6 +25,7 @@ model:
   fsdp_config:
     wrap_policy:
       min_num_params: 0
+      transformer_layer_cls_to_wrap: null
     cpu_offload: False
     offload_params: False
   external_lib: null
@@ -53,4 +54,5 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+attn_implementation: flash_attention_2
 

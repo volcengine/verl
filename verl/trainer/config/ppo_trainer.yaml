@@ -52,7 +52,7 @@ actor_rollout_ref:
     shuffle: False
     ulysses_sequence_parallel_size: 1 # sp size
     checkpoint:
-      contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+      contents: ['model', 'optimizer', 'extra','hf_model']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
     optim:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
@@ -63,7 +63,7 @@ actor_rollout_ref:
       weight_decay: 0.01
     fsdp_config:
       wrap_policy:
-        # transformer_layer_cls_to_wrap: None
+        transformer_layer_cls_to_wrap: null
         min_num_params: 0
       param_offload: False
       optimizer_offload: False
@@ -73,7 +73,7 @@ actor_rollout_ref:
     fsdp_config:
       param_offload: False
       wrap_policy:
-        # transformer_layer_cls_to_wrap: None
+        transformer_layer_cls_to_wrap: null
         min_num_params: 0
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
@@ -140,7 +140,7 @@ critic:
       param_offload: False
       optimizer_offload: False
       wrap_policy:
-        # transformer_layer_cls_to_wrap: None
+        transformer_layer_cls_to_wrap: null
         min_num_params: 0
       fsdp_size: -1
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
