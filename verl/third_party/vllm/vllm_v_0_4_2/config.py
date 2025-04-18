@@ -24,6 +24,7 @@ from transformers import PretrainedConfig
 from vllm.config import ModelConfig, _get_and_verify_dtype, _get_and_verify_max_len
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization import get_quantization_config
+from vllm.model_executor.model_loader import BaseModelLoader
 from vllm.transformers_utils.config import get_hf_text_config
 from vllm.utils import is_hip
 
@@ -172,7 +173,7 @@ class LoadConfig:
             fast weight loading.
     """
 
-    load_format: Union[str, LoadFormat, "BaseModelLoader"] = LoadFormat.AUTO
+    load_format: Union[str, LoadFormat, BaseModelLoader] = LoadFormat.AUTO
     download_dir: Optional[str] = None
     model_loader_extra_config: Optional[Union[str, dict]] = field(default_factory=dict)
 

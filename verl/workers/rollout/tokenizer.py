@@ -18,6 +18,10 @@ The base tokenizer class, required for any hybrid engine based rollout or infere
 from abc import ABC, abstractmethod
 from typing import Dict, List, Union
 
+import numpy as np
+import tensorflow as tf
+import torch
+
 __all__ = ["HybridEngineBaseTokenizer"]
 
 
@@ -86,7 +90,7 @@ class HybridEngineBaseTokenizer(ABC):
     @abstractmethod
     def decode(
         self,
-        token_ids: Union[int, List[int], "np.ndarray", "torch.Tensor", "tf.Tensor"],
+        token_ids: Union[int, List[int], np.ndarray, torch.Tensor, tf.Tensor],
         skip_special_tokens: bool = False,
         clean_up_tokenization_spaces: bool = None,
         **kwargs,

@@ -126,7 +126,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
     model_state_dict_lst.append(state_dict)
     model_state_dict_lst.extend([""] * (total_shards - 1))
 
-    def process_one_shard(rank):
+    def process_one_shard(rank, model_state_dict_lst):
         model_path = os.path.join(local_dir, f"model_world_size_{world_size}_rank_{rank}.pt")
         state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
         model_state_dict_lst[rank] = state_dict
@@ -134,7 +134,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
 
     with ThreadPoolExecutor(max_workers=min(32, os.cpu_count())) as executor:
         for rank in range(1, total_shards):
-            executor.submit(process_one_shard, rank)
+            executor.submit(process_one_shard, rank, model_state_dict_lst)
     state_dict = {}
     param_placements: Dict[str, List[Placement]] = {}
     keys = set(model_state_dict_lst[0].keys())
@@ -249,7 +249,7 @@ def convert_megatron_checkpoints_to_hfmodels():
 
     print(f"sharded_dirs: {sharded_dirs}, tp_size: {tp_size}, pp_size: {pp_size}, mp_size: {mp_size}")
 
-    def process_one_shard(shard_dir):
+    def process_one_shard(shard_dir, model_state_dict_lst):
         model_path = os.path.join(model_ckpt_path, shard_dir, "model.pt")
         state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
         tp_rank, pp_rank = get_tp_pp_rank_from_sharded_dir(shard_dir)
@@ -259,7 +259,7 @@ def convert_megatron_checkpoints_to_hfmodels():
     #     for rank in range(1, mp_size):
     #         executor.submit(process_one_shard, sharded_dirs[rank])
     for sharded_dir in sharded_dirs:
-        process_one_shard(sharded_dir)
+        process_one_shard(sharded_dir, model_state_dict_lst)
 
     state_dict = {}
     config = AutoConfig.from_pretrained(args.hf_model_path)

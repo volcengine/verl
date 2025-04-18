@@ -22,9 +22,16 @@ import torch
 from transformers import PretrainedConfig
 
 # Add for verl
-from vllm.config import ModelConfig, _get_and_verify_dtype, _get_and_verify_max_len, get_served_model_name
+from vllm.config import (
+    ModelConfig,
+    MultiModalConfig,
+    _get_and_verify_dtype,
+    _get_and_verify_max_len,
+    get_served_model_name,
+)
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization import get_quantization_config
+from vllm.model_executor.model_loader import BaseModelLoader
 from vllm.transformers_utils.config import get_hf_text_config
 from vllm.utils import is_hip, print_warning_once
 
@@ -118,7 +125,7 @@ class ModelConfig(ModelConfig):
         disable_sliding_window: bool = False,
         skip_tokenizer_init: bool = False,
         served_model_name: Optional[Union[str, List[str]]] = None,
-        multimodal_config: Optional["MultiModalConfig"] = None,
+        multimodal_config: Optional[MultiModalConfig] = None,
     ) -> None:
         self.model = hf_config._name_or_path
         self.tokenizer = hf_config._name_or_path
@@ -220,7 +227,7 @@ class LoadConfig:
 
     """
 
-    load_format: Union[str, LoadFormat, "BaseModelLoader"] = LoadFormat.AUTO
+    load_format: Union[str, LoadFormat, BaseModelLoader] = LoadFormat.AUTO
     download_dir: Optional[str] = None
     model_loader_extra_config: Optional[Union[str, dict]] = field(default_factory=dict)
     ignore_patterns: Optional[Union[List[str], str]] = None

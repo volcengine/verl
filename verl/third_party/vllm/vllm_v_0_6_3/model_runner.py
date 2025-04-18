@@ -116,10 +116,10 @@ class ModelRunner(ModelRunner):
         if self.lora_config:
             assert supports_lora(self.model), f"{self.model.__class__.__name__} does not support LoRA yet."
 
-            if supports_multimodal(self.model):
-                logger.warning(
-                    "Regarding multimodal models, vLLM currently only supports adding LoRA to language model."
-                )
+            # if supports_multimodal(self.model):
+            #     logger.warning(
+            #         "Regarding multimodal models, vLLM currently only supports adding LoRA to language model."
+            #     )
             # It's necessary to distinguish between the max_position_embeddings
             # of VLMs and LLMs.
             if hasattr(self.model.config, "max_position_embeddings"):

@@ -15,6 +15,7 @@
 
 from typing import Dict, Iterable, Optional, Type, Union
 
+from torch import nn
 from vllm.config import (
     CacheConfig,
     DecodingConfig,
