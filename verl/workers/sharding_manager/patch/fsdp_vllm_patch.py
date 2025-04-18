@@ -31,6 +31,14 @@ def get_layer_index(layer_name: str) -> int:
     raise ValueError(f"Unable to parse layer index from '{layer_name}'")
 
 
+def get_layer_index(layer_name: str) -> int:
+    pattern = r"layers\.(\d+)"
+    match = re.search(pattern, layer_name)
+    if match:
+        return int(match.group(1))
+    raise ValueError(f"Unable to parse layer index from '{layer_name}'")
+
+
 def patched_ds_v3_load_weights(model: nn.Module, weights: Iterable[Tuple[str, torch.Tensor]]) -> Set[str]:
     def get_spec_layer_idx_from_weight_name(config: PretrainedConfig, weight_name: str) -> Optional[int]:
         if hasattr(config, "num_nextn_predict_layers") and (config.num_nextn_predict_layers > 0):
