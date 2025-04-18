@@ -15,15 +15,18 @@
 
 def get_weight_loader(arch: str):
     from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
+
     _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY = {
-        'LlamaForCausalLM': load_state_dict_to_megatron_gptmodel,
-        'Qwen2ForCausalLM': load_state_dict_to_megatron_gptmodel,
+        "LlamaForCausalLM": load_state_dict_to_megatron_gptmodel,
+        "Qwen2ForCausalLM": load_state_dict_to_megatron_gptmodel,
     }
 
     if arch in _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY[arch]
-    raise ValueError(f"Model architectures {arch} loader are not supported for now. "
-                     f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} loader are not supported for now. "
+        f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}"
+    )
 
 
 def get_weight_saver(arch: str):
@@ -35,5 +38,7 @@ def get_weight_saver(arch: str):
     }
     if arch in _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY[arch]
-    raise ValueError(f"Model architectures {arch} saver are not supported for now. "
-                     f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} saver are not supported for now. "
+        f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}"
+    )

@@ -170,16 +170,34 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [all-hands/openhands-lm-32b-v0.1](https://www.all-hands.dev/blog/introducing-openhands-lm-32b----a-strong-open-coding-agent-model): A strong, open coding agent model, trained with [multi-turn fine-tuning](https://github.com/volcengine/verl/pull/195)
 
 ## Contribution Guide
+
 Contributions from the community are welcome! Please check out our [project roadmap](https://github.com/volcengine/verl/issues/710) and [good first issues](https://github.com/volcengine/verl/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) to see where you can contribute.
 
-### Code formatting
-We use yapf (Google style) to enforce strict code formatting when reviewing PRs. To reformat your code locally, make sure you have installed the **latest** version of `yapf`
+### Code Linting and Formatting
+
+> [!WARNING]
+> We are [immigrating to `ruff` as the linter and formatter and `pre-commit` as the managing tool](https://github.com/volcengine/verl/pull/1010).
+>
+> If your branch is based on a previous commit using `yapf` and `pylint`, simply merging might trigger overwhelming linting errors, while **you are only expected to resolve ones in the files related to your PR**.
+>
+> To resolve this issue, please try the following workaround to only include the files you **really changed** in the PR:
+>
+> 1. In your branch, fix linting and format with `ruff`: `ruff check --fix && ruff-format`
+> 2. Squash into a new single commit: `git reset --soft $(git merge-base main HEAD) && git add -A && git commit -m "feat: ..."`
+> 3. Merge with the latest main: `git merge origin/main`
+> 4. Force push to your branch: `git push --force`
+
+We use pre-commit to help improve code quality. To initialize pre-commit, run:
+
 ```bash
-pip3 install yapf --upgrade
+pip install pre-commit
+pre-commit install
 ```
-Then, make sure you are at top level of verl repo and run
+
+You can also manually run pre-commit by:
+
 ```bash
-bash scripts/format.sh
+pre-commit run
 ```
 
 ### Adding CI tests

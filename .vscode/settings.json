@@ -1,9 +1,8 @@
 {
-    "pylint.enabled": true,
     "[python]": {
-        "editor.defaultFormatter": "eeyore.yapf",
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.codeActionsOnSave": {
-            "source.organizeImports": "never",
+            "source.organizeImports": "always",
         }
     }
 }
