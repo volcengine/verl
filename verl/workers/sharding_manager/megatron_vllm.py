@@ -15,35 +15,36 @@
 This file contains a Megatron style Hybrid Engine that shares the weights of the actor with the inference engine.
 """
 
-import os
 import logging
+import os
+
 import torch
 import torch.distributed as dist
-
-from torch import nn
-
-from megatron.core import parallel_state as mpu
 from megatron.core import DistributedDataParallel as LocalDDP
+from megatron.core import parallel_state as mpu
 from megatron.core.transformer.module import Float16Module
+from torch import nn
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
+
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.megatron_utils import get_model, unwrap_model
+from verl.utils.megatron_utils import (
+    broadcast_from_megatron_pp,
+    broadcast_str_from_megatron_pp,
+    get_model,
+    unwrap_model,
+)
 from verl.utils.memory_buffer import (
     build_memory_buffer,
     build_memory_reference_from_module,
     get_weight_buffer_meta_from_module,
 )
-
 from verl.utils.model import normalize_model_name
-from verl.workers.actor.megatron_actor import MegatronPPOActor
-from verl.utils.megatron_utils import broadcast_from_megatron_pp, broadcast_str_from_megatron_pp
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
+logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 
 class AllGatherPPModel:
-
     def __init__(self, model_provider, use_distributed_optimizer=True) -> None:
         print(
             "[WARNING] This class is deprecated and will no longer be supported. Consider using the `MegatronPPOActor` class directly as a replacement."
@@ -66,8 +67,10 @@ class AllGatherPPModel:
         self.memory_buffers = [None] * self.pp_size
         for cur_pp_rank in rank_list:
             print(
-                f'create pp model', f'torch allocated {torch.cuda.memory_allocated() / 1e9:.4f} GB, '
-                f'reserved {torch.cuda.memory_reserved() / 1e9:.4f} GB')
+                "create pp model",
+                f"torch allocated {torch.cuda.memory_allocated() / 1e9:.4f} GB, "
+                f"reserved {torch.cuda.memory_reserved() / 1e9:.4f} GB",
+            )
             # since the last initialized rank is the current pp rank, after init, the pp rank is still correct
             mpu.set_pipeline_model_parallel_rank(cur_pp_rank)
             if cur_pp_rank != self.pp_rank:
@@ -77,9 +80,9 @@ class AllGatherPPModel:
                 self.pp_models[cur_pp_rank] = models
             else:
                 # for regular model, we wrapped it with DDP
-                models = get_model(model_provider,
-                                   wrap_with_ddp=True,
-                                   use_distributed_optimizer=use_distributed_optimizer)
+                models = get_model(
+                    model_provider, wrap_with_ddp=True, use_distributed_optimizer=use_distributed_optimizer
+                )
                 assert len(models) == self._model_chunk_size, f"{len(models)} != {self._model_chunk_size}"
                 self._this_rank_models = nn.ModuleList(models)
                 self.pp_models[cur_pp_rank] = nn.ModuleList(unwrap_model(models, (torchDDP, LocalDDP)))
@@ -97,6 +100,7 @@ class AllGatherPPModel:
         """Build the parameter buffer in each pp rank"""
         if pp_rank == self._pp_rank:
             from verl.utils.memory_buffer import MemoryBuffer
+
             # The code here is very hard-coded, based on the following assumptions:
             # 1. `len(_this_rank_models) == 1`
             # 2. `_this_rank_models[0]` is a instance of `DistributedDataParallel` and `use_distributed_optimizer=True`
@@ -122,7 +126,7 @@ class AllGatherPPModel:
             if not to_empty:
                 buffer.data = buffer.data.to(torch.cuda.current_device(), non_blocking=True)
             else:
-                buffer.data = torch.empty_like(buffer.data, device='cuda')
+                buffer.data = torch.empty_like(buffer.data, device="cuda")
         # rebuild reference after loading to CUDA
         self._build_param_references(pp_rank)
 
@@ -131,9 +135,9 @@ class AllGatherPPModel:
         for buffer in self.memory_buffers[pp_rank].values():
             if not to_empty:
                 # offload the whole memory buffer to CPU
-                buffer.data = buffer.data.to('cpu', non_blocking=True)
+                buffer.data = buffer.data.to("cpu", non_blocking=True)
             else:
-                buffer.data = torch.empty_like(buffer.data, device='cpu')
+                buffer.data = torch.empty_like(buffer.data, device="cpu")
         self._build_param_references(pp_rank)
 
     def load_params_to_cuda(self, to_empty=False):
@@ -205,7 +209,7 @@ class AllGatherPPModel:
                 pp_model = unwrap_model(pp_model, ((torchDDP, LocalDDP, Float16Module)))  # not use Float16Module
                 for name, param in pp_model.named_parameters():
                     # NOTE(gh) workaround: should not get lora params for inference
-                    if 'lora' in name:
+                    if "lora" in name:
                         continue
                     params[pp_rank][model_chunk_idx][name] = param
 
@@ -245,23 +249,20 @@ Megatron Hybrid Engine:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-from .base import BaseShardingManager
-
-import torch
 import inspect
-from torch import nn
+
 import torch.distributed
 from torch.distributed import new_group
-from typing import Dict, Iterable, Union, Tuple
 
-from verl import DataProto
-from verl.protocol import all_gather_data_proto
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 import verl.utils.megatron.tensor_parallel as tp_utils
-from verl.third_party.vllm import vllm_version
+from verl import DataProto
+from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.third_party.vllm import LLM
 from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
+from verl.utils.torch_functional import allgather_dict_tensors
+
+from .base import BaseShardingManager
+
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
 # NOTICE: in new version of vLLM, We need to all-gather all tp rank's model weights
@@ -270,14 +271,16 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
-
-    def __init__(self,
-                 actor_module: nn.ModuleList,
-                 inference_engine: LLM,
-                 model_config,
-                 layer_name_mapping,
-                 module: AllGatherPPModel = None):
+    def __init__(
+        self,
+        actor_module: nn.ModuleList,
+        inference_engine: LLM,
+        model_config,
+        layer_name_mapping,
+        module: AllGatherPPModel = None,
+    ):
         from megatron.core import parallel_state as mpu
+
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -296,13 +299,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
 
         # TODO(sgm): this may not be true for FSDP -> vLLM
-        assert self.infer_tp_size <= self.train_tp_size, \
-            'Not implemented for infer_tp > train_tp'
+        assert self.infer_tp_size <= self.train_tp_size, "Not implemented for infer_tp > train_tp"
         assert self.train_tp_size % self.infer_tp_size == 0
 
         micro_dp_size = self.train_tp_size // self.infer_tp_size
         num_micro_dp_groups = world_size // micro_dp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, ("micro data parallel group is already initialized")
+        assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
         for i in range(num_micro_dp_groups):
             ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
             group = new_group(ranks=ranks)
@@ -314,11 +316,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         convert_qkv_gate_up_by_simple_split is a parameter affected by the vLLM version.
         """
         from megatron.core import parallel_state as mpu
+
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
             all_gather_group = get_micro_data_parallel_group()
         else:
             all_gather_group = self.train_tp_group
@@ -336,9 +339,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
         obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-        torch.distributed.all_gather_object(object_list=obj_spec_output,
-                                            obj=meta_info,
-                                            group=mpu.get_pipeline_model_parallel_group())
+        torch.distributed.all_gather_object(
+            object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group()
+        )
         layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
         gen_func = tensor_generator()
@@ -350,8 +353,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size,
-                                                self.model_config.num_hidden_layers)
+                cur_name = normalize_model_name(
+                    name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers
+                )
             else:
                 cur_tensor, cur_name = None, None
 
@@ -361,7 +365,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
-                cur_name = cur_name[len("module."):]
+                cur_name = cur_name[len("module.") :]
 
             # tp all gather
             if tp_utils.is_tensor_parallel_param(broad_pp_tensor):
@@ -370,11 +374,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     infer_params = [broad_pp_tensor]
                 else:
                     infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
-                    torch.distributed.all_gather(infer_params,
-                                                 broad_pp_tensor,
-                                                 group=mpu.get_tensor_model_parallel_group())
-                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_tensor, infer_params, self.model_config,
-                                                         convert_qkv_gate_up_by_simple_split)
+                    torch.distributed.all_gather(
+                        infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
+                    )
+                infer_params = self.default_tp_concat_fn(
+                    cur_name, broad_pp_tensor, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split
+                )
             else:
                 infer_params = broad_pp_tensor
 
@@ -385,7 +390,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.model_config,
                 self.train_tp_size,
                 0,  # no impact
-                convert_qkv_gate_up_by_trunk_concat=False)  # defualt false
+                convert_qkv_gate_up_by_trunk_concat=False,
+            )  # defualt false
 
             for converted_name, infer_param in zip(converted_names, converted_params):
                 yield converted_name, infer_param
@@ -397,7 +403,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from train tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
         model_config: huggingface model_config
         TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
-        definition so that it is model-agnostic. If the model doesn't implement this function, 
+        definition so that it is model-agnostic. If the model doesn't implement this function,
         we can throw an error to force user disable TP HybridEngine.
         """
         if self.layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
@@ -408,9 +414,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             v_lst = []
             assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
             num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
-            assert infer_params[0].shape[0] % (
-                num_q_per_kv +
-                2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
+            assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, (
+                f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
+            )
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
             for infer_param in infer_params:
@@ -419,7 +425,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     split_size = [
                         kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
                         kv_size_per_tp // num_query_groups_per_partition,
-                        kv_size_per_tp // num_query_groups_per_partition
+                        kv_size_per_tp // num_query_groups_per_partition,
                     ]
                     q, k, v = chunk.split(split_size)
                     q_lst.append(q)
@@ -461,7 +467,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
             all_gather_group = get_micro_data_parallel_group()
         else:
             all_gather_group = self.train_tp_group
@@ -475,8 +481,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 else:
                     infer_params = [torch.empty_like(param) for _ in range(all_gather_group_size)]
                     torch.distributed.all_gather(infer_params, param, group=all_gather_group)
-                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config,
-                                                         convert_qkv_gate_up_by_simple_split)
+                infer_params = self.default_tp_concat_fn(
+                    name, param, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split
+                )
             else:
                 infer_params = param
             converted_names, converted_params = convert_megatron_model_to_transformers_model(
@@ -485,14 +492,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.model_config,
                 self.train_tp_size,
                 self.module.pp_models[0][0].config.num_query_groups,
-                convert_qkv_gate_up_by_trunk_concat=False)
+                convert_qkv_gate_up_by_trunk_concat=False,
+            )
             for converted_name, infer_param in zip(converted_names, converted_params):
                 yield converted_name, infer_param
 
     def __enter__(self):
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
             per_tensor_param = self.per_tensor_generator(convert_qkv_gate_up_by_simple_split=False)
-            self.inference_engine.sync_model_weights(per_tensor_param, load_format='megatron')
+            self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
         else:
             # > 0.7.2
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
@@ -503,20 +511,20 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             loaded_params = model.load_weights(per_tensor_param)
             logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
-            log_gpu_memory_usage('After load_weights sharding manager memory', logger=logger)
+            log_gpu_memory_usage("After load_weights sharding manager memory", logger=logger)
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
+        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
-        log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
+        log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
         torch.cuda.empty_cache()
 
@@ -534,10 +542,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # all gather batch among micro-dp groups
         micro_dp_size = get_micro_data_parallel_world_size()
         if micro_dp_size > 1:
-            data.batch = allgather_dict_tensors(data.batch.contiguous(),
-                                                size=get_micro_data_parallel_world_size(),
-                                                group=get_micro_data_parallel_group(),
-                                                dim=0)
+            data.batch = allgather_dict_tensors(
+                data.batch.contiguous(),
+                size=get_micro_data_parallel_world_size(),
+                group=get_micro_data_parallel_group(),
+                dim=0,
+            )
         return data
 
 

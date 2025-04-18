@@ -14,12 +14,13 @@
 
 from enum import Enum
 from functools import wraps
-from typing import Dict, List, Tuple
 from types import FunctionType
+from typing import Dict, List, Tuple
+
 from verl.protocol import DataProtoFuture
 
 # here we add a magic number of avoid user-defined function already have this attribute
-MAGIC_ATTR = 'attrs_3141562937'
+MAGIC_ATTR = "attrs_3141562937"
 
 
 class Dispatch(Enum):
@@ -44,6 +45,7 @@ class Execute(Enum):
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
+
     splitted_args = []
     for arg in args:
         assert isinstance(arg, (DataProto, DataProtoFuture))
@@ -76,8 +78,10 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     User passes in dp data. The data is dispatched to all tp/pp ranks with the same dp
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
-    assert isinstance(worker_group,
-                      MegatronWorkerGroup), f'worker_group must be MegatronWorkerGroup, Got {type(worker_group)}'
+
+    assert isinstance(worker_group, MegatronWorkerGroup), (
+        f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
+    )
 
     all_args = []
     for arg in args:
@@ -105,6 +109,7 @@ def collect_megatron_compute(worker_group, output):
     Only collect the data from the tp=0 and pp=last and every dp ranks
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_dp = []
     pp_size = worker_group.get_megatron_global_info().pp_size
@@ -120,6 +125,7 @@ def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
     All the args and kwargs must be DataProto. The batch will be chunked by dp_size and passed to each rank
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.dp_size, *args, **kwargs)
@@ -127,8 +133,9 @@ def dispatch_megatron_compute_data_proto(worker_group, *args, **kwargs):
 
 
 def _concat_data_proto_or_future(output: List):
-    from verl.protocol import DataProto, DataProtoFuture
     import ray
+
+    from verl.protocol import DataProto, DataProtoFuture
 
     # make sure all the elements in output has the same type
     for o in output:
@@ -148,8 +155,9 @@ def collect_megatron_compute_data_proto(worker_group, output):
     """
     Each output must be a DataProto. We concat the dim=0 of output
     """
-    from verl.protocol import DataProto
     import ray
+
+    from verl.protocol import DataProto
 
     output = collect_megatron_compute(worker_group, output)
     for o in output:
@@ -163,6 +171,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
     treat pp as dp.
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     pp_size = worker_group.pp_size
@@ -196,7 +205,7 @@ def dispatch_megatron_pp_as_dp(worker_group, *args, **kwargs):
 
     all_kwargs = {}
     for k, v in kwargs.items():
-        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_cp_size, f'expect len(v)=={pp_dp_cp_size}, got {len(v)}'
+        assert isinstance(v, (List, Tuple)) and len(v) == pp_dp_cp_size, f"expect len(v)=={pp_dp_cp_size}, got {len(v)}"
         transformed_v = []
         for i in range(worker_group.world_size):
             local_dp_rank = worker_group.get_megatron_rank_info(rank=i).dp_rank
@@ -215,6 +224,7 @@ def collect_megatron_pp_as_dp(worker_group, output):
     treat pp as dp. Only collect data on tp=0
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_dp = []
     for global_rank in range(worker_group.world_size):
@@ -229,6 +239,7 @@ def collect_megatron_pp_only(worker_group, output):
     Only collect output of megatron pp. This is useful when examine weight names as they are identical in tp/dp
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
     output_in_pp = []
     for global_rank in range(worker_group.world_size):
@@ -240,6 +251,7 @@ def collect_megatron_pp_only(worker_group, output):
 
 def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     pp_dp_cp_size = worker_group.dp_size * worker_group.pp_size * worker_group.cp_size
@@ -249,8 +261,8 @@ def dispatch_megatron_pp_as_dp_data_proto(worker_group, *args, **kwargs):
 
 
 def collect_megatron_pp_as_dp_data_proto(worker_group, output):
-    from verl.protocol import DataProto
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
+
     assert isinstance(worker_group, MegatronWorkerGroup)
 
     output = collect_megatron_pp_as_dp(worker_group, output)
@@ -259,6 +271,7 @@ def collect_megatron_pp_as_dp_data_proto(worker_group, output):
 
 def dispatch_dp_compute(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
+
     assert isinstance(worker_group, WorkerGroup)
     for arg in args:
         assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.world_size
@@ -269,6 +282,7 @@ def dispatch_dp_compute(worker_group, *args, **kwargs):
 
 def collect_dp_compute(worker_group, output):
     from verl.single_controller.base.worker_group import WorkerGroup
+
     assert isinstance(worker_group, WorkerGroup)
     assert len(output) == worker_group.world_size
     return output
@@ -276,6 +290,7 @@ def collect_dp_compute(worker_group, output):
 
 def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
+
     assert isinstance(worker_group, WorkerGroup)
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args, **kwargs)
     return splitted_args, splitted_kwargs
@@ -283,6 +298,7 @@ def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
 
 def dispatch_dp_compute_data_proto_with_func(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
+
     assert isinstance(worker_group, WorkerGroup)
     assert type(args[0]) == FunctionType  # NOTE: The first one args is a function!
 
@@ -292,8 +308,9 @@ def dispatch_dp_compute_data_proto_with_func(worker_group, *args, **kwargs):
 
 
 def collect_dp_compute_data_proto(worker_group, output):
-    from verl.protocol import DataProto
     import ray
+
+    from verl.protocol import DataProto
 
     for o in output:
         assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
@@ -305,49 +322,40 @@ def collect_dp_compute_data_proto(worker_group, output):
 def get_predefined_dispatch_fn(dispatch_mode):
     predefined_dispatch_mode_fn = {
         Dispatch.ONE_TO_ALL: {
-            'dispatch_fn': dispatch_one_to_all,
-            'collect_fn': collect_all_to_all,
+            "dispatch_fn": dispatch_one_to_all,
+            "collect_fn": collect_all_to_all,
         },
         Dispatch.ALL_TO_ALL: {
-            'dispatch_fn': dispatch_all_to_all,
-            'collect_fn': collect_all_to_all,
+            "dispatch_fn": dispatch_all_to_all,
+            "collect_fn": collect_all_to_all,
         },
         Dispatch.MEGATRON_COMPUTE: {
-            'dispatch_fn': dispatch_megatron_compute,
-            'collect_fn': collect_megatron_compute,
+            "dispatch_fn": dispatch_megatron_compute,
+            "collect_fn": collect_megatron_compute,
         },
         Dispatch.MEGATRON_PP_AS_DP: {
-            'dispatch_fn': dispatch_megatron_pp_as_dp,
-            'collect_fn': collect_megatron_pp_as_dp,
+            "dispatch_fn": dispatch_megatron_pp_as_dp,
+            "collect_fn": collect_megatron_pp_as_dp,
         },
-        Dispatch.MEGATRON_PP_ONLY: {
-            'dispatch_fn': dispatch_one_to_all,
-            'collect_fn': collect_megatron_pp_only
-        },
+        Dispatch.MEGATRON_PP_ONLY: {"dispatch_fn": dispatch_one_to_all, "collect_fn": collect_megatron_pp_only},
         Dispatch.MEGATRON_COMPUTE_PROTO: {
-            'dispatch_fn': dispatch_megatron_compute_data_proto,
-            'collect_fn': collect_megatron_compute_data_proto
+            "dispatch_fn": dispatch_megatron_compute_data_proto,
+            "collect_fn": collect_megatron_compute_data_proto,
         },
         Dispatch.MEGATRON_PP_AS_DP_PROTO: {
-            'dispatch_fn': dispatch_megatron_pp_as_dp_data_proto,
-            'collect_fn': collect_megatron_pp_as_dp_data_proto
+            "dispatch_fn": dispatch_megatron_pp_as_dp_data_proto,
+            "collect_fn": collect_megatron_pp_as_dp_data_proto,
         },
-        Dispatch.DP_COMPUTE: {
-            'dispatch_fn': dispatch_dp_compute,
-            'collect_fn': collect_dp_compute
-        },
+        Dispatch.DP_COMPUTE: {"dispatch_fn": dispatch_dp_compute, "collect_fn": collect_dp_compute},
         Dispatch.DP_COMPUTE_PROTO: {
-            'dispatch_fn': dispatch_dp_compute_data_proto,
-            'collect_fn': collect_dp_compute_data_proto
+            "dispatch_fn": dispatch_dp_compute_data_proto,
+            "collect_fn": collect_dp_compute_data_proto,
         },
         Dispatch.DP_COMPUTE_PROTO_WITH_FUNC: {
-            'dispatch_fn': dispatch_dp_compute_data_proto_with_func,
-            'collect_fn': collect_dp_compute_data_proto
+            "dispatch_fn": dispatch_dp_compute_data_proto_with_func,
+            "collect_fn": collect_dp_compute_data_proto,
         },
-        Dispatch.DP_COMPUTE_METRIC: {
-            'dispatch_fn': dispatch_dp_compute_data_proto,
-            'collect_fn': collect_dp_compute
-        }
+        Dispatch.DP_COMPUTE_METRIC: {"dispatch_fn": dispatch_dp_compute_data_proto, "collect_fn": collect_dp_compute},
     }
     return predefined_dispatch_mode_fn[dispatch_mode]
 
@@ -358,27 +366,24 @@ def get_predefined_execute_fn(execute_mode):
     Leave the choice of how these two functions handle argument 'blocking' to users
     """
     predefined_execute_mode_fn = {
-        Execute.ALL: {
-            'execute_fn_name': 'execute_all'
-        },
-        Execute.RANK_ZERO: {
-            'execute_fn_name': 'execute_rank_zero'
-        }
+        Execute.ALL: {"execute_fn_name": "execute_all"},
+        Execute.RANK_ZERO: {"execute_fn_name": "execute_rank_zero"},
     }
     return predefined_execute_mode_fn[execute_mode]
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode,
-                      (Dispatch, Dict)), f'dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}'
+    assert isinstance(dispatch_mode, (Dispatch, Dict)), (
+        f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
+    )
     if isinstance(dispatch_mode, Dict):
-        necessary_keys = ['dispatch_fn', 'collect_fn']
+        necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
-            assert key in dispatch_mode, f'key {key} should be in dispatch_mode if it is a dictionary'
+            assert key in dispatch_mode, f"key {key} should be in dispatch_mode if it is a dictionary"
 
 
 def _check_execute_mode(execute_mode):
-    assert isinstance(execute_mode, Execute), f'execute_mode must be a Execute. Got {execute_mode}'
+    assert isinstance(execute_mode, Execute), f"execute_mode must be a Execute. Got {execute_mode}"
 
 
 def _materialize_futures(*args, **kwargs):
@@ -401,14 +406,13 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
-
         @wraps(func)
         def inner(*args, **kwargs):
             if materialize_futures:
                 args, kwargs = _materialize_futures(*args, **kwargs)
             return func(*args, **kwargs)
 
-        attrs = {'dispatch_mode': dispatch_mode, 'execute_mode': execute_mode, 'blocking': blocking}
+        attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, "blocking": blocking}
         setattr(inner, MAGIC_ATTR, attrs)
         return inner
 

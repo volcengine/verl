@@ -15,14 +15,15 @@
 import torch
 import torch.distributed
 from tensordict import TensorDict
-from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
 from torch.distributed.device_mesh import init_device_mesh
+
+from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
 from verl.utils.distributed import initialize_global_process_group
 
 
 def test_trainer_forward_consistency(trainer: FSDPSFTTrainer, total_steps: int = 4):
     """Test consistency between original forward pass and SP+rmpad forward passes.
-    
+
     Args:
         trainer: The FSDPSFTTrainer instance to test
         total_steps: Number of steps to test (default: 4)
@@ -88,28 +89,28 @@ def test_trainer_forward_consistency(trainer: FSDPSFTTrainer, total_steps: int =
 
 def create_trainer(config):
     """Create and initialize a trainer instance with the given config.
-    
+
     Args:
         config: Configuration object with training parameters
-        
+
     Returns:
         FSDPSFTTrainer: Initialized trainer instance
     """
     local_rank, rank, world_size = initialize_global_process_group()
 
-    device_mesh = init_device_mesh(device_type='cuda', mesh_shape=(world_size,), mesh_dim_names=('fsdp',))
+    device_mesh = init_device_mesh(device_type="cuda", mesh_shape=(world_size,), mesh_dim_names=("fsdp",))
 
     dp_size = world_size // config.ulysses_sequence_parallel_size
-    ulysses_device_mesh = init_device_mesh(device_type='cuda',
-                                           mesh_shape=(dp_size, config.ulysses_sequence_parallel_size),
-                                           mesh_dim_names=('dp', 'sp'))
+    ulysses_device_mesh = init_device_mesh(
+        device_type="cuda", mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp")
+    )
 
     return FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh)
 
 
 def main(config):
     """Main function to run trainer tests.
-    
+
     Args:
         config: Configuration object with training parameters
     """
@@ -117,7 +118,7 @@ def main(config):
     test_trainer_forward_consistency(trainer)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import hydra
     from omegaconf import DictConfig
 

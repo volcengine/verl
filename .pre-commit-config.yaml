@@ -1,0 +1,8 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.11.4"
+    hooks:
+      - id: ruff
+        pass_filenames: true
+        entry: bash -c 'ruff check --fix --show-fixes --output-format=${RUFF_OUTPUT_FORMAT:-full} "$@"'
+      - id: ruff-format
