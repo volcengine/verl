@@ -14,8 +14,7 @@
 # limitations under the License.
 """Pretrain utilities."""
 import os
-from typing import Dict
-
+from typing import Any, Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -217,6 +216,13 @@ def mcore_model_parallel_config(
     sequence_parallel: bool,
     params_dtype: torch.dtype,
 ) -> ModelParallelConfig:
+    # WARNING: Code should not reach this point. This function is deprecated and will be removed.
+    # Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.
+    warnings.warn(
+        "Code should not reach this point. This function is deprecated and will be removed. "
+        "Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
+        DeprecationWarning,
+        stacklevel=2)
     return ModelParallelConfig(
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
@@ -431,3 +437,68 @@ def convert_megatron_model_to_transformers_model(name,
     else:
         raise ValueError(f"Unknown param name: {name}")
     return new_params.keys(), new_params.values()
+
+
+def broadcast_from_megatron_pp(tensor: torch.Tensor):
+    # tensor is not None only in one of the pp ranks
+    if tensor is not None:
+        shape = tensor.shape
+        dtype = tensor.dtype
+        tensor_parallel = getattr(tensor, 'tensor_model_parallel', None)
+        partition_dim = getattr(tensor, 'partition_dim', None)
+        tensor_spec = (shape, dtype, tensor_parallel, partition_dim)
+    else:
+        tensor_spec = None
+    tensor_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+    torch.distributed.all_gather_object(object_list=tensor_spec_output,
+                                        obj=tensor_spec,
+                                        group=mpu.get_pipeline_model_parallel_group())
+    # find the src rank
+    target_tensor_spec = None
+    src_rank = None
+    for rank, tensor_spec in enumerate(tensor_spec_output):
+        if tensor_spec is not None:
+            if target_tensor_spec is None:
+                target_tensor_spec = tensor_spec
+            else:
+                raise ValueError('A tensor exists on two pp ranks')
+            src_rank = rank
+    assert target_tensor_spec is not None
+    if tensor is None:
+        tensor = torch.empty(size=target_tensor_spec[0],
+                             dtype=target_tensor_spec[1],
+                             device=torch.cuda.current_device())
+        if target_tensor_spec[2] is not None:
+            tensor.tensor_model_parallel = target_tensor_spec[2]
+        if target_tensor_spec[3] is not None:
+            tensor.partition_dim = target_tensor_spec[3]
+
+    global_rank = torch.distributed.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
+    torch.distributed.broadcast(tensor=tensor, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
+    return tensor
+
+
+def broadcast_str_from_megatron_pp(obj: Any):
+    obj_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+    torch.distributed.all_gather_object(object_list=obj_output, obj=obj, group=mpu.get_pipeline_model_parallel_group())
+
+    src_rank = None
+    target_obj = None
+    for rank, item in enumerate(obj_output):
+        if item is not None:
+            if target_obj is not None:
+                raise ValueError('An object exists on two pp ranks')
+            target_obj = item
+            src_rank = rank
+
+    assert target_obj is not None, "No valid object found to broadcast."
+
+    global_rank = torch.distributed.get_global_rank(group=mpu.get_pipeline_model_parallel_group(), group_rank=src_rank)
+
+    obj_output = [None] * torch.distributed.get_world_size(group=mpu.get_pipeline_model_parallel_group())
+    obj_output[0] = target_obj
+    torch.distributed.broadcast_object_list(object_list=obj_output,
+                                            src=global_rank,
+                                            group=mpu.get_pipeline_model_parallel_group())
+
+    return obj_output[0]

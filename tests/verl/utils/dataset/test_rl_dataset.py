@@ -56,6 +56,49 @@ def test_rl_dataset():
             non_tensors[key] = val
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+    assert 'input_ids' in data_proto.batch
+
+    data = dataset[0]['input_ids']
+    output = tokenizer.batch_decode([data])[0]
+    print(f'type: type{output}')
+    print(f'\n\noutput: {output}')
+
+
+def test_image_rl_data():
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+    from verl.utils import hf_tokenizer, hf_processor
+    tokenizer = hf_tokenizer('Qwen/Qwen2-VL-2B-Instruct')
+    processor = hf_processor('Qwen/Qwen2-VL-2B-Instruct')
+    config = OmegaConf.create({
+        "prompt_key": "prompt",
+        "max_prompt_length": 1024,
+        "filter_overlong_prompts": True,
+        "filter_overlong_prompts_workers": 2,
+    })
+    dataset = RLHFDataset(data_files=os.path.expanduser("~/data/geo3k/train.parquet"),
+                          tokenizer=tokenizer,
+                          config=config,
+                          processor=processor)
+
+    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
+
+    a = next(iter(dataloader))
+
+    from verl import DataProto
+
+    tensors = {}
+    non_tensors = {}
+
+    for key, val in a.items():
+        if isinstance(val, torch.Tensor):
+            tensors[key] = val
+        else:
+            non_tensors[key] = val
+
+    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+
+    assert 'multi_modal_data' in data_proto.non_tensor_batch
+    assert 'multi_modal_inputs' in data_proto.non_tensor_batch
 
     data = dataset[0]['input_ids']
     output = tokenizer.batch_decode([data])[0]

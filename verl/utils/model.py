@@ -195,6 +195,37 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
+def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers, layer_name="layers"):
+    """
+    Transform the model name in each model_chunk in each pp stage into the name in inference engine
+    """
+    if vpp_size > 1:
+        # print(f'try to bind vpp params to inference engine...')
+        layers_per_pp = num_layers // pp_size
+        layers_per_vpp = layers_per_pp // vpp_size
+        pp_offset = layers_per_vpp * pp_rank
+        vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
+        layer_offset = pp_offset + vpp_offset
+    else:
+        layers_per_pp = num_layers // pp_size
+        layer_offset = layers_per_pp * pp_rank
+
+    if layer_name in name:  # belong to an intermediate layer
+        split_name = name.split('.')
+        # find the num next to split_name
+        for i, name in enumerate(split_name):
+            if name == layer_name:
+                break
+        layer_num_idx = i + 1
+        # check the name
+        assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
+        assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
+        # increment layer_num_idx by layer_offset
+        split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
+        name = '.'.join(split_name)  # weight name in inference_tp_model
+    return name
+
+
 def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     """
     Normalize the pp vpp params into a complete named parameters.
@@ -205,43 +236,18 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
     output: Dict[str, param]
 
     """
-
-    def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers):
-        """
-        Transform the model name in each model_chunk in each pp stage into the name in inference engine
-        """
-        if vpp_size > 1:
-            # print(f'try to bind vpp params to inference engine...')
-            layers_per_pp = num_layers // pp_size
-            layers_per_vpp = layers_per_pp // vpp_size
-            pp_offset = layers_per_vpp * pp_rank
-            vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
-            layer_offset = pp_offset + vpp_offset
-        else:
-            layers_per_pp = num_layers // pp_size
-            layer_offset = layers_per_pp * pp_rank
-
-        if layer_name in name:  # belong to an intermediate layer
-            split_name = name.split('.')
-            # find the num next to split_name
-            for i, name in enumerate(split_name):
-                if name == layer_name:
-                    break
-            layer_num_idx = i + 1
-            # check the name
-            assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
-            assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
-            # increment layer_num_idx by layer_offset
-            split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
-            name = '.'.join(split_name)  # weight name in inference_tp_model
-        return name
-
     pp_size = len(params)
     for pp_rank in range(len(params)):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
-                normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers)
+                normalized_name = normalize_model_name(name,
+                                                       pp_rank,
+                                                       vpp_rank,
+                                                       pp_size,
+                                                       vpp_size,
+                                                       num_hidden_layers,
+                                                       layer_name=layer_name)
                 yield normalized_name, param
 
 
@@ -274,12 +280,12 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
                      f"Supported architectures: {ModelRegistry.get_supported_archs()}")
 
 
-def load_megatron_model_weights(config,
-                                model_config,
-                                parallel_model,
-                                params_dtype,
-                                is_value_model=False,
-                                local_cache_path='~/.cache/verl/rlhf'):
+def _load_hf_model(config, model_config, is_value_model, local_cache_path):
+    """Helper function containing the loading hf model logic"""
+    from megatron.core import parallel_state as mpu
+    from verl.models.mcore.saver import _megatron_calc_global_rank
+    from accelerate import init_empty_weights
+
     assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
@@ -293,25 +299,45 @@ def load_megatron_model_weights(config,
         local_model_path = config.model.path
         print(f"load from local dir {local_model_path}")
 
-    # TODO: to find a better way to load mistral7b-rm lm_head
-    from verl.utils.fsdp_utils import get_init_weight_context_manager
-    init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings)
+    src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=0, cp_rank=mpu.get_context_parallel_rank())
+    cpu_init_weights = lambda: torch.device('cpu')
+    init_context = init_empty_weights if torch.distributed.get_rank() != src_rank else cpu_init_weights
     with init_context(), warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        # TODO: to find a better way to load mistral7b-rm lm_head
         if 'mistral7b-rm' in config.model.path:
             model = MistralForSequenceClassification.from_pretrained(
-                local_model_path, device_map="auto", low_cpu_mem_usage=True)  # use score head instead of lm_head
+                local_model_path,
+                torch_dtype="auto",
+                # device_map="auto",  # disable auto device_map, the HF weight is only loaded to CPU in src_rank
+                # low_cpu_mem_usage=True
+            )  # use score head instead of lm_head
             state_dict = model.state_dict()
             state_dict['lm_head.weight'] = state_dict['score.weight']
             state_dict['model.embed_tokens.weight'] = state_dict[
                 'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
             is_value_model = True
         else:
-            model = AutoModelForCausalLM.from_pretrained(local_model_path,
-                                                         torch_dtype="auto",
-                                                         device_map="auto",
-                                                         low_cpu_mem_usage=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                local_model_path,
+                torch_dtype="auto",
+                # device_map="auto", # disable auto device_map, the HF weight is only loaded to CPU in src_rank
+                # low_cpu_mem_usage=True
+            )
             state_dict = model.state_dict()
+
+    return architectures, model, state_dict, is_value_model
+
+
+def load_megatron_model_weights(config,
+                                model_config,
+                                parallel_model,
+                                params_dtype,
+                                is_value_model=False,
+                                local_cache_path='~/.cache/verl/rlhf'):
+    """Load weights for verl customized model."""
+    architectures, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model,
+                                                                      local_cache_path)
 
     from verl.models.weight_loader_registry import get_weight_loader
     print(f'before weight loader: architectures = {architectures}...')
@@ -325,6 +351,24 @@ def load_megatron_model_weights(config,
                       is_value_model=is_value_model,
                       tie_word_embeddings=model_config.tie_word_embeddings)
     return model.config
+
+
+def load_megatron_gptmodel_weights(config,
+                                   model_config,
+                                   parallel_model,
+                                   params_dtype,
+                                   is_value_model=False,
+                                   local_cache_path='~/.cache/verl/rlhf'):
+    """Load weights for mcore GPT model."""
+    _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)
+
+    from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
+    load_state_dict_to_megatron_gptmodel(state_dict=state_dict,
+                                         wrapped_models=parallel_model,
+                                         config=model.config,
+                                         params_dtype=params_dtype,
+                                         is_value_model=is_value_model)
+    del state_dict, model
 
 
 # pad input_ids_rmpad, cu_seqlens and max_seqlen_in_batch to be divisible by tp
@@ -362,48 +406,6 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
         max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
 
     return unpad_tokens, cu_seqlens, max_seqlen_in_batch
-
-
-def load_megatron_gptmodel_weights(config,
-                                   model_config,
-                                   parallel_model,
-                                   params_dtype,
-                                   is_value_model=False,
-                                   local_cache_path='~/.cache/verl/rlhf'):
-    assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
-    architectures = getattr(model_config, "architectures", [])
-    local_cache_path = os.path.expanduser(local_cache_path)
-
-    if config.model.path.startswith("hdfs:"):
-        from verl.utils.fs import copy_to_local
-        print(f'start download from {config.model.path}')
-        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
-        print('finish download')
-    else:
-        print(f"load from local dir {config.model.path}")
-        local_model_path = config.model.path
-
-    # TODO: to find a better way to load mistral7b-rm lm_head
-    if 'mistral7b-rm' in config.model.path:
-        model = MistralForSequenceClassification.from_pretrained(local_model_path)  # use score head instead of lm_head
-        state_dict = model.state_dict()
-        state_dict['lm_head.weight'] = state_dict['score.weight']
-        state_dict['model.embed_tokens.weight'] = state_dict[
-            'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
-        is_value_model = True
-    else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-        model = AutoModelForCausalLM.from_pretrained(local_model_path)
-        state_dict = model.state_dict()
-
-    from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
-    load_state_dict_to_megatron_gptmodel(state_dict=state_dict,
-                                         wrapped_models=parallel_model,
-                                         config=model.config,
-                                         params_dtype=params_dtype,
-                                         is_value_model=is_value_model)
-    del state_dict, model
 
 
 def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
