@@ -271,6 +271,7 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
+
     def __init__(self,
                  actor_module: nn.ModuleList,
                  inference_engine: LLM,
