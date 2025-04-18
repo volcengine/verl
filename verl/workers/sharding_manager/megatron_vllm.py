@@ -15,21 +15,30 @@
 This file contains a Megatron style Hybrid Engine that shares the weights of the actor with the inference engine.
 """
 
+import inspect
 import logging
 import os
 
 import torch
+import torch.distributed
 import torch.distributed as dist
 from megatron.core import DistributedDataParallel as LocalDDP
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer.module import Float16Module
 from torch import nn
+from torch.distributed import new_group
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
+import verl.utils.megatron.tensor_parallel as tp_utils
+from verl import DataProto
+from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
+from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.megatron_utils import (
     broadcast_from_megatron_pp,
     broadcast_str_from_megatron_pp,
+    convert_megatron_model_to_transformers_model,
     get_model,
     unwrap_model,
 )
@@ -39,6 +48,9 @@ from verl.utils.memory_buffer import (
     get_weight_buffer_meta_from_module,
 )
 from verl.utils.model import normalize_model_name
+from verl.utils.torch_functional import allgather_dict_tensors
+
+from .base import BaseShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
@@ -47,7 +59,8 @@ logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 class AllGatherPPModel:
     def __init__(self, model_provider, use_distributed_optimizer=True) -> None:
         print(
-            "[WARNING] This class is deprecated and will no longer be supported. Consider using the `MegatronPPOActor` class directly as a replacement."
+            "[WARNING] This class is deprecated and will no longer be supported. \
+Consider using the `MegatronPPOActor` class directly as a replacement."
         )
         self._pp_group = mpu.get_pipeline_model_parallel_group()
         self._pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -243,26 +256,13 @@ class AllGatherPPModel:
 """
 Megatron Hybrid Engine:
 - During training, only the current pp stage holds the parameters
-- Before inference, broadcast the parameters of the current pp rank to all other pp ranks (all pp ranks holds all the parameters)
+- Before inference, broadcast the parameters of the current pp rank 
+   to all other pp ranks (all pp ranks holds all the parameters)
 - Bind the parameters to the inference engine
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-import inspect
-
-import torch.distributed
-from torch.distributed import new_group
-
-import verl.utils.megatron.tensor_parallel as tp_utils
-from verl import DataProto
-from verl.third_party.vllm import LLM, vllm_version
-from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
-from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
-from verl.utils.torch_functional import allgather_dict_tensors
-
-from .base import BaseShardingManager
 
 # Micro Data parallel group. Micro data parallel group is additional dp group that origins from splitting training tp
 # into infer_tp and micro_tp. By default, we use order micro_dp - tp
@@ -272,14 +272,15 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
-
-    def __init__(self,
-                 actor_module: nn.ModuleList,
-                 inference_engine: LLM,
-                 model_config,
-                 layer_name_mapping,
-                 weight_converter: McoreToHFWeightConverterBase,
-                 module: AllGatherPPModel = None):
+    def __init__(
+        self,
+        actor_module: nn.ModuleList,
+        inference_engine: LLM,
+        model_config,
+        layer_name_mapping,
+        weight_converter: McoreToHFWeightConverterBase,
+        module: AllGatherPPModel = None,
+    ):
         from megatron.core import parallel_state as mpu
 
         self.actor_module = actor_module
@@ -331,8 +332,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         def tensor_generator():
             for scan_vpp_idx in range(vpp_size):
-                for name, param in self.actor_module[scan_vpp_idx].named_parameters():
-                    yield name, param
+                yield from self.actor_module[scan_vpp_idx].named_parameters()
 
         # we need first make all rank get full model information
         meta_info = []
@@ -395,14 +395,14 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 convert_qkv_gate_up_by_trunk_concat=False,
             )  # defualt false
 
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
+            yield from zip(converted_names, converted_params)
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
         name: name of the parameter
         param: training parameters
-        infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from train tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
+        infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered
+          from train tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
         model_config: huggingface model_config
         TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
         definition so that it is model-agnostic. If the model doesn't implement this function,
@@ -436,10 +436,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             q = torch.cat(q_lst, dim=0)
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
-            if not convert_qkv_gate_up_by_simple_split:
-                infer_params = torch.cat((q, k, v), dim=0)
-            else:
-                infer_params = [q, k, v]
+            infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
         elif self.layer_name_mapping.get("gate_proj_layer_name") in name:
             # if the tensor is gate and proj
@@ -451,10 +448,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 up_lst.append(up)
             gate = torch.cat(gate_lst, dim=0)
             up = torch.cat(up_lst, dim=0)
-            if not convert_qkv_gate_up_by_simple_split:
-                infer_params = torch.cat((gate, up), dim=0)
-            else:
-                infer_params = [gate, up]
+            infer_params = torch.cat((gate, up), dim=0) if not convert_qkv_gate_up_by_simple_split else [gate, up]
 
         elif "mlp.experts.linear_fc2.weight" in name:  # moe
             infer_params = torch.cat(infer_params, dim=1)
@@ -467,7 +461,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
         """
-        For each param, if it is a tp-splited param, we all-gather from train tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
+        For each param, if it is a tp-splited param, we all-gather from train
+        tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
         """
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
@@ -491,20 +486,20 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 )
             else:
                 infer_params = param
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
                 converted_names, converted_params = convert_megatron_model_to_transformers_model(
                     name,
                     infer_params,
                     self.model_config,
                     self.train_tp_size,
                     self.module.pp_models[0][0].config.num_query_groups,
-                    convert_qkv_gate_up_by_trunk_concat=False)
+                    convert_qkv_gate_up_by_trunk_concat=False,
+                )
             else:
                 if not isinstance(infer_params, list):
                     infer_params = [infer_params]
                 converted_names, converted_params = self.weight_converter.convert_param(name, infer_params)
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
+            yield from zip(converted_names, converted_params)
 
     def __enter__(self):
         if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
@@ -520,7 +515,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             _patch_vllm_qwen2_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
-            logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+            info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
+            logger.info(info)
             log_gpu_memory_usage("After load_weights sharding manager memory", logger=logger)
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
@@ -597,6 +593,7 @@ def _patch_vllm_qwen2_moe_model_weight_loader(model):
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
     from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+
     if not isinstance(model, Qwen2MoeForCausalLM):
         return
     for layer in model.model.layers:

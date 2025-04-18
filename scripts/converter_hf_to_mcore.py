@@ -13,50 +13,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple, Dict
-import re
-import os
-import torch
 import argparse
+import os
 import warnings
-import numpy as np
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
-from concurrent.futures import ThreadPoolExecutor
-from safetensors.torch import load_file
-from torch.distributed._tensor import Shard, Placement
-from verl.utils.megatron_utils import get_model
-from megatron.core.models.gpt.gpt_model import ModelType
-from megatron.core import parallel_state as mpu
+
+import torch
 from megatron.core import dist_checkpointing
+from megatron.core import parallel_state as mpu
 from megatron.core.dist_checkpointing.serialization import StrictHandling
+from megatron.core.models.gpt.gpt_model import ModelType
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from verl.models.mcore import hf_to_mcore_config
+from verl.utils.megatron_utils import get_model
 
 
 def _init_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--hf_model_path', type=str, required=True, help="The path for the huggingface model")
-    parser.add_argument('--output_path', type=str, required=True, help="The path for the output mcore model")
-    parser.add_argument('--test', action='store_true', help="Whether to test the conversion")
+    parser.add_argument("--hf_model_path", type=str, required=True, help="The path for the huggingface model")
+    parser.add_argument("--output_path", type=str, required=True, help="The path for the output mcore model")
+    parser.add_argument("--test", action="store_true", help="Whether to test the conversion")
     args = parser.parse_args()
     return args
 
 
 class MegatronConfig:
-
     def __init__(self):
         self.params_dtype = torch.bfloat16
 
 
 class ModelConfig:
-
     def __init__(self):
         self.path = None
 
 
 class Config:
-
     def __init__(self):
         self.model = ModelConfig()
 
@@ -90,12 +82,13 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
 
             for idx, hf_expert in enumerate(hf_layer.mlp.experts):
                 fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
-                layer.mlp.experts.linear_fc1._parameters[f'weight{idx}'].copy_(fc1_weight)
-                layer.mlp.experts.linear_fc2._parameters[f'weight{idx}'].copy_(hf_expert.down_proj.weight)
+                layer.mlp.experts.linear_fc1._parameters[f"weight{idx}"].copy_(fc1_weight)
+                layer.mlp.experts.linear_fc2._parameters[f"weight{idx}"].copy_(hf_expert.down_proj.weight)
 
             layer.mlp.shared_experts.gate_weight.copy_(hf_layer.mlp.shared_expert_gate.weight)
             shared_fc1_weight = torch.cat(
-                [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight])
+                [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight]
+            )
             layer.mlp.shared_experts.linear_fc1.weight.copy_(shared_fc1_weight)
             layer.mlp.shared_experts.linear_fc2.weight.copy_(hf_layer.mlp.shared_expert.down_proj.weight)
 
@@ -110,15 +103,17 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         return
 
     # init torch distributed and mpu
-    os.environ['RANK'] = '0'
-    os.environ['WORLD_SIZE'] = '1'
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    torch.distributed.init_process_group('nccl')
-    mpu.initialize_model_parallel(tensor_model_parallel_size=1,
-                                  virtual_pipeline_model_parallel_size=None,
-                                  context_parallel_size=1,
-                                  expert_model_parallel_size=1)
+    os.environ["RANK"] = "0"
+    os.environ["WORLD_SIZE"] = "1"
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+    torch.distributed.init_process_group("nccl")
+    mpu.initialize_model_parallel(
+        tensor_model_parallel_size=1,
+        virtual_pipeline_model_parallel_size=None,
+        context_parallel_size=1,
+        expert_model_parallel_size=1,
+    )
     model_parallel_cuda_manual_seed(0)
 
     # init hf config
@@ -133,17 +128,20 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
     # init megatron model
     def megatron_model_provider(pre_process, post_process):
         from verl.models.mcore import init_mcore_model
-        parallel_model = init_mcore_model(tfconfig,
-                                          hf_config,
-                                          pre_process,
-                                          post_process,
-                                          share_embeddings_and_output_weights=tie_word_embeddings,
-                                          value=False)
+
+        parallel_model = init_mcore_model(
+            tfconfig,
+            hf_config,
+            pre_process,
+            post_process,
+            share_embeddings_and_output_weights=tie_word_embeddings,
+            value=False,
+        )
         return parallel_model
 
-    model = get_model(model_provider_func=megatron_model_provider,
-                      model_type=ModelType.encoder_or_decoder,
-                      wrap_with_ddp=False)
+    model = get_model(
+        model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=False
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -157,11 +155,14 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config)
     else:
         from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
-        load_state_dict_to_megatron_gptmodel(state_dict=ref_state_dict,
-                                             wrapped_models=model,
-                                             config=hf_config,
-                                             params_dtype=torch.bfloat16,
-                                             is_value_model=False)
+
+        load_state_dict_to_megatron_gptmodel(
+            state_dict=ref_state_dict,
+            wrapped_models=model,
+            config=hf_config,
+            params_dtype=torch.bfloat16,
+            is_value_model=False,
+        )
 
     ssd = model[0].module.sharded_state_dict()
     del ref_state_dict, hf_model
@@ -172,9 +173,9 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
     if test:
         ########### test ###########
         # load model
-        model_test = get_model(model_provider_func=megatron_model_provider,
-                               model_type=ModelType.encoder_or_decoder,
-                               wrap_with_ddp=True)
+        model_test = get_model(
+            model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True
+        )
         ssd2 = model_test[0].module.sharded_state_dict()
         dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
 
@@ -186,7 +187,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
             d1 = sd[k].data
             if k in sd2:
                 d2 = sd2[k].data
-                assert d1.shape == d2.shape, f'{k=} {d1.shape=} {d2.shape=}'
+                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
         for k in sd2.keys():
             if sd2[k] is None:
@@ -194,24 +195,24 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
             d1 = sd2[k].data
             if k in sd:
                 d2 = sd[k].data
-                assert d1.shape == d2.shape, f'{k=} {d1.shape=} {d2.shape=}'
+                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
 
         # load value model
         def megatron_value_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_gptmodel_from_config
-            parallel_model = get_parallel_gptmodel_from_config(tfconfig,
-                                                               hf_config,
-                                                               pre_process,
-                                                               post_process,
-                                                               share_embeddings_and_output_weights=False,
-                                                               value=True)
+
+            parallel_model = get_parallel_gptmodel_from_config(
+                tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True
+            )
             parallel_model.cuda()
             return parallel_model
 
-        model_value = get_model(model_provider_func=megatron_value_model_provider,
-                                model_type=ModelType.encoder_or_decoder,
-                                wrap_with_ddp=True)
+        model_value = get_model(
+            model_provider_func=megatron_value_model_provider,
+            model_type=ModelType.encoder_or_decoder,
+            wrap_with_ddp=True,
+        )
         ssd2 = model_value[0].module.sharded_state_dict()
         dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.IGNORE_ALL)
 
@@ -223,7 +224,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
             d1 = sd[k].data
             if k in sd2:
                 d2 = sd2[k].data
-                assert d1.shape == d2.shape, f'{k=} {d1.shape=} {d2.shape=}'
+                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
         for k in sd2.keys():
             if sd2[k] is None:
@@ -231,7 +232,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
             d1 = sd2[k].data
             if k in sd:
                 d2 = sd[k].data
-                assert d1.shape == d2.shape, f'{k=} {d1.shape=} {d2.shape=}'
+                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
 
 
