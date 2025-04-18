@@ -21,7 +21,6 @@ from verl.utils.import_utils import (
 from .base import BaseShardingManager
 from .fsdp_ulysses import FSDPUlyssesShardingManager
 
-
 if is_vllm_available():
     from .fsdp_vllm import FSDPVLLMShardingManager
 else:
