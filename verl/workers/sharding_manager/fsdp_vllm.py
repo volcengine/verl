@@ -31,7 +31,7 @@ from verl.third_party.vllm import vllm_version
 from vllm.version import __version__ as VLLM_VERSION
 
 from .base import BaseShardingManager
-from .patch import patched_ds_v3_load_weights
+from .patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -172,6 +172,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         world_size = torch.distributed.get_world_size()
         if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
             loaded_params = patched_ds_v3_load_weights(
+                model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
+                        for name, param in updated_params.items()))
+        elif model.config.architectures[0] in ['Qwen2MoeForCausalLM']:
+            loaded_params = patched_qwen_moe_load_weights(
                 model, ((name, param.full_tensor() if world_size != 1 and hasattr(param, 'full_tensor') else param)
                         for name, param in updated_params.items()))
         else:
