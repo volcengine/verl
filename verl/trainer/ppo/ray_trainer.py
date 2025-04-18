@@ -829,6 +829,9 @@ class RayPPOTrainer(object):
         self.global_steps += 1
         last_val_metrics = None
 
+        rank_id_tuples = self.actor_rollout_wg.get_actor_module()
+        self.ref_policy_wg.ref_bind_actors(rank_id_tuples)
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
                 metrics = {}
