@@ -25,6 +25,8 @@ from verl.utils.megatron_utils import mcore_model_parallel_config
 from verl.workers.sharding_manager import MegatronVLLMShardingManager
 from verl.utils.torch_dtypes import PrecisionType
 from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+
+
 def set_random_seed(seed):
     import torch
     import numpy as np
@@ -36,13 +38,13 @@ def set_random_seed(seed):
         from megatron.core import tensor_parallel
         tensor_parallel.model_parallel_cuda_manual_seed(seed)
 
+
 def test_megatron_vllm():
     if not torch.distributed.is_initialized():
         rank = int(os.environ['LOCAL_RANK'])
         torch.distributed.init_process_group(backend="nccl")
         torch.cuda.set_device(rank)
 
-        
         os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=2,
@@ -67,7 +69,7 @@ def test_megatron_vllm():
 
     # Step 2: get the actor_model_config
     actor_model_config = AutoConfig.from_pretrained(local_path)
-    override_model_config = { }
+    override_model_config = {}
     override_config_kwargs = {
         'bos_token_id': tokenizer.bos_token_id,
         'eos_token_id': tokenizer.eos_token_id,
@@ -77,8 +79,7 @@ def test_megatron_vllm():
     update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
     print(f'Model config after override: {actor_model_config}')
 
-    megatron_config = mcore_model_parallel_config(sequence_parallel=True,
-                        params_dtype=torch.bfloat16)
+    megatron_config = mcore_model_parallel_config(sequence_parallel=True, params_dtype=torch.bfloat16)
 
     share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
     tfconfig = convert_config(actor_model_config, megatron_config)
@@ -97,9 +98,7 @@ def test_megatron_vllm():
 
     # Step 3: initialize the megatron model
     # Initialize the 3D HybridEngine
-    hybrid_engine = AllGatherPPModel(
-        model_provider=megatron_actor_model_provider,
-        use_distributed_optimizer=True)
+    hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider, use_distributed_optimizer=True)
     # Fetch the model at current rank
     actor_module = hybrid_engine.this_rank_models
     actor_modules_list = []
@@ -109,19 +108,16 @@ def test_megatron_vllm():
     actor_module = actor_modules_list
     print(f'actor_module: {len(actor_module)}')
     # important
-    config={
-        config.model.path
-    }
-    
+    config = {config.model.path}
+
     load_megatron_gptmodel_weights(config,
-                                    actor_model_config,
-                                    actor_module,
-                                    params_dtype=torch.bfloat16,
-                                    is_value_model=False)
+                                   actor_model_config,
+                                   actor_module,
+                                   params_dtype=torch.bfloat16,
+                                   is_value_model=False)
     log_gpu_memory_usage('After AllGatherPPModel init')
     if torch.distributed.get_rank() == 0:
         print_model_size(actor_module[0])
-
 
     hybrid_engine.load_params_to_cuda()
     # broadcast the parameters from pp rank to other ranks
@@ -130,19 +126,19 @@ def test_megatron_vllm():
     params = hybrid_engine.get_all_params()
     # update the param name for the
     params = normalize_pp_vpp_params(params=params,
-                                        num_hidden_layers=actor_model_config.num_hidden_layers,
-                                        layer_name='layers')
+                                     num_hidden_layers=actor_model_config.num_hidden_layers,
+                                     layer_name='layers')
 
     rollout = vLLMRollout(actor_module=params,
-                                  config=self.config.rollout,
-                                  tokenizer=self.tokenizer,
-                                  model_hf_config=self.actor_model_config,
-                                  train_tp=mpu.get_tensor_model_parallel_world_size())
+                          config=self.config.rollout,
+                          tokenizer=self.tokenizer,
+                          model_hf_config=self.actor_model_config,
+                          train_tp=mpu.get_tensor_model_parallel_world_size())
     log_gpu_memory_usage('After building vllm rollout')
 
     # perform weight resharding between actor and rollout
     sharding_manager = MegatronVLLMShardingManager(module=self.hybrid_engine,
-                                                    inference_engine=rollout.inference_engine,
-                                                    model_config=self.actor_model_config,
-                                                    layer_name_mapping=layer_name_mapping)
+                                                   inference_engine=rollout.inference_engine,
+                                                   model_config=self.actor_model_config,
+                                                   layer_name_mapping=layer_name_mapping)
     log_gpu_memory_usage('After building sharding manager')
