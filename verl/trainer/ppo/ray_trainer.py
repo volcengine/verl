@@ -40,7 +40,6 @@ from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.reward import compute_reward_async, compute_reward
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
@@ -49,6 +48,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
     reduce_metrics,
 )
+from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
@@ -955,7 +955,7 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                    with _timer('reward', timing_raw):
+                    with _timer("reward", timing_raw):
                         # compute reward model score
                         if self.use_rm:
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
@@ -992,12 +992,12 @@ class RayPPOTrainer:
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
 
-                    with _timer('adv', timing_raw):
+                    with _timer("adv", timing_raw):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
-                        batch.batch['token_level_scores'] = reward_tensor
+                        batch.batch["token_level_scores"] = reward_tensor
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:

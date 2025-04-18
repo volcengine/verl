@@ -13,12 +13,16 @@
 # limitations under the License.
 
 import os
+
 import ray
+
 from verl import DataProto
 
 
 def get_custom_reward_fn(config):
-    import importlib.util, sys
+    import importlib.util
+    import sys
+
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
     if not file_path:
@@ -52,27 +56,33 @@ def get_custom_reward_fn(config):
 
 def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
-    if reward_manager_name == 'naive':
+    if reward_manager_name == "naive":
         from verl.workers.reward_manager import NaiveRewardManager
+
         reward_manager_cls = NaiveRewardManager
-    elif reward_manager_name == 'prime':
+    elif reward_manager_name == "prime":
         from verl.workers.reward_manager import PrimeRewardManager
+
         reward_manager_cls = PrimeRewardManager
-    elif reward_manager_name == 'batch':
+    elif reward_manager_name == "batch":
         from verl.workers.reward_manager import BatchRewardManager
+
         reward_manager_cls = BatchRewardManager
-    elif reward_manager_name == 'dapo':
+    elif reward_manager_name == "dapo":
         from verl.workers.reward_manager import DAPORewardManager
+
         reward_manager_cls = DAPORewardManager
     else:
         raise NotImplementedError
 
     compute_score = get_custom_reward_fn(config)
-    return reward_manager_cls(tokenizer=tokenizer,
-                              num_examine=num_examine,
-                              compute_score=compute_score,
-                              reward_fn_key=config.data.reward_fn_key,
-                              **reward_kwargs)
+    return reward_manager_cls(
+        tokenizer=tokenizer,
+        num_examine=num_examine,
+        compute_score=compute_score,
+        reward_fn_key=config.data.reward_fn_key,
+        **reward_kwargs,
+    )
 
 
 def compute_reward(data: DataProto, reward_fn):
@@ -86,10 +96,10 @@ def compute_reward(data: DataProto, reward_fn):
     """
     try:
         reward_result = reward_fn(data, return_dict=True)
-        reward_tensor = reward_result['reward_tensor']
-        reward_extra_infos_dict = reward_result['reward_extra_info']
+        reward_tensor = reward_result["reward_tensor"]
+        reward_extra_infos_dict = reward_result["reward_extra_info"]
     except Exception as e:
-        print(f'Error in reward_fn: {e}')
+        print(f"Error in reward_fn: {e}")
         reward_tensor = reward_fn(data)
         reward_extra_infos_dict = {}
 
