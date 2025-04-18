@@ -1,7 +1,7 @@
 set -x
 
 if [ "$#" -lt 2 ]; then
-    echo "Usage: run_deepseek_6b7.sh <nproc_per_node> <save_path> [other_configs...]"
+    echo "Usage: $0 <nproc_per_node> <save_path> [other_configs...]"
     exit 1
 fi
 
