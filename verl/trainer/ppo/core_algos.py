@@ -467,6 +467,10 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     if kl_penalty == "mse":
         return 0.5 * (logprob - ref_logprob).square()
 
+    if kl_penalty == "k3_off_policy":
+        log_ratio = ref_logprob - logprob
+        return 1 - log_ratio.exp()
+
     # J. Schulman. Approximating kl divergence, 2020.
     # # URL http://joschu.net/blog/kl-approx.html.
     if kl_penalty == 'low_var_kl':
