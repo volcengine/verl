@@ -13,11 +13,10 @@
 # limitations under the License.
 
 import torch
-from torch.profiler import profile, record_function, ProfilerActivity
 import torch.distributed
 
 
-class Profile():
+class Profiler():
 
     def __init__(self, config):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
@@ -27,11 +26,17 @@ class Profile():
         self.prof = None
         self.rank = torch.distributed.get_rank()
         if config.use_profile and self.rank in self.config.profile_ranks:
-            self.prof = torch.profiler.profile(schedule=torch.profiler.schedule(
-                wait=max(self.config.step_start - 1, 0),
-                warmup=1 if self.config.step_start > 0 else 0,
-                active=self.config.step_end - self.config.step_start,
-                repeat=1),
+            print(f"[Profiler] Profiler init for rank {self.rank}")
+
+            self.prof = torch.profiler.profile(activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+                                               schedule=torch.profiler.schedule(
+                                                   wait=max(self.config.step_start - 1, 0),
+                                                   warmup=1 if self.config.step_start > 0 else 0,
+                                                   active=self.config.step_end - self.config.step_start,
+                                                   repeat=1),
                                                record_shapes=True,
                                                with_stack=True)
 
@@ -39,12 +44,11 @@ class Profile():
         pass
 
     def check(self):
-        if self.prof is not None and not self.skip_prof:
-            return True
-        return False
+        return self.prof is not None and not self.skip_prof
 
     def start(self):
         if self.check():
+            print(f"[Profiler] started for rank {self.rank}")
             self.prof.start()
 
     def step(self):
@@ -53,14 +57,16 @@ class Profile():
 
     def stop(self):
         if self.check():
-            self.stop()
+            print(f"[Profiler] stopped for rank {self.rank}")
+            self.prof.stop()
 
     def save(self):
-        if self.check() and not self.save:
+        if self.prof is not None and not self.saved:
             self.saved = True
-            save_file_name = f"/prof_{self.config.step_start}_{self.config.step_end}_rank_{self.rank}.json"
-            self.prof.export_chrome_trace(self.save_path + save_file_name)
-            self.prof.skip_prof()
+            save_file_name = f"/prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
+            print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
+            self.prof.export_chrome_trace(self.config.save_path + save_file_name)
+            self.skip_prof = True
 
     def stop_and_save(self):
         if self.check():
@@ -68,4 +74,6 @@ class Profile():
             self.save()
 
     def stop_trace(self):
-        self.skip_prof = True
+        if self.check():
+            print(f"[Profiler] Trace stopped for rank {self.rank}")
+            self.skip_prof = True

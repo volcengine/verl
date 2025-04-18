@@ -406,7 +406,7 @@ class MegatronPPOActor(BasePPOActor):
                 raise NotImplementedError
             self.prof.step()
         # add empty cache after each compute
-        torch.cuda.empty_cache()
         self.prof.stop_and_save()
         self.prof.stop_trace()
+        torch.cuda.empty_cache()
         return metrics
