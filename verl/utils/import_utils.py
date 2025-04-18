@@ -19,6 +19,7 @@ We assume package availability won't change during runtime.
 from functools import cache
 from typing import List, Optional
 import importlib
+import importlib.util
 
 
 @cache
