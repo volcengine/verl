@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Union
 
 import numpy as np
-import tensorflow as tf
 import torch
 
 __all__ = ["HybridEngineBaseTokenizer"]
@@ -90,7 +89,7 @@ class HybridEngineBaseTokenizer(ABC):
     @abstractmethod
     def decode(
         self,
-        token_ids: Union[int, List[int], np.ndarray, torch.Tensor, tf.Tensor],
+        token_ids: Union[int, List[int], np.ndarray, torch.Tensor],
         skip_special_tokens: bool = False,
         clean_up_tokenization_spaces: bool = None,
         **kwargs,
@@ -102,7 +101,7 @@ class HybridEngineBaseTokenizer(ABC):
         Similar to doing `self.convert_tokens_to_string(self.convert_ids_to_tokens(token_ids))`.
 
         Args:
-            token_ids (`Union[int, List[int], np.ndarray, torch.Tensor, tf.Tensor]`):
+            token_ids (`Union[int, List[int], np.ndarray, torch.Tensor]`):
                 List of tokenized input ids. Can be obtained using the `__call__` method.
             skip_special_tokens (`bool`, *optional*, defaults to `False`):
                 Whether or not to remove special tokens in the decoding.
