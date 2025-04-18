@@ -27,7 +27,6 @@ from omegaconf import DictConfig
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
-from verl.workers.sharding_manager import AllGatherPPModel
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
 from verl.single_controller.base.decorator import register, Dispatch
@@ -174,7 +173,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
-            log_gpu_memory_usage('After AllGatherPPModel init', logger=logger)
+            log_gpu_memory_usage('After MegatronPPOActor init', logger=logger)
         elif self._is_ref:
             print(f'self.config.ref.load_weight: {self.config.ref.load_weight}')
             ref_module = get_model(model_provider_func=megatron_actor_model_provider,
@@ -214,7 +213,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == 'vllm':
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
-            from verl.workers.sharding_manager import MegatronVLLMShardingManager
+            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
             from torch.distributed.device_mesh import init_device_mesh
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
