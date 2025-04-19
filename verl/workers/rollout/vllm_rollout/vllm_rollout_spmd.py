@@ -272,7 +272,7 @@ class vLLMRollout(BaseRollout):
                 attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
                 position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
                 batch_size = batch_size * self.sampling_params.n
-                if "multi_modal_inputs" in non_tensor_batch:
+                if "multi_modal_inputs" in non_tensor_batch.keys():
                     non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(
                         non_tensor_batch["multi_modal_inputs"], self.sampling_params.n
                     )

@@ -311,7 +311,7 @@ class SGLangRollout(BaseRollout):
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
             batch_size = batch_size * self.config.n
-            if "multi_modal_inputs" in non_tensor_batch:
+            if "multi_modal_inputs" in non_tensor_batch.keys():
                 non_tensor_batch["multi_modal_inputs"] = np.repeat(
                     non_tensor_batch["multi_modal_inputs"], self.config.n, axis=0
                 )
