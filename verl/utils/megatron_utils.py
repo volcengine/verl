@@ -282,7 +282,7 @@ def load_megatron_model_to_gpu(models, load_grad=True):
 
 @torch.no_grad()
 def offload_megatron_optimizer(optimizers):
-    opt_state_dict_values = optimizers[0].optimizer.state.values()
+    opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
         v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=False)
         v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=False)
@@ -290,7 +290,7 @@ def offload_megatron_optimizer(optimizers):
 
 @torch.no_grad()
 def load_megatron_optimizer(optimizers):
-    opt_state_dict_values = optimizers[0].optimizer.state.values()
+    opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
         v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=False)
         v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=False)

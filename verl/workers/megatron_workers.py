@@ -282,6 +282,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 optim_config=optim_config,
                 override_model_config=override_model_config
             )
+            if self._is_offload_param:
+                offload_megatron_model_to_cpu(self.actor_module)
             if self._is_offload_optimizer:
                 offload_megatron_optimizer(self.actor_optimizer)
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
@@ -588,7 +590,7 @@ class CriticWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.critic_optimizer)
+            offload_megatron_optimizer(self.critic_optimizer)
         
         
         self.critic = MegatronPPOCritic(config=self.config,
@@ -646,7 +648,7 @@ class CriticWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.critic_optimizer)
+            offload_megatron_optimizer(self.critic_optimizer)
         output = output.to('cpu')
         return output
 
@@ -660,7 +662,7 @@ class CriticWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.critic_optimizer)
+            offload_megatron_optimizer(self.critic_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, max_ckpt_to_keep=None):
