@@ -66,6 +66,7 @@ actor_rollout_ref:
       weight_decay: 0.01
     megatron:
       param_offload: False
+      grad_offload: False
       optimizer_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
@@ -94,7 +95,6 @@ actor_rollout_ref:
       dist_checkpointing_path: null
       seed: 1
     load_weight: True
-    param_offload: False
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
   rollout:
@@ -160,6 +160,7 @@ critic:
       activations_checkpoint_num_layers: null
   megatron:
     param_offload: False
+    grad_offload: False
     optimizer_offload: False
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
@@ -189,6 +190,9 @@ reward_model:
   enable: False
   strategy: megatron
   megatron:
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
@@ -203,7 +207,6 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
-  param_offload: False
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}

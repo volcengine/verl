@@ -283,7 +283,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 override_model_config=override_model_config
             )
             if self._is_offload_optimizer:
-                offload_megatron_optimizer(optimizer=self.actor_optimizer)
+                offload_megatron_optimizer(self.actor_optimizer)
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
 
         if self._is_actor:
@@ -362,7 +362,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
         if self._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.actor_optimizer)
+            offload_megatron_optimizer(self.actor_optimizer)
 
         torch.cuda.empty_cache()
         return output
@@ -387,7 +387,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
             if self._is_offload_optimizer:
-                offload_megatron_optimizer(optimizer=self.actor_optimizer)
+                offload_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage('After entering sharding manager', logger=logger)
 
             prompts = self.sharding_manager.preprocess_data(prompts)
@@ -451,7 +451,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
         if self._is_offload_optimizer:
-            offload_megatron_optimizer(optimizer=self.actor_optimizer)
+            offload_megatron_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_pretrained_model(self, checkpoint_path, del_local_after_load=True):
