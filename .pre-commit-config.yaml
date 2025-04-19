@@ -4,5 +4,5 @@ repos:
     hooks:
       - id: ruff
         pass_filenames: true
-        entry: bash -c 'ruff check --fix --show-fixes --output-format=${RUFF_OUTPUT_FORMAT:-full} --ignore F401,F811,F841,E501,E402,E741,B028,E722,B005,E712,B018,B904,B023,B006,B006,B026,B020,G004,SIM116,SIM115,SIM102,E721,SIM113,G003,SIM108,SIM118 "$@"'
+        entry: bash -c 'ruff check --fix --show-fixes --output-format=${RUFF_OUTPUT_FORMAT:-full} "$@"'
       - id: ruff-format
