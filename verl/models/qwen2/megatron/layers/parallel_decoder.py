@@ -21,19 +21,18 @@
 from typing import Optional, Tuple
 
 import torch
+from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import Qwen2Config
-from megatron.core import ModelParallelConfig
+
+from verl.utils.megatron_utils import TransformerConfig, convert_config
 
 from .parallel_attention import ParallelQwen2Attention, ParallelQwen2AttentionRmPad
 from .parallel_mlp import ParallelQwen2MLP
 from .parallel_rmsnorm import ParallelQwen2RMSNorm
 
-from verl.utils.megatron_utils import TransformerConfig, convert_config
-
 
 class ParallelQwen2DecoderLayer(nn.Module):
-
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, layer_idx: int):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
@@ -101,7 +100,6 @@ class ParallelQwen2DecoderLayer(nn.Module):
 
 
 class ParallelQwen2DecoderLayerRmPad(nn.Module):
-
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig, layer_idx: int):
         super().__init__()
         self.config: TransformerConfig = convert_config(config, megatron_config)
@@ -120,7 +118,7 @@ class ParallelQwen2DecoderLayerRmPad(nn.Module):
         sequence_length: int = None,
         indices: torch.Tensor = None,
         cu_seqlens: int = None,
-        max_seqlen_in_batch: int = None
+        max_seqlen_in_batch: int = None,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         residual = hidden_states  # (total_nnz // sp, 1, hidden_size)
 
@@ -129,12 +127,14 @@ class ParallelQwen2DecoderLayerRmPad(nn.Module):
         # Self Attention
         # (total_nnz // sp, 1, hidden_size) -> all-gather (total_nnz, 1, hidden_size)
         # -> col + row -> reduce-scatter -> (total_nnz // sp, 1, hidden_size)
-        hidden_states = self.self_attn(hidden_states=hidden_states,
-                                       position_ids=position_ids,
-                                       sequence_length=sequence_length,
-                                       indices=indices,
-                                       cu_seqlens=cu_seqlens,
-                                       max_seqlen_in_batch=max_seqlen_in_batch)
+        hidden_states = self.self_attn(
+            hidden_states=hidden_states,
+            position_ids=position_ids,
+            sequence_length=sequence_length,
+            indices=indices,
+            cu_seqlens=cu_seqlens,
+            max_seqlen_in_batch=max_seqlen_in_batch,
+        )
 
         hidden_states = residual + hidden_states
 

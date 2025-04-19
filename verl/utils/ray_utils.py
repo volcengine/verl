@@ -15,13 +15,12 @@
 Contains commonly used utilities for ray
 """
 
-import ray
-
 import concurrent.futures
+
+import ray
 
 
 def parallel_put(data_list, max_workers=None):
-
     def put_data(index, data):
         return index, ray.put(data)
 

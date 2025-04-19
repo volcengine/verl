@@ -18,8 +18,6 @@ jobs:
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 5 # Increase this timeout value as needed
-    env:
-      HF_HUB_ENABLE_HF_TRANSFER: 1
     container:
       image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
       volumes:

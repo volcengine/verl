@@ -13,17 +13,17 @@
 # limitations under the License.
 
 import numbers
+
 import torch
+from apex.normalization.fused_layer_norm import fused_rms_norm_affine
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import LlamaConfig
 
-from apex.normalization.fused_layer_norm import fused_rms_norm_affine
 from verl.utils.megatron import sequence_parallel as sp_utils
 
 
 class ParallelLlamaRMSNorm(nn.Module):
-
     def __init__(self, config: LlamaConfig, megatron_config: ModelParallelConfig):
         """
         LlamaRMSNorm is equivalent to T5LayerNorm
@@ -39,8 +39,10 @@ class ParallelLlamaRMSNorm(nn.Module):
             sp_utils.mark_parameter_as_sequence_parallel(self.weight)
 
     def forward(self, hidden_states):
-        return fused_rms_norm_affine(input=hidden_states,
-                                     weight=self.weight,
-                                     normalized_shape=self.normalized_shape,
-                                     eps=self.variance_epsilon,
-                                     memory_efficient=True)
+        return fused_rms_norm_affine(
+            input=hidden_states,
+            weight=self.weight,
+            normalized_shape=self.normalized_shape,
+            eps=self.variance_epsilon,
+            memory_efficient=True,
+        )

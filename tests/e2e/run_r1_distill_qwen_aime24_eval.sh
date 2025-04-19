@@ -1,4 +1,5 @@
-set -x
+#!/usr/bin/env bash
+set -xeuo pipefail
 
 huggingface-cli download deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
     --local-dir $HOME/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B

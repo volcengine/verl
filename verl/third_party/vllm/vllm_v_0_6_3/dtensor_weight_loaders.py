@@ -312,12 +312,13 @@ def gpt2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn
 def redistribute_dtensor(param_name: str, loaded_weights: DTensor, parallelize_plan: Dict = None):
     param_name = _process_parameter_names(name=param_name)
     if parallelize_plan is not None:
-        assert (
-            param_name
-            in parallelize_plan.keys()), f"param name: {param_name} not in parallelize_plan :{parallelize_plan.keys()}"
+        assert param_name in parallelize_plan, (
+            f"param name: {param_name} not in parallelize_plan :{parallelize_plan.keys()}"
+        )
         placement = parallelize_plan[param_name]
-        local_loaded_weights = loaded_weights.redistribute(device_mesh=loaded_weights.device_mesh,
-                                                           placements=placement).to_local()
+        local_loaded_weights = loaded_weights.redistribute(
+            device_mesh=loaded_weights.device_mesh, placements=placement
+        ).to_local()
     else:
         local_loaded_weights = loaded_weights.full_tensor()
     return local_loaded_weights
@@ -371,8 +372,10 @@ def load_dtensor_weights(actor_weights: Dict, vllm_model: nn.Module):
 def _get_model_weight_loader(arch: str):
     if arch in __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__:
         return __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__[arch]
-    raise ValueError(f"Model architectures {arch} are not supported for now. "
-                     f"Supported architectures: {__MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} are not supported for now. "
+        f"Supported architectures: {__MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__.keys()}"
+    )
 
 
 # NOTE(sgm): we use per-parameter weight loader in each vllm sub

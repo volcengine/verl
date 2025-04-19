@@ -13,15 +13,14 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/config.py
 
-from typing import Optional, Union, ClassVar
 from dataclasses import dataclass
-import torch
-from transformers import PretrainedConfig
-from packaging.version import Version
+from typing import ClassVar, Optional, Union
 
+import torch
+from packaging.version import Version
+from transformers import PretrainedConfig
 from vllm.logger import init_logger
-from vllm.transformers_utils.config import get_config
-from vllm.utils import get_cpu_memory, is_hip, get_nvcc_cuda_version
+from vllm.utils import get_cpu_memory, get_nvcc_cuda_version, is_hip
 
 logger = init_logger(__name__)
 
@@ -77,7 +76,7 @@ class ModelConfig:
         hf_config: PretrainedConfig,
         dtype: str,
         seed: int,
-        load_format: str = 'model',
+        load_format: str = "model",
         revision: Optional[str] = None,
         tokenizer_revision: Optional[str] = None,
         max_model_len: Optional[int] = None,
@@ -109,8 +108,10 @@ class ModelConfig:
     def _verify_load_format(self) -> None:
         load_format = self.load_format.lower()
         if load_format not in ["auto", "pt", "safetensors", "npcache", "dummy", "model"]:
-            raise ValueError(f"Unknown load format: {self.load_format}. Must be one of "
-                             "'auto', 'pt', 'safetensors', 'npcache', 'dummy' or 'model'.")
+            raise ValueError(
+                f"Unknown load format: {self.load_format}. Must be one of "
+                "'auto', 'pt', 'safetensors', 'npcache', 'dummy' or 'model'."
+            )
         self.load_format = load_format
 
     # def _verify_tokenizer_mode(self) -> None:
@@ -134,30 +135,33 @@ class ModelConfig:
             if self.quantization is None:
                 self.quantization = hf_quant_method
             elif self.quantization != hf_quant_method:
-                raise ValueError("Quantization method specified in the model config "
-                                 f"({hf_quant_method}) does not match the quantization "
-                                 f"method specified in the `quantization` argument "
-                                 f"({self.quantization}).")
+                raise ValueError(
+                    "Quantization method specified in the model config "
+                    f"({hf_quant_method}) does not match the quantization "
+                    f"method specified in the `quantization` argument "
+                    f"({self.quantization})."
+                )
 
         if self.quantization is not None:
             if self.quantization not in supported_quantization:
-                raise ValueError(f"Unknown quantization method: {self.quantization}. Must "
-                                 f"be one of {supported_quantization}.")
+                raise ValueError(
+                    f"Unknown quantization method: {self.quantization}. Must be one of {supported_quantization}."
+                )
             if is_hip() and self.quantization in rocm_not_supported_quantization:
-                raise ValueError(f"{self.quantization} quantization is currently not supported "
-                                 f"in ROCm.")
-            logger.warning(f"{self.quantization} quantization is not fully "
-                           "optimized yet. The speed can be slower than "
-                           "non-quantized models.")
+                raise ValueError(f"{self.quantization} quantization is currently not supported in ROCm.")
+            logger.warning(
+                f"{self.quantization} quantization is not fully "
+                "optimized yet. The speed can be slower than "
+                "non-quantized models."
+            )
 
     def _verify_cuda_graph(self) -> None:
         if self.max_context_len_to_capture is None:
             self.max_context_len_to_capture = self.max_model_len
         self.max_context_len_to_capture = min(self.max_context_len_to_capture, self.max_model_len)
-        if (self.quantization in ["gptq", "squeezellm"] and not self.enforce_eager):
+        if self.quantization in ["gptq", "squeezellm"] and not self.enforce_eager:
             # Related issue: https://github.com/vllm-project/vllm/issues/2147
-            logger.warning(f"{self.quantization} does not support CUDA graph "
-                           "yet. Disabling CUDA graph.")
+            logger.warning(f"{self.quantization} does not support CUDA graph yet. Disabling CUDA graph.")
             self.enforce_eager = True
 
     def verify_with_parallel_config(
@@ -167,16 +171,20 @@ class ModelConfig:
         total_num_attention_heads = self.hf_config.num_attention_heads
         tensor_parallel_size = parallel_config.tensor_parallel_size
         if total_num_attention_heads % tensor_parallel_size != 0:
-            raise ValueError(f"Total number of attention heads ({total_num_attention_heads})"
-                             " must be divisible by tensor parallel size "
-                             f"({tensor_parallel_size}).")
+            raise ValueError(
+                f"Total number of attention heads ({total_num_attention_heads})"
+                " must be divisible by tensor parallel size "
+                f"({tensor_parallel_size})."
+            )
 
         total_num_hidden_layers = self.hf_config.num_hidden_layers
         pipeline_parallel_size = parallel_config.pipeline_parallel_size
         if total_num_hidden_layers % pipeline_parallel_size != 0:
-            raise ValueError(f"Total number of hidden layers ({total_num_hidden_layers}) "
-                             "must be divisible by pipeline parallel size "
-                             f"({pipeline_parallel_size}).")
+            raise ValueError(
+                f"Total number of hidden layers ({total_num_hidden_layers}) "
+                "must be divisible by pipeline parallel size "
+                f"({pipeline_parallel_size})."
+            )
 
     def get_sliding_window(self) -> Optional[int]:
         return getattr(self.hf_config, "sliding_window", None)
@@ -198,8 +206,9 @@ class ModelConfig:
         # multi_query flag is ignored and we use n_head_kv for the number of
         # KV heads.
         falcon_model_types = ["falcon", "RefinedWeb", "RefinedWebModel"]
-        new_decoder_arch_falcon = (self.hf_config.model_type in falcon_model_types and
-                                   getattr(self.hf_config, "new_decoder_architecture", False))
+        new_decoder_arch_falcon = self.hf_config.model_type in falcon_model_types and getattr(
+            self.hf_config, "new_decoder_architecture", False
+        )
         if not new_decoder_arch_falcon and getattr(self.hf_config, "multi_query", False):
             # Multi-query attention, only one KV head.
             # Currently, tensor parallelism is not supported in this case.
@@ -270,8 +279,7 @@ class CacheConfig:
 
     def _verify_args(self) -> None:
         if self.gpu_memory_utilization > 1.0:
-            raise ValueError("GPU memory utilization must be less than 1.0. Got "
-                             f"{self.gpu_memory_utilization}.")
+            raise ValueError(f"GPU memory utilization must be less than 1.0. Got {self.gpu_memory_utilization}.")
 
     def _verify_cache_dtype(self) -> None:
         if self.cache_dtype == "auto":
@@ -283,11 +291,13 @@ class CacheConfig:
             device_name = torch.cuda.get_device_name()
             if "AMD" in device_name:
                 raise NotImplementedError("FP8_E5M2 KV Cache on AMD GPU has not been supported yet.")
-            logger.info("Using fp8_e5m2 data type to store kv cache. It reduces "
-                        "the GPU memory footprint and boosts the performance. "
-                        "But it may cause slight accuracy drop. "
-                        "Currently we only support fp8 without scaling factors and "
-                        "make e5m2 as a default format.")
+            logger.info(
+                "Using fp8_e5m2 data type to store kv cache. It reduces "
+                "the GPU memory footprint and boosts the performance. "
+                "But it may cause slight accuracy drop. "
+                "Currently we only support fp8 without scaling factors and "
+                "make e5m2 as a default format."
+            )
         else:
             raise ValueError(f"Unknown kv cache dtype: {self.cache_dtype}")
 
@@ -301,9 +311,11 @@ class CacheConfig:
         num_gpus_per_node = parallel_config.tensor_parallel_size
         cpu_memory_usage = self.swap_space_bytes * num_gpus_per_node
 
-        msg = (f"{cpu_memory_usage / _GB:.2f} GiB out of "
-               f"the {total_cpu_memory / _GB:.2f} GiB total CPU memory is "
-               "allocated for the swap space.")
+        msg = (
+            f"{cpu_memory_usage / _GB:.2f} GiB out of "
+            f"the {total_cpu_memory / _GB:.2f} GiB total CPU memory is "
+            "allocated for the swap space."
+        )
         if cpu_memory_usage > 0.7 * total_cpu_memory:
             raise ValueError("Too large swap space. " + msg)
         elif cpu_memory_usage > 0.4 * total_cpu_memory:
@@ -351,20 +363,22 @@ class ParallelConfig:
         if not self.disable_custom_all_reduce and self.world_size > 1:
             if is_hip():
                 self.disable_custom_all_reduce = True
-                logger.info("Disabled the custom all-reduce kernel because it is not "
-                            "supported on AMD GPUs.")
+                logger.info("Disabled the custom all-reduce kernel because it is not supported on AMD GPUs.")
             elif self.pipeline_parallel_size > 1:
                 self.disable_custom_all_reduce = True
-                logger.info("Disabled the custom all-reduce kernel because it is not "
-                            "supported with pipeline parallelism.")
+                logger.info(
+                    "Disabled the custom all-reduce kernel because it is not supported with pipeline parallelism."
+                )
 
         # FIXME(woosuk): Fix the stability issues and re-enable the custom
         # all-reduce kernel.
         if not self.disable_custom_all_reduce and self.world_size > 1:
             self.disable_custom_all_reduce = True
-            logger.info("Custom all-reduce kernels are temporarily disabled due to "
-                        "stability issues. We will re-enable them once the issues are "
-                        "resolved.")
+            logger.info(
+                "Custom all-reduce kernels are temporarily disabled due to "
+                "stability issues. We will re-enable them once the issues are "
+                "resolved."
+            )
 
 
 class SchedulerConfig:
@@ -400,20 +414,23 @@ class SchedulerConfig:
 
     def _verify_args(self) -> None:
         if self.max_num_batched_tokens < self.max_model_len:
-            raise ValueError(f"max_num_batched_tokens ({self.max_num_batched_tokens}) is "
-                             f"smaller than max_model_len ({self.max_model_len}). "
-                             "This effectively limits the maximum sequence length to "
-                             "max_num_batched_tokens and makes vLLM reject longer "
-                             "sequences. Please increase max_num_batched_tokens or "
-                             "decrease max_model_len.")
+            raise ValueError(
+                f"max_num_batched_tokens ({self.max_num_batched_tokens}) is "
+                f"smaller than max_model_len ({self.max_model_len}). "
+                "This effectively limits the maximum sequence length to "
+                "max_num_batched_tokens and makes vLLM reject longer "
+                "sequences. Please increase max_num_batched_tokens or "
+                "decrease max_model_len."
+            )
         if self.max_num_batched_tokens < self.max_num_seqs:
-            raise ValueError(f"max_num_batched_tokens ({self.max_num_batched_tokens}) must "
-                             "be greater than or equal to max_num_seqs "
-                             f"({self.max_num_seqs}).")
+            raise ValueError(
+                f"max_num_batched_tokens ({self.max_num_batched_tokens}) must "
+                "be greater than or equal to max_num_seqs "
+                f"({self.max_num_seqs})."
+            )
 
 
 class DeviceConfig:
-
     def __init__(self, device: str = "cuda") -> None:
         self.device = torch.device(device)
 
@@ -433,18 +450,17 @@ class LoRAConfig:
         possible_max_ranks = (8, 16, 32, 64)
         possible_lora_extra_vocab_size = (0, 256, 512)
         if self.max_lora_rank not in possible_max_ranks:
-            raise ValueError(f"max_lora_rank ({self.max_lora_rank}) must be one of "
-                             f"{possible_max_ranks}.")
+            raise ValueError(f"max_lora_rank ({self.max_lora_rank}) must be one of {possible_max_ranks}.")
         if self.lora_extra_vocab_size not in possible_lora_extra_vocab_size:
-            raise ValueError(f"lora_extra_vocab_size ({self.lora_extra_vocab_size}) "
-                             f"must be one of {possible_lora_extra_vocab_size}.")
+            raise ValueError(
+                f"lora_extra_vocab_size ({self.lora_extra_vocab_size}) must be one of {possible_lora_extra_vocab_size}."
+            )
         if self.max_loras < 1:
             raise ValueError(f"max_loras ({self.max_loras}) must be >= 1.")
         if self.max_cpu_loras is None:
             self.max_cpu_loras = self.max_loras
         elif self.max_cpu_loras < self.max_loras:
-            raise ValueError(f"max_cpu_loras ({self.max_cpu_loras}) must be >= "
-                             f"max_loras ({self.max_loras})")
+            raise ValueError(f"max_cpu_loras ({self.max_cpu_loras}) must be >= max_loras ({self.max_loras})")
 
     def verify_with_model_config(self, model_config: ModelConfig):
         if self.lora_dtype in (None, "auto"):
@@ -456,9 +472,11 @@ class LoRAConfig:
 
     def verify_with_scheduler_config(self, scheduler_config: SchedulerConfig):
         if scheduler_config.max_num_batched_tokens > 65528:
-            raise ValueError("Due to limitations of the custom LoRA CUDA kernel, "
-                             "max_num_batched_tokens must be <= 65528 when "
-                             "LoRA is enabled.")
+            raise ValueError(
+                "Due to limitations of the custom LoRA CUDA kernel, "
+                "max_num_batched_tokens must be <= 65528 when "
+                "LoRA is enabled."
+            )
 
 
 _STR_DTYPE_TO_TORCH_DTYPE = {
@@ -504,8 +522,7 @@ def _get_and_verify_dtype(
         rocm_supported_dtypes = [
             k for k, v in _STR_DTYPE_TO_TORCH_DTYPE.items() if (k not in _ROCM_NOT_SUPPORTED_DTYPE)
         ]
-        raise ValueError(f"dtype \'{dtype}\' is not supported in ROCm. "
-                         f"Supported dtypes are {rocm_supported_dtypes}")
+        raise ValueError(f"dtype '{dtype}' is not supported in ROCm. Supported dtypes are {rocm_supported_dtypes}")
 
     # Verify the dtype.
     if torch_dtype != config_dtype:
@@ -552,10 +569,12 @@ def _get_and_verify_max_len(
             return max_model_len
 
         default_max_len = 2048
-        logger.warning("The model's config.json does not contain any of the following "
-                       "keys to determine the original maximum length of the model: "
-                       f"{possible_keys}. Assuming the model's maximum length is "
-                       f"{default_max_len}.")
+        logger.warning(
+            "The model's config.json does not contain any of the following "
+            "keys to determine the original maximum length of the model: "
+            f"{possible_keys}. Assuming the model's maximum length is "
+            f"{default_max_len}."
+        )
         derived_max_model_len = default_max_len
 
     rope_scaling = getattr(hf_config, "rope_scaling", None)
@@ -569,9 +588,11 @@ def _get_and_verify_max_len(
     if max_model_len is None:
         max_model_len = derived_max_model_len
     elif max_model_len > derived_max_model_len:
-        raise ValueError(f"User-specified max_model_len ({max_model_len}) is greater than "
-                         f"the derived max_model_len ({max_len_key}={derived_max_model_len}"
-                         " in model's config.json). This may lead to incorrect model "
-                         "outputs or CUDA errors. Make sure the value is correct and "
-                         "within the model context size.")
+        raise ValueError(
+            f"User-specified max_model_len ({max_model_len}) is greater than "
+            f"the derived max_model_len ({max_len_key}={derived_max_model_len}"
+            " in model's config.json). This may lead to incorrect model "
+            "outputs or CUDA errors. Make sure the value is correct and "
+            "within the model context size."
+        )
     return int(max_model_len)

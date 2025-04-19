@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from verl.utils.import_utils import (
-    is_vllm_available,
-    is_sglang_available,
     is_megatron_core_available,
+    is_sglang_available,
+    is_vllm_available,
 )
 
 from .base import BaseShardingManager

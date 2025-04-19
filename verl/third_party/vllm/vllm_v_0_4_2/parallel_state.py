@@ -4,17 +4,15 @@
 # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 """Model and data parallel groups."""
+
 import os
-import torch
-import torch.distributed
 from typing import Optional
 
+import torch
+import torch.distributed
 import vllm.distributed.parallel_state as ps
-
-import vllm.envs as envs
-from vllm.logger import init_logger
-
 from torch.distributed.device_mesh import init_device_mesh
+from vllm.logger import init_logger
 
 logger = init_logger(__name__)
 """
@@ -57,8 +55,10 @@ def initialize_parallel_state(
     ps.init_distributed_environment(world_size, rank, distributed_init_method, local_rank, backend)
     if torch.distributed.get_world_size() > 1:
         # NOTE: build a sepearate inference group with infer tp & micro dp
-        initialize_model_parallel_for_vllm(tensor_model_parallel_size=tensor_model_parallel_size,
-                                           num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp)
+        initialize_model_parallel_for_vllm(
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp,
+        )
     else:
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
 
@@ -78,10 +78,11 @@ def ensure_model_parallel_initialized(
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
         return
 
-    assert (get_tensor_model_parallel_world_size() == tensor_model_parallel_size), (
+    assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, (
         "tensor parallel group already initialized, but of unexpected size: "
         f"{get_tensor_model_parallel_world_size()=} vs. "
-        f"{tensor_model_parallel_size=}")
+        f"{tensor_model_parallel_size=}"
+    )
     # assert (get_pipeline_model_parallel_world_size(
     # ) == pipeline_model_parallel_size), (
     #     "pipeline parallel group already initialized, but of unexpected size: "
@@ -91,13 +92,13 @@ def ensure_model_parallel_initialized(
 
 def model_parallel_is_initialized():
     """Check if tensor and pipeline parallel groups are initialized."""
-    return (ps._TP_DEVICE_GROUP is not None)
+    return ps._TP_DEVICE_GROUP is not None
     # and _PIPELINE_MODEL_PARALLEL_GROUP is not None)
 
 
-def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
-                                       num_tensor_model_parallel_groups_per_train_tp: int = 1) -> None:
-    from torch.distributed import new_group
+def initialize_model_parallel_for_vllm(
+    tensor_model_parallel_size: int, num_tensor_model_parallel_groups_per_train_tp: int = 1
+) -> None:
     # Get world size and rank. Ensure some consistencies.
     assert torch.distributed.is_initialized()
 
@@ -107,7 +108,7 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
     # assert num_tensor_model_parallel_groups_per_train_tp > 1 and different_tp_group
 
     # Build the tensor model-parallel groups.
-    assert ps._TP_DEVICE_GROUP is None, ("tensor model parallel group is already initialized")
+    assert ps._TP_DEVICE_GROUP is None, "tensor model parallel group is already initialized"
 
     global _TP_DEVICE_GROUP
     global _TP_CPU_GROUP
@@ -144,7 +145,7 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
         # train_tp = train_tensor_parallel_size
         train_tp = num_tensor_model_parallel_groups_per_train_tp * tensor_model_parallel_size
         # num_tensor_model_parallel_groups_per_train_tp = train_tp // tensor_model_parallel_size
-        assert _TP_DEVICE_GROUP is None, ("tensor model parallel group is already initialized")
+        assert _TP_DEVICE_GROUP is None, "tensor model parallel group is already initialized"
         for i in range(num_tensor_model_parallel_groups // num_tensor_model_parallel_groups_per_train_tp):
             start = train_tp * i
             end = train_tp * (i + 1)
@@ -153,7 +154,7 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
                 for i in range(len(ranks)):
                     ranks[i] += j
                 group = torch.distributed.new_group(ranks)
-                cpu_group = torch.distributed.new_group(ranks, backend='gloo')
+                cpu_group = torch.distributed.new_group(ranks, backend="gloo")
                 if rank in ranks:
                     _TP_DEVICE_GROUP = group
                     _TP_CPU_GROUP = cpu_group
@@ -177,7 +178,7 @@ def initialize_model_parallel(
     """
     NOTE: This method is a hack from the open-sourced version without
     asertion of world_size = tp * pp
-    
+
     Initialize model parallel groups.
 
     Arguments:
@@ -208,14 +209,17 @@ def initialize_model_parallel(
     # NOTE(sgm) we don't assert world_size == tp * pp
     # DP is not managed by vllm but by the verl WorkerGroup
 
-    num_tensor_model_parallel_groups: int = (world_size // tensor_model_parallel_size)
-    num_pipeline_model_parallel_groups: int = (world_size // pipeline_model_parallel_size)
+    num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
+    num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     rank = torch.distributed.get_rank()
 
     # Build device mesh for TP
     if num_tensor_model_parallel_groups > 1:
-        device_mesh = init_device_mesh("cuda", (num_tensor_model_parallel_groups, tensor_model_parallel_size),
-                                       mesh_dim_names=("replicate", "tp_shard"))
+        device_mesh = init_device_mesh(
+            "cuda",
+            (num_tensor_model_parallel_groups, tensor_model_parallel_size),
+            mesh_dim_names=("replicate", "tp_shard"),
+        )
     else:
         device_mesh = init_device_mesh("cuda", (tensor_model_parallel_size,), mesh_dim_names=["tp_shard"])
     shard_group = device_mesh.get_group(mesh_dim="tp_shard")
@@ -223,8 +227,8 @@ def initialize_model_parallel(
     # Build the tensor model-parallel groups.
     global _TP_DEVICE_GROUP, _TP_CPU_GROUP
     global _DEVICE_MESH
-    assert _TP_DEVICE_GROUP is None, ("tensor model parallel group is already initialized")
-    assert _DEVICE_MESH is None, ("device mesh in vllm is already initialized")
+    assert _TP_DEVICE_GROUP is None, "tensor model parallel group is already initialized"
+    assert _DEVICE_MESH is None, "device mesh in vllm is already initialized"
 
     _DEVICE_MESH = device_mesh
     # for i in range(num_tensor_model_parallel_groups):
@@ -246,7 +250,7 @@ def initialize_model_parallel(
 
     # TODO: init using device mesh
     # Build the pipeline model-parallel groups.
-    assert ps._PIPELINE_MODEL_PARALLEL_GROUP is None, ("pipeline model parallel group is already initialized")
+    assert ps._PIPELINE_MODEL_PARALLEL_GROUP is None, "pipeline model parallel group is already initialized"
     for i in range(num_pipeline_model_parallel_groups):
         ranks = range(i, world_size, num_pipeline_model_parallel_groups)
         group = torch.distributed.new_group(ranks, backend=backend)
@@ -261,7 +265,7 @@ Device mesh utilities
 
 
 def get_device_mesh():
-    assert _DEVICE_MESH is not None, ("device mesh is not initialized")
+    assert _DEVICE_MESH is not None, "device mesh is not initialized"
     return _DEVICE_MESH
 
 
@@ -272,7 +276,7 @@ Tensor model parallel utilities
 
 def get_tensor_model_parallel_group():
     """Get the tensor model parallel group the caller rank belongs to."""
-    assert _TP_DEVICE_GROUP is not None, ("tensor model parallel group is not initialized")
+    assert _TP_DEVICE_GROUP is not None, "tensor model parallel group is not initialized"
     return _TP_DEVICE_GROUP
 
 

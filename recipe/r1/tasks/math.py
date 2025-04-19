@@ -14,7 +14,7 @@
 
 try:
     from math_verify.metric import math_metric
-    from math_verify.parser import LatexExtractionConfig, ExprExtractionConfig
+    from math_verify.parser import ExprExtractionConfig, LatexExtractionConfig
 except ImportError:
     print("To use Math-Verify, please install it first by running `pip install math-verify`.")
 
@@ -24,13 +24,13 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
         gold_extraction_target=(LatexExtractionConfig(),),
         pred_extraction_target=(ExprExtractionConfig(), LatexExtractionConfig()),
     )
-    ret_score = 0.
+    ret_score = 0.0
 
     # Wrap the ground truth in \boxed{} format for verification
     ground_truth_boxed = "\\boxed{" + ground_truth + "}"
     try:
         ret_score, _ = verify_func([ground_truth_boxed], [model_output])
-    except Exception as e:
+    except Exception:
         pass
 
     return ret_score

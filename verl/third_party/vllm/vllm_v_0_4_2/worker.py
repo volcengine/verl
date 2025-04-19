@@ -13,30 +13,29 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/worker/worker.py
 """A GPU worker class."""
-import os
+
 import gc
-from typing import Dict, List, Tuple, Optional, Union
+import os
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed
 import torch.nn as nn
+from vllm.config import CacheConfig, DeviceConfig, LoRAConfig, ParallelConfig, SchedulerConfig, VisionLanguageConfig
 
-from vllm.config import (CacheConfig, DeviceConfig, LoRAConfig, ParallelConfig, SchedulerConfig, VisionLanguageConfig)
-from vllm.model_executor import set_random_seed
-from vllm.sequence import SamplerOutput, ExecuteModelRequest
-from vllm.worker.cache_engine import CacheEngine
-from vllm.distributed.device_communicators import pynccl_utils
-from vllm.distributed.device_communicators.custom_all_reduce import (init_custom_ar)
 # TODO(sgm): check why vllm has similar file in vllm.model_executor.parallel_utils.parallel_state
-from vllm.distributed import get_tensor_model_parallel_cpu_group, init_distributed_environment, get_tensor_model_parallel_group
+from vllm.distributed import get_tensor_model_parallel_group, init_distributed_environment
+from vllm.model_executor import set_random_seed
+from vllm.sequence import ExecuteModelRequest, SamplerOutput
+from vllm.worker.cache_engine import CacheEngine
 from vllm.worker.worker import Worker, _check_if_gpu_supports_dtype
 
-from .model_runner import ModelRunner
-from .megatron_weight_loaders import load_megatron_weights
-from .hf_weight_loader import load_hf_weights
+from .config import LoadConfig, LoadFormat, ModelConfig
 from .dtensor_weight_loaders import load_dtensor_weights
-from .parallel_state import (ensure_model_parallel_initialized)
-from .config import ModelConfig, LoadConfig, LoadFormat
+from .hf_weight_loader import load_hf_weights
+from .megatron_weight_loaders import load_megatron_weights
+from .model_runner import ModelRunner
+from .parallel_state import ensure_model_parallel_initialized
 
 
 class Worker(Worker):
@@ -49,7 +48,7 @@ class Worker(Worker):
 
     def __init__(
         self,
-        model: Union[nn.Module, Dict], # model itself or its parameter dict
+        model: Union[nn.Module, Dict],  # model itself or its parameter dict
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
         scheduler_config: SchedulerConfig,
@@ -80,7 +79,7 @@ class Worker(Worker):
 
         self.vision_language_config = vision_language_config
         if self.vision_language_config:
-            assert not self.lora_config, ("To be tested: vision language model with LoRA settings.")
+            assert not self.lora_config, "To be tested: vision language model with LoRA settings."
 
         self.model_runner = ModelRunner(
             model,
@@ -132,8 +131,9 @@ class Worker(Worker):
             raise RuntimeError(f"Not support device type: {self.device_config.device}")
 
         # Initialize the distributed environment.
-        init_worker_distributed_environment(self.parallel_config, self.rank, self.distributed_init_method,
-                                            self.local_rank)
+        init_worker_distributed_environment(
+            self.parallel_config, self.rank, self.distributed_init_method, self.local_rank
+        )
         # Set random seed.
         set_random_seed(self.model_config.seed)
         # self.model = get_model(actor_model=self.model, model_config=self.model_config)
@@ -166,8 +166,10 @@ class Worker(Worker):
         free_gpu_memory, total_gpu_memory = torch.cuda.mem_get_info()
         peak_memory = total_gpu_memory - free_gpu_memory
 
-        assert peak_memory > 0, ("Error in memory profiling. This happens when the GPU memory was "
-                                 "not properly cleaned up before initializing the vLLM instance.")
+        assert peak_memory > 0, (
+            "Error in memory profiling. This happens when the GPU memory was "
+            "not properly cleaned up before initializing the vLLM instance."
+        )
 
         cache_block_size = self.get_cache_block_size_bytes()
 
@@ -182,14 +184,14 @@ class Worker(Worker):
             self.model_runner.remove_all_loras()
 
         # NOTE(sgm): Add for verl, synchronize number of blocks with all the rank
-        num_gpu_blocks = torch.tensor([num_gpu_blocks], device='cuda')
-        num_cpu_blocks = torch.tensor([num_cpu_blocks], device='cuda')
-        torch.distributed.all_reduce(num_gpu_blocks,
-                                     op=torch.distributed.ReduceOp.MIN,
-                                     group=get_tensor_model_parallel_group())
-        torch.distributed.all_reduce(num_cpu_blocks,
-                                     op=torch.distributed.ReduceOp.MIN,
-                                     group=get_tensor_model_parallel_group())
+        num_gpu_blocks = torch.tensor([num_gpu_blocks], device="cuda")
+        num_cpu_blocks = torch.tensor([num_cpu_blocks], device="cuda")
+        torch.distributed.all_reduce(
+            num_gpu_blocks, op=torch.distributed.ReduceOp.MIN, group=get_tensor_model_parallel_group()
+        )
+        torch.distributed.all_reduce(
+            num_cpu_blocks, op=torch.distributed.ReduceOp.MIN, group=get_tensor_model_parallel_group()
+        )
         num_gpu_blocks = num_gpu_blocks.item()
         num_cpu_blocks = num_cpu_blocks.item()
         gc.collect()
@@ -207,7 +209,6 @@ class Worker(Worker):
 
     @torch.inference_mode()
     def execute_model(self, execute_model_req: Optional[ExecuteModelRequest] = None) -> List[SamplerOutput]:
-
         if execute_model_req is None:
             seq_group_metadata_list = None
         else:
@@ -247,7 +248,7 @@ class Worker(Worker):
         if self.cpu_model == None:
             self.cpu_model = {}
             for name, params in self.model_runner.model.named_parameters():
-                self.cpu_model[name] = torch.empty_like(params, device='cpu')
+                self.cpu_model[name] = torch.empty_like(params, device="cpu")
                 params.data = self.cpu_model[name]
         else:
             for name, params in self.model_runner.model.named_parameters():
@@ -264,8 +265,10 @@ def init_worker_distributed_environment(
     # NOTE(sgm) use tcp://localhost:xxxx will hang in HF setting without megatron
     init_distributed_environment(parallel_config.world_size, rank, distributed_init_method, local_rank)
 
-    ensure_model_parallel_initialized(tensor_model_parallel_size=parallel_config.tensor_parallel_size,
-                                      pipeline_model_parallel_size=parallel_config.pipeline_parallel_size)
+    ensure_model_parallel_initialized(
+        tensor_model_parallel_size=parallel_config.tensor_parallel_size,
+        pipeline_model_parallel_size=parallel_config.pipeline_parallel_size,
+    )
 
     # TODO(sgm): check whether need this
     # if pynccl_utils.is_initialized():

@@ -17,7 +17,6 @@ import ray
 
 @ray.remote
 class TestWorker:
-
     def __init__(self, rank, world_size, group_name):
         self.rank = rank
         self.world_size = world_size
@@ -26,6 +25,7 @@ class TestWorker:
 
     def init(self):
         from verl.utils.rendezvous.ray_backend import create_nccl_communicator_in_ray
+
         self.communicator = create_nccl_communicator_in_ray(self.rank, self.world_size, self.group_name)
 
     def test(self):

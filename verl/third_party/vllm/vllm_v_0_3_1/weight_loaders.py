@@ -14,6 +14,7 @@
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 
 from typing import Dict
+
 import torch
 import torch.nn as nn
 
@@ -21,10 +22,14 @@ import torch.nn as nn
 # NOTE(shengguangming): replace the origin weight loader function in the class
 def parallel_weight_loader(self, param: torch.Tensor, loaded_weight: torch.Tensor) -> None:
     """Parallel Linear weight loader."""
-    assert param.size() == loaded_weight.size(
-    ), 'the parameter size is not align with the loaded weight size, param size: {}, loaded_weight size: {}'.format(
-        param.size(), loaded_weight.size())
-    assert param.data.dtype == loaded_weight.data.dtype, "if we want to shared weights, the data type should also be the same"
+    assert param.size() == loaded_weight.size(), (
+        "the parameter size is not align with the loaded weight size, param size: {}, loaded_weight size: {}".format(
+            param.size(), loaded_weight.size()
+        )
+    )
+    assert param.data.dtype == loaded_weight.data.dtype, (
+        "if we want to shared weights, the data type should also be the same"
+    )
 
     param.data = loaded_weight.data
 
@@ -32,7 +37,9 @@ def parallel_weight_loader(self, param: torch.Tensor, loaded_weight: torch.Tenso
 def default_weight_loader(param: torch.Tensor, loaded_weight: torch.Tensor) -> None:
     """Default weight loader."""
     assert param.size() == loaded_weight.size()
-    assert param.data.dtype == loaded_weight.data.dtype, "if we want to shared weights, the data type should also be the same"
+    assert param.data.dtype == loaded_weight.data.dtype, (
+        "if we want to shared weights, the data type should also be the same"
+    )
 
     param.data = loaded_weight.data
 
@@ -67,11 +74,11 @@ def gpt2_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
 
 def llama_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     # NOTE(shengguangming): the megatron llama may have this prefix
-    prefix = '0.module.module.'
+    prefix = "0.module.module."
     params_dict = dict(vllm_model.named_parameters())
     for name, loaded_weight in actor_weights.items():
-        if name[:len(prefix)] == prefix:
-            name = name[len(prefix):]
+        if name[: len(prefix)] == prefix:
+            name = name[len(prefix) :]
         if "rotary_emb.inv_freq" in name:
             continue
         else:
@@ -82,11 +89,11 @@ def llama_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module
 
 def mistral_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     # TODO: need to implement a general way to deal with prefix
-    prefix = '0.module.module.'
+    prefix = "0.module.module."
     params_dict = dict(vllm_model.named_parameters())
     for name, loaded_weight in actor_weights.items():
-        if name[:len(prefix)] == prefix:
-            name = name[len(prefix):]
+        if name[: len(prefix)] == prefix:
+            name = name[len(prefix) :]
         if "rotary_emb.inv_freq" in name:
             continue
         else:

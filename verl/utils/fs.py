@@ -15,14 +15,15 @@
 
 # -*- coding: utf-8 -*-
 """File-system agnostic IO APIs"""
+
+import hashlib
 import os
 import tempfile
-import hashlib
 
 try:
-    from hdfs_io import copy, makedirs, exists  # for internal use only
+    from hdfs_io import copy, exists, makedirs  # for internal use only
 except ImportError:
-    from .hdfs_io import copy, makedirs, exists
+    from .hdfs_io import copy, exists, makedirs
 
 __all__ = ["copy", "exists", "makedirs"]
 
@@ -55,7 +56,7 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
+def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
     """Copy src from hdfs to local if src is on hdfs or directly return src.
     If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
     the src name is the same between calls
@@ -69,11 +70,11 @@ def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False
     return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
 
 
-def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
+def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
     """Deprecated. Please use copy_to_local instead."""
     from filelock import FileLock
 
-    assert src[-1] != '/', f'Make sure the last char in src is not / because it will cause error. Got {src}'
+    assert src[-1] != "/", f"Make sure the last char in src is not / because it will cause error. Got {src}"
 
     if is_non_local(src):
         # download from hdfs to local
@@ -84,12 +85,12 @@ def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock='.file.lock', v
         assert os.path.exists(cache_dir)
         local_path = get_local_temp_path(src, cache_dir)
         # get a specific lock
-        filelock = md5_encode(src) + '.lock'
+        filelock = md5_encode(src) + ".lock"
         lock_file = os.path.join(cache_dir, filelock)
         with FileLock(lock_file=lock_file):
             if not os.path.exists(local_path):
                 if verbose:
-                    print(f'Copy from {src} to {local_path}')
+                    print(f"Copy from {src} to {local_path}")
                 copy(src, local_path)
         return local_path
     else:

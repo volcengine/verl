@@ -19,21 +19,21 @@ license_head_prime = "Copyright 2024 PRIME team and/or its affiliates"
 license_head_individual = "Copyright 2025 Individual Contributor:"
 license_headers = [license_head_bytedance, license_head_bytedance_25, license_head_prime, license_head_individual]
 
-from pathlib import Path
 from argparse import ArgumentParser
+from pathlib import Path
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--directory', '-d', required=True, type=str)
+    parser.add_argument("--directory", "-d", required=True, type=str)
     args = parser.parse_args()
     directory_in_str = args.directory
 
-    pathlist = Path(directory_in_str).glob('**/*.py')
+    pathlist = Path(directory_in_str).glob("**/*.py")
     for path in pathlist:
         # because path is object not string
         path_in_str = str(path.absolute())
         print(path_in_str)
-        with open(path_in_str, 'r', encoding='utf-8') as f:
+        with open(path_in_str, encoding="utf-8") as f:
             file_content = f.read()
 
             has_license = False
@@ -41,4 +41,4 @@ if __name__ == '__main__':
                 if lh in file_content:
                     has_license = True
                     break
-            assert has_license, f'file {path_in_str} does not contain license'
+            assert has_license, f"file {path_in_str} does not contain license"

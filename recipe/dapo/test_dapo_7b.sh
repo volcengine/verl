@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euxo pipefail
+set -xeuo pipefail
 
 project_name='DAPO'
 exp_name='DAPO-Qwen2.5-7B-Math-Test'

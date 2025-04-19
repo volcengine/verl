@@ -15,19 +15,20 @@
 
 from typing import Dict, List, Optional, Tuple, Union
 
-from tqdm import tqdm
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
-from transformers import PretrainedConfig
+import torch
 import torch.nn as nn
-from .arg_utils import EngineArgs
-from .llm_engine_sp import LLMEngine
+from torch.nn.utils.rnn import pad_sequence
+from tqdm import tqdm
+from transformers import PretrainedConfig, PreTrainedTokenizer, PreTrainedTokenizerFast
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.sampling_params import SamplingParams
 from vllm.utils import Counter
-import torch
-from torch.nn.utils.rnn import pad_sequence
+
 from verl.workers.rollout.tokenizer import HybridEngineBaseTokenizer
+
+from .arg_utils import EngineArgs
+from .llm_engine_sp import LLMEngine
 
 
 class LLM:
@@ -86,7 +87,7 @@ class LLM:
 
     def __init__(
         self,
-        model: Union[nn.Module, Dict], # model itself or its parameter dict
+        model: Union[nn.Module, Dict],  # model itself or its parameter dict
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast, HybridEngineBaseTokenizer],
         model_hf_config: PretrainedConfig,
         tokenizer_mode: str = "auto",
@@ -173,15 +174,13 @@ class LLM:
             completions in the same order as the input prompts.
         """
         if prompts is None and prompt_token_ids is None:
-            raise ValueError("Either prompts or prompt_token_ids must be "
-                             "provided.")
+            raise ValueError("Either prompts or prompt_token_ids must be provided.")
         if isinstance(prompts, str):
             # Convert a single prompt to a list.
             prompts = [prompts]
         if prompts is not None and prompt_token_ids is not None:
             if len(prompts) != len(prompt_token_ids):
-                raise ValueError("The lengths of prompts and prompt_token_ids "
-                                 "must be the same.")
+                raise ValueError("The lengths of prompts and prompt_token_ids must be the same.")
         if sampling_params is None:
             # Use default sampling params.
             sampling_params = SamplingParams()
@@ -207,12 +206,9 @@ class LLM:
         prefix_pos: Optional[int] = None,
     ) -> None:
         request_id = str(next(self.request_counter))
-        self.llm_engine.add_request(request_id,
-                                    prompt,
-                                    sampling_params,
-                                    prompt_token_ids,
-                                    lora_request=lora_request,
-                                    prefix_pos=prefix_pos)
+        self.llm_engine.add_request(
+            request_id, prompt, sampling_params, prompt_token_ids, lora_request=lora_request, prefix_pos=prefix_pos
+        )
 
     def _run_engine(self, use_tqdm: bool) -> List[RequestOutput]:
         # Initialize tqdm.
@@ -241,7 +237,11 @@ class LLM:
     # TODO(sgm): we can optimize it by making the dataloader yield List[int] without padding.
     def _pre_process_inputs(self, prompt_token_ids: torch.Tensor) -> List[int]:
         # remove the left padding in the prompt token_id
-        pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
+        pad_token_id = (
+            self.llm_engine.tokenizer.pad_token_id
+            if self.llm_engine.tokenizer.pad_token_id is not None
+            else self.llm_engine.tokenizer.eos_token_id
+        )
         non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
         token_ids = prompt_token_ids[non_pad_index:].tolist()
         return token_ids
@@ -262,7 +262,11 @@ class LLM:
                         logprob.append(logprobs_dict[id])
                     logprobs.append(torch.tensor(logprob))
 
-        pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
+        pad_token_id = (
+            self.llm_engine.tokenizer.pad_token_id
+            if self.llm_engine.tokenizer.pad_token_id is not None
+            else self.llm_engine.tokenizer.eos_token_id
+        )
         output_token_ids = pad_sequence(output_token_ids, batch_first=True, padding_value=pad_token_id)
         if len(logprobs) > 0:
             logprobs = pad_sequence(logprobs, batch_first=True, padding_value=pad_token_id)

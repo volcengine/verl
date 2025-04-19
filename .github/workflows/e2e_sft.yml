@@ -9,10 +9,19 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
-      - .github/workflows/e2e_sft.yml
-      - "tests/e2e/*.sh"
-      - "!verl/trainer/main_ppo.py"
-      - "!recipe/**"
+      # Entrypoints
+      - ".github/workflows/e2e_sft.yml"
+      - "examples/data_preprocess/gsm8k.py"
+      - "tests/e2e/sft"
+      - "verl/trainer/fsdp_sft_trainer.py"
+      - "verl/trainer/config/sft_trainer.yaml"
+      - "!examples"
+      - "!verl/trainer/main_*.py"
+      # Recipes
+      - "!recipe"
+      # Megatron
+      - "!verl/workers/**/megatron_*.py"
+
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -25,15 +34,15 @@ permissions:
 
 jobs:
   e2e_sft:
-    runs-on: [self-hosted, l20-1]
-    timeout-minutes: 5 # Increase this timeout value as needed
+    runs-on: [L20x8]
+    timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -41,26 +50,34 @@ jobs:
             fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer
+          pip3 install peft
           pip3 install -e .[test,gpu]
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with rmpad using function rm
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm
         run: |
           ray stop --force
-          bash tests/sft/run_sft.sh
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with sequence parallism
+          bash tests/e2e/sft/run_sft.sh
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs w/o rmpad using function rm
         run: |
           ray stop --force
-          bash examples/sft/gsm8k/run_qwen_05_sp2.sh 8 $HOME/ckpts/
+          RM_PAD=False bash tests/e2e/sft/run_sft.sh
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with sequence parallism
+        run: |
+          ray stop --force
+          SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
       - name: Check loss difference between sequence parallel vs. default implementation
         run: |
           ray stop --force
-          bash tests/sft/run_sft_sp_loss_match.sh
-      - name: Running gsm8k e2e training tests on 8 L20 GPUs with sequence parallism and liger
+          ENTRYPOINT="tests/e2e/sft/test_sp_loss_match.py" SP_SIZE=2 bash tests/e2e/sft/run_sft.sh
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with sequence parallism and liger
         run: |
           ray stop --force
-          bash tests/sft/run_sft_qwen05_sp2_liger.sh 8 $HOME/ckpts/
-          rm -rf $HOME/ckpts/
+          SP_SIZE=2 LIGER=True bash tests/e2e/sft/run_sft.sh
+      - name: Running GSM8K E2E training tests with LoRA
+        run: |
+          ray stop --force
+          LORA_RANK=32 bash tests/e2e/sft/run_sft.sh
+      # TODO: multiturn

@@ -13,17 +13,17 @@
 # limitations under the License.
 
 import numbers
+
 import torch
+from apex.normalization.fused_layer_norm import fused_rms_norm_affine
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import Qwen2Config
 
-from apex.normalization.fused_layer_norm import fused_rms_norm_affine
 from verl.utils.megatron import sequence_parallel as sp_utils
 
 
 class ParallelQwen2RMSNorm(nn.Module):
-
     def __init__(self, config: Qwen2Config, megatron_config: ModelParallelConfig):
         """
         Qwen2RMSNorm is equivalent to T5LayerNorm
@@ -39,8 +39,10 @@ class ParallelQwen2RMSNorm(nn.Module):
             sp_utils.mark_parameter_as_sequence_parallel(self.weight)
 
     def forward(self, hidden_states):
-        return fused_rms_norm_affine(input=hidden_states,
-                                     weight=self.weight,
-                                     normalized_shape=self.normalized_shape,
-                                     eps=self.variance_epsilon,
-                                     memory_efficient=True)
+        return fused_rms_norm_affine(
+            input=hidden_states,
+            weight=self.weight,
+            normalized_shape=self.normalized_shape,
+            eps=self.variance_epsilon,
+            memory_efficient=True,
+        )
