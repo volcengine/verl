@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import re
+
 from mathruler.grader import extract_boxed_content, grade_answer
 
 
 def format_reward(predict_str: str) -> float:
-    pattern = re.compile(r'<think>.*</think>.*\\boxed\{.*\}.*', re.DOTALL)
+    pattern = re.compile(r"<think>.*</think>.*\\boxed\{.*\}.*", re.DOTALL)
     match_result = re.fullmatch(pattern, predict_str)
     return 1.0 if match_result else 0.0
 
