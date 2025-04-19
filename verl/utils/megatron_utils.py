@@ -164,10 +164,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     print(f"megatron config {megatron_config}")
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f"pipeline_dtype=megatron_config {dt}")
-    if "Qwen2ForCausalLM" in hf_config.architectures:
-        qkv_bias = True
-    else:
-        qkv_bias = getattr(hf_config, "attention_bias", False)
+    qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
     overlap_p2p_comm = (
         mpu.get_virtual_pipeline_model_parallel_world_size() is not None
         and mpu.get_virtual_pipeline_model_parallel_world_size() > 1

@@ -59,8 +59,8 @@ class SFTDataset(Dataset):
 
         self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
         self.response_key = response_key if isinstance(response_key, (tuple, list)) else [response_key]
-        self.prompt_dict_keys = [] if not prompt_dict_keys else prompt_dict_keys
-        self.response_dict_keys = [] if not response_dict_keys else response_dict_keys
+        self.prompt_dict_keys = prompt_dict_keys if prompt_dict_keys else []
+        self.response_dict_keys = response_dict_keys if response_dict_keys else []
 
         self.max_length = max_length
 

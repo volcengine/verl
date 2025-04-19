@@ -13,10 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .config_converter import hf_to_mcore_config_dense, hf_to_mcore_config_qwen2moe, hf_to_mcore_config_dpskv3, hf_to_mcore_config_qwen2_5_vl, hf_to_mcore_config_llama4
-from .config_converter import PretrainedConfig, TransformerConfig
 import torch
 import torch.nn as nn
+
+from .config_converter import (
+    PretrainedConfig,
+    TransformerConfig,
+    hf_to_mcore_config_dense,
+    hf_to_mcore_config_dpskv3,
+    hf_to_mcore_config_llama4,
+    hf_to_mcore_config_qwen2_5_vl,
+    hf_to_mcore_config_qwen2moe,
+)
 
 
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
@@ -31,22 +39,30 @@ def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> Trans
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_CONFIG_CONVERTER_REGISTRY:
-        raise ValueError(f"Model architectures {arch} converter are not supported for now. "
-                         f"Supported architectures: {MODEL_CONFIG_CONVERTER_REGISTRY.keys()}")
+        raise ValueError(
+            f"Model architectures {arch} converter are not supported for now. "
+            f"Supported architectures: {MODEL_CONFIG_CONVERTER_REGISTRY.keys()}"
+        )
     return MODEL_CONFIG_CONVERTER_REGISTRY[arch](hf_config, dtype)
 
 
-from .model_initializer import init_mcore_model_dense, init_mcore_model_qwen2_moe, init_mcore_model_dpskv3, init_mcore_model_qwen2_5_vl, init_mcore_model_llama4
+from .model_initializer import (
+    init_mcore_model_dense,
+    init_mcore_model_dpskv3,
+    init_mcore_model_llama4,
+    init_mcore_model_qwen2_5_vl,
+    init_mcore_model_qwen2_moe,
+)
 
 
 def init_mcore_model(
-        tfconfig,
-        hf_config,
-        pre_process=None,
-        post_process=None,
-        share_embeddings_and_output_weights=False,
-        value=False,
-        **extra_kwargs  # may be used for vlm
+    tfconfig,
+    hf_config,
+    pre_process=None,
+    post_process=None,
+    share_embeddings_and_output_weights=False,
+    value=False,
+    **extra_kwargs,  # may be used for vlm
 ) -> nn.Module:
     MODEL_INITIALIZER_REGISTRY = {
         "LlamaForCausalLM": init_mcore_model_dense,
@@ -59,13 +75,22 @@ def init_mcore_model(
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_INITIALIZER_REGISTRY:
-        raise ValueError(f"Model architectures {arch} initializer are not supported for now. "
-                         f"Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}")
-    return MODEL_INITIALIZER_REGISTRY[arch](tfconfig, hf_config, pre_process, post_process,
-                                            share_embeddings_and_output_weights, value, **extra_kwargs)
+        raise ValueError(
+            f"Model architectures {arch} initializer are not supported for now. "
+            f"Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}"
+        )
+    return MODEL_INITIALIZER_REGISTRY[arch](
+        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
+    )
 
 
-from .model_forward import gptmodel_forward_dense, gptmodel_forward_qwen2_moe, gptmodel_forward_llama4, gptmodel_forward_dpskv3, gptmodel_forward_qwen2_5_vl
+from .model_forward import (
+    gptmodel_forward_dense,
+    gptmodel_forward_dpskv3,
+    gptmodel_forward_llama4,
+    gptmodel_forward_qwen2_5_vl,
+    gptmodel_forward_qwen2_moe,
+)
 
 
 def get_mcore_forward_fn(hf_config: PretrainedConfig):
@@ -80,6 +105,8 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig):
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_FORWARD_REGISTRY:
-        raise ValueError(f"Model architectures {arch} forward function are not supported for now. "
-                         f"Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}")
+        raise ValueError(
+            f"Model architectures {arch} forward function are not supported for now. "
+            f"Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}"
+        )
     return MODEL_FORWARD_REGISTRY[arch]

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import contextlib
 
 try:
     from math_verify.metric import math_metric
@@ -28,9 +29,7 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
 
     # Wrap the ground truth in \boxed{} format for verification
     ground_truth_boxed = "\\boxed{" + ground_truth + "}"
-    try:
+    with contextlib.suppress(Exception):
         ret_score, _ = verify_func([ground_truth_boxed], [model_output])
-    except Exception:
-        pass
 
     return ret_score

@@ -613,11 +613,10 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
             self.lm_head.weight.shared = True
             self.lm_head.weight.shared_embedding = True
 
-        if torch.distributed.is_initialized():
-            if parallel_state.is_rank_in_embedding_group():
-                weight = self.shared_embedding_or_output_weight()
-                weight.data = weight.data.cuda()
-                torch.distributed.all_reduce(weight.data, group=parallel_state.get_embedding_group())
+        if torch.distributed.is_initialized() and parallel_state.is_rank_in_embedding_group():
+            weight = self.shared_embedding_or_output_weight()
+            weight.data = weight.data.cuda()
+            torch.distributed.all_reduce(weight.data, group=parallel_state.get_embedding_group())
 
     def shared_embedding_or_output_weight(self) -> torch.Tensor:
         if self.pre_process:

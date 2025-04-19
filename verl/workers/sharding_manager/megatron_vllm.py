@@ -321,16 +321,20 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
-            all_gather_group = get_micro_data_parallel_group()
-        else:
-            all_gather_group = self.train_tp_group
+        all_gather_group = (
+            get_micro_data_parallel_group()
+            if vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            else self.train_tp_group
+        )
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
             for scan_vpp_idx in range(vpp_size):
-                for name, param in self.actor_module[scan_vpp_idx].named_parameters():
-                    yield name, param
+                yield from self.actor_module[scan_vpp_idx].named_parameters()
 
         # we need first make all rank get full model information
         meta_info = []
@@ -393,8 +397,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 convert_qkv_gate_up_by_trunk_concat=False,
             )  # defualt false
 
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
+            yield from zip(converted_names, converted_params)
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
@@ -434,10 +437,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             q = torch.cat(q_lst, dim=0)
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
-            if not convert_qkv_gate_up_by_simple_split:
-                infer_params = torch.cat((q, k, v), dim=0)
-            else:
-                infer_params = [q, k, v]
+            infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
         elif self.layer_name_mapping.get("gate_proj_layer_name") in name:
             # if the tensor is gate and proj
@@ -449,10 +449,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 up_lst.append(up)
             gate = torch.cat(gate_lst, dim=0)
             up = torch.cat(up_lst, dim=0)
-            if not convert_qkv_gate_up_by_simple_split:
-                infer_params = torch.cat((gate, up), dim=0)
-            else:
-                infer_params = [gate, up]
+            infer_params = torch.cat((gate, up), dim=0) if not convert_qkv_gate_up_by_simple_split else [gate, up]
 
         else:
             # concat tensor
@@ -467,10 +464,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
-            all_gather_group = get_micro_data_parallel_group()
-        else:
-            all_gather_group = self.train_tp_group
+        all_gather_group = (
+            get_micro_data_parallel_group()
+            if vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            else self.train_tp_group
+        )
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
@@ -494,11 +496,13 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.module.pp_models[0][0].config.num_query_groups,
                 convert_qkv_gate_up_by_trunk_concat=False,
             )
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
+            yield from zip(converted_names, converted_params)
 
     def __enter__(self):
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             per_tensor_param = self.per_tensor_generator(convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
         else:
@@ -518,7 +522,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
