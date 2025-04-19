@@ -31,7 +31,14 @@ from megatron.core.distributed import finalize_model_grads
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
-from torch import nn
+from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
+from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
+from verl import DataProto
+from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
+from verl.workers.actor import BasePPOActor
+from verl.utils.py_functional import append_to_dict
+from verl.utils.torch_functional import logprobs_from_logits, masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.debug.profile import Profiler
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
@@ -108,20 +115,18 @@ class MegatronPPOActor(BasePPOActor):
         self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-
-        self.optimizer_step_args = OmegaConf.create(
-            {
-                "skip_grad": None,
-                "overlap_dp_param_comm": False,
-                "overlap_dp_grad_comm": False,
-                "gradient_accumulation_steps": 1,
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "DDP_impl": "local",
-                "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
-                "reduce_grads_use_alltoall": False,
-            }
-        )
+        self.prof = Profiler(self.config.profile)
+        self.optimizer_step_args = OmegaConf.create({
+            'skip_grad': None,
+            'overlap_dp_param_comm': False,
+            'overlap_dp_grad_comm': False,
+            'gradient_accumulation_steps': 1,
+            'sequence_parallel': self.tf_config.sequence_parallel,
+            'DDP_impl': 'local',
+            'layernorm_allreduce_bucket_threshold': 0,
+            'pipeline_model_parallel_split_rank': None,
+            'reduce_grads_use_alltoall': False
+        })
 
         config = get_model_config(self.actor_module[0])
         print(config)
@@ -432,6 +437,7 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         metrics = {}
+        self.prof.start()
         for data in dataloader:
             # data = data.batch.to(self.actor_module.device)
             self.actor_optimizer.zero_grad()
@@ -453,8 +459,9 @@ class MegatronPPOActor(BasePPOActor):
                 pass
             else:
                 raise NotImplementedError
-
+            self.prof.step()
         # add empty cache after each compute
+        self.prof.stop_and_save()
+        self.prof.stop_trace()
         torch.cuda.empty_cache()
-
         return metrics
