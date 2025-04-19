@@ -644,27 +644,40 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        if self._is_lora:
-            if isinstance(self.actor_module, PeftModel) and dist.get_rank() == 0:
-                lora_save_path = os.path.join(local_path, "lora_adapter")
-                if isinstance(self.actor_module_fsdp, FSDP):
-                    self.actor_module_fsdp.save_pretrained(
-                        lora_save_path,
-                        state_dict=transformers.utils.SAFE_WEIGHTS_NAME,
-                        safe_serialization=True
-                    )
-                else:
-                    self.actor_module.save_pretrained(lora_save_path)
-                print(f"[rank-{self.rank}]: LoRA adapter saved to {lora_save_path}")
+        if self._is_lora and isinstance(self.actor_module, PeftModel):
+            if dist.get_rank() == 0:
+                os.makedirs(local_path, exist_ok=True)
+
+            lora_save_path = os.path.join(local_path, "lora_adapter")
+
+            if isinstance(self.actor_module_fsdp, FSDP):
+                with FSDP.summon_full_params(self.actor_module_fsdp, writeback=False, offload_to_cpu=True):
+                    if dist.get_rank() == 0:
+                        from typing import OrderedDict
+                        lora_params = OrderedDict()
+                        model = self.actor_module_fsdp._fsdp_wrapped_module.base_model.model
+                        for name, param in model.named_parameters():
+                            if ".lora_" in name:
+                                name = "base_model.model." + name.replace("._fsdp_wrapped_module.", ".")
+                                lora_params[name] = param
+                        self.actor_module_fsdp.save_pretrained(
+                            lora_save_path,
+                            state_dict=lora_params,
+                            safe_serialization=True
+                        )
+            else:
+                self.actor_module.save_pretrained(lora_save_path, safe_serialization=True)
 
             dist.barrier()
+            if dist.get_rank() == 0:
+                print(f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}")
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
                                                 global_step=global_step,
                                                 max_ckpt_to_keep=max_ckpt_to_keep)
 
-        torch.distributed.barrier()
+        dist.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
