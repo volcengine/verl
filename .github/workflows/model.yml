@@ -8,7 +8,8 @@ on:
       - main
       - v0.3.x
     paths:
-      - "**/*.py"
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
       - "tests/model/*"
       - .github/workflows/model.yml
       - "!recipe/**"
@@ -19,15 +20,15 @@ permissions:
 
 jobs:
   model_rmpad:
-    runs-on: [self-hosted, l20-1]
+    runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: 1
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
+      image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -46,7 +47,6 @@ jobs:
           pytest -s tests/model/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          pip3 install hf_transfer
           torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |

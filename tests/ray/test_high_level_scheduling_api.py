@@ -16,8 +16,8 @@ import time
 
 import ray
 
-from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup, merge_resource_pool
 from verl.single_controller.base.worker import Worker
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, merge_resource_pool
 
 
 @ray.remote
@@ -34,7 +34,7 @@ def test():
     ray.init()
 
     # test single-node-no-partition
-    print(f"test single-node-no-partition")
+    print("test single-node-no-partition")
     resource_pool = RayResourcePool([8], use_gpu=True)
 
     class_with_args = RayClassWithInitArgs(cls=TestActor)
@@ -63,7 +63,7 @@ def test():
     time.sleep(5)
     # test single-node-multi-partition
 
-    print(f"test single-node-multi-partition")
+    print("test single-node-multi-partition")
     rm_resource_pool = RayResourcePool([4], use_gpu=True, name_prefix="rm")
     ref_resource_pool = RayResourcePool([4], use_gpu=True, name_prefix="ref")
     total_resource_pool = merge_resource_pool(rm_resource_pool, ref_resource_pool)

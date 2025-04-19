@@ -1,6 +1,10 @@
 SGLang Backend
 ==============
-Author: `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_, `Junrong Lin <https://github.com/ocss884>`_
+**Authored By SGLang RL Team and listed alphabetically by last name**
+
+`Jingyi Chen <https://github.com/fzyzcjy>`_, `Yitong Guan <https://github.com/minleminzui>`_, `Zhuobin Huang <https://zobinhuang.github.io/sec_about/>`_, `Jiajun Li <https://github.com/guapisolo>`_, `Ji Li <https://github.com/GeLee-Q>`_, `Shenggui Li <https://franklee.xyz/about>`_, `Junrong Lin <https://github.com/ocss884>`_, `Xiang Long <https://github.com/SwordFaith>`_, `Rui Lu <https://scholar.google.com/citations?user=-MGuqDcAAAAJ>`_, `Jin Pan <https://jhinpan.github.io/>`_, `Shuai Shi <https://github.com/shuaills>`_, `Yushen Su <https://yushengsu-thu.github.io/>`_, `Xinyuan Tong <https://github.com/JustinTong0323>`_, `Chendong Wang <https://github.com/cedricbeta>`_, `Hanchen Zhang <https://scholar.google.com/citations?user=pGcJcagAAAAJ>`_, `Haoran Wang <https://ubecc.github.io/about/>`_, `Yongan Xiang <https://github.com/BearBiscuit05>`_, `Chengxing Xie <https://yitianlian.github.io/>`_, `Yuhao Yang <https://github.com/yhyang201>`_, `Jinwei Yao <https://kivi-yao.github.io/>`_, `Qiaolin Yu <https://github.com/Qiaolin-Yu>`_, `Yuzhen Zhou <https://github.com/zyzshishui>`_, `Chenyang Zhao <https://github.com/zhaochenyang20>`_
+
+
 
 Introduction
 ------------
@@ -33,6 +37,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
 
 .. code-block:: bash
 
+    export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=True
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
         data.train_files=$HOME/data/gsm8k/train.parquet \
         data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -65,6 +70,51 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         trainer.save_freq=-1 \
         trainer.test_freq=10 \
         trainer.total_epochs=15 2>&1 | tee verl_demo.log
+
+Why export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. ``verl`` initializes a ``SGLangRollout`` module during rollout, which is used to evaluate/generate samples.
+
+2. ``SGLangRollout`` will initialize ``VerlEngine``, and further initialize a ``torch.distributed.DeviceMesh``, used to support Tensor Parallel (TP).
+
+3. ``DeviceMesh.init()`` internally checks the free GPU memory of all participating devices. If the difference is too large (more than ~10%), it directly reports an error to avoid initialization failures or deadlocks.
+
+Why might there be inconsistent GPU memory?
+"""""""""""""""""""""""""""""""""""""""""""
+
+**1. Ray Distributed Actor loads the model at different times**
+
+``verl`` uses Ray-based multi-process, multi-GPU concurrent training. Each ``WorkerDict`` may be called at different times:
+
+.. code-block:: python
+
+    self.rollout = SGLangRollout(...)
+
+Different workers initialize the model at different times → different memory usage.
+
+**2. Delayed initialization causes memory bias**
+
+Some workers start model loading/inference (e.g., ``generate_sequences()``, ``compute_log_prob()``) earlier than others.  
+Early workers already use up GPU memory → late workers still have empty memory → memory difference appears.
+
+**3. SGLang's TP init uses "all-device broadcast", but there's no uniform release timing**
+
+Although ``SGLangRollout`` may only involve subset of GPUs, its ``VerlEngine`` initialization calls ``torch.distributed.init_process_group()`` and broadcasts weights, so:
+
+- Non-rollout GPUs also join the communication.
+- Later on, ``DeviceMesh`` init will fail due to "inconsistent memory".
+
+**4. Different FSDP/TP loading behaviors also lead to mismatch**
+
+If using:
+
+.. code-block:: bash
+
+    actor.fsdp_config.param_offload=True  
+    ref.fsdp_config.param_offload=True
+
+Then some workers keep params on CPU while others already sharded to GPU → leads to asymmetric memory layout.
 
 Using SGLang as the Inference Backend for PPO Training Across Multiple Machines
 ------------------------------------------------------------------------------

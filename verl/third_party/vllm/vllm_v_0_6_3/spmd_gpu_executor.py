@@ -15,7 +15,7 @@
 
 import os
 import socket
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Iterable, List, Optional, Set, Tuple
 
 import torch
 from vllm.config import (
@@ -80,7 +80,7 @@ class SPMDGPUExecutor(ExecutorBase):
     def _init_workers_sp(self, model, distributed_init_method: str):
         # Lazy import the Worker to avoid importing torch.cuda/xformers
         # before CUDA_VISIBLE_DEVICES is set in the Worker
-        from .worker import Worker  # pylint: disable=import-outside-toplevel
+        from .worker import Worker
 
         rank = int(os.getenv("RANK"))
         local_rank = int(os.getenv("LOCAL_RANK"))
@@ -209,7 +209,7 @@ class SPMDGPUExecutor(ExecutorBase):
     def offload_model_weights(self) -> None:
         self.worker.offload_model_weights()
 
-    def sync_model_weights(self, actor_weights: Dict[str, torch.Tensor], load_format: str) -> None:
+    def sync_model_weights(self, actor_weights: Iterable, load_format: str) -> None:
         self.worker.sync_model_weights(actor_weights=actor_weights, load_format=load_format)
 
 
@@ -245,7 +245,6 @@ def get_open_port():
 
 # TODO(sgm): not implemented async executor yet
 class SPMDGPUExecutorAsync(SPMDGPUExecutor, ExecutorAsyncBase):
-
     async def execute_model_async(self, execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
         """Executes one model step on the given sequences."""
         raise NotImplementedError

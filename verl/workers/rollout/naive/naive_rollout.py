@@ -19,7 +19,6 @@ The output will contain
 3. eos_masks
 4. log_probs
 """
-from typing import Iterable, Union
 
 import torch
 import torch.nn.functional as F
@@ -28,13 +27,13 @@ from torch import nn
 
 from verl import DataProto
 from verl.utils.torch_functional import logprobs_from_logits
+
 from ..base import BaseRollout
 
-__all__ = ['NaiveRollout']
+__all__ = ["NaiveRollout"]
 
 
 class NaiveRollout(BaseRollout):
-
     def __init__(self, module: nn.Module, config):
         """A naive rollout. It requires the module to be compatible with huggingface APIs. That is:
         The module should define __call__ to receive input_ids, attention_mask and position_ids.
@@ -51,14 +50,12 @@ class NaiveRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Generate sequences"""
-        idx = prompts.batch['input_ids']  # (bs, prompt_length)
-        attention_mask = prompts.batch['attention_mask']  # left-padded attention_mask
-        position_ids = prompts.batch['position_ids']
+        idx = prompts.batch["input_ids"]  # (bs, prompt_length)
+        attention_mask = prompts.batch["attention_mask"]  # left-padded attention_mask
+        position_ids = prompts.batch["position_ids"]
 
         # used to construct attention_mask
-        eos_token_id = prompts.meta_info['eos_token_id']
-        if isinstance(eos_token, int):
-            eos_token = [eos_token]
+        eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
         prompt_length = idx.size(1)
@@ -81,7 +78,7 @@ class NaiveRollout(BaseRollout):
             # optionally crop the logits to only the top k options
             if self.config.top_k is not None:
                 v, _ = torch.topk(logits, min(self.config.top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
+                logits[logits < v[:, [-1]]] = -float("Inf")
             # apply softmax to convert logits to (normalized) probabilities
             probs = F.softmax(logits, dim=-1)
             # sample from the distribution
@@ -108,14 +105,15 @@ class NaiveRollout(BaseRollout):
         log_probs = logprobs_from_logits(logits=logits, labels=response)
         batch = TensorDict(
             {
-                'input_ids': prompts,
-                'responses': response,
-                'sequences': idx,
-                'old_log_probs': log_probs,
-                'attention_mask': attention_mask,
-                'position_ids': position_ids,
+                "input_ids": prompts,
+                "responses": response,
+                "sequences": idx,
+                "old_log_probs": log_probs,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
             },
-            batch_size=batch_size)
+            batch_size=batch_size,
+        )
 
         self.module.train()
 
