@@ -70,7 +70,7 @@ class BaseCheckpointManager:
     @staticmethod
     def checkpath(local_path: str, hdfs_path: str):
         assert local_path is not None or hdfs_path is not None, "local_path and hdfs_path cannot be both None"
-        return True if local_path is not None else False, local_path if local_path is not None else hdfs_path
+        return local_path is not None, local_path if local_path is not None else hdfs_path
 
     def remove_previous_save_local_path(self, path):
         if isinstance(path, str):

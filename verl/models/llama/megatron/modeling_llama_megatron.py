@@ -545,7 +545,7 @@ class ParallelLlamaForCausalLMRmPadPP(nn.Module):
         self.model = ParallelLlamaModelRmPadPP(
             config, megatron_config=megatron_config, pre_process=pre_process, post_process=post_process
         )
-        assert share_embeddings_and_output_weights == False, (
+        assert share_embeddings_and_output_weights is False, (
             "Llama Model not supports sharing embedding and output weights"
         )
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
