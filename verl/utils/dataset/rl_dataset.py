@@ -55,13 +55,15 @@ class RLHFDataset(Dataset):
     We assume the dataset contains a column that contains prompts and other information
     """
 
-    def __init__(self,
-                 data_files: Union[str, List[str]],
-                 tokenizer: PreTrainedTokenizer,
-                 config: DictConfig,
-                 processor: Optional[ProcessorMixin] = None,
-                 data_file_weights: List[float] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        data_files: Union[str, List[str]],
+        tokenizer: PreTrainedTokenizer,
+        config: DictConfig,
+        processor: Optional[ProcessorMixin] = None,
+        data_file_weights: List[float] = None,
+        **kwargs,
+    ):
         if not isinstance(data_files, (List, ListConfig)):
             data_files = [data_files]
 
@@ -73,11 +75,13 @@ class RLHFDataset(Dataset):
 
         self.data_file_weights = data_file_weights
         if self.data_file_weights is not None:
-            assert isinstance(self.data_file_weights, Sized), \
-                f'data_file_weights must be Sized, but {type(self.data_file_weights)=}'
-            assert len(self.data_file_weights) == len(self.data_files), \
-                f'{len(self.data_file_weights)=} not equal to {len(self.data_files)=}'
-            print(f'Using data_file_weights: {self.data_file_weights}')
+            assert isinstance(self.data_file_weights, Sized), (
+                f"data_file_weights must be Sized, but {type(self.data_file_weights)=}"
+            )
+            assert len(self.data_file_weights) == len(self.data_files), (
+                f"{len(self.data_file_weights)=} not equal to {len(self.data_files)=}"
+            )
+            print(f"Using data_file_weights: {self.data_file_weights}")
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
