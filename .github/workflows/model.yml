@@ -3,10 +3,20 @@ name: model_rmpad
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.*
+    paths:
+      - "verl/**/*.py"
+      - "tests/**/*.sh"
+      - "tests/model/*"
+      - .github/workflows/model.yml
+      - "!recipe/**"
   pull_request:
     branches:
       - main
-      - v0.3.x
+      - v0.*
     paths:
       - "verl/**/*.py"
       - "tests/**/*.sh"
