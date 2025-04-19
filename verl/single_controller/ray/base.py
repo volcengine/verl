@@ -323,10 +323,16 @@ class RayWorkerGroup(WorkerGroup):
         return self._worker_names
 
     @classmethod
-    def from_detached(cls, worker_names=None, ray_cls_with_init=None):
-        worker_group = cls(
-            resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=None, worker_names=worker_names
-        )
+    def from_detached(
+        cls,
+        name_prefix,
+        worker_names=None,
+        ray_cls_with_init=None,
+    ):
+        worker_group = cls(resource_pool=None,
+                           ray_cls_with_init=ray_cls_with_init,
+                           name_prefix=name_prefix,
+                           worker_names=worker_names)
         return worker_group
 
     def spawn(self, prefix_set):
@@ -350,7 +356,9 @@ class RayWorkerGroup(WorkerGroup):
         new_worker_group_dict = {}
         for prefix in prefix_set:
             new_worker_group = self.from_detached(
-                worker_names=self._worker_names, ray_cls_with_init=self.ray_cls_with_init
+                name_prefix=self.name_prefix,
+                worker_names=self._worker_names,
+                ray_cls_with_init=self.ray_cls_with_init,
             )
 
             _rebind_actor_methods(new_worker_group, prefix)
@@ -416,7 +424,7 @@ with code written in separate ray.Actors.
 import os
 from unittest.mock import patch
 
-from verl.single_controller.base.decorator import MAGIC_ATTR
+from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 
 
 def _bind_workers_method_to_parent(cls, key, user_defined_cls):
@@ -424,6 +432,7 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
     Binds the methods of each worker to the WorkerDict.
     Note that we only bind public methods that are decorated by register
     """
+
     for method_name in dir(user_defined_cls):
         try:
             method = getattr(user_defined_cls, method_name)
@@ -443,12 +452,19 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
 
             func = generate_function(method_name)
             # pass MAGIC_ATTR for outer worker group
-            setattr(func, MAGIC_ATTR, getattr(method, MAGIC_ATTR))
+            attrs = getattr(method, MAGIC_ATTR)
+            setattr(func, MAGIC_ATTR, attrs)
             try:
-                method_name_with_prefix = key + "_" + method_name
-                setattr(cls, method_name_with_prefix, func)
-                # print(f'Binding {method_name_with_prefix}')
-            except Exception:
+                # bind direct rollout method to class without prefix
+                if attrs["dispatch_mode"] == Dispatch.DIRECT_ROLLOUT_METHOD and "rollout" in key:
+                    assert not hasattr(cls, method_name), \
+                        f"conflict direct rollout method {method_name} with role {key}"
+                    setattr(cls, method_name, func)
+                    print(f"bind role {key} method {method_name} to class {cls}")
+                else:
+                    method_name_with_prefix = key + '_' + method_name
+                    setattr(cls, method_name_with_prefix, func)
+            except Exception as e:
                 raise ValueError(f"Fail to set method_name {method_name}")
 
 
@@ -458,21 +474,34 @@ def _unwrap_ray_remote(cls):
     return cls
 
 
-def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
+def _nearest_common_base(mros: List):
+    last_common = object
+    min_len = min([len(mro) for mro in mros]) - 1  # exclude final derived class
+
+    for i in range(min_len):
+        mro = mros[0][i]
+        for j in range(1, len(mros)):
+            if mro != mros[j][i]:
+                return last_common
+        last_common = mro
+
+    return last_common
+
+
+def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs], worker_cls: type = None):
     """
     This function should return a class instance that delegates the calls to every
     cls in cls_dict
     """
     cls_dict = {}
     init_args_dict = {}
-    worker_cls = None
+    if worker_cls is None:
+        worker_cls = _nearest_common_base(
+            [list(reversed(cls.cls.__ray_actor_class__.__mro__)) for cls in class_dict.values()])
+    assert issubclass(worker_cls, Worker), f"worker_cls {worker_cls} should be a subclass of Worker"
+    print(f"find nearest common base class {worker_cls}")
+
     for key, cls in class_dict.items():
-        if worker_cls is None:
-            worker_cls = cls.cls.__ray_actor_class__.__base__
-        else:
-            assert worker_cls == cls.cls.__ray_actor_class__.__base__, (
-                "the worker class should be the same when share the same process"
-            )
         cls_dict[key] = cls.cls
         init_args_dict[key] = {"args": cls.args, "kwargs": cls.kwargs}
 

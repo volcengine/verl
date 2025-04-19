@@ -37,6 +37,9 @@ class Dispatch(Enum):
     DP_COMPUTE_PROTO_WITH_FUNC = 10
     DP_COMPUTE_METRIC = 11
 
+    # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
+    DIRECT_ROLLOUT_METHOD = 12
+
 
 class Execute(Enum):
     ALL = 0
@@ -63,6 +66,10 @@ def dispatch_one_to_all(worker_group, *args, **kwargs):
     args = tuple([arg] * worker_group.world_size for arg in args)
     kwargs = {k: [v] * worker_group.world_size for k, v in kwargs.items()}
     return args, kwargs
+
+
+def dummy_direct_rollout_call(worker_group, *args, **kwargs):
+    raise NotImplementedError("Direct rollout call is forbidden.")
 
 
 def dispatch_all_to_all(worker_group, *args, **kwargs):
@@ -356,6 +363,10 @@ def get_predefined_dispatch_fn(dispatch_mode):
             "collect_fn": collect_dp_compute_data_proto,
         },
         Dispatch.DP_COMPUTE_METRIC: {"dispatch_fn": dispatch_dp_compute_data_proto, "collect_fn": collect_dp_compute},
+        Dispatch.DIRECT_ROLLOUT_METHOD: {
+            "dispatch_fn": dummy_direct_rollout_call,
+            "collect_fn": dummy_direct_rollout_call,
+        },
     }
     return predefined_dispatch_mode_fn[dispatch_mode]
 

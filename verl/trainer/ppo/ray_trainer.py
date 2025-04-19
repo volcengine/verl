@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import importlib
 import os
 import uuid
 from collections import defaultdict
@@ -731,6 +732,25 @@ class RayPPOTrainer:
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
 
+        # create async rollout manager and request scheduler
+        self.async_rollout_mode = False
+        if self.config.actor_rollout_ref.rollout.get("mode", "sync") == 'async':
+            from verl.workers.fsdp_async_workers import AsyncLLMManager
+
+            self.async_rollout_mode = True
+            self.async_rollout_manager = AsyncLLMManager(
+                config=self.config.actor_rollout_ref,
+                worker_group=self.actor_rollout_wg,
+            )
+            module_path, class_name = self.config.actor_rollout_ref.rollout.chat_scheduler.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            scheduler_cls = getattr(module, class_name)
+            self.async_chat_scheduler = scheduler_cls(
+                config=self.config.actor_rollout_ref.rollout,
+                model_path=self.config.actor_rollout_ref.model.path,
+                server_addresses=self.async_rollout_manager.server_addresses,
+            )
+
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(
@@ -860,7 +880,7 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def fit(self):
+    async def fit(self):
         """
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC
@@ -915,7 +935,7 @@ class RayPPOTrainer:
                 else:
                     gen_batch = batch.pop(
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
-                        non_tensor_batch_keys=["raw_prompt_ids"],
+                        non_tensor_batch_keys=["raw_prompt_ids"] + ["raw_prompt"] if self.async_rollout_mode else [],
                     )
 
                 is_last_step = self.global_steps >= self.total_training_steps
@@ -923,7 +943,12 @@ class RayPPOTrainer:
                 with _timer("step", timing_raw):
                     # generate a batch
                     with _timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        if not self.async_rollout_mode:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        else:
+                            await self.async_rollout_manager.wake_up()
+                            gen_batch_output = await self.async_chat_scheduler.generate_sequences(gen_batch)
+                            await self.async_rollout_manager.sleep()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):

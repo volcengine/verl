@@ -331,7 +331,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
-    def fit(self):
+    async def fit(self):
         """
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.

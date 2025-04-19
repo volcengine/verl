@@ -19,6 +19,8 @@ import os
 import socket
 from dataclasses import dataclass
 
+import ray
+
 from .decorator import Dispatch, Execute, register
 
 
@@ -125,6 +127,11 @@ class Worker(WorkerHelper):
                 )
 
             os.environ.update(rank_zero_info)
+        else:
+            self.register_center = ray.get_actor(register_center_name)
+
+        # set worker info for node affinity scheduling
+        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
         # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
