@@ -31,36 +31,62 @@ Set up multinode ray cluster
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/overview.png?raw=true
 
-Submit job to ray cluster
-~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Submit ray job to cluster with the dashboard address you get above.
+Start verl training in ray cluster
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1. From ray 2.20, you can directly execute the training scripts in ray head node. Note that the ``trainer.n_gpus_per_node`` should be set to GPU number of single machine and ``trainer.nnodes`` should be set to the total number of your machines. For example:
 
 .. code-block:: bash
 
-    ray job submit --address="http://127.0.0.1:8265" \
-        --runtime-env=verl/trainer/runtime_env.yaml \
-        --no-wait \
-        -- \
-        python3 -m verl.trainer.main_ppo \
-        trainer.n_gpus_per_node=8 \
-        trainer.nnodes=2 \
-        ...
+gsm8k_train_path=$HOME/data/gsm8k/train.parquet
+gsm8k_test_path=$HOME/data/gsm8k/test.parquet
+math_train_path=$HOME/data/math/train.parquet
+math_test_path=$HOME/data/math/test.parquet
 
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/submit.png?raw=true
+train_files="['$gsm8k_train_path', '$math_train_path']"
+test_files="['$gsm8k_test_path', '$math_test_path']"
 
-2. Then you can check the job status with the following commands:
+python3 -m verl.trainer.main_ppo --config-path=config \
+    --config-name='ppo_megatron_trainer.yaml'\
+    algorithm.adv_estimator=grpo \
+    data.train_files="$train_files" \
+    data.val_files="$test_files" \
+    data.train_batch_size=1024 \
+    data.max_prompt_length=1024 \
+    data.max_response_length=1024 \
+    data.filter_overlong_prompts=True \
+    data.truncation='error' \
+    actor_rollout_ref.model.path=Qwen/Qwen2-7B-Instruct \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
+    actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=2 \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.entropy_coeff=0 \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    algorithm.use_kl_in_reward=False \
+    trainer.critic_warmup=0 \
+    trainer.logger=['console','wandb'] \
+    trainer.project_name='verl_grpo_example_gsm8k' \
+    trainer.experiment_name='qwen2_7b_function_rm_megatron' \
+    trainer.n_gpus_per_node=8 \
+    trainer.nnodes=2 \
+    trainer.save_freq=10 \
+    trainer.test_freq=5 \
+    trainer.total_epochs=15 $@
 
-- ray job list: list all jobs submitted to the cluster.
-- ray job logs <Submission ID>: query the logs of the job.
-- ray job status <Submission ID>: query the status of the job.
-- ray job stop <Submission ID>: request the job to be stopped.
+.. note:: 
 
-3. You can also access driver/task/actor logs in ``/tmp/ray/session_latest/logs/``, driver log is ``job-driver-raysubmit_<Submission ID>.log``.
-
-4. We strongly recommend you to view job detail from dashboard in multinode training, because it provide more structure way to view the job information.
-
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job.png?raw=true
-.. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job_detail.png?raw=true
+    From Ray 2.20, ``ray job submit`` or ``client = JobSubmissionClient("http://127.0.0.1:8265")`` is deprecated in current environment, and Ray version less than 2.40 is not compatible with current version of verl. We recommend you upgrade to Ray latest version and directly execute the training scripts.
 
 
 Slurm
