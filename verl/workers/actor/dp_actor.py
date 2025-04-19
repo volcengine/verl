@@ -63,7 +63,7 @@ class DataParallelPPOActor(BasePPOActor):
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch:
-            for key in micro_batch["multi_modal_inputs"][0].keys():
+            for key in micro_batch["multi_modal_inputs"][0]:
                 multi_modal_inputs[key] = torch.cat(
                     [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
                 )
@@ -215,7 +215,7 @@ class DataParallelPPOActor(BasePPOActor):
 
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
         if has_multi_modal_inputs:
             num_micro_batches = data.batch.batch_size[0] // micro_batch_size
@@ -265,7 +265,7 @@ class DataParallelPPOActor(BasePPOActor):
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         batch = data.select(batch_keys=select_keys).batch
-        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347

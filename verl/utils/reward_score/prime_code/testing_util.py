@@ -124,7 +124,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
         print(f"loaded input_output = {datetime.now().time()}")
 
     if test is None:
-        assert False, "should not happen: test code is none"
+        raise AssertionError("should not happen: test code is none")
         return in_outs, {"error": "no test code provided"}
     elif test is not None:
         results = []
@@ -139,10 +139,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             signal.alarm(timeout)
             try:
                 tmp_sol = RuntimeModule.from_string("tmp_sol", "", sol)
-                if "class Solution" not in test:
-                    tmp = tmp_sol
-                else:
-                    tmp = tmp_sol.Solution()
+                tmp = tmp_sol if "class Solution" not in test else tmp_sol.Solution()
                 signal.alarm(0)
             except Exception as e:
                 signal.alarm(0)
@@ -658,7 +655,7 @@ def reliability_guard(maximum_memory_bytes=None):
 
         resource.setrlimit(resource.RLIMIT_AS, (maximum_memory_bytes, maximum_memory_bytes))
         resource.setrlimit(resource.RLIMIT_DATA, (maximum_memory_bytes, maximum_memory_bytes))
-        if not platform.uname().system == "Darwin":
+        if platform.uname().system != "Darwin":
             resource.setrlimit(resource.RLIMIT_STACK, (maximum_memory_bytes, maximum_memory_bytes))
 
     faulthandler.disable()

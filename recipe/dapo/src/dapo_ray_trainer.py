@@ -89,7 +89,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 num_gen_batches += 1
                 # pop those keys for generation
-                if "multi_modal_inputs" in new_batch.non_tensor_batch.keys():
+                if "multi_modal_inputs" in new_batch.non_tensor_batch:
                     gen_batch = new_batch.pop(
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data", "multi_modal_inputs"],
@@ -207,10 +207,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 kept_traj_idxs.append(idx)
 
                         new_batch = new_batch[kept_traj_idxs]
-                        if batch is None:
-                            batch = new_batch
-                        else:
-                            batch = DataProto.concat([batch, new_batch])
+                        batch = new_batch if batch is None else DataProto.concat([batch, new_batch])
 
                         prompt_bsz = self.config.data.train_batch_size
                         if num_prompt_in_batch < prompt_bsz:

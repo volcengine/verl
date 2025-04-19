@@ -58,7 +58,7 @@ class BatchRewardManager:
 
     def __call__(self, data: DataProto, return_dict=False):
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
-        if "rm_scores" in data.batch.keys():
+        if "rm_scores" in data.batch:
             if return_dict:
                 return {"reward_tensor": data.batch["rm_scores"]}
             else:

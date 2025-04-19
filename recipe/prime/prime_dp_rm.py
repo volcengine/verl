@@ -248,7 +248,7 @@ class DataParallelPRIMERewardModel:
         select_keys = ["input_ids", "responses", "attention_mask", "position_ids", "acc", "prompts"]
 
         for key in ["Q_bc", "acc_bc"]:
-            if key in data.batch.keys():
+            if key in data.batch:
                 select_keys.append(key)
 
         batch = data.select(batch_keys=select_keys).batch

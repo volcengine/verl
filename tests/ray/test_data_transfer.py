@@ -36,7 +36,7 @@ class DummyWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
     def do_nothing(self, data):
-        for key in data.batch.keys():
+        for key in data.batch:
             data.batch[key] += 1
         if tensordict.__version__ >= "0.5.0":
             data.batch = data.batch.consolidate()
@@ -97,7 +97,7 @@ def test_data_transfer():
         output_lst = ray.get(output_ref)
 
     for input_data, output_data in zip(data_list, output_lst):
-        for key in input_data.batch.keys():
+        for key in input_data.batch:
             assert torch.all(torch.eq(input_data.batch[key] + 1, output_data.batch[key])), (
                 input_data.batch[key],
                 output_data.batch[key],

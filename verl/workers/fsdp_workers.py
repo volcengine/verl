@@ -209,7 +209,7 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping:
                 actor_module_class = AutoModelForVision2Seq
             else:
                 actor_module_class = AutoModelForCausalLM

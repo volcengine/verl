@@ -92,7 +92,7 @@ class vLLMRollout(BaseRollout):
 
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3"):
+            if vllm_version in ("0.6.3",):
                 train_tp = kwargs.get("train_tp")
                 num_tp_per_train_tp = train_tp // tensor_parallel_size
                 vllm_ps.initialize_parallel_state(
@@ -156,7 +156,7 @@ class vLLMRollout(BaseRollout):
             kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
-        for k in config.keys():
+        for k in config:
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
 
@@ -184,7 +184,7 @@ class vLLMRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if vllm_version in ("0.6.3",) and self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
@@ -272,7 +272,7 @@ class vLLMRollout(BaseRollout):
                 attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
                 position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
                 batch_size = batch_size * self.sampling_params.n
-                if "multi_modal_inputs" in non_tensor_batch.keys():
+                if "multi_modal_inputs" in non_tensor_batch:
                     non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(
                         non_tensor_batch["multi_modal_inputs"], self.sampling_params.n
                     )
@@ -310,7 +310,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # free vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if vllm_version in ("0.6.3",) and self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

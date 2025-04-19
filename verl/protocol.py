@@ -16,6 +16,7 @@ Implement base data transfer protocol between any two functions, modules.
 We can subclass Protocol to define more detailed batch info with specific keys
 """
 
+import contextlib
 import copy
 import pickle
 from dataclasses import dataclass, field
@@ -33,10 +34,8 @@ from verl.utils.py_functional import union_two_dict
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
-try:
+with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
-except:
-    pass
 
 
 def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
@@ -76,8 +75,8 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     assert tensor_dict1.batch_size == tensor_dict2.batch_size, (
         f"Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}"
     )
-    for key in tensor_dict2.keys():
-        if key not in tensor_dict1.keys():
+    for key in tensor_dict2:
+        if key not in tensor_dict1:
             tensor_dict1[key] = tensor_dict2[key]
         else:
             assert tensor_dict1[key].equal(tensor_dict2[key]), (
@@ -508,16 +507,16 @@ class DataProto:
         tensors = {}
         # tensor batch
         for key in batch_keys:
-            assert key in self.batch.keys()
+            assert key in self.batch
             tensors[key] = self.batch.pop(key)
         non_tensors = {}
         # non tensor batch
         for key in non_tensor_batch_keys:
-            assert key in self.non_tensor_batch.keys()
+            assert key in self.non_tensor_batch
             non_tensors[key] = self.non_tensor_batch.pop(key)
         meta_info = {}
         for key in meta_info_keys:
-            assert key in self.meta_info.keys()
+            assert key in self.meta_info
             meta_info[key] = self.meta_info.pop(key)
         return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info)
 
@@ -617,10 +616,7 @@ class DataProto:
             f"only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}."
         )
 
-        if self.batch is not None:
-            batch_lst = self.batch.chunk(chunks=chunks, dim=0)
-        else:
-            batch_lst = [None for _ in range(chunks)]
+        batch_lst = self.batch.chunk(chunks=chunks, dim=0) if self.batch is not None else [None for _ in range(chunks)]
 
         non_tensor_batch_lst = [{} for _ in range(chunks)]
         for key, val in self.non_tensor_batch.items():
@@ -652,10 +648,7 @@ class DataProto:
         batch_lst = []
         for batch in data:
             batch_lst.append(batch.batch)
-        if batch_lst[0] is not None:
-            new_batch = torch.cat(batch_lst, dim=0)
-        else:
-            new_batch = None
+        new_batch = torch.cat(batch_lst, dim=0) if batch_lst[0] is not None else None
 
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
         for key, val in non_tensor_batch.items():

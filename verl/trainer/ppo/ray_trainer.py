@@ -188,7 +188,7 @@ def compute_response_mask(data: DataProto):
 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
     # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
+    if "response_mask" not in data.batch:
         data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
     # TODO: add other ways to estimate advantages
@@ -424,14 +424,13 @@ class RayPPOTrainer:
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
-            if (
-                config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
-                or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
-            ):
-                assert config.actor_rollout_ref.model.use_remove_padding, (
-                    "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
-                )
+        if config.actor_rollout_ref.actor.strategy == "fsdp" and (
+            config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
+            or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
+        ):
+            assert config.actor_rollout_ref.model.use_remove_padding, (
+                "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
+            )
 
         if self.use_critic and config.critic.strategy == "fsdp":
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
@@ -579,7 +578,7 @@ class RayPPOTrainer:
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
 
-            if "multi_modal_inputs" in test_batch.non_tensor_batch.keys():
+            if "multi_modal_inputs" in test_batch.non_tensor_batch:
                 test_gen_batch = test_batch.pop(
                     batch_keys=["input_ids", "attention_mask", "position_ids"],
                     non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data", "multi_modal_inputs"],
@@ -639,7 +638,7 @@ class RayPPOTrainer:
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
-                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val])
                 for metric_name, metric_val in metric2val.items():
                     if (
                         (var_name == core_var)
@@ -903,7 +902,7 @@ class RayPPOTrainer:
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
-                if "multi_modal_inputs" in batch.non_tensor_batch.keys():
+                if "multi_modal_inputs" in batch.non_tensor_batch:
                     gen_batch = batch.pop(
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
                         non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data", "multi_modal_inputs"],
