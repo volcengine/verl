@@ -43,5 +43,5 @@ elif vs.parse(package_version) >= vs.parse("0.7.0"):
 else:
     if not is_sglang_available():
         raise ValueError(
-            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported vllm versions are 0.3.1, 0.4.2, 0.5.4, 0.6.3 and 0.7.0+"
+            f"vllm version {package_version} not supported and SGLang also not Found. Currently supported vllm versions are 0.6.3 and 0.7.0+"
         )
