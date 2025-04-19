@@ -451,7 +451,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                                 reward_output = self.rm_wg.update_rm(batch)
                             elif update_style == "before":  # update reward model, and then run forward
                                 reward_output = self.rm_wg.update_rm(batch)
-                                if "metrics" in reward_output.meta_info:
+                                if "metrics" in reward_output.meta_info.keys():
                                     reward_output_metrics = reduce_metrics(reward_output.meta_info["metrics"])
                                     metrics.update(reward_output_metrics)
 
@@ -481,7 +481,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                             else:
                                 raise NotImplementedError
                             batch = batch.union(reward_output)
-                            if "metrics" in reward_output.meta_info:
+                            if "metrics" in reward_output.meta_info.keys():
                                 reward_output_metrics = reduce_metrics(reward_output.meta_info["metrics"])
                                 metrics.update(reward_output_metrics)
 

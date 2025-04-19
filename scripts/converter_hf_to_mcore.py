@@ -139,7 +139,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
                 d2 = sd2[k].data
                 assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
-        for k in sd2:
+        for k in sd2.keys():
             if sd2[k] is None:
                 continue
             d1 = sd2[k].data
@@ -176,7 +176,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
                 d2 = sd2[k].data
                 assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
                 assert (d1 == d2).all(), f"{k} is not equal"
-        for k in sd2:
+        for k in sd2.keys():
             if sd2[k] is None:
                 continue
             d1 = sd2[k].data

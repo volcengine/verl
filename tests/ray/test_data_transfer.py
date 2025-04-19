@@ -36,7 +36,7 @@ class DummyWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
     def do_nothing(self, data):
-        for key in data.batch:
+        for key in data.batch.keys():
             data.batch[key] += 1
         if tensordict.__version__ >= "0.5.0":
             data.batch = data.batch.consolidate()

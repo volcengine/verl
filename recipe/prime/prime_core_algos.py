@@ -44,13 +44,13 @@ def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Ten
     reward_tensors = []
 
     with torch.no_grad():
-        if "rm_scores" in data.batch and config.algorithm.reward_dpo_coef != 0.0:
+        if "rm_scores" in data.batch.keys() and config.algorithm.reward_dpo_coef != 0.0:
             reward_tensor = data.batch["rm_scores"]
             reward_mask = response_mask.bool()
 
             reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_dpo_coef)
 
-        if "acc" in data.batch and config.algorithm.reward_gt_coef != 0.0:
+        if "acc" in data.batch.keys() and config.algorithm.reward_gt_coef != 0.0:
             reward_tensor = torch.zeros_like(response_mask, dtype=torch.float32)
             reward_mask = torch.zeros_like(response_mask, dtype=torch.bool)
 
