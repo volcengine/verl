@@ -24,7 +24,8 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # SGLang
-      - "!**/*sglang*"  pull_request:
+      - "!**/*sglang*"
+  pull_request:
     branches:
       - main
       - v0.*
