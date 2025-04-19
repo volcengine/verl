@@ -156,7 +156,7 @@ class vLLMRollout(BaseRollout):
             kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
-        for k in config:
+        for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
 

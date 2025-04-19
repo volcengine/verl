@@ -270,7 +270,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
             torch.distributed.barrier()
             print(f"self.param_dtype: {self.param_dtype}")
-            for key in state_dict:
+            for key in state_dict.keys():
                 print(f"state_dict[key].dtype: {key} {state_dict[key].dtype}")
             torch.distributed.barrier()
             if self.rank == 0:

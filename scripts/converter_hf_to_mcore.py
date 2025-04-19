@@ -131,7 +131,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
 
         sd = model[0].module.module.state_dict()
         sd2 = model_test[0].module.module.state_dict()
-        for k in sd:
+        for k in sd.keys():
             if sd[k] is None:
                 continue
             d1 = sd[k].data
@@ -168,7 +168,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
 
         sd = model[0].module.module.state_dict()
         sd2 = model_value[0].module.module.state_dict()
-        for k in sd:
+        for k in sd.keys():
             if sd[k] is None:
                 continue
             d1 = sd[k].data
