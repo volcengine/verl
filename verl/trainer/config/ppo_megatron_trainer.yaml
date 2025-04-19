@@ -84,7 +84,6 @@ actor_rollout_ref:
     strategy: megatron
     megatron:
       param_offload: False
-      optimizer_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests

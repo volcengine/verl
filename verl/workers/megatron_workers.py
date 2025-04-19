@@ -360,7 +360,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         if self._is_offload_optimizer:
-            load_megatron_optimizer(optimizer=self.actor_optimizer)
+            load_megatron_optimizer(self.actor_optimizer)
 
         data.batch = data.batch.cuda()
 
