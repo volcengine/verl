@@ -48,12 +48,13 @@ actor_rollout_ref:
     clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
     loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
     # NOTE: "token-mean" is the default behavior
-    entropy_coeff: 0.001
+    entropy_coeff: 0
     use_kl_loss: False # True for GRPO
     kl_loss_coef: 0.001 # for grpo
     kl_loss_type: low_var_kl # for grpo
     ppo_epochs: 1
-    shuffle: True
+    data_loader_seed: null
+    shuffle: False
     optim:
       lr: 1e-6
       clip_grad: 1.0
@@ -121,6 +122,8 @@ actor_rollout_ref:
       gate_proj_layer_name: gate_up
     # number of responses (i.e. num sample times)
     n: 1
+    engine_kwargs: # inference engine parameters
+      swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -167,6 +170,7 @@ critic:
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+  data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
   shuffle: ${actor_rollout_ref.actor.shuffle}
   cliprange_value: 0.5
   kl_ctrl:

@@ -18,11 +18,15 @@ Call grade_answer(given_answer: str, ground_truth: str).
 
 FROM: https://github.com/openai/prm800k/blob/main/prm800k/grading/grader.py
 """
+
+import contextlib
+import os
 import re
+
 import sympy
 from pylatexenc import latex2text
 from sympy.parsing import sympy_parser
-import os
+
 from . import math_normalize
 from .grader import math_equal
 
@@ -40,7 +44,6 @@ def timeout(timeout_seconds: int = 8):
         import signal
 
         def decorator(func):
-
             def handler(signum, frame):
                 raise TimeoutError("Operation timed out!")
 
@@ -166,26 +169,26 @@ def _normalize(expr: str) -> str:
     expr = expr.replace("trillion", "*10^12")
 
     for unit in [
-            "degree",
-            "cm",
-            "centimeter",
-            "meter",
-            "mile",
-            "second",
-            "minute",
-            "hour",
-            "day",
-            "week",
-            "month",
-            "year",
-            "foot",
-            "feet",
-            "inch",
-            "yard",
-            "liter",
+        "degree",
+        "cm",
+        "centimeter",
+        "meter",
+        "mile",
+        "second",
+        "minute",
+        "hour",
+        "day",
+        "week",
+        "month",
+        "year",
+        "foot",
+        "feet",
+        "inch",
+        "yard",
+        "liter",
     ]:
         expr = re.sub(f"{unit}(es)?(s)? *(\^[0-9]+)?", "", expr)
-    expr = re.sub(f"\^ *\\\\circ", "", expr)
+    expr = re.sub("\^ *\\\\circ", "", expr)
 
     if len(expr) > 0 and expr[0] == "{" and expr[-1] == "}":
         expr = expr[1:-1]
@@ -194,10 +197,8 @@ def _normalize(expr: str) -> str:
     if _is_float(expr) and _is_int(float(expr)):
         expr = str(int(round(float(expr))))
     if "\\" in expr:
-        try:
+        with contextlib.suppress(Exception):
             expr = _parse_latex(expr)
-        except:
-            pass
 
     # edge case with mixed numbers and negative signs
     expr = re.sub("- *", "-", expr)
@@ -229,11 +230,7 @@ def should_allow_eval(expr: str):
         if bad_string in expr:
             return False
 
-    for bad_regex in BAD_REGEXES:
-        if re.search(bad_regex, expr) is not None:
-            return False
-
-    return True
+    return all(re.search(bad_regex, expr) is None for bad_regex in BAD_REGEXES)
 
 
 @timeout(timeout_seconds=10)
@@ -258,8 +255,12 @@ def split_tuple(expr: str):
     expr = _strip_properly_formatted_commas(expr)
     if len(expr) == 0:
         return []
-    if (len(expr) > 2 and expr[0] in TUPLE_CHARS and expr[-1] in TUPLE_CHARS and
-            all([ch not in expr[1:-1] for ch in TUPLE_CHARS])):
+    if (
+        len(expr) > 2
+        and expr[0] in TUPLE_CHARS
+        and expr[-1] in TUPLE_CHARS
+        and all([ch not in expr[1:-1] for ch in TUPLE_CHARS])
+    ):
         elems = [elem.strip() for elem in expr[1:-1].split(",")]
     else:
         elems = [expr]
@@ -298,10 +299,11 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
     ground_truth_elems = split_tuple(ground_truth_normalized)
     given_elems = split_tuple(given_normalized)
 
-    if len(ground_truth_elems) > 1 and (ground_truth_normalized[0] != given_normalized[0] or
-                                        ground_truth_normalized[-1] != given_normalized[-1]):
-        is_correct = False
-    elif len(ground_truth_elems) != len(given_elems):
+    if (
+        len(ground_truth_elems) > 1
+        and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1])
+        or len(ground_truth_elems) != len(given_elems)
+    ):
         is_correct = False
     else:
         for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems):
@@ -323,9 +325,9 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
 def remove_boxed(s):
     left = "\\boxed{"
     try:
-        assert s[:len(left)] == left
+        assert s[: len(left)] == left
         assert s[-1] == "}"
-        return s[len(left):-1]
+        return s[len(left) : -1]
     except:
         return None
 
@@ -357,16 +359,16 @@ def _last_boxed_only_string(string):
     if left_brace_idx is None or right_brace_idx is None:
         return None
 
-    return string[left_brace_idx + 1:right_brace_idx].strip()
+    return string[left_brace_idx + 1 : right_brace_idx].strip()
 
 
 def match_answer(response):
     is_matched = False
-    for ans_marker in ['answer:', "answer is", "answers are"]:
+    for ans_marker in ["answer:", "answer is", "answers are"]:
         ans_idx = response.lower().rfind(ans_marker)
         if ans_idx != -1:
             is_matched = True
-            response = response[ans_idx + len(ans_marker):].strip()
+            response = response[ans_idx + len(ans_marker) :].strip()
             if response.endswith("\n"):
                 response = response[:-2]
 
@@ -389,11 +391,11 @@ def match_answer(response):
         if dot_idx != -1:
             response = response[:dot_idx].strip()
 
-    for ans_marker in ['be ', "is ", "are ", "=", ": ", "get ", 'be\n', "is\n", "are\n", ":\n", "get\n"]:
+    for ans_marker in ["be ", "is ", "are ", "=", ": ", "get ", "be\n", "is\n", "are\n", ":\n", "get\n"]:
         ans_idx = response.lower().rfind(ans_marker)
         if ans_idx != -1:
             is_matched = True
-            response = response[ans_idx + len(ans_marker):].strip()
+            response = response[ans_idx + len(ans_marker) :].strip()
             if response.endswith("\n"):
                 response = response[:-2]
 

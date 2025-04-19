@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
-from packaging.version import Version
-
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
 from megatron.core.optimizer import get_megatron_optimizer as get_megatron_optimizer_native
