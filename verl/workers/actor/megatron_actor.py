@@ -344,7 +344,7 @@ class MegatronPPOActor(BasePPOActor):
 
             stats = {}
             if forward_only:
-                policy_loss = 1.0
+                policy_loss = torch.tensor(1.0, device=output.device)
             else:
                 if self.config.use_kl_loss:
                     ref_log_prob = data["ref_log_prob"]
