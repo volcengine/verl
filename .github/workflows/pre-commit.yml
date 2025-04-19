@@ -26,4 +26,4 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - uses: pre-commit/action@v3.0.1
       with:
-        extra_args: --output-format=github # Overriding "--all-files"
+        extra_args: "" # Overriding "--all-files"
