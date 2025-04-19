@@ -176,9 +176,13 @@ class DataProtoItem:
 class DataProto:
     """
     A DataProto is a data structure that aims to provide a standard protocol for data exchange between functions.
-    It contains a batch (TensorDict) and a meta_info (Dict). The batch is a TensorDict https://pytorch.org/tensordict/.
-    TensorDict allows you to manipulate a dictionary of Tensors like a single Tensor. Ideally, the tensors with the
-    same batch size should be put inside batch.
+
+    Args:
+        batch (TensorDict): TensorDict contains tensors with same batch size, https://pytorch.org/tensordict/.
+        non_tensor_batch (Dict): dictionary contains numpy arrays with same batch size as batch, e.g image, audio, etc.
+        meta_info (Dict): dictionary contains any additional information. Elements in meta_info are not affected by
+            most of batching operations, like chunk, repeat, concat, except a special key `metrics`. Metrics are
+            concatenated along dim 0 in `concat`, https://github.com/volcengine/verl/pull/602.
     """
 
     batch: TensorDict = None
@@ -654,7 +658,15 @@ class DataProto:
         for key, val in non_tensor_batch.items():
             non_tensor_batch[key] = np.concatenate(val, axis=0)
 
-        return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
+        # Concat `metrics`, or trainer will only get metrics from DP rank 0.
+        meta_info = data[0].meta_info
+        if meta_info and "metrics" in meta_info and isinstance(meta_info["metrics"], dict):
+            metrics = list_of_dict_to_dict_of_list(list_of_dict=[d.meta_info["metrics"] for d in data])
+            for key, val in metrics.items():
+                metrics[key] = np.array(val) if np.isscalar(val[0]) else np.concatenate(val, axis=0)
+            meta_info["metrics"] = metrics
+
+        return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=meta_info)
 
     def reorder(self, indices):
         """
