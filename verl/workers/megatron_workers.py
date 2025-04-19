@@ -286,10 +286,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
-            if self._is_actor:
-                optim_config = self.config.actor.optim
-            else:
-                optim_config = None
+            optim_config = self.config.actor.optim if self._is_actor else None
             self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = (
                 self._build_model_optimizer(
                     model_path=self.config.model.path,

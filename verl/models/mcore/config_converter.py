@@ -15,22 +15,22 @@
 
 # convert huggingface config to mcore transformer config
 
-from transformers import PretrainedConfig
-from megatron.core.transformer import TransformerConfig
 import torch
 import torch.nn.functional as F
+from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.enums import AttnBackend
+from transformers import PretrainedConfig
 
 
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     from megatron.core import parallel_state as mpu
-    if "Qwen2ForCausalLM" in hf_config.architectures:
-        qkv_bias = True
-    else:
-        qkv_bias = getattr(hf_config, 'attention_bias', False)
-    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size(
-    ) is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
+
+    qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
+    overlap_p2p_comm = (
+        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
+        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
+    )
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -39,7 +39,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         num_query_groups=hf_config.num_key_value_heads,
         ffn_hidden_size=hf_config.intermediate_size,
         activation_func=F.silu,
-        normalization='RMSNorm',
+        normalization="RMSNorm",
         gated_linear_unit=True,
         use_cpu_initialization=True,
         add_bias_linear=False,
@@ -56,10 +56,11 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         masked_softmax_fusion=True,
         moe_token_dispatcher_type="alltoall",
         attention_dropout=hf_config.attention_dropout,
-        hidden_dropout=getattr(hf_config, 'hidden_dropout', 0.0),
+        hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
         attention_backend=AttnBackend.flash,
-        bf16=dtype is torch.bfloat16)
+        bf16=dtype is torch.bfloat16,
+    )
 
     return transformer_config
 

@@ -207,10 +207,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 kept_traj_idxs.append(idx)
 
                         new_batch = new_batch[kept_traj_idxs]
-                        if batch is None:
-                            batch = new_batch
-                        else:
-                            batch = DataProto.concat([batch, new_batch])
+                        batch = new_batch if batch is None else DataProto.concat([batch, new_batch])
 
                         prompt_bsz = self.config.data.train_batch_size
                         if num_prompt_in_batch < prompt_bsz:
