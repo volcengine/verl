@@ -75,8 +75,8 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     assert tensor_dict1.batch_size == tensor_dict2.batch_size, (
         f"Two tensor dict must have identical batch size. Got {tensor_dict1.batch_size} and {tensor_dict2.batch_size}"
     )
-    for key in tensor_dict2:
-        if key not in tensor_dict1:
+    for key in tensor_dict2.keys():
+        if key not in tensor_dict1.keys():
             tensor_dict1[key] = tensor_dict2[key]
         else:
             assert tensor_dict1[key].equal(tensor_dict2[key]), (
@@ -507,16 +507,16 @@ class DataProto:
         tensors = {}
         # tensor batch
         for key in batch_keys:
-            assert key in self.batch
+            assert key in self.batch.keys()
             tensors[key] = self.batch.pop(key)
         non_tensors = {}
         # non tensor batch
         for key in non_tensor_batch_keys:
-            assert key in self.non_tensor_batch
+            assert key in self.non_tensor_batch.keys()
             non_tensors[key] = self.non_tensor_batch.pop(key)
         meta_info = {}
         for key in meta_info_keys:
-            assert key in self.meta_info
+            assert key in self.meta_info.keys()
             meta_info[key] = self.meta_info.pop(key)
         return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info)
 
