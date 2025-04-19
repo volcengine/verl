@@ -33,7 +33,7 @@ Set up multinode ray cluster
 
 Start verl training in ray cluster
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. From ray 2.20, you can directly execute the training scripts in ray head node. For example:
+1. From ray 2.20, you can directly execute the training scripts in ray head node, notice the ``trainer.n_gpus_per_node`` should be set to GPU number of single machine and ``trainer.nnodes`` should be set to the total number of your machines. For example:
 
 .. code-block:: bash
 
@@ -78,7 +78,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_example_gsm8k' \
     trainer.experiment_name='qwen2_7b_function_rm_megatron' \
-    trainer.n_gpus_per_node=16 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes=2 \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
