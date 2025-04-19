@@ -89,36 +89,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     From Ray 2.20, ``ray job submit`` or ``client = JobSubmissionClient("http://127.0.0.1:8265")`` is deprecated in current environment, and Ray version less than 2.40 is not compatible with current version of verl. We recommend you upgrade to Ray latest version and directly execute the training scripts.
 
 
-.. 1. Submit ray job to cluster with the dashboard address you get above.
-
-.. .. code-block:: bash
-
-..     ray job submit --address="http://127.0.0.1:8265" \
-..         --runtime-env=verl/trainer/runtime_env.yaml \
-..         --no-wait \
-..         -- \
-..         python3 -m verl.trainer.main_ppo \
-..         trainer.n_gpus_per_node=8 \
-..         trainer.nnodes=2 \
-..         ...
-
-.. .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/submit.png?raw=true
-
-.. 2. Then you can check the job status with the following commands:
-
-.. - ray job list: list all jobs submitted to the cluster.
-.. - ray job logs <Submission ID>: query the logs of the job.
-.. - ray job status <Submission ID>: query the status of the job.
-.. - ray job stop <Submission ID>: request the job to be stopped.
-
-.. 3. You can also access driver/task/actor logs in ``/tmp/ray/session_latest/logs/``, driver log is ``job-driver-raysubmit_<Submission ID>.log``.
-
-.. 4. We strongly recommend you to view job detail from dashboard in multinode training, because it provide more structure way to view the job information.
-
-.. .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job.png?raw=true
-.. .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/job_detail.png?raw=true
-
-
 Slurm
 -----
 TBD
