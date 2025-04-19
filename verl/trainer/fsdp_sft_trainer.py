@@ -213,7 +213,7 @@ class FSDPSFTTrainer(object):
                 local_model_path,
                 config=config,
                 torch_dtype=torch.float32,
-                attn_implementation='sdpa',
+                attn_implementation='flash_attention_2',
                 trust_remote_code=trust_remote_code)
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:

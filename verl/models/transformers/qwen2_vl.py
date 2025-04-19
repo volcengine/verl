@@ -16,17 +16,25 @@ from typing import Optional, Tuple
 import inspect
 import torch
 import os
+import math
 from transformers.utils import is_flash_attn_greater_or_equal
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, \
     get_ulysses_sequence_parallel_world_size, validate_ulysses_config
+from verl.utils.device import is_cuda_available, is_npu_available
 
-try:
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
+if is_cuda_available:
+    try:
+        from flash_attn import flash_attn_func, flash_attn_varlen_func
 
-    _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
-except ImportError:
-    flash_attn_varlen_func = None
+        _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
+    except ImportError:
+        flash_attn_varlen_func = None
+elif is_npu_available:
+    try:
+        from transformers.integrations.npu_flash_attention import npu_flash_attn_varlen_func as flash_attn_varlen_func
+    except ImportError:
+        flash_attn_varlen_func = None
 
 
 def get_rope_index(
@@ -169,9 +177,13 @@ def flash_attention_forward(
         causal = is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
-    use_sliding_windows = (_flash_supports_window_size and sliding_window is not None and
-                           key_states.shape[1] > sliding_window)
-    flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
+    # This only for flash_attn on GPU
+    if is_cuda_available:
+        use_sliding_windows = (_flash_supports_window_size and sliding_window is not None and
+                               key_states.shape[1] > sliding_window)
+        flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
+    elif is_npu_available:
+        flash_kwargs = {}
 
     if is_flash_attn_greater_or_equal("2.4.1"):
         if deterministic is None:

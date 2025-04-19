@@ -18,8 +18,8 @@ import sys
 from typing import Optional
 
 import torch
-from transformers.modeling_utils import PreTrainedModel
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
+from transformers.modeling_utils import PreTrainedModel
 
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
@@ -92,12 +92,9 @@ def _ulysses_flash_attention_forward(
         position_ids = torch.concat(position_ids_list, dim=-1)
 
     # (bsz, seq_len, n_head/n, head_dim)
-    attn_output = _flash_attention_forward(query_states,
-                                           key_states,
-                                           value_states,
-                                           *args,
-                                           position_ids=position_ids,
-                                           **kwargs)
+    attn_output = _flash_attention_forward(
+        query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs
+    )
 
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:

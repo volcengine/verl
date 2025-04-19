@@ -246,7 +246,7 @@ class DataProto:
         batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
         batch = torch.load(batch_deserialized,
                            weights_only=False,
-                           map_location='cpu' if not torch.cuda.is_available() else None)
+                           map_location='cpu' if not get_torch_device().is_available() else None)
         self.batch = batch
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
