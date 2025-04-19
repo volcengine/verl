@@ -390,15 +390,19 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             else:
                 infer_params = broad_pp_tensor
 
-            # change megatron tensor name to hf model name
-            converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                cur_name,
-                infer_params,
-                self.model_config,
-                self.train_tp_size,
-                0,  # no impact
-                convert_qkv_gate_up_by_trunk_concat=False,
-            )  # defualt false
+            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+                converted_names, converted_params = convert_megatron_model_to_transformers_model(
+                    cur_name,
+                    infer_params,
+                    self.model_config,
+                    self.train_tp_size,
+                    0,  # no impact
+                    convert_qkv_gate_up_by_trunk_concat=False,
+                )  # defualt false
+            else:
+                if not isinstance(infer_params, list):
+                    infer_params = [infer_params]
+                converted_names, converted_params = self.weight_converter.convert_param(cur_name, infer_params)
 
             yield from zip(converted_names, converted_params)
 
