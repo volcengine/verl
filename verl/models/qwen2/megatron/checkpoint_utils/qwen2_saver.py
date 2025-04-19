@@ -171,10 +171,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
@@ -215,10 +212,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
@@ -268,10 +262,7 @@ def merge_megatron_ckpt_qwen2(wrapped_models, config, dtype, is_value_model=Fals
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)

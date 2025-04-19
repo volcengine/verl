@@ -63,13 +63,7 @@ def make_reward_function(tokenizer, num_examine):
             reward_output = compute_reward(prompt, response)
             dense_reward = reward_output[0].tolist()
             ground_truth_response = reward_output[1]["ground_truth_response"]
-            if len(dense_reward) > 0:
-                last_reward = dense_reward[-1]
-            else:
-                if len(ground_truth_response) == 0:
-                    last_reward = 1
-                else:
-                    last_reward = 0
+            last_reward = dense_reward[-1] if len(dense_reward) > 0 else 1 if len(ground_truth_response) == 0 else 0
 
             # pad to response_length
             for _ in range(reward_tensor.shape[-1] - len(dense_reward)):

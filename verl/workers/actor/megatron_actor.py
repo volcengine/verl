@@ -440,10 +440,7 @@ class MegatronPPOActor(BasePPOActor):
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
                 chunk.zero_grad_buffer()
 
-            if self.config.entropy_coeff != 0:
-                calculate_entropy = True
-            else:
-                calculate_entropy = False
+            calculate_entropy = self.config.entropy_coeff != 0
             metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy)
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask

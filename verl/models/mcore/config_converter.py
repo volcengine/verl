@@ -26,10 +26,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
     # for LlamaForCausalLM or Qwen2ForCausalLM
     from megatron.core import parallel_state as mpu
 
-    qkv_bias = getattr(hf_config, "attention_bias", False)
-    if "Qwen2ForCausalLM" in hf_config.architectures:
-        qkv_bias = True
-
+    qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
     overlap_p2p_comm = (
         mpu.get_virtual_pipeline_model_parallel_world_size() is not None
         and mpu.get_virtual_pipeline_model_parallel_world_size() > 1

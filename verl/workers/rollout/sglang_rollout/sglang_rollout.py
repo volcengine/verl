@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch.distributed
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 
 
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
+def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
@@ -311,7 +311,7 @@ class SGLangRollout(BaseRollout):
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
             batch_size = batch_size * self.config.n
-            if "multi_modal_inputs" in non_tensor_batch:
+            if "multi_modal_inputs" in non_tensor_batch.keys():
                 non_tensor_batch["multi_modal_inputs"] = np.repeat(
                     non_tensor_batch["multi_modal_inputs"], self.config.n, axis=0
                 )
