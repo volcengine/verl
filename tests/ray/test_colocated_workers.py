@@ -14,35 +14,37 @@
 
 import ray
 
-from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
-from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup, create_colocated_worker_cls
-
 from verl import DataProto
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.ray.base import (
+    RayClassWithInitArgs,
+    RayResourcePool,
+    RayWorkerGroup,
+    create_colocated_worker_cls,
+)
 
 
 @ray.remote
 class Actor(Worker):
-
     def __init__(self) -> None:
         super().__init__()
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def add(self, data: DataProto):
-        data.batch['a'] += self.rank
+        data.batch["a"] += self.rank
         return data
 
 
 @ray.remote
 class Critic(Worker):
-
     def __init__(self, config) -> None:
         super().__init__()
         self.config = config
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def sub(self, data: DataProto):
-        data.batch['a'] -= self.config['b']
+        data.batch["a"] -= self.config["b"]
         return data
 
 
@@ -50,10 +52,11 @@ def test_colocated_workers():
     ray.init()
 
     import torch
-    data = DataProto.from_dict({'a': torch.zeros(10)})
+
+    data = DataProto.from_dict({"a": torch.zeros(10)})
     # create separate workers on the same resource pool
     actor_cls = RayClassWithInitArgs(cls=Actor)
-    critic_cls = RayClassWithInitArgs(cls=Critic, config={'b': 10})
+    critic_cls = RayClassWithInitArgs(cls=Critic, config={"b": 10})
     resource_pool = RayResourcePool(process_on_nodes=[2])
 
     actor_wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=actor_cls)
@@ -63,13 +66,13 @@ def test_colocated_workers():
     expected_critic_output = critic_wg.sub(data)
 
     # create colocated workers
-    cls_dict = {'actor': actor_cls, 'critic': critic_cls}
+    cls_dict = {"actor": actor_cls, "critic": critic_cls}
     ray_cls_with_init = create_colocated_worker_cls(cls_dict)
     wg_dict = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     spawn_wg = wg_dict.spawn(prefix_set=cls_dict.keys())
 
-    colocated_actor_wg = spawn_wg['actor']
-    colocated_critic_wg = spawn_wg['critic']
+    colocated_actor_wg = spawn_wg["actor"]
+    colocated_critic_wg = spawn_wg["critic"]
 
     actor_output = colocated_actor_wg.add(data)
     critic_output = colocated_critic_wg.sub(data)

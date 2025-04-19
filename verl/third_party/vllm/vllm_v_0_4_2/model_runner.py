@@ -13,24 +13,24 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/worker/model_runner.py
 
-import torch
-import torch.nn as nn
 from enum import IntEnum
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from vllm.attention import (AttentionMetadata, get_attn_backend)
-from vllm.config import (DeviceConfig, LoRAConfig, ParallelConfig, SchedulerConfig, VisionLanguageConfig)
+import torch
+import torch.nn as nn
+from vllm.attention import AttentionMetadata, get_attn_backend
+from vllm.config import DeviceConfig, LoRAConfig, ParallelConfig, SchedulerConfig, VisionLanguageConfig
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor import SamplingMetadata
-from vllm.sequence import (MultiModalData, SamplerOutput, SequenceData, SequenceGroupMetadata)
-from vllm.utils import (CudaMemoryProfiler, is_hip, is_pin_memory_available)
-from vllm.worker.model_runner import ModelRunner, CUDAGraphRunner
+from vllm.sequence import SamplerOutput, SequenceGroupMetadata
+from vllm.utils import CudaMemoryProfiler, is_hip, is_pin_memory_available
+from vllm.worker.model_runner import CUDAGraphRunner, ModelRunner
 
+from .config import LoadConfig, ModelConfig
 from .model_loader import get_model
-from .config import ModelConfig, LoadConfig
 
 logger = init_logger(__name__)
 
@@ -46,10 +46,9 @@ class BatchType(IntEnum):
 
 
 class ModelRunner(ModelRunner):
-
     def __init__(
         self,
-        model: Union[nn.Module, Dict], # model itself or its parameter dict
+        model: Union[nn.Module, Dict],  # model itself or its parameter dict
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
         scheduler_config: SchedulerConfig,
@@ -67,8 +66,8 @@ class ModelRunner(ModelRunner):
 
         # model_config can be None in tests/samplers/test_sampler.py.
         # FIXME(woosuk): This is a hack to make the tests work. Refactor this.
-        self.sliding_window = (model_config.get_sliding_window() if model_config is not None else None)
-        self.device_config = (device_config if device_config is not None else DeviceConfig())
+        self.sliding_window = model_config.get_sliding_window() if model_config is not None else None
+        self.device_config = device_config if device_config is not None else DeviceConfig()
         self.device = self.device_config.device
 
         # NOTE(sgm): add for verl
@@ -80,7 +79,7 @@ class ModelRunner(ModelRunner):
         self.graph_runners: Dict[int, CUDAGraphRunner] = {}
         self.graph_memory_pool: Optional[Tuple[int, int]] = None  # Set during graph capture.
 
-        self.max_seq_len_to_capture = (self.model_config.max_seq_len_to_capture if self.model_config is not None else 0)
+        self.max_seq_len_to_capture = self.model_config.max_seq_len_to_capture if self.model_config is not None else 0
 
         self.pin_memory = is_pin_memory_available()
         self.kv_cache_dtype = kv_cache_dtype
@@ -104,26 +103,34 @@ class ModelRunner(ModelRunner):
     # NOTE(sgm): initialize model using the actor model
     def load_model(self) -> None:
         with CudaMemoryProfiler() as m:
-            self.model = get_model(actor_model=self.model,
-                                   model_config=self.model_config,
-                                   device_config=self.device_config,
-                                   lora_config=self.lora_config,
-                                   load_config=self.load_config,
-                                   parallel_config=self.parallel_config,
-                                   scheduler_config=self.scheduler_config,
-                                   vision_language_config=self.vision_language_config)
+            self.model = get_model(
+                actor_model=self.model,
+                model_config=self.model_config,
+                device_config=self.device_config,
+                lora_config=self.lora_config,
+                load_config=self.load_config,
+                parallel_config=self.parallel_config,
+                scheduler_config=self.scheduler_config,
+                vision_language_config=self.vision_language_config,
+            )
         self.model_memory_usage = m.consumed_memory
         logger.info("Loading model weights took %.4f GB", self.model_memory_usage / float(2**30))
 
         if self.lora_config:
             assert hasattr(self.model, "supported_lora_modules") and self.model.supported_lora_modules, (
-                "Model does not support LoRA")
+                "Model does not support LoRA"
+            )
             assert hasattr(self.model, "embedding_modules"), "Model does not have embedding_modules"
             assert hasattr(self.model, "embedding_padding_modules"), "Model does not have embedding_padding_modules"
-            self.lora_manager = LRUCacheWorkerLoRAManager(self.scheduler_config.max_num_seqs,
-                                                          self.scheduler_config.max_num_batched_tokens, self.vocab_size,
-                                                          self.lora_config, self.device, self.model.embedding_modules,
-                                                          self.model.embedding_padding_modules)
+            self.lora_manager = LRUCacheWorkerLoRAManager(
+                self.scheduler_config.max_num_seqs,
+                self.scheduler_config.max_num_batched_tokens,
+                self.vocab_size,
+                self.lora_config,
+                self.device,
+                self.model.embedding_modules,
+                self.model.embedding_padding_modules,
+            )
             self.model = self.lora_manager.create_lora_manager(self.model)
 
         if self.kv_cache_dtype == "fp8" and is_hip():
@@ -134,21 +141,28 @@ class ModelRunner(ModelRunner):
                 else:
                     raise RuntimeError(
                         "Using FP8 KV cache and scaling factors provided but "
-                        "model %s does not support loading scaling factors.", self.model.__class__)
+                        "model %s does not support loading scaling factors.",
+                        self.model.__class__,
+                    )
             else:
-                logger.warning("Using FP8 KV cache but no scaling factors "
-                               "provided. Defaulting to scaling factors of 1.0. "
-                               "This may lead to less accurate results!")
+                logger.warning(
+                    "Using FP8 KV cache but no scaling factors "
+                    "provided. Defaulting to scaling factors of 1.0. "
+                    "This may lead to less accurate results!"
+                )
         elif self.model_config.quantization_param_path is not None:
-            logger.warning("KV cache scaling factors provided, "
-                           "but the KV cache data type is not FP8. "
-                           "KV cache scaling factors will not be used.")
+            logger.warning(
+                "KV cache scaling factors provided, "
+                "but the KV cache data type is not FP8. "
+                "KV cache scaling factors will not be used."
+            )
 
     def prepare_input_tensors(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
-    ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, SamplingMetadata, Set[LoRARequest], LoRAMapping,
-               torch.Tensor]:
+    ) -> Tuple[
+        torch.Tensor, torch.Tensor, AttentionMetadata, SamplingMetadata, Set[LoRARequest], LoRAMapping, torch.Tensor
+    ]:
         # NOTE(sgm): all workers prepare the input in the same way
         prefill_reqs = []
         decode_reqs = []
@@ -180,8 +194,9 @@ class ModelRunner(ModelRunner):
             decode_lora_requests,
             decode_slot_mapping,
         ) = self._prepare_decode(decode_reqs)
-        sampling_metadata = SamplingMetadata.prepare(seq_group_metadata_list, seq_lens, query_lens, self.device,
-                                                     self.pin_memory)
+        sampling_metadata = SamplingMetadata.prepare(
+            seq_group_metadata_list, seq_lens, query_lens, self.device, self.pin_memory
+        )
 
         if not self.scheduler_config.chunked_prefill_enabled:
             assert (len(prefill_reqs) and len(decode_reqs)) == 0
@@ -214,7 +229,7 @@ class ModelRunner(ModelRunner):
         # Broadcast the metadata.
         # If batch contains both prefill and decode, it sends 2 broadcasts.
         # If it only contains 1 type, it triggers a single broadcast.
-        if (prefill_attn_metadata is not None and decode_attn_metadata is not None):
+        if prefill_attn_metadata is not None and decode_attn_metadata is not None:
             batch_type = BatchType.MIXED
         elif prefill_attn_metadata is not None:
             batch_type = BatchType.PREFILL
@@ -231,8 +246,15 @@ class ModelRunner(ModelRunner):
             kv_cache_dtype=self.kv_cache_dtype,
         )
 
-        return (input_tokens, input_positions, attn_metadata, sampling_metadata, lora_requests, lora_mapping,
-                multi_modal_input)
+        return (
+            input_tokens,
+            input_positions,
+            attn_metadata,
+            sampling_metadata,
+            lora_requests,
+            lora_mapping,
+            multi_modal_input,
+        )
 
     @torch.inference_mode()
     def execute_model(
@@ -240,8 +262,15 @@ class ModelRunner(ModelRunner):
         seq_group_metadata_list: List[SequenceGroupMetadata],
         kv_caches: List[torch.Tensor],
     ) -> Optional[SamplerOutput]:
-        (input_tokens, input_positions, attn_metadata, sampling_metadata, lora_requests, lora_mapping,
-         multi_modal_input) = self.prepare_input_tensors(seq_group_metadata_list)
+        (
+            input_tokens,
+            input_positions,
+            attn_metadata,
+            sampling_metadata,
+            lora_requests,
+            lora_mapping,
+            multi_modal_input,
+        ) = self.prepare_input_tensors(seq_group_metadata_list)
 
         if self.lora_config:
             self.set_active_loras(lora_requests, lora_mapping)
