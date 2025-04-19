@@ -321,7 +321,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = get_micro_data_parallel_group() if vllm_version in ("0.6.3",) else self.train_tp_group
+        all_gather_group = (
+            get_micro_data_parallel_group()
+            if vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            else self.train_tp_group
+        )
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -456,7 +464,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        all_gather_group = get_micro_data_parallel_group() if vllm_version in ("0.6.3",) else self.train_tp_group
+        all_gather_group = (
+            get_micro_data_parallel_group()
+            if vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            else self.train_tp_group
+        )
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
@@ -483,7 +499,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             yield from zip(converted_names, converted_params)
 
     def __enter__(self):
-        if vllm_version in ("0.6.3",):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             per_tensor_param = self.per_tensor_generator(convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
         else:
@@ -503,7 +522,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
-        if vllm_version in ("0.6.3",):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
