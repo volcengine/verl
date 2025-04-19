@@ -247,7 +247,7 @@ def gather_outpus_and_unpad(
 ):
     group = get_ulysses_sequence_parallel_group() if group is None else group
     sp_size = get_ulysses_sequence_parallel_world_size()
-    if group == None:
+    if group is None:
         return x
     x = Gather.apply(group, x, gather_dim, grad_scaler)
     if unpad_dim is not None:

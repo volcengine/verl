@@ -296,7 +296,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     except:
                         True
                     results.append(tmp_result)
-                    if tmp_result != True:
+                    if tmp_result is not True:
                         return results, {
                             "output": raw_true_output_copy,
                             "expected": raw_outputs,
@@ -418,7 +418,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check1 exception = {e}")
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -443,7 +443,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check2 exception = {e}")
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -462,7 +462,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                             f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
                         )
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -520,7 +520,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 except Exception:
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -543,7 +543,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check4 exception = {e}")
                     continue
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -565,11 +565,11 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 if debug:
                     print(f"{tmp_result=} @g")
 
-                if tmp_result == True and debug:
+                if tmp_result is True and debug:
                     print("PASSED")
 
                 results.append(tmp_result)
-                if tmp_result != True:
+                if tmp_result is not True:
                     return results, {
                         "output": raw_true_output_copy,
                         "expected": raw_outputs,
