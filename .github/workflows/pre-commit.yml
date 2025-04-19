@@ -25,5 +25,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - uses: pre-commit/action@v3.0.1
+      env:
+        RUFF_OUTPUT_FORMAT: github
       with:
         extra_args: "" # Overriding "--all-files"
