@@ -16,6 +16,7 @@ import copy
 import os
 import re
 from collections import defaultdict
+from collections.abc import Sized
 from typing import List, Optional, Union
 
 import datasets
@@ -60,6 +61,8 @@ class RLHFDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
+        data_file_weights: List[float] = None,
+        **kwargs,
     ):
         if not isinstance(data_files, (List, ListConfig)):
             data_files = [data_files]
@@ -69,6 +72,16 @@ class RLHFDataset(Dataset):
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
+
+        self.data_file_weights = data_file_weights
+        if self.data_file_weights is not None:
+            assert isinstance(self.data_file_weights, Sized), (
+                f"data_file_weights must be Sized, but {type(self.data_file_weights)=}"
+            )
+            assert len(self.data_file_weights) == len(self.data_files), (
+                f"{len(self.data_file_weights)=} not equal to {len(self.data_files)=}"
+            )
+            print(f"Using data_file_weights: {self.data_file_weights}")
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
@@ -98,11 +111,20 @@ class RLHFDataset(Dataset):
 
     def _read_files_and_tokenize(self):
         dataframes = []
-        for parquet_file in self.data_files:
+        dataframe_weights = []
+        for idx_file, parquet_file in enumerate(self.data_files):
             # read parquet files and cache
             dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
             dataframes.append(dataframe)
+            if self.data_file_weights:
+                # assign the current file weight to each instance from this file
+                dataframe_weights.extend([self.data_file_weights[idx_file]] * len(dataframe))
+
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
+        if dataframe_weights:
+            # Lazy-set this member only when it's needed (i.e., when a valid `self.data_file_weights`` exists)
+            self.dataframe_weights: List = dataframe_weights
+            assert len(self.dataframe_weights) == len(self.dataframe)
 
         print(f"dataset len: {len(self.dataframe)}")
 
