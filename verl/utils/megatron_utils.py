@@ -208,10 +208,10 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
 
 def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     config = OptimizerConfig(
-        optimizer="adam",
-        lr=optim_config.get("lr"),
-        clip_grad=optim_config.get("clip_grad"),
-        weight_decay=1e-2,
+        optimizer='adam',
+        lr=optim_config.get('lr'),
+        clip_grad=optim_config.get('clip_grad'),
+        weight_decay=optim_config.get('weight_decay'),
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
