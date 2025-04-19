@@ -256,7 +256,6 @@ def offload_megatron_model_to_cpu(models, empty_cache: bool = False):
     - fp32 grad chunked in model parallel group
     - fp32 main_parameter chunked in model and dp group
     - fp32 optimizer state chunked in model and dp group
-    Here, we assume that main_parameter and optimizer state are taken care of by mariana
     """
     for model_chunk in models:
         for buffer in model_chunk.buffers:
