@@ -111,6 +111,7 @@ class FSDPSFTTrainer:
         if self.device_mesh.get_rank() == 0:
             print(self.config)
 
+
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
         if self.device_mesh.get_rank() == 0:
