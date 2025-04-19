@@ -17,7 +17,7 @@ Metrics related to the PPO trainer.
 
 from collections import defaultdict
 from functools import partial
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -188,7 +188,7 @@ def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> flo
 
 
 def process_validation_metrics(
-    data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], seed: int = 42
+    data_sources: list[str], sample_inputs: list[str], infos_dict: dict[str, list[Any]], metrics_config: Optional[Dict] = None, seed: int = 42,  
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Process validation metrics into a structured format.
 
@@ -196,10 +196,18 @@ def process_validation_metrics(
         data_sources: Array of data source identifiers for each sample
         sample_inputs: List of input prompts
         infos_dict: variable name -> list of values for each sample
-
+        metrics_config: Configuration for which metrics to compute and report
     Returns:
         dict[str, dict[str, dict[str, float]]]: data source -> variable name -> metric value
     """
+    # Default metrics configuration if none provided
+    if metrics_config is None:
+        metrics_config = {
+            "enabled_metrics": ["pass@N", "mean", "std", "best", "worst", "maj"]
+        }
+    
+    enabled_metrics = set(metrics_config["enabled_metrics"])
+    
     # Group metrics by data source, prompt and variable
     data_src2prompt2var2vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for sample_idx, data_source in enumerate(data_sources):
@@ -217,8 +225,12 @@ def process_validation_metrics(
                     continue
                 metric = {}
                 n_resps = len(var_vals)
-                metric[f"mean@{n_resps}"] = np.mean(var_vals)
-                metric[f"std@{n_resps}"] = np.std(var_vals)
+                
+                # Only compute and include metrics that are enabled
+                if "mean" in enabled_metrics:
+                    metric[f"mean@{n_resps}"] = np.mean(var_vals)
+                if "std" in enabled_metrics:
+                    metric[f"std@{n_resps}"] = np.std(var_vals)
 
                 ns = []
                 n = 2
@@ -229,13 +241,17 @@ def process_validation_metrics(
 
                 for n in ns:
                     # Best/Worst-of-N
-                    [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
-                        data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
-                    )
-                    metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
-                    metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+                    if "best" in enabled_metrics or "worst" in enabled_metrics:
+                        [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
+                            data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
+                        )
+                        if "best" in enabled_metrics:
+                            metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
+                        if "worst" in enabled_metrics:
+                            metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+                    
                     # Majority voting
-                    if var2vals.get("pred", None) is not None:
+                    if "maj" in enabled_metrics and var2vals.get("pred", None) is not None:
                         vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"])]
                         [(maj_n_mean, maj_n_std)] = bootstrap_metric(
                             data=vote_data,
