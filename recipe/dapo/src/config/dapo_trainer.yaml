@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
   truncation: error
   image_key: images
+  video_key: videos
   custom_cls:
       path: null
       name: null
@@ -175,7 +176,7 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
-  overlong_buffer: 
+  overlong_buffer:
     enable: False # We try to avoid forgetting to set enable
     len: 0
     penalty_factor: 0.0
@@ -189,6 +190,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:

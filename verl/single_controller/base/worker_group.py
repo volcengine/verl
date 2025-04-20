@@ -14,11 +14,12 @@
 """
 the class of WorkerGroup
 """
+
 import logging
-import threading
 import signal
+import threading
 import time
-from typing import List, Any, Callable, Dict
+from typing import Any, Callable, Dict, List
 
 from .decorator import MAGIC_ATTR, Dispatch, get_predefined_dispatch_fn, get_predefined_execute_fn
 
@@ -81,6 +82,7 @@ class ClassWithInitArgs:
 
 def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) -> None:
     import time
+
     while True:
         for worker in workers:
             if not is_alive(worker):
@@ -93,7 +95,7 @@ class WorkerGroup:
     """A group of workers"""
 
     def __init__(self, resource_pool: ResourcePool, **kwargs) -> None:
-        self._is_init_with_detached_workers = True if resource_pool is None else False
+        self._is_init_with_detached_workers = resource_pool is None
 
         if resource_pool is not None:
             # handle the case when WorkGroup is attached to an existing one
@@ -110,7 +112,7 @@ class WorkerGroup:
         self._checker_thread: threading.Thread = None
 
     def _is_worker_alive(self, worker):
-        raise NotImplementedError(f"WorkerGroup._is_worker_alive called, should be implemented in derived class.")
+        raise NotImplementedError("WorkerGroup._is_worker_alive called, should be implemented in derived class.")
 
     def _block_until_all_workers_alive(self) -> None:
         while True:
@@ -124,8 +126,9 @@ class WorkerGroup:
         # before starting checking worker aliveness, make sure all workers are already alive
         self._block_until_all_workers_alive()
 
-        self._checker_thread = threading.Thread(target=check_workers_alive,
-                                                args=(self._workers, self._is_worker_alive, every_n_seconds))
+        self._checker_thread = threading.Thread(
+            target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds)
+        )
         self._checker_thread.start()
 
     @property
@@ -141,58 +144,59 @@ class WorkerGroup:
         """
 
         for method_name in dir(user_defined_cls):
-
             try:
                 method = getattr(user_defined_cls, method_name)
                 assert callable(method), f"{method_name} in {user_defined_cls} is not callable"
-            except Exception as e:
+            except Exception:
                 # if it is a property, it will fail because Class doesn't have instance property
                 continue
 
             if hasattr(method, MAGIC_ATTR):
                 # this method is decorated by register
                 attribute = getattr(method, MAGIC_ATTR)
-                assert isinstance(attribute, Dict), f'attribute must be a dictionary. Got {type(attribute)}'
-                assert 'dispatch_mode' in attribute, f'attribute must contain dispatch_mode in its key'
+                assert isinstance(attribute, Dict), f"attribute must be a dictionary. Got {type(attribute)}"
+                assert "dispatch_mode" in attribute, "attribute must contain dispatch_mode in its key"
 
-                dispatch_mode = attribute['dispatch_mode']
-                execute_mode = attribute['execute_mode']
-                blocking = attribute['blocking']
+                dispatch_mode = attribute["dispatch_mode"]
+                execute_mode = attribute["execute_mode"]
+                blocking = attribute["blocking"]
 
                 # get dispatch fn
                 if isinstance(dispatch_mode, Dispatch):
                     # get default dispatch fn
                     fn = get_predefined_dispatch_fn(dispatch_mode=dispatch_mode)
-                    dispatch_fn = fn['dispatch_fn']
-                    collect_fn = fn['collect_fn']
+                    dispatch_fn = fn["dispatch_fn"]
+                    collect_fn = fn["collect_fn"]
                 else:
                     assert isinstance(dispatch_mode, dict)
-                    assert 'dispatch_fn' in dispatch_mode
-                    assert 'collect_fn' in dispatch_mode
-                    dispatch_fn = dispatch_mode['dispatch_fn']
-                    collect_fn = dispatch_mode['collect_fn']
+                    assert "dispatch_fn" in dispatch_mode
+                    assert "collect_fn" in dispatch_mode
+                    dispatch_fn = dispatch_mode["dispatch_fn"]
+                    collect_fn = dispatch_mode["collect_fn"]
 
                 # get execute_fn_name
                 execute_mode = get_predefined_execute_fn(execute_mode=execute_mode)
-                wg_execute_fn_name = execute_mode['execute_fn_name']
+                wg_execute_fn_name = execute_mode["execute_fn_name"]
 
                 # get execute_fn from string
                 try:
                     execute_fn = getattr(self, wg_execute_fn_name)
-                    assert callable(execute_fn), 'execute_fn must be callable'
-                except Exception as e:
-                    print(f'execute_fn {wg_execute_fn_name} is invalid')
+                    assert callable(execute_fn), "execute_fn must be callable"
+                except Exception:
+                    print(f"execute_fn {wg_execute_fn_name} is invalid")
                     raise
 
                 # bind a new method to the RayWorkerGroup
-                func = func_generator(self,
-                                      method_name,
-                                      dispatch_fn=dispatch_fn,
-                                      collect_fn=collect_fn,
-                                      execute_fn=execute_fn,
-                                      blocking=blocking)
+                func = func_generator(
+                    self,
+                    method_name,
+                    dispatch_fn=dispatch_fn,
+                    collect_fn=collect_fn,
+                    execute_fn=execute_fn,
+                    blocking=blocking,
+                )
 
                 try:
                     setattr(self, method_name, func)
-                except Exception as e:
-                    raise ValueError(f'Fail to set method_name {method_name}')
+                except Exception:
+                    raise ValueError(f"Fail to set method_name {method_name}")
