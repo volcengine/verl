@@ -95,7 +95,7 @@ class WorkerGroup:
     """A group of workers"""
 
     def __init__(self, resource_pool: ResourcePool, **kwargs) -> None:
-        self._is_init_with_detached_workers = True if resource_pool is None else False
+        self._is_init_with_detached_workers = resource_pool is None
 
         if resource_pool is not None:
             # handle the case when WorkGroup is attached to an existing one

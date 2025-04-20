@@ -14,7 +14,7 @@
 """
 Utilities for DeepSpeed Ulysses Sequence Parallelism.
 DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
-Inspired from: https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
 
 from typing import Any, Optional, Tuple
@@ -180,10 +180,7 @@ class SeqAllToAll(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
-        if ctx.async_op:
-            input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous()
-        else:
-            input_t = grad_output[0]
+        input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous() if ctx.async_op else grad_output[0]
         return (
             None,
             all_to_all_tensor(input_t, ctx.gather_dim, ctx.scatter_dim, ctx.group, False),
@@ -247,7 +244,7 @@ def gather_outpus_and_unpad(
 ):
     group = get_ulysses_sequence_parallel_group() if group is None else group
     sp_size = get_ulysses_sequence_parallel_world_size()
-    if group == None:
+    if group is None:
         return x
     x = Gather.apply(group, x, gather_dim, grad_scaler)
     if unpad_dim is not None:

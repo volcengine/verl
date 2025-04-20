@@ -82,13 +82,11 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     if is_lora:
 
         def lambda_policy_fn(module):
-            if (
+            return bool(
                 len(list(module.named_children())) == 0
                 and getattr(module, "weight", None) is not None
                 and module.weight.requires_grad
-            ):
-                return True
-            return False
+            )
 
         lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
         policies.append(lambda_policy)

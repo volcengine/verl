@@ -163,10 +163,8 @@ def handle_pi(string, pi):
             idx = string.find("\pi", idx + 1)
 
         # Evaluate the expression using eval() function
-        try:
+        with contextlib.suppress(Exception):
             string = eval(string)
-        except:
-            pass
 
     return string
 
@@ -203,10 +201,7 @@ def math_equal(
             prediction = is_digit(prediction)[1]
             reference = is_digit(reference)[1]
             # number questions
-            if include_percentage:
-                gt_result = [reference / 100, reference, reference * 100]
-            else:
-                gt_result = [reference]
+            gt_result = [reference / 100, reference, reference * 100] if include_percentage else [reference]
             for item in gt_result:
                 try:
                     if isclose(item, prediction, rel_tol=tolerance):
@@ -250,53 +245,52 @@ def math_equal(
     ):
         pred_parts = prediction[1:-1].split(",")
         ref_parts = reference[1:-1].split(",")
-        if len(pred_parts) == len(ref_parts):
-            if all(
-                [
-                    math_equal(pred_pt, ref_pt, include_percentage, tolerance)
-                    for pred_pt, ref_pt in zip(pred_parts, ref_parts)
-                ]
-            ):
-                return True
+        if len(pred_parts) == len(ref_parts) and all(
+            [
+                math_equal(pred_pt, ref_pt, include_percentage, tolerance)
+                for pred_pt, ref_pt in zip(pred_parts, ref_parts)
+            ]
+        ):
+            return True
 
     if "," in prediction and "," in reference:
         pred_parts = [item.strip() for item in prediction.split(",")]
         ref_parts = [item.strip() for item in reference.split(",")]
 
         if len(pred_parts) == len(ref_parts):
-            if all(
-                [math_equal(pred_parts[i], ref_parts[i], include_percentage, tolerance) for i in range(len(pred_parts))]
-            ):
-                return True
-            else:
-                return False
+            return bool(
+                all(
+                    [
+                        math_equal(pred_parts[i], ref_parts[i], include_percentage, tolerance)
+                        for i in range(len(pred_parts))
+                    ]
+                )
+            )
 
     # if we have point == tuple of values
     if prediction.startswith("Point") and reference[0] == "(" and reference[-1] == ")":
         pred_parts = prediction[prediction.find("(") + 1 : -1].split(",")
         ref_parts = reference[1:-1].split(",")
-        if len(pred_parts) == len(ref_parts):
-            if all(
-                [
-                    math_equal(pred_pt, ref_pt, include_percentage, tolerance)
-                    for pred_pt, ref_pt in zip(pred_parts, ref_parts)
-                ]
-            ):
-                return True
+        if len(pred_parts) == len(ref_parts) and all(
+            [
+                math_equal(pred_pt, ref_pt, include_percentage, tolerance)
+                for pred_pt, ref_pt in zip(pred_parts, ref_parts)
+            ]
+        ):
+            return True
 
     # if reference is a matrix
     if "\begin{pmatrix}" in reference and prediction.startswith("Matrix"):
         try:
             pred_matrix = parse_expr(prediction)
             ref_matrix_items = reference.split()[1:-1:2]
-            if len(pred_matrix) == len(ref_matrix_items):
-                if all(
-                    [
-                        math_equal(pred, ref, include_percentage, tolerance)
-                        for ref, pred in zip(ref_matrix_items, pred_matrix)
-                    ]
-                ):
-                    return True
+            if len(pred_matrix) == len(ref_matrix_items) and all(
+                [
+                    math_equal(pred, ref, include_percentage, tolerance)
+                    for ref, pred in zip(ref_matrix_items, pred_matrix)
+                ]
+            ):
+                return True
         except Exception:
             pass
     elif "\begin{pmatrix}" in reference and prediction.startswith("[") and prediction.endswith("]"):
@@ -312,14 +306,13 @@ def math_equal(
                 )
                 ref_matrix_items = ref_matrix_items.split("\\")
                 ref_matrix_items = [row.split("&") if "&" in row else row for row in ref_matrix_items]
-                if len(pred_matrix) == len(ref_matrix_items):
-                    if all(
-                        [
-                            math_equal(pred, ref, include_percentage, tolerance)
-                            for ref, pred in zip(ref_matrix_items, pred_matrix)
-                        ]
-                    ):
-                        return True
+                if len(pred_matrix) == len(ref_matrix_items) and all(
+                    [
+                        math_equal(pred, ref, include_percentage, tolerance)
+                        for ref, pred in zip(ref_matrix_items, pred_matrix)
+                    ]
+                ):
+                    return True
             except Exception:
                 pass
 

@@ -35,7 +35,7 @@ def _megatron_calc_global_rank(
     dp_size = mpu.get_data_parallel_world_size()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     cp_size = mpu.get_context_parallel_world_size()
-    ep_size = mpu.get_expert_model_parallel_world_size()
+    # ep_size = mpu.get_expert_model_parallel_world_size()
 
     # Verify total GPU count matches (must be consistent with parallel_state.py)
     total_size = tp_size * dp_size * pp_size * cp_size
@@ -179,14 +179,11 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         """broadcast tensor in tp shards across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
-        tp_rank = mpu.get_tensor_model_parallel_rank()
+        # tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
@@ -223,14 +220,11 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         """broadcast tensor in tp shards across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
-        tp_rank = mpu.get_tensor_model_parallel_rank()
+        # tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
@@ -276,14 +270,11 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
         """broadcast tensor in tp shards across mp_group"""
         nonlocal state_dict
         nonlocal mp_group
-        tp_rank = mpu.get_tensor_model_parallel_rank()
+        # tp_rank = mpu.get_tensor_model_parallel_rank()
         tp_size = mpu.get_tensor_model_parallel_world_size()
         src_rank = _megatron_calc_global_rank(tp_rank=0, dp_rank=0, pp_rank=src_pp_rank, cp_rank=cp_rank)
 
-        if torch.distributed.get_rank() == src_rank:
-            chunk_shape = tensor.shape
-        else:
-            chunk_shape = None
+        chunk_shape = tensor.shape if torch.distributed.get_rank() == src_rank else None
 
         obj_list = [chunk_shape]
         dist.broadcast_object_list(obj_list, src=src_rank, group=mp_group)
@@ -471,3 +462,9 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
 
     print_rank_0(f"merge megatron ckpt done, time elapsed {time.time() - start_time}s")
     return state_dict
+
+
+def merge_megatron_ckpt_gptmodel_qwen_moe(
+    wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False
+):
+    raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen_moe is not implemented")

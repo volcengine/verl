@@ -256,11 +256,15 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
             # perform weight resharding between actor and rollout
+            from verl.models.mcore import get_mcore_weight_converter
+
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
+                weight_converter=weight_converter,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
@@ -286,10 +290,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
-            if self._is_actor:
-                optim_config = self.config.actor.optim
-            else:
-                optim_config = None
+            optim_config = self.config.actor.optim if self._is_actor else None
             self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = (
                 self._build_model_optimizer(
                     model_path=self.config.model.path,

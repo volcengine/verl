@@ -402,10 +402,7 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
 
     total_nnz = unpad_tokens.shape[0]
 
-    if total_nnz % size == 0:
-        pad_size = 0
-    else:
-        pad_size = size - total_nnz % size
+    pad_size = 0 if total_nnz % size == 0 else size - total_nnz % size
 
     # we assume adding a new data in the batch with seqlen pad_size
     if pad_size > 0:

@@ -16,7 +16,7 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
-import importlib
+import importlib.util
 from functools import cache
 from typing import List, Optional
 

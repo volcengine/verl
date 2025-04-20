@@ -92,10 +92,7 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_m
     cur_Q = (token_level_scores * response_mask).sum(dim=1) * beta
     other_Q = torch.zeros_like(cur_Q)
     for i in range(token_level_scores.shape[0]):
-        if acc[i] > 0:
-            Q_chosen = Q_bc[i][acc_bc[i] < acc[i]]
-        else:
-            Q_chosen = Q_bc[i][acc_bc[i] > acc[i]]
+        Q_chosen = Q_bc[i][acc_bc[i] < acc[i]] if acc[i] > 0 else Q_bc[i][acc_bc[i] > acc[i]]
         if len(Q_chosen) > 0:
             other_Q[i] = Q_chosen.mean() * beta
         else:

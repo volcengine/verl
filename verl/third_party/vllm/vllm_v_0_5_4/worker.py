@@ -292,7 +292,7 @@ class Worker(Worker):
             load_dtensor_weights(actor_weights, self.model_runner.model)
 
     def offload_model_weights(self) -> None:
-        if self.cpu_model == None:
+        if self.cpu_model is None:
             self.cpu_model = {}
             for name, params in self.model_runner.model.named_parameters():
                 self.cpu_model[name] = torch.empty_like(params, device="cpu")

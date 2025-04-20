@@ -38,10 +38,7 @@ def pad_to_sequence_parallel(unpad_tokens: torch.Tensor):
     total_nnz = unpad_tokens.shape[0]
     sp_world_size = mpu.get_tensor_model_parallel_world_size()
 
-    if total_nnz % sp_world_size == 0:
-        pad_size = 0
-    else:
-        pad_size = sp_world_size - total_nnz % sp_world_size
+    pad_size = 0 if total_nnz % sp_world_size == 0 else sp_world_size - total_nnz % sp_world_size
 
     if pad_size > 0:
         if unpad_tokens.ndim == 1:

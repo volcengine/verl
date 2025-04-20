@@ -27,9 +27,9 @@ requires-python = ">=3.8"
 # tool.ruff - Linting configuration
 # -------------------------------
 [tool.ruff]
+# Note: While the formatter will attempt to format lines such that they remain within the line-length,
+# it isn't a hard upper bound, and formatted lines may exceed the line-length.
 line-length = 120
-
-# Enable import sorting
 
 [tool.ruff.lint]
 isort = {known-first-party = ["verl"]}
@@ -43,8 +43,6 @@ select = [
     "UP",
     # flake8-bugbear
     "B",
-    # flake8-simplify
-    "SIM",
     # isort
     "I",
     "G",

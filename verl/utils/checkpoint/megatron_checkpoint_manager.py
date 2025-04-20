@@ -180,10 +180,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         rng_state = torch.load(rng_state_path, weights_only=False)
         # access rng_state for data parallel rank
         if not use_dist_ckpt:
-            if data_parallel_random_init:
-                rng_state = rng_state[mpu.get_data_parallel_rank()]
-            else:
-                rng_state = rng_state[0]
+            rng_state = rng_state[mpu.get_data_parallel_rank()] if data_parallel_random_init else rng_state[0]
         random.setstate(rng_state["random_rng_state"])
         np.random.set_state(rng_state["np_rng_state"])
         torch.set_rng_state(rng_state["torch_rng_state"])
