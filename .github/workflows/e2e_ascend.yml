@@ -4,23 +4,23 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_ascend.yml
   pull_request:
     branches:
       - main
     paths:
       - "**/*.py"
       - .github/workflows/e2e_ascend.yml
+  workflow_run:
+    workflows: ["pre-commit"]
+    types:
+      - completed
 
 permissions:
   contents: read
   
 jobs:
   test:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
     timeout-minutes: 5 # Increase this timeout value as needed

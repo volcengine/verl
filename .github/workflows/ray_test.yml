@@ -4,12 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-      - v0.*
-    paths:
-      - "verl/single_controller/*.py"
-      - .github/workflows/ray_test.yml
   pull_request:
     branches:
       - main
@@ -18,6 +12,10 @@ on:
       - "verl/single_controller/*.py"
       - .github/workflows/ray_test.yml
       - "!recipe/**"
+  workflow_run:
+    workflows: ["pre-commit"]
+    types:
+      - completed
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -30,6 +28,7 @@ permissions:
 
 jobs:
   ray:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:

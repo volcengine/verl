@@ -4,15 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-      - v0.*
-    paths:
-      - "verl/**/*.py"
-      - "tests/**/*.sh"
-      - "tests/model/*"
-      - .github/workflows/model.yml
-      - "!recipe/**"
   pull_request:
     branches:
       - main
@@ -23,6 +14,10 @@ on:
       - "tests/model/*"
       - .github/workflows/model.yml
       - "!recipe/**"
+  workflow_run:
+    workflows: ["pre-commit"]
+    types:
+      - completed
 
 # Declare permissions just read content.
 permissions: 
@@ -30,6 +25,7 @@ permissions:
 
 jobs:
   model_rmpad:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:

@@ -4,12 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-      - v0.3.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/sandbox.yml
   pull_request:
     branches:
       - main
@@ -17,6 +11,10 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/sandbox.yml
+  workflow_run:
+    workflows: ["pre-commit"]
+    types:
+      - completed
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -29,6 +27,7 @@ permissions:
 
 jobs:
   sandbox:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
