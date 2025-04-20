@@ -15,7 +15,7 @@
 Contain small torch utilities
 """
 
-from typing import Dict, Union, List, Optional
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
@@ -25,6 +25,7 @@ from torch import nn
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
+
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = True
 except ImportError:
     FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE = False
@@ -63,8 +64,9 @@ def logprobs_from_logits(logits, labels, inplace_backward=True):
 
 def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
     output = cross_entropy_loss(logits, labels, inplace_backward=inplace_backward)
-    assert isinstance(
-        output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
+    assert isinstance(output, tuple), (
+        "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
+    )
     return -output[0]
 
 
@@ -148,9 +150,9 @@ def masked_whiten(values, mask, shift_mean=True):
 
 
 def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]] = 2, dtype=torch.int64):
-    '''
+    """
     end of sentence token can be int or list: 1 or [1, 2]
-    e.g. 
+    e.g.
     response_id = torch.tensor([[20, 10, 34, 1, 0, 0, 0],
                                 [78, 0, 76, 2, 1, 0, 0],
                                 [23, 98, 1, 0, 0, 0, 0],
@@ -165,7 +167,7 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
                             [1, 1, 1, 1, 0, 0, 0],
                             [1, 1, 1, 0, 0, 0, 0],
                             [1, 1, 1, 1, 1, 0, 0]])
-    '''
+    """
     eos_mask = torch.isin(response_id, torch.tensor(eos_token, device=response_id.device)).int()
     return (eos_mask.cumsum(dim=1) - eos_mask).eq(0).to(dtype)
 
@@ -223,8 +225,9 @@ def allgather_dict_tensors(tensors: Union[Dict[str, torch.Tensor], TensorDict], 
 
 
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> List[TensorDict]:
-    assert tensors.batch_size[0] % batch_size == 0, \
-        f'input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}'
+    assert tensors.batch_size[0] % batch_size == 0, (
+        f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
+    )
     return tensors.split(batch_size)
 
 
@@ -233,10 +236,7 @@ def pad_2d_list_to_length(response, pad_token_id, max_length=None):
     pad a 2D list (e.g. responses, logprobs) to a 2D tensor.
     """
     response_length = max(len(sub_list) for sub_list in response)
-    if max_length is not None and max_length > response_length:
-        target_length = max_length
-    else:
-        target_length = response_length
+    target_length = max_length if max_length is not None and max_length > response_length else response_length
     padded_response = [tuple(sub_list) + (pad_token_id,) * (target_length - len(sub_list)) for sub_list in response]
     tensor = torch.tensor(padded_response)
     return tensor
@@ -252,49 +252,49 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     if tensors.shape[-1] >= max_seq_len:
         return tensors
     pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
-    return F.pad(tensors, pad_tuple, 'constant', pad_token_id)
+    return F.pad(tensors, pad_tuple, "constant", pad_token_id)
 
 
-def postprocess_data(input_ids: torch.Tensor,
-                     attention_mask: torch.Tensor,
-                     max_length: int,
-                     pad_token_id: int,
-                     left_pad=True,
-                     truncation='error'):
+def postprocess_data(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    max_length: int,
+    pad_token_id: int,
+    left_pad=True,
+    truncation="error",
+):
     """
     input_data is the output from tokenizer.
     """
-    assert truncation in ['left', 'right', 'error']
+    assert truncation in ["left", "right", "error"]
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
     if sequence_length < max_length:
-        input_ids = pad_sequence_to_length(input_ids,
-                                           max_seq_len=max_length,
-                                           pad_token_id=pad_token_id,
-                                           left_pad=left_pad)
-        attention_mask = pad_sequence_to_length(attention_mask,
-                                                max_seq_len=max_length,
-                                                pad_token_id=0,
-                                                left_pad=left_pad)
+        input_ids = pad_sequence_to_length(
+            input_ids, max_seq_len=max_length, pad_token_id=pad_token_id, left_pad=left_pad
+        )
+        attention_mask = pad_sequence_to_length(
+            attention_mask, max_seq_len=max_length, pad_token_id=0, left_pad=left_pad
+        )
     elif sequence_length > max_length:
-        if truncation == 'left':
+        if truncation == "left":
             # actually, left truncation may not be reasonable
             input_ids = input_ids[:, -max_length:]
             attention_mask = attention_mask[:, -max_length:]
-        elif truncation == 'right':
+        elif truncation == "right":
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
-        elif truncation == 'error':
-            raise NotImplementedError(f'{sequence_length=} is larger than {max_length=}')
+        elif truncation == "error":
+            raise NotImplementedError(f"{sequence_length=} is larger than {max_length=}")
         else:
-            raise NotImplementedError(f'Unknown truncation method {truncation}')
+            raise NotImplementedError(f"Unknown truncation method {truncation}")
 
     return input_ids, attention_mask
 
 
 def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
-    """ Remove the pad token.
+    """Remove the pad token.
 
     Args:
         input_ids shape: [bs, seq_length]
@@ -304,7 +304,7 @@ def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
     """
     no_padding_batch = []
     for ids, mask in zip(input_ids, attention_mask):
-        no_padding_batch.append((ids[len(ids) - mask.sum():]).cpu().numpy().tolist())
+        no_padding_batch.append((ids[len(ids) - mask.sum() :]).cpu().numpy().tolist())
     return no_padding_batch
 
 
@@ -318,7 +318,7 @@ def log_probs_from_logits_response(input_ids, logits, response_length):
     Returns:
         response_log_prob:
     """
-    response_logits = logits[:, -response_length - 1:-1]
+    response_logits = logits[:, -response_length - 1 : -1]
     response = input_ids[:, -response_length:]
     response_log_prob = logprobs_from_logits(logits=response_logits, labels=response)
     return response_log_prob
@@ -344,11 +344,10 @@ def log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad
     input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
     full_log_probs_rmpad = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)  # (total_nnz,)
-    full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
-                            indices=indices,
-                            batch=batch_size,
-                            seqlen=seqlen)
-    output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
+    full_output = pad_input(
+        hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+    )
+    output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
 
 
@@ -368,23 +367,20 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
         response_length: int
     """
     from flash_attn.bert_padding import pad_input
+
     input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # transpose back to [total_nnz, 1]
     input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
     full_log_probs_rmpad = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)  # (total_nnz,)
-    full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
-                            indices=indices,
-                            batch=batch_size,
-                            seqlen=seqlen)
-    output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
+    full_output = pad_input(
+        hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+    )
+    output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
 
 
-from transformers.generation.logits_process import (TemperatureLogitsWarper, TopKLogitsWarper, TopPLogitsWarper)
-
-
 def post_process_logits(input_ids, logits, temperature, top_k, top_p):
-    if temperature != 1.:
+    if temperature != 1.0:
         logits = logits.div_(temperature)  # inplace operation to avoid OOM
     # TODO: add them back
     # if top_k is not None and top_k > 0:
@@ -398,9 +394,10 @@ def post_process_logits(input_ids, logits, temperature, top_k, top_p):
 Optimizer related
 """
 
+import math
+
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
-import math
 
 
 def get_cosine_schedule_with_warmup(
@@ -432,7 +429,7 @@ def get_cosine_schedule_with_warmup(
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
-    assert min_lr_ratio >= 0 and min_lr_ratio <= 1.
+    assert min_lr_ratio >= 0 and min_lr_ratio <= 1.0
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
@@ -451,7 +448,6 @@ def get_constant_schedule_with_warmup(
     num_warmup_steps: int,
     last_epoch: int = -1,
 ):
-
     def lr_lambda(current_step):
         return min(1, float(current_step) / float(max(1, num_warmup_steps)))
 
@@ -471,10 +467,12 @@ def prepare_decoder_attention_mask(attention_mask, input_shape, inputs_embeds):
 
     if attention_mask is not None:
         # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-        expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype,
-                                          tgt_len=input_shape[-1]).to(inputs_embeds.device)
-        combined_attention_mask = (expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask +
-                                   combined_attention_mask)
+        expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(
+            inputs_embeds.device
+        )
+        combined_attention_mask = (
+            expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
+        )
 
     return combined_attention_mask
 

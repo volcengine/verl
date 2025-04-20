@@ -3,10 +3,30 @@ name: e2e_ppo_trainer
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.*
+    paths:
+      - "**/*.py"
+      # Entrypoints
+      - ".github/workflows/e2e_ppo_trainer.yml"
+      - "examples/data_preprocess/gsm8k.py"
+      - "examples/data_preprocess/geo3k.py"
+      - "tests/e2e/ppo_trainer"
+      - "verl/trainer/main_ppo.py"
+      - "verl/trainer/config/ppo_trainer.yaml"
+      - "!examples"
+      - "!verl/trainer/main_*.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      # Recipes
+      - "!recipe"
+      # Megatron
+      - "!verl/workers/**/megatron_*.py"
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       # Entrypoints

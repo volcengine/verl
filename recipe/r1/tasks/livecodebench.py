@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import multiprocessing
+import base64
 import json
+import multiprocessing
 import pickle
 import zlib
-import base64
 
 # Reuse `run_test` for convenience
 from verl.utils.reward_score.prime_code.testing_util import run_test
@@ -48,12 +48,12 @@ def check_correctness(in_outs, generation, timeout, debug=True):
         # consider that all tests failed
         result = [[-1 for i in range(len(in_outs["inputs"]))]]
         if debug:
-            print(f"global timeout")
+            print("global timeout")
     return result[0], metadata_list[0]
 
 
 def compute_score(completion, test_cases):
-    solution = completion.split('```python')[-1].split('```')[0]
+    solution = completion.split("```python")[-1].split("```")[0]
 
     # extract test cases
     try:
@@ -64,8 +64,8 @@ def compute_score(completion, test_cases):
     success = False
     try:
         res, metadata = check_correctness(in_outs=in_outs, generation=solution, timeout=6, debug=False)
-        success = all(map(lambda x: x == True, res))
-    except Exception as e:
+        success = all(map(lambda x: x is True, res))
+    except Exception:
         pass
 
     return success
