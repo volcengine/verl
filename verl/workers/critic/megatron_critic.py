@@ -28,7 +28,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
-from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
+from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean, split_dict_tensor_into_batches
 from verl.workers.critic import BasePPOCritic
@@ -133,20 +133,11 @@ class MegatronPPOCritic(BasePPOCritic):
         n_micro_batch = len(batches)
         seq_len = batches[0]["input_ids"].shape[1]
 
-        # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "hidden_size": self.model_config.hidden_size,
-            },
-        )
-
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):
             if forward_only:
-                return 1.0, {"vpreds": output}
+                return torch.tensor(1.0, device=output.device), {"vpreds": output}
 
             responses = data["responses"]
             attention_mask = data["attention_mask"]
