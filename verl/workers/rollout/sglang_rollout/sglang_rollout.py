@@ -139,6 +139,7 @@ class SGLangRollout(BaseRollout):
             mesh_shape=(world_size // tp_size, tp_size, 1),
             mesh_dim_names=["dp", "tp", "pp"],
         )
+
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
