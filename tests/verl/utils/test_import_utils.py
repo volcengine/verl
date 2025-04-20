@@ -13,9 +13,9 @@
 # limitations under the License.
 
 import os
-import sys
-import importlib.util
+
 import pytest
+
 from verl.utils.import_utils import load_extern_type
 
 # Path to the test module
@@ -84,7 +84,7 @@ def test_load_extern_type_invalid_module():
     # Create a temporary file with syntax errors
     import tempfile
 
-    with tempfile.NamedTemporaryFile(suffix='.py', mode='w+', delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w+", delete=False) as temp_file:
         temp_file.write("This is not valid Python syntax :")
         temp_path = temp_file.name
 
