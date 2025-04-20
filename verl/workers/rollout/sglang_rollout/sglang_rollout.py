@@ -136,74 +136,15 @@ class SGLangRollout(BaseRollout):
             mesh_dim_names=["dp", "tp", "pp"],
         )
 
-
-        ########################
-        # import torch.distributed as dist
-
-        # # 正确的方式是使用 Backend 的属性
-        # print("Available backends:")
-        # print(f"- {dist.Backend.GLOO}")
-        # print(f"- {dist.Backend.NCCL}")
-        # print(f"- {dist.Backend.MPI}")
-
-        # # 检查特定 backend 是否可用
-        # print("\nBackend availability:")
-        # print(f"NCCL available: {dist.is_nccl_available()}")
-        # print(f"GLOO available: {dist.is_gloo_available()}")
-        # print(f"MPI available: {dist.is_mpi_available()}")
-
-        # # 如果是 ROCm 环境，还可以检查
-        # if hasattr(dist, 'is_rccl_available'):
-        #     print(f"RCCL available: {dist.is_rccl_available()}")
-        ###(WorkerDict pid=544967) NCCL available: True
-        ###(WorkerDict pid=544967) GLOO available: True
-        ###(WorkerDict pid=544967) MPI available: False
-
-        #################
-
-        # # 确保在创建 device mesh 之前初始化 process group
-        # if not torch.distributed.is_initialized():
-        #     # 对于 CPU 操作使用 GLOO backend
-        #     torch.distributed.init_process_group(backend='gloo')
-        # else:
-        #     # 如果已经初始化，检查当前 backend
-        #     current_backend = torch.distributed.get_backend()
-        #     if current_backend != 'gloo':
-        #         # 如果不是 gloo，需要重新初始化
-        #         torch.distributed.destroy_process_group()
-        #         torch.distributed.init_process_group(backend='gloo')
-
-        # # 打印当前配置用于调试
-        # print(f"Current backend: {torch.distributed.get_backend()}")
-        # print(f"World size: {torch.distributed.get_world_size()}")
-        # print(f"Rank: {torch.distributed.get_rank()}")
-        
-        
-        ########################
-        ########################
-        ########################
-        # current_backend = torch.distributed.get_backend()
-        # print(f"当前 backend: {current_backend}")
-        # if current_backend == "undefined" or current_backend != "gloo":
-        #     print("后端不正确，重新初始化...")
-        #     torch.distributed.destroy_process_group()
-        #     torch.distributed.init_process_group(backend='gloo')
-        #     print(f"重新初始化完成，当前 backend: {torch.distributed.get_backend()}")
-        ########################
-        ########################
-        ########################
-
-        ########################
-
-
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
         # get tp_rank of this process in this tp group
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"],
-                                            device_mesh_cpu.get_group("tp"))
+        torch.distributed.all_gather_object(visible_devices, 
+                                    os.environ["CUDA_VISIBLE_DEVICES"],
+                                    device_mesh_cpu.get_group("tp"))
         visible_devices_set = set(visible_devices)
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
