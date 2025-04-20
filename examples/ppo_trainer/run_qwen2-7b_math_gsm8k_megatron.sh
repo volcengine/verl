@@ -1,6 +1,7 @@
 set -x
 
-export VLLM_ATTENTION_BACKEND=XFORMERS
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
 
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
