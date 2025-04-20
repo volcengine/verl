@@ -300,7 +300,7 @@ class MegatronPPOActor(BasePPOActor):
                     stats = post_process_fn(output, data)
                     metrics.update(stats)
                 if not calculate_entropy:
-                    return 1.0, metrics
+                    return torch.tensor(1.0, device=output.device), metrics
 
             responses = data["responses"]
             response_length = responses.size(1)
@@ -344,7 +344,7 @@ class MegatronPPOActor(BasePPOActor):
 
             stats = {}
             if forward_only:
-                policy_loss = 1.0
+                policy_loss = torch.tensor(1.0, device=output.device)
             else:
                 if self.config.use_kl_loss:
                     ref_log_prob = data["ref_log_prob"]
