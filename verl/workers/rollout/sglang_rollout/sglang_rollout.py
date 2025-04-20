@@ -142,9 +142,8 @@ class SGLangRollout(BaseRollout):
         # get tp_rank of this process in this tp group
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(visible_devices, 
-                                    os.environ["CUDA_VISIBLE_DEVICES"],
-                                    device_mesh_cpu.get_group("tp"))
+        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"],
+                                            device_mesh_cpu.get_group("tp"))
         visible_devices_set = set(visible_devices)
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
@@ -152,13 +151,11 @@ class SGLangRollout(BaseRollout):
         server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
         ip, port_args = get_ip(), PortArgs.init_new(server_args)
 
-
         [ip, port_args] = broadcast_pyobj([ip, port_args],
-                                        rank=tp_rank,
-                                        dist_group=device_mesh_cpu.get_group("tp"),
-                                        src=device_mesh_cpu["tp"].mesh[0].item())
+                                          rank=tp_rank,
+                                          dist_group=device_mesh_cpu.get_group("tp"),
+                                          src=device_mesh_cpu["tp"].mesh[0].item())
         dist_init_addr = f"{ip}:{port_args.nccl_port}"
-        
 
         self.inference_engine = VerlEngine(
             model_path=actor_module,
