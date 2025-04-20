@@ -14,13 +14,14 @@
 """
 Utilities for DeepSpeed Ulysses Sequence Parallelism.
 DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
-Inspired from: https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
-from typing import Any, Optional, List, Tuple
+
+from typing import Any, Optional, Tuple
 
 import torch
-from torch import Tensor
 import torch.distributed as dist
+from torch import Tensor
 from torch.distributed import ProcessGroup
 
 _ULYSSES_SEQUENCE_PARALLEL_GROUP = None
@@ -162,7 +163,6 @@ def all_gather_tensor(local_tensor: Tensor, group: Optional[dist.ProcessGroup] =
 
 
 class SeqAllToAll(torch.autograd.Function):
-
     @staticmethod
     def forward(
         ctx: Any,
@@ -180,10 +180,7 @@ class SeqAllToAll(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
-        if ctx.async_op:
-            input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous()
-        else:
-            input_t = grad_output[0]
+        input_t = torch.cat(grad_output[1:], dim=ctx.gather_dim).contiguous() if ctx.async_op else grad_output[0]
         return (
             None,
             all_to_all_tensor(input_t, ctx.gather_dim, ctx.scatter_dim, ctx.group, False),
@@ -195,14 +192,15 @@ class SeqAllToAll(torch.autograd.Function):
 
 
 class Gather(torch.autograd.Function):
-
     @staticmethod
-    def forward(ctx: Any,
-                group: dist.ProcessGroup,
-                local_tensor: Tensor,
-                gather_dim: int,
-                grad_scaler: bool = True,
-                async_op=False) -> Tensor:
+    def forward(
+        ctx: Any,
+        group: dist.ProcessGroup,
+        local_tensor: Tensor,
+        gather_dim: int,
+        grad_scaler: bool = True,
+        async_op=False,
+    ) -> Tensor:
         ctx.group = group
         ctx.gather_dim = gather_dim
         ctx.grad_scaler = grad_scaler
@@ -226,32 +224,40 @@ class Gather(torch.autograd.Function):
     def backward(ctx: Any, grad_output: Tensor) -> Any:
         if ctx.grad_scaler:
             grad_output = grad_output * ctx.sp_world_size
-        return (None, grad_output.split(ctx.part_size,
-                                        dim=ctx.gather_dim)[ctx.sp_rank].contiguous(), None, None, None, None)
+        return (
+            None,
+            grad_output.split(ctx.part_size, dim=ctx.gather_dim)[ctx.sp_rank].contiguous(),
+            None,
+            None,
+            None,
+            None,
+        )
 
 
-def gather_outpus_and_unpad(x: Tensor,
-                            gather_dim: int,
-                            unpad_dim: int = None,
-                            padding_size: int = 0,
-                            grad_scaler: bool = True,
-                            group: Optional[dist.ProcessGroup] = None):
+def gather_outpus_and_unpad(
+    x: Tensor,
+    gather_dim: int,
+    unpad_dim: int = None,
+    padding_size: int = 0,
+    grad_scaler: bool = True,
+    group: Optional[dist.ProcessGroup] = None,
+):
     group = get_ulysses_sequence_parallel_group() if group is None else group
     sp_size = get_ulysses_sequence_parallel_world_size()
-    if group == None:
+    if group is None:
         return x
     x = Gather.apply(group, x, gather_dim, grad_scaler)
     if unpad_dim is not None:
-        assert isinstance(padding_size, int), 'padding size is not given or is not an integer'
+        assert isinstance(padding_size, int), "padding size is not given or is not an integer"
         if padding_size == 0:
             return x
         x = _unpad_tensor(x, unpad_dim, padding_size)
     return x
 
 
-def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
-                                 position_ids_rmpad: Optional[torch.Tensor] = None,
-                                 sp_size: int = 1):
+def ulysses_pad_and_slice_inputs(
+    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
+):
     """
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
@@ -268,7 +274,7 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
     Returns:
         torch.Tensor: padded and sliced input_ids
         torch.Tensor: padded and sliced position_ids
-        int: pad size 
+        int: pad size
     """
     if position_ids_rmpad is not None:
         assert position_ids_rmpad.size(0) == 1
@@ -290,5 +296,6 @@ def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor,
 
 def validate_ulysses_config(num_heads, ulysses_sequence_size):
     if ulysses_sequence_size > 1:
-        assert num_heads % ulysses_sequence_size == 0,\
+        assert num_heads % ulysses_sequence_size == 0, (
             f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        )
