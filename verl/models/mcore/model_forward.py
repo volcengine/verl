@@ -13,13 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from verl.utils.megatron import sequence_parallel as sp_utils
-from verl.utils.megatron import tensor_parallel as tp_utils
-import torch
-from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core import parallel_state as mpu
 from verl.utils.megatron_utils import unwrap_model
-from .util import preprocess_packed_seqs, postprocess_packed_seqs, remove_left_padding, recover_left_padding
+
+from .util import postprocess_packed_seqs, preprocess_packed_seqs, recover_left_padding, remove_left_padding
 
 
 def gptmodel_forward_dense(model,

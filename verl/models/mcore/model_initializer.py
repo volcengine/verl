@@ -23,8 +23,8 @@ def init_mcore_model_dense(tfconfig,
                            share_embeddings_and_output_weights=False,
                            value=False):
     # for LlamaForCausalLM, Qwen2ForCausalLM
-    from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+    from megatron.core.models.gpt.gpt_model import GPTModel
     use_te = True
     assert tfconfig.normalization == "RMSNorm", 'only RMSNorm is supported for now'
     transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=use_te)

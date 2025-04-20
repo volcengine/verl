@@ -15,11 +15,11 @@
 
 # convert huggingface config to mcore transformer config
 
-from transformers import PretrainedConfig
-from megatron.core.transformer import TransformerConfig
 import torch
 import torch.nn.functional as F
+from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.enums import AttnBackend
+from transformers import PretrainedConfig
 
 
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
