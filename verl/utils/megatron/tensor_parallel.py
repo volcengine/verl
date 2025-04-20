@@ -15,27 +15,28 @@
 """
 Utilities for using tensor_parallel in megatron
 """
+
 from typing import Dict
+
 import torch
-from torch.nn import init
 import torch.distributed as dist
-from megatron.core import ModelParallelConfig
-from megatron.core import parallel_state as mpu, tensor_parallel
-import verl.utils.torch_functional as verl_F
+from megatron.core import ModelParallelConfig, tensor_parallel
+from megatron.core import parallel_state as mpu
+from torch.nn import init
 
 
 def update_kwargs_with_config(dictionary: Dict, config: ModelParallelConfig):
-    dictionary['config'] = config
+    dictionary["config"] = config
     return dictionary
 
 
 def get_default_kwargs_for_model_parallel_config():
     model_parallel_config_kwargs = {
-        'params_dtype': torch.float32,
-        'use_cpu_initialization': False,
-        'perform_initialization': True,
-        'gradient_accumulation_fusion': False,
-        'sequence_parallel': False,
+        "params_dtype": torch.float32,
+        "use_cpu_initialization": False,
+        "perform_initialization": True,
+        "gradient_accumulation_fusion": False,
+        "sequence_parallel": False,
     }
     return model_parallel_config_kwargs
 
@@ -47,10 +48,10 @@ def get_default_model_parallel_config():
 def get_common_default_kwargs_for_parallel_linear():
     default_model_parallel_config = get_default_model_parallel_config()
     common_default_kwargs = {
-        'init_method': init.xavier_normal_,
-        'stride': 1,
-        'keep_master_weight_for_test': False,
-        'config': default_model_parallel_config,
+        "init_method": init.xavier_normal_,
+        "stride": 1,
+        "keep_master_weight_for_test": False,
+        "config": default_model_parallel_config,
     }
     return common_default_kwargs
 
@@ -58,11 +59,11 @@ def get_common_default_kwargs_for_parallel_linear():
 def get_default_kwargs_for_column_parallel_linear():
     model_parallel_config_kwargs = get_default_kwargs_for_model_parallel_config()
     column_parallel_config_kwargs = {
-        'async_tensor_model_parallel_allreduce': False,
+        "async_tensor_model_parallel_allreduce": False,
     }
     model_parallel_config_kwargs.update(column_parallel_config_kwargs)
     column_default_kwargs = {
-        'config': ModelParallelConfig(**model_parallel_config_kwargs),
+        "config": ModelParallelConfig(**model_parallel_config_kwargs),
     }
     common_default_kwargs = get_common_default_kwargs_for_parallel_linear()
     common_default_kwargs.update(column_default_kwargs)
@@ -77,14 +78,14 @@ def get_default_kwargs_for_row_parallel_linear():
 def get_default_kwargs_for_parallel_embedding():
     model_parallel_config_kwargs = get_default_kwargs_for_model_parallel_config()
     embedding_default_kwargs = {
-        'init_method': init.xavier_normal_,
-        'config': ModelParallelConfig(**model_parallel_config_kwargs),
+        "init_method": init.xavier_normal_,
+        "config": ModelParallelConfig(**model_parallel_config_kwargs),
     }
     return embedding_default_kwargs
 
 
 def is_tensor_parallel_param(param):
-    return (hasattr(param, 'tensor_model_parallel') and param.tensor_model_parallel)
+    return hasattr(param, "tensor_model_parallel") and param.tensor_model_parallel
 
 
 def get_tensor_parallel_partition_dim(param):
@@ -98,10 +99,8 @@ def get_tensor_parallel_partition_stride(param):
 
 
 class _VocabParallelEntropy(torch.autograd.Function):
-
     @staticmethod
     def forward(ctx, vocab_parallel_logits: torch.Tensor) -> torch.Tensor:
-
         @torch.compile(dynamic=True)
         def mul_reduce(a, b):
             return (a * b).sum(dim=-1, keepdim=True)
@@ -134,12 +133,12 @@ class _VocabParallelEntropy(torch.autograd.Function):
 
 def vocab_parallel_entropy(vocab_parallel_logits: torch.Tensor) -> torch.Tensor:
     """Compute entropy when the logits are sharded in tp ranks
-    
+
     Args:
         vocab_parallel_logits: (total_nnz, vocab_size // tp_size)
 
     Returns: (total_nnz,)
-        
+
     """
     return _VocabParallelEntropy.apply(vocab_parallel_logits)
 
@@ -166,11 +165,11 @@ def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mas
     input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask=attention_mask)
     input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
-    full_log_probs_rmpad = vocab_parallel_log_probs_from_logits(logits=logits_rmpad,
-                                                                labels=input_ids_rmpad_rolled)  # (total_nnz,)
-    full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1),
-                            indices=indices,
-                            batch=batch_size,
-                            seqlen=seqlen)
-    output = full_output.squeeze(-1)[:, -response_length - 1:-1]  # [batch_size, response_length]
+    full_log_probs_rmpad = vocab_parallel_log_probs_from_logits(
+        logits=logits_rmpad, labels=input_ids_rmpad_rolled
+    )  # (total_nnz,)
+    full_output = pad_input(
+        hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+    )
+    output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
