@@ -45,6 +45,7 @@ class DataParallelPPOActor(BasePPOActor):
         print(f"Actor use_remove_padding={self.use_remove_padding}")
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+        self.use_materialized_logits = self.config.get("use_materialized_logits", True)
 
         self.compute_entropy_from_logits = (
             torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -117,21 +118,41 @@ class DataParallelPPOActor(BasePPOActor):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
-                logits_rmpad.div_(temperature)
+                if self.use_materialized_logits:
+                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
-                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                inplace_backward = True
-                if calculate_entropy:
-                    inplace_backward = False
-                log_probs = logprobs_from_logits(
-                    logits=logits_rmpad, labels=input_ids_rmpad_rolled, inplace_backward=inplace_backward
-                )
+                    logits_rmpad.div_(temperature)
 
-                # compute entropy
-                if calculate_entropy:
-                    entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                    inplace_backward = True
+                    if calculate_entropy:
+                        inplace_backward = False
+                    log_probs = logprobs_from_logits(
+                        logits=logits_rmpad, labels=input_ids_rmpad_rolled, inplace_backward=inplace_backward
+                    )
+
+                    # compute entropy
+                    if calculate_entropy:
+                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+
+                else:
+                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
+
+                    hidden_states = output.last_hidden_state
+                    assert hidden_states.ndim == 3 and hidden_states.shape[0] == 1
+                    vocab_weights = self.actor_module.lm_head.weight
+
+                    log_probs = fused_log_probs(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                        input_ids=input_ids_rmpad_rolled[None],
+                        temperature=temperature,
+                    ).squeeze(0)
+                    entropy_rmpad = fused_entropy(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                    ).squeeze(0)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -163,12 +184,31 @@ class DataParallelPPOActor(BasePPOActor):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                logits = output.logits
-                logits.div_(temperature)
-                logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                log_probs = logprobs_from_logits(logits, micro_batch["responses"])
-                if calculate_entropy:
-                    entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+
+                if self.use_materialized_logits:
+                    logits = output.logits
+                    logits.div_(temperature)
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+
+                else:
+                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
+
+                    hidden_states = output.last_hidden_state
+                    vocab_weights = self.actor_module.lm_head.weight
+
+                    log_probs = fused_log_probs(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                        input_ids=micro_batch["responses"],
+                        temperature=temperature,
+                    )
+                    entropy = fused_entropy(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                    )
 
             return entropy, log_probs
 
