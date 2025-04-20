@@ -4,23 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-      - v0.*
-    paths:
-      - "**/*.py"
-      # Entrypoints
-      - ".github/workflows/e2e_sft.yml"
-      - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/sft"
-      - "verl/trainer/fsdp_sft_trainer.py"
-      - "verl/trainer/config/sft_trainer.yaml"
-      - "!examples"
-      - "!verl/trainer/main_*.py"
-      # Recipes
-      - "!recipe"
-      # Megatron
-      - "!verl/workers/**/megatron_*.py"
   pull_request:
     branches:
       - main
