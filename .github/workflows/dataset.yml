@@ -4,14 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-    paths:
-      - "verl/utils/**/*.py"
-      - .github/workflows/dataset.yml
-      - "!verl/workers/fsdp_workers.py"
-      - "!verl/workers/megatron_workers.py"
-      - "!recipe/**"
   pull_request:
     branches:
       - main
