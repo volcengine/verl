@@ -49,7 +49,7 @@ If you changed Slurm resource specifications, please make sure to update the env
 Illegal memory access
 ---------------------------------
 
-If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm.
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm(<=0.6.3).
 Please set the following environment variable. The env var must be set before the ``ray start`` command if any.
 
 .. code:: bash
