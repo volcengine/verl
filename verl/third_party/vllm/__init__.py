@@ -34,7 +34,7 @@ if package_version == "0.5.4":
     vllm_version = "0.5.4"
     from .vllm_v_0_5_4 import parallel_state
     from .vllm_v_0_5_4.llm import LLM, LLMEngine
-elif package_version == "0.6.3" or package_version == "0.6.3+rocm624":
+elif package_version == "0.6.3" or package_version == "0.6.3+rocm624" or package_version == "0.6.3+rocm634":
     vllm_version = "0.6.3"
     from .vllm_v_0_6_3 import parallel_state
     from .vllm_v_0_6_3.llm import LLM, LLMEngine
