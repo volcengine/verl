@@ -90,7 +90,8 @@ def main(config):
                 "TOKENIZERS_PARALLELISM": "true",
                 "NCCL_DEBUG": "WARN",
             }
-        }
+        },
+        num_cpus=config.ray_init.num_cpus,
     )
 
     # print initial config
