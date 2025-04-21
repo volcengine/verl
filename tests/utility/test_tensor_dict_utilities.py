@@ -86,7 +86,7 @@ def test_tensor_dict_make_iterator():
         if not result.item():
             print(data1.batch["obs"])
             print(data2.batch["obs"])
-            assert False
+            raise AssertionError()
         non_tensor_result = np.all(np.equal(data1.non_tensor_batch["labels"], data2.non_tensor_batch["labels"]))
         if not non_tensor_result.item():
             print(data1.non_tensor_batch["labels"])

@@ -177,7 +177,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
-            log_gpu_memory_usage("After AllGatherPPModel init", logger=logger)
+            log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
         elif self._is_ref:
             print(f"self.config.ref.load_weight: {self.config.ref.load_weight}")
             ref_module = get_model(
@@ -219,7 +219,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             from torch.distributed.device_mesh import init_device_mesh
 
             from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
-            from verl.workers.sharding_manager import MegatronVLLMShardingManager
+            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
@@ -256,11 +256,17 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After building vllm rollout", logger=logger)
 
             # perform weight resharding between actor and rollout
-            sharding_manager = MegatronVLLMShardingManager(inference_engine=rollout.inference_engine,
-                                                           model_config=self.actor_model_config,
-                                                           layer_name_mapping=layer_name_mapping,
-                                                           actor_module=self.actor.actor_module)
-            log_gpu_memory_usage('After building sharding manager', logger=logger)
+            from verl.models.mcore import get_mcore_weight_converter
+
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+            sharding_manager = MegatronVLLMShardingManager(
+                inference_engine=rollout.inference_engine,
+                model_config=self.actor_model_config,
+                layer_name_mapping=layer_name_mapping,
+                actor_module=self.actor.actor_module,
+                weight_converter=weight_converter,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
         elif self.config.rollout.name == 'sglang':
             from verl.workers.rollout.sglang_rollout import SGLangRollout
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
@@ -304,10 +310,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
-            if self._is_actor:
-                optim_config = self.config.actor.optim
-            else:
-                optim_config = None
+            optim_config = self.config.actor.optim if self._is_actor else None
             self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = (
                 self._build_model_optimizer(
                     model_path=self.config.model.path,

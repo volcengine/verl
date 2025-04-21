@@ -111,7 +111,11 @@ def compute_gae_advantage_return(
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 def compute_grpo_outcome_advantage(
-    token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: str = True,
 ):
     """
     Compute advantage for GRPO, operating only on Outcome reward
@@ -121,6 +125,10 @@ def compute_grpo_outcome_advantage(
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        norm_adv_by_std_in_grpo: (bool)
+            whether to scale the GRPO advantage.
+            If True, the advantage is scaled by the std, as in the original GRPO.
+            If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -148,7 +156,10 @@ def compute_grpo_outcome_advantage(
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            if norm_adv_by_std_in_grpo:
+                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            else:
+                scores[i] = scores[i] - id2mean[index[i]]
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
@@ -320,7 +331,10 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
             shape: (bs, response_length)
         loss_mask: `(torch.Tensor)`
             shape: (bs, response_length)
-        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+        loss_agg_mode: (str) choices: "token-mean" /
+                                      "seq-mean-token-sum" /
+                                      "seq-mean-token-mean" /
+                                      "seq-mean-token-sum-norm" /
             "token-mean" is the default behavior
     Returns:
         loss: `a scalar torch.Tensor`
@@ -334,6 +348,13 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     elif loss_agg_mode == "seq-mean-token-mean":
         seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)  # token-mean
         loss = torch.mean(seq_losses)  # seq-mean
+    elif loss_agg_mode == "seq-mean-token-sum-norm":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
+        loss = torch.sum(seq_losses) / loss_mask.shape[-1]  # The divisor
+        # (loss_mask.shape[-1]) should ideally be constant
+        # throughout training to well-replicate the DrGRPO paper.
+        # TODO: Perhaps add user-defined normalizer argument to
+        # agg_loss to ensure divisor stays constant throughout.
     else:
         raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
@@ -369,7 +390,10 @@ def compute_policy_loss(
             The higher clip range used in PPO.
         clip_ratio_c: (float) default: 3.0
             The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) choices: "token-mean" / "seq-mean-token-sum" / "seq-mean-token-mean"
+        loss_agg_mode: (str) choices: "token-mean" /
+                                      "seq-mean-token-sum" /
+                                      "seq-mean-token-mean" /
+                                      "seq-mean-token-sum-norm" /
             "token-mean" is the default behavior
 
     Returns:
@@ -383,7 +407,8 @@ def compute_policy_loss(
             the fraction of policy gradient loss being clipped when the advantage is negative
     """
     assert clip_ratio_c > 1.0, (
-        f"The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0, but get the value: {clip_ratio_c}."
+        "The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0,"
+        + f" but get the value: {clip_ratio_c}."
     )
 
     negative_approx_kl = log_prob - old_log_prob

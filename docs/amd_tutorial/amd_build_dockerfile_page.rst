@@ -15,16 +15,25 @@ docker/Dockerfile.rocm
 
 .. code-block:: bash
 
-    #  Build the docker in the repo dir:
-    # docker build -f docker/Dockerfile.rocm -t verl-rocm:03.04.2015 .
+    # Build the docker in the repo dir:
+    # docker build -f docker/Dockerfile.rocm -t verl-rocm .
     # docker images # you can find your built docker
-    FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
+
+
+    # Support - Traing: fsdp; Inference: vllm
+    # FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
+    # Support - Traing: fsdp; Inference: vllm, sglang
+    FROM lmsysorg/sglang:v0.4.5-rocm630
 
     # Set working directory
     # WORKDIR $PWD/app
 
     # Set environment variables
     ENV PYTORCH_ROCM_ARCH="gfx90a;gfx942"
+
+    ENV HIPCC_COMPILE_FLAGS_APPEND="--amdgpu-target=gfx90a;gfx942 -D__HIP_PLATFORM_AMD__"
+    ENV CFLAGS="-D__HIP_PLATFORM_AMD__"
+    ENV CXXFLAGS="-D__HIP_PLATFORM_AMD__"
 
     # Install vllm
     RUN pip uninstall -y vllm && \
@@ -48,7 +57,6 @@ docker/Dockerfile.rocm
         liger-kernel \
         numpy \
         pandas \
-        datasets \
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
@@ -59,6 +67,10 @@ docker/Dockerfile.rocm
         orjson \
         pybind11 && \
         pip install -e . --no-deps
+
+    # Install torch_memory_saver
+    RUN pip install git+https://github.com/ExtremeViscent/torch_memory_saver.git --no-deps
+
 
 Build the image:
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -373,7 +385,8 @@ slurm_script.sh
     echo "IP Head: $ip_head"
 
     # make sure we set environment variables before Ray initialization
-    export VLLM_ATTENTION_BACKEND=XFORMERS
+    # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+    # export VLLM_ATTENTION_BACKEND=XFORMERS
 
     # Print out all env variables
     printenv

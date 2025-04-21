@@ -94,10 +94,7 @@ def get_rope_index(
                     video_grid_thw[video_index][1],
                     video_grid_thw[video_index][2],
                 )
-                if second_per_grid_ts is not None:
-                    second_per_grid_t = second_per_grid_ts[video_index]
-                else:
-                    second_per_grid_t = 1.0
+                second_per_grid_t = second_per_grid_ts[video_index] if second_per_grid_ts is not None else 1.0
 
                 video_index += 1
                 remain_videos -= 1
@@ -172,10 +169,7 @@ def flash_attention_forward(
     """
     Patches flash attention forward to handle 3D position ids in mrope. (3, batch_size, seq_length)
     """
-    if not use_top_left_mask:
-        causal = is_causal
-    else:
-        causal = is_causal and query_length != 1
+    causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
     use_sliding_windows = (

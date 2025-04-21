@@ -16,6 +16,7 @@ Implement base data transfer protocol between any two functions, modules.
 We can subclass Protocol to define more detailed batch info with specific keys
 """
 
+import contextlib
 import copy
 import pickle
 from dataclasses import dataclass, field
@@ -33,10 +34,8 @@ from verl.utils.py_functional import union_two_dict
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
-try:
+with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
-except:
-    pass
 
 
 def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
@@ -617,10 +616,7 @@ class DataProto:
             f"only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}."
         )
 
-        if self.batch is not None:
-            batch_lst = self.batch.chunk(chunks=chunks, dim=0)
-        else:
-            batch_lst = [None for _ in range(chunks)]
+        batch_lst = self.batch.chunk(chunks=chunks, dim=0) if self.batch is not None else [None for _ in range(chunks)]
 
         non_tensor_batch_lst = [{} for _ in range(chunks)]
         for key, val in self.non_tensor_batch.items():
@@ -652,10 +648,7 @@ class DataProto:
         batch_lst = []
         for batch in data:
             batch_lst.append(batch.batch)
-        if batch_lst[0] is not None:
-            new_batch = torch.cat(batch_lst, dim=0)
-        else:
-            new_batch = None
+        new_batch = torch.cat(batch_lst, dim=0) if batch_lst[0] is not None else None
 
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
         for key, val in non_tensor_batch.items():

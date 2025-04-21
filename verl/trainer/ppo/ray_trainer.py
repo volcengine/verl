@@ -28,6 +28,7 @@ from typing import Dict, Type
 
 import numpy as np
 import ray
+import torch
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, RandomSampler, SequentialSampler
@@ -51,6 +52,7 @@ from verl.trainer.ppo.metric_utils import (
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
 WorkerType = Type[Worker]
@@ -98,7 +100,8 @@ class ResourcePoolManager:
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1 that can utilize different WorkerGroup for differnt models
+            # For Megatron backend, we recommend using max_colocate_count>1
+            # that can utilize different WorkerGroup for differnt models
             resource_pool = RayResourcePool(
                 process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name
             )
@@ -140,13 +143,9 @@ class ResourcePoolManager:
                         break
             if num_nodes > 0:
                 raise ValueError(
-                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes} cannot be satisfied in this ray cluster"
+                    f"Resource pool {resource_pool_name}: {num_gpus}*{num_nodes}"
+                    + "cannot be satisfied in this ray cluster"
                 )
-
-
-import torch
-
-from verl.utils.torch_functional import masked_mean
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
@@ -186,14 +185,13 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, norm_adv_by_std_in_grpo=True):
     # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
+    if "response_mask" not in data.batch:
         data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
-        values = data.batch["values"]
         advantages, returns = core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch["token_level_rewards"],
             values=data.batch["values"],
@@ -208,6 +206,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             token_level_rewards=data.batch["token_level_rewards"],
             response_mask=data.batch["response_mask"],
             index=data.non_tensor_batch["uid"],
+            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -352,7 +351,8 @@ class RayPPOTrainer:
                 if mbs is not None and mbs_per_gpu is not None:
                     raise ValueError(
                         f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. "
-                        f"Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported (the former is deprecated)."
+                        f"Please remove '{name}.{param}' because only '*_{param_per_gpu}'"
+                        + "is supported (the former is deprecated)."
                     )
 
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
@@ -410,6 +410,7 @@ class RayPPOTrainer:
             "token-mean",
             "seq-mean-token-sum",
             "seq-mean-token-mean",
+            "seq-mean-token-sum-norm",
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
         if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
@@ -424,14 +425,13 @@ class RayPPOTrainer:
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
-        if config.actor_rollout_ref.actor.strategy == "fsdp":
-            if (
-                config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
-                or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
-            ):
-                assert config.actor_rollout_ref.model.use_remove_padding, (
-                    "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
-                )
+        if config.actor_rollout_ref.actor.strategy == "fsdp" and (
+            config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
+            or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
+        ):
+            assert config.actor_rollout_ref.model.use_remove_padding, (
+                "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
+            )
 
         if self.use_critic and config.critic.strategy == "fsdp":
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
@@ -441,7 +441,9 @@ class RayPPOTrainer:
 
         if config.data.get("val_batch_size", None) is not None:
             print(
-                "WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+                "WARNING: val_batch_size is deprecated."
+                + " Validation datasets are sent to inference engines as a whole batch,"
+                + " which will schedule the memory themselves."
             )
 
         # check eval config
@@ -509,7 +511,8 @@ class RayPPOTrainer:
 
         assert len(self.train_dataloader) >= 1
         assert len(self.val_dataloader) == 1, (
-            "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
+            "Validation dataloader must have a single batch,"
+            + " which inference engines will schedule the memory themselves."
         )
 
         print(f"Size of train dataloader: {len(self.train_dataloader)}")
@@ -695,7 +698,8 @@ class RayPPOTrainer:
 
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
-        # you should not use `create_colocated_worker_cls`. Instead, directly pass different resource pool to different worker groups.
+        # you should not use `create_colocated_worker_cls`.
+        # Instead, directly pass different resource pool to different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
         self.wg_dicts = []
@@ -747,7 +751,8 @@ class RayPPOTrainer:
         remove_previous_ckpt_in_save = self.config.trainer.get("remove_previous_ckpt_in_save", False)
         if remove_previous_ckpt_in_save:
             print(
-                "Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead"
+                "Warning: remove_previous_ckpt_in_save is deprecated,"
+                + " set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead"
             )
         max_actor_ckpt_to_keep = (
             self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
@@ -860,7 +865,8 @@ class RayPPOTrainer:
     def fit(self):
         """
         The training loop of PPO.
-        The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
+        The driver process only need to call the compute functions of the worker group through RPC
+        to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
@@ -1016,12 +1022,16 @@ class RayPPOTrainer:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                         # compute advantages, executed on the driver process
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get(
+                            "norm_adv_by_std_in_grpo", True
+                        )  # GRPO adv normalization factor
                         batch = compute_advantage(
                             batch,
                             adv_estimator=self.config.algorithm.adv_estimator,
                             gamma=self.config.algorithm.gamma,
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
+                            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         )
 
                     # update critic
