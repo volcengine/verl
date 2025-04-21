@@ -45,8 +45,8 @@ from torch.nn.utils.rnn import pad_sequence
 
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
-from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 
 if TYPE_CHECKING:

@@ -37,12 +37,12 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
-from verl.utils.debug import GPUMemoryLogger
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]

@@ -15,9 +15,9 @@
 Single Process Actor
 """
 
+import itertools
 import logging
 import os
-import itertools
 from typing import Tuple
 
 import torch
@@ -28,11 +28,11 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
-from verl.utils.debug import GPUMemoryLogger
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["DataParallelPPOActor"]

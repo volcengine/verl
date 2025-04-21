@@ -15,8 +15,8 @@
 Implement a multiprocess PPOCritic
 """
 
-import logging
 import itertools
+import logging
 import os
 
 import torch

@@ -25,7 +25,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import log_gpu_memory_usage, GPUMemoryLogger
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 
 from .base import BaseShardingManager
 from .patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights
