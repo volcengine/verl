@@ -298,6 +298,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
+                log_gpu_memory_usage('After offload actor params and grad during init', logger=logger)
             if self._is_offload_optimizer:
                 offload_megatron_optimizer(self.actor_optimizer)
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
