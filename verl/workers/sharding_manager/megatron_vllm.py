@@ -550,9 +550,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
+        torch.cuda.empty_cache()
         log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
-        torch.cuda.empty_cache()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         # prompts are identical for each training tp. We select for each inference tp
