@@ -14,25 +14,25 @@
 """
 A Ray logger will receive logging info from different processes.
 """
+
 import numbers
 from typing import Dict
 
 
 def concat_dict_to_str(dict: Dict, step):
-    output = [f'step:{step}']
+    output = [f"step:{step}"]
     for k, v in dict.items():
         if isinstance(v, numbers.Number):
-            output.append(f'{k}:{v:.3f}')
-    output_str = ' - '.join(output)
+            output.append(f"{k}:{v:.3f}")
+    output_str = " - ".join(output)
     return output_str
 
 
 class LocalLogger:
-
     def __init__(self, remote_logger=None, enable_wandb=False, print_to_console=False):
         self.print_to_console = print_to_console
         if print_to_console:
-            print('Using LocalLogger is deprecated. The constructor API will change ')
+            print("Using LocalLogger is deprecated. The constructor API will change ")
 
     def flush(self):
         pass

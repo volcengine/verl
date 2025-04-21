@@ -13,24 +13,21 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 
-from typing import Dict, Union, Optional, Iterable, Tuple
+from typing import Dict
 
-import torch
 import torch.nn as nn
-
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 
 
 def update_hf_weight_loader():
-    print('no hf weight loader need to be updated')
+    print("no hf weight loader need to be updated")
     return
 
 
 def load_hf_weights(actor_weights: Dict, vllm_model: nn.Module):
     assert isinstance(actor_weights, Dict)
     with set_default_torch_dtype(next(vllm_model.parameters()).dtype):  # TODO
-        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in actor_weights.keys():
+        if vllm_model.config.tie_word_embeddings and "lm_head.weight" in actor_weights:
             del actor_weights["lm_head.weight"]
         vllm_model.load_weights(actor_weights.items())
     for _, module in vllm_model.named_modules():

@@ -10,6 +10,15 @@ How to add breakpoint for debugging with distributed Ray?
 Please checkout the official debugging guide from Ray: https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html
 
 
+"Unable to register worker with raylet"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The cause of this issue is due to some system setting, e.g., SLURM added some constraints on how the CPUs are shared on a node. 
+While `ray.init()` tries to launch as many worker processes as the number of CPU cores of the machine,
+some constraints of SLURM restricts the `core-workers` seeing the `raylet` process, leading to the problem.
+
+To fix this issue, you can set the config term ``ray_init.num_cpus`` to a number allowed by your system.
+
 Distributed training
 ------------------------
 
@@ -49,7 +58,7 @@ If you changed Slurm resource specifications, please make sure to update the env
 Illegal memory access
 ---------------------------------
 
-If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm.
+If you encounter the error message like ``CUDA error: an illegal memory access was encountered`` during rollout, most likely it is due to a known issue from vllm(<=0.6.3).
 Please set the following environment variable. The env var must be set before the ``ray start`` command if any.
 
 .. code:: bash

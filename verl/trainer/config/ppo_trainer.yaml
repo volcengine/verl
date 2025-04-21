@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts_workers: 1
   truncation: error
   image_key: images
+  video_key: videos
   custom_cls:
       path: null
       name: null
@@ -42,7 +43,7 @@ actor_rollout_ref:
     clip_ratio_high: 0.2
     clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
     loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
-    entropy_coeff: 0.001
+    entropy_coeff: 0
     use_kl_loss: False # True for GRPO
     use_torch_compile: True # False to disable torch compile
     kl_loss_coef: 0.001 # for grpo
@@ -187,6 +188,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
@@ -219,3 +221,6 @@ trainer:
   max_critic_ckpt_to_keep: null
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
+
+ray_init:
+  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.

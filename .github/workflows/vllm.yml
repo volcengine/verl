@@ -3,10 +3,11 @@ name: vllm
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
   pull_request:
     branches:
       - main
-      - v0.3.x
+      - v0.*
     paths:
       - "**/*.py"
       # Entrypoints
@@ -46,7 +47,7 @@ jobs:
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
       HF_ENDPOINT: "https://hf-mirror.com"
     container:
-      image: verlai/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te1.7-v0.0.3
+      image: whatcanyousee/verl:vemlp-th2.4.0-cu124-vllm0.6.3-ray2.10-te2.0-megatron0.11.0-v0.0.6
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -58,8 +59,11 @@ jobs:
           pip3 install vllm==0.5.4
       - name: Download Model to Use
         run: |
+          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
+          export HF_HUB_OFFLINE=1
+        # Disable requests to avoid network errors
       - name: Running vllm tests on 8 L20 GPUs
         run: |
           cd tests/rollout
@@ -72,10 +76,12 @@ jobs:
       - name: Run Qwen 0.5B generation test
         run: |
           cd tests/generation
-          bash ./run_gen_qwen05.sh 4 $HOME/data/gen/qwen_05_gen_test.parquet 2
-          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
+          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=4 GEN_TP=2 bash ./run_gen_qwen05.sh
+          rm -rf "${OUTPUT_PATH}"
       - name: Run Qwen 0.5B generation test when world_size == 1
         run: |
           cd tests/generation
-          bash ./run_gen_qwen05.sh 1 $HOME/data/gen/qwen_05_gen_test.parquet 1
-          rm -rf $HOME/data/gen/qwen_05_gen_test.parquet
+          export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
+          MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
+          rm -rf "${OUTPUT_PATH}"

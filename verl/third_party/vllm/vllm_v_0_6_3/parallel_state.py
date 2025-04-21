@@ -4,6 +4,7 @@
 # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 """Model and data parallel groups."""
+
 import os
 from typing import Optional
 
@@ -86,12 +87,14 @@ def ensure_model_parallel_initialized(
     assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, (
         "tensor parallel group already initialized, but of unexpected size: "
         f"{get_tensor_model_parallel_world_size()=} vs. "
-        f"{tensor_model_parallel_size=}")
+        f"{tensor_model_parallel_size=}"
+    )
     pp_world_size = get_pp_group().world_size
     assert pp_world_size == pipeline_model_parallel_size, (
         "pipeline parallel group already initialized, but of unexpected size: "
         f"{pp_world_size=} vs. "
-        f"{pipeline_model_parallel_size=}")
+        f"{pipeline_model_parallel_size=}"
+    )
 
 
 # TODO(sgm): deviate from the v0.5.4, not pp now

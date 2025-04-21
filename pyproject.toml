@@ -24,6 +24,43 @@ readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
 
 # -------------------------------
+# tool.ruff - Linting configuration
+# -------------------------------
+[tool.ruff]
+# Note: While the formatter will attempt to format lines such that they remain within the line-length,
+# it isn't a hard upper bound, and formatted lines may exceed the line-length.
+line-length = 120
+
+[tool.ruff.lint]
+isort = {known-first-party = ["verl"]}
+# c.f. https://github.com/vllm-project/vllm/blob/ce8d6b75fc0586045df75ee1568a5b5f9957251b/pyproject.toml
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # isort
+    "I",
+    "G",
+]
+ignore = [
+    # star imports
+    "F405", "F403",
+    # lambda expression assignment
+    "E731",
+    # Loop control variable not used within loop body
+    "B007",
+    # f-string format
+    "UP032",
+    # Can remove once 3.10+ is the minimum Python version
+    "UP007",
+]
+
+# -------------------------------
 # tool.setuptools - Additional config
 # -------------------------------
 [tool.setuptools]
@@ -45,117 +82,4 @@ version = {file = "verl/version/version"}
 verl = [
   "version/*",
   "trainer/config/*.yaml"
-]
-
-
-[tool.pylint.message_control]
-disable = [
-    "abstract-method",
-    "anomalous-backslash-in-string",
-    "arguments-differ",
-    "arguments-renamed",
-    "assignment-from-none",
-    "attribute-defined-outside-init",
-    "bad-str-strip-call",
-    "bare-except",
-    "broad-exception-caught",
-    "broad-exception-raised",
-    "cell-var-from-loop",
-    "chained-comparison",
-    "consider-iterating-dictionary",
-    "consider-using-enumerate",
-    "consider-using-f-string",
-    "consider-using-from-import",
-    "consider-using-generator",
-    "consider-using-in",
-    "consider-using-max-builtin",
-    "consider-using-set-comprehension",
-    "consider-using-sys-exit",
-    "consider-using-with",
-    "cyclic-import",
-    "dangerous-default-value",
-    "duplicate-code",
-    "eval-used",
-    "expression-not-assigned",
-    "f-string-without-interpolation",
-    "fixme",
-    "function-redefined",
-    "global-statement",
-    "global-variable-not-assigned",
-    "import-error",
-    "import-outside-toplevel",
-    "import-self",
-    "inconsistent-return-statements",
-    "invalid-character-zero-width-space",
-    "invalid-name",
-    "line-too-long",
-    "logging-fstring-interpolation",
-    "logging-not-lazy",
-    "missing-class-docstring",
-    "missing-final-newline",
-    "missing-function-docstring",
-    "missing-module-docstring",
-    "multiple-imports",
-    "no-else-continue",
-    "no-else-raise",
-    "no-else-return",
-    "no-member",
-    "no-self-argument",
-    "no-value-for-parameter",
-    "not-an-iterable",
-    "not-callable",
-    "notimplemented-raised",
-    "pointless-exception-statement",
-    "pointless-string-statement",
-    "pointless-statement",
-    "possibly-used-before-assignment",
-    "protected-access",
-    "raise-missing-from",
-    "raising-format-tuple",
-    "redefined-argument-from-local",
-    "redefined-builtin",
-    "redefined-outer-name",
-    "redundant-u-string-prefix",
-    "reimported",
-    "simplifiable-if-expression",
-    "simplifiable-if-statement",
-    "singleton-comparison",
-    "super-init-not-called",
-    "superfluous-parens",
-    "too-few-public-methods",
-    "too-many-arguments",
-    "too-many-boolean-expressions",
-    "too-many-branches",
-    "too-many-instance-attributes",
-    "too-many-lines",
-    "too-many-locals",
-    "too-many-positional-arguments",
-    "too-many-return-statements",
-    "too-many-statements",
-    "trailing-newlines",
-    "trailing-newlines",
-    "trailing-whitespace",
-    "unbalanced-tuple-unpacking",
-    "undefined-loop-variable",
-    "undefined-variable",
-    "ungrouped-imports",
-    "unidiomatic-typecheck",
-    "unnecessary-comprehension",
-    "unnecessary-lambda",
-    "unnecessary-lambda-assignment",
-    "unnecessary-pass",
-    "unspecified-encoding",
-    "unused-argument",
-    "unused-import",
-    "unused-variable",
-    "unused-wildcard-import",
-    "use-a-generator",
-    "use-dict-literal",
-    "used-before-assignment",
-    "useless-object-inheritance",
-    "useless-parent-delegation",
-    "useless-return",
-    "wildcard-import",
-    "wrong-import-order",
-    "wrong-import-position",
 ]

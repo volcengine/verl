@@ -3,6 +3,7 @@ name: dataset
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
   pull_request:
     branches:
       - main
@@ -46,6 +47,7 @@ jobs:
       - name: Running dataset tests
         run: |
           [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
+          python3 examples/data_preprocess/geo3k.py
           pytest -s -x tests/verl/utils/dataset/test_rl_dataset.py
           pytest -s -x tests/verl/utils/dataset/test_sft_dataset.py
           pytest -s -x tests/verl/utils/test_import_utils.py

@@ -15,8 +15,8 @@
 Contain small python utility functions
 """
 
-from typing import Dict
 from types import SimpleNamespace
+from typing import Dict
 
 
 def union_two_dict(dict1: Dict, dict2: Dict):
@@ -31,8 +31,7 @@ def union_two_dict(dict1: Dict, dict2: Dict):
     """
     for key, val in dict2.items():
         if key in dict1:
-            assert dict2[key] == dict1[key], \
-                f'{key} in meta_dict1 and meta_dict2 are not the same object'
+            assert dict2[key] == dict1[key], f"{key} in meta_dict1 and meta_dict2 are not the same object"
         dict1[key] = val
 
     return dict1
@@ -46,7 +45,6 @@ def append_to_dict(data: Dict, new_data: Dict):
 
 
 class NestedNamespace(SimpleNamespace):
-
     def __init__(self, dictionary, **kwargs):
         super().__init__(**kwargs)
         for key, value in dictionary.items():
