@@ -39,7 +39,11 @@ from .model_initializer import (
     init_mcore_model_qwen2_5_vl,
     init_mcore_model_qwen2_moe,
 )
-from .weight_converter import McoreToHFWeightConverterDense, McoreToHFWeightConverterQwen2Moe
+from .weight_converter import (
+    McoreToHFWeightConverterDense,
+    McoreToHFWeightConverterQwen2Moe,
+    McoreToHFWeightConverterDpskv3,
+)
 
 
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
@@ -114,6 +118,7 @@ def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype):
         "LlamaForCausalLM": McoreToHFWeightConverterDense,
         "Qwen2ForCausalLM": McoreToHFWeightConverterDense,
         "Qwen2MoeForCausalLM": McoreToHFWeightConverterQwen2Moe,
+        "DeepseekV3ForCausalLM": McoreToHFWeightConverterDpskv3,
     }
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]

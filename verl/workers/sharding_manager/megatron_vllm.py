@@ -530,7 +530,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
             per_tensor_param = self.per_tensor_generator()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            _patch_vllm_qwen2_moe_model_weight_loader(model)
+            _patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
@@ -595,7 +595,7 @@ def get_micro_data_parallel_rank():
     return torch.distributed.get_rank(group=get_micro_data_parallel_group())
 
 
-def _patch_vllm_qwen2_moe_model_weight_loader(model):
+def _patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm qwen2 moe model
     # it is from a bug from vllm 0.8.2
     # all the weights are supposed to have a weight_loader, but the moe weights
@@ -613,12 +613,11 @@ def _patch_vllm_qwen2_moe_model_weight_loader(model):
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
     from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-
-    if not isinstance(model, Qwen2MoeForCausalLM):
-        return
-    for layer in model.model.layers:
-        mlp = layer.mlp
-        param_dict = dict(mlp.named_parameters())
-        for name, param in param_dict.items():
-            if "w13_weight" in name or "w2_weight" in name:
-                param.weight_loader = mlp.experts.weight_loader
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV3ForCausalLM
+    if isinstance(model, DeepseekV3ForCausalLM) or isinstance(model, Qwen2MoeForCausalLM):
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            param_dict = dict(mlp.named_parameters())
+            for name, param in param_dict.items():
+                if "w13_weight" in name or "w2_weight" in name:
+                    param.weight_loader = mlp.experts.weight_loader

@@ -140,7 +140,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        trust_remote_code = self.config.model.get("trust_remote_code", False)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, trust_remote_code)
         self.generation_config = get_generation_config(self.local_path)
 
         def megatron_actor_model_provider(pre_process, post_process):
@@ -504,7 +505,8 @@ class CriticWorker(MegatronWorker):
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        trust_remote_code = self.config.model.get("trust_remote_code", False)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, trust_remote_code)
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -680,7 +682,8 @@ class RewardModelWorker(MegatronWorker):
 
         from verl.utils.megatron_utils import get_model
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        trust_remote_code = self.config.model.get("trust_remote_code", False)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, trust_remote_code)
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
