@@ -173,60 +173,113 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
-    # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch.keys():
-        data.batch['response_mask'] = compute_response_mask(data)
-    # prepare response group
-    # TODO: add other ways to estimate advantages
-    if adv_estimator == AdvantageEstimator.GAE:
-        values = data.batch['values']
-        advantages, returns = core_algos.compute_gae_advantage_return(
+from typing import Protocol
+import enum
+
+class AdvantageEstimator(enum.Enum):
+    GAE = "gae"
+    GRPO = "grpo"
+    REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
+    REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
+    REMAX = "remax"
+    RLOO = "rloo"
+
+class AdvantageHandler(Protocol):
+    def __call__(self, data: 'DataProto', **kwargs) -> tuple: ...
+
+    def _handle_gae(data: 'DataProto', gamma: float, lam: float) -> tuple:
+        return core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch['token_level_rewards'],
             values=data.batch['values'],
             response_mask=data.batch['response_mask'],
             gamma=gamma,
-            lam=lam)
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.GRPO:
-        advantages, returns = core_algos.compute_grpo_outcome_advantage(
+            lam=lam
+        )
+
+    def _handle_grpo(data: 'DataProto') -> tuple:
+        return core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             response_mask=data.batch['response_mask'],
-            index=data.non_tensor_batch['uid'])
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE:
-        advantages, returns = core_algos.compute_reinforce_plus_plus_baseline_outcome_advantage(
+            index=data.non_tensor_batch['uid']
+        )
+
+    def _handle_reinforce_plus_plus_baseline(data: 'DataProto') -> tuple:
+        return core_algos.compute_reinforce_plus_plus_baseline_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             response_mask=data.batch['response_mask'],
-            index=data.non_tensor_batch['uid'])
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
-        advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
+            index=data.non_tensor_batch['uid']
+        )
+
+    def _handle_reinforce_plus_plus(data: 'DataProto', gamma: float) -> tuple:
+        return core_algos.compute_reinforce_plus_plus_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             response_mask=data.batch['response_mask'],
-            gamma=gamma)
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.REMAX:
-        advantages, returns = core_algos.compute_remax_outcome_advantage(
+            gamma=gamma
+        )
+
+    def _handle_remax(data: 'DataProto') -> tuple:
+        return core_algos.compute_remax_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             reward_baselines=data.batch['reward_baselines'],
-            response_mask=data.batch['response_mask'])
+            response_mask=data.batch['response_mask']
+        )
 
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
-    elif adv_estimator == AdvantageEstimator.RLOO:
-        advantages, returns = core_algos.compute_rloo_outcome_advantage(
+    def _handle_rloo(data: 'DataProto') -> tuple:
+        return core_algos.compute_rloo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
             response_mask=data.batch['response_mask'],
-            index=data.non_tensor_batch['uid'])
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
+            index=data.non_tensor_batch['uid']
+        )
+
+_ESTIMATOR_HANDLERS: dict[AdvantageEstimator, AdvantageHandler] = {
+    AdvantageEstimator.GAE: _handle_gae,
+    AdvantageEstimator.GRPO: _handle_grpo,
+    AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE: _handle_reinforce_plus_plus_baseline,
+    AdvantageEstimator.REINFORCE_PLUS_PLUS: _handle_reinforce_plus_plus,
+    AdvantageEstimator.REMAX: _handle_remax,
+    AdvantageEstimator.RLOO: _handle_rloo,
+}
+
+def compute_advantage(
+    data: 'DataProto',
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1
+) -> 'DataProto':
+    """Computes advantages and returns using specified estimation method.
+    
+    Args:
+        data: Input data batch containing rewards, values and other fields
+        adv_estimator: Type of advantage estimation algorithm
+        gamma: Discount factor for future rewards (default: 1.0)
+        lam: Lambda parameter for GAE (default: 1.0)
+        num_repeat: [Reserved] Number of repeat calculations
+    
+    Returns:
+        Updated data with 'advantages' and 'returns' fields added
+    """
+    # Back-compatible with trainers that do not compute response mask in fit
+    if "response_mask" not in data.batch:
+        data.batch['response_mask'] = compute_response_mask(data)
+    
+    # prepare response group
+    # TODO: add other ways to estimate advantages
+    handler = _ESTIMATOR_HANDLERS.get(adv_estimator)
+    if not handler:
+        raise ValueError(f"Unsupported advantage estimator: {adv_estimator}. "
+                         f"Available options: {list(_ESTIMATOR_HANDLERS.keys())}")
+    
+    if adv_estimator == AdvantageEstimator.GAE:
+        advantages, returns = handler(data, gamma=gamma, lam=lam)
+    elif adv_estimator in (AdvantageEstimator.REINFORCE_PLUS_PLUS,):
+        advantages, returns = handler(data, gamma=gamma)
     else:
-        raise NotImplementedError
+        advantages, returns = handler(data)
+    
+    data.batch['advantages'] = advantages
+    data.batch['returns'] = returns
+    
     return data
 
 
