@@ -302,35 +302,6 @@ def load_megatron_optimizer(optimizers):
         v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=False)
 
 
-def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
-    if hybrid_engine is not None:
-        pp_rank = mpu.get_pipeline_model_parallel_rank()
-        for buffer in hybrid_engine.memory_buffers[pp_rank].values():
-            buffer.data = buffer.data.to("cpu", non_blocking=True)
-        build_memory_reference_from_module(module_list, hybrid_engine.memory_buffers[pp_rank], maintain_weight=True)
-    else:
-        for module in module_list:
-            for _, param in module.named_parameters():
-                param.data = param.data.to("cpu", non_blocking=True)
-                if offload_grad and param.grad is not None:
-                    param.grad = param.grad.to("cpu", non_blocking=True)
-    torch.cuda.empty_cache()
-
-
-def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_grad=False, hybrid_engine=None):
-    if hybrid_engine is not None:
-        pp_rank = mpu.get_pipeline_model_parallel_rank()
-        for buffer in hybrid_engine.memory_buffers[pp_rank].values():
-            buffer.data = buffer.data.to(device_id, non_blocking=True)
-        build_memory_reference_from_module(module_list, hybrid_engine.memory_buffers[pp_rank], maintain_weight=True)
-    else:
-        for module in module_list:
-            for _, param in module.named_parameters():
-                param.data = param.data.to(device_id, non_blocking=True)
-                if load_grad and param.grad is not None:
-                    param.grad = param.grad.to(device_id, non_blocking=True)
-    torch.cuda.empty_cache()
-
 
 def print_rank_0(message):
     """If distributed is initialized, print only on rank 0."""

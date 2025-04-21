@@ -33,10 +33,6 @@ from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpoint
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
-from verl.utils.megatron_utils import (
-    load_megatron_param_and_grad,
-    offload_megatron_param_and_grad,
-)
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
