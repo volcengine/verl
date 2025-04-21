@@ -53,21 +53,13 @@ class DecoratorLoggerBase:
         if logger is None:
             self.logging_function = self.log_by_print
     
-    def log_by_print(self, log_str, decorated_function, *args, **kwargs):
-        if not self.log_only_rank_0 and self.rank == 0:
-            print(f"Before {self.role} {log_str}", flush=True)
-        output = decorated_function(*args, **kwargs)
-        if not self.log_only_rank_0 and self.rank == 0:
-            print(f"After {self.role} {log_str}", flush=True)
-        return output
+    def log_by_print(self, log_str):
+        if not self.log_only_rank_0 or self.rank == 0:
+            print(f"{self.role} {log_str}", flush=True)
     
-    def log_by_logging(self, log_str, decorated_function, *args, **kwargs):
+    def log_by_logging(self, log_str):
         if self.logger is None:
             raise ValueError("Logger is not initialized")
-        if not self.log_only_rank_0 and self.rank == 0:
-            self.logger.log(self.level, f"Before {self.role} {log_str}")
-        output = decorated_function(*args, **kwargs)
-        if not self.log_only_rank_0 and self.rank == 0:
-            self.logger.log(self.level, f"After {self.role} {log_str}")
-        return output
+        if not self.log_only_rank_0 or self.rank == 0:
+            self.logger.log(self.level, f"{self.role} {log_str}")
     

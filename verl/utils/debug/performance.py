@@ -18,7 +18,7 @@ from functools import wraps
 import torch
 import torch.distributed as dist
 
-from verl.utils.logger.aggregate_logger import DecoratorLogger
+from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 
 
 def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
@@ -34,7 +34,7 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
             logger.log(msg=message, level=level)
 
 
-class GPUMemoryLogger(DecoratorLogger):
+class GPUMemoryLogger(DecoratorLoggerBase):
     """_summary_
     
     Usage:
@@ -67,6 +67,8 @@ class GPUMemoryLogger(DecoratorLogger):
         memory_reserved = torch.cuda.memory_reserved() / 1024**3
 
         message = f"Before {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
-        output = self.logging_function(message, func, *args, **kwargs)
+        self.logging_function(message)
+        output = func(*args, **kwargs)
         message = f"After {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
+        self.logging_function(message)
         return output
