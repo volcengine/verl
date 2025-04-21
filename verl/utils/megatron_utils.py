@@ -253,20 +253,33 @@ def offload_megatron_model_to_cpu(models, empty_cache: bool = False):
     - fp32 optimizer state chunked in model and dp group
     """
     for model_chunk in models:
-        for buffer in model_chunk.buffers:
-            # offload parameters
-            if buffer.param_data.storage().size() > 0:
-                buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
-                buffer.param_data_size = buffer.param_data.storage().size()
-                buffer.param_data.storage().resize_(0)
+        if isinstance(model_chunk, DDP):
+            for buffer in model_chunk.buffers:
+                # offload parameters
+                if buffer.param_data.storage().size() > 0:
+                    buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
+                    buffer.param_data_size = buffer.param_data.storage().size()
+                    buffer.param_data.storage().resize_(0)
 
-            assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
+                assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
 
-            if buffer.grad_data.storage().size() > 0:
+                if buffer.grad_data.storage().size() > 0:
+                    # if the grad_data size is already zero, we assume that it is already offloaded
+                    buffer.grad_data_size = buffer.grad_data.storage().size()
+                    buffer.grad_data.storage().resize_(0)
+        else:
+            if model_chunk.param_data.storage().size() > 0:
+                model_chunk.param_data.cpu_data = model_chunk.param_data.data.cpu().pin_memory()
+                model_chunk.param_data_size = model_chunk.param_data.storage().size()
+                model_chunk.param_data.storage().resize_(0)
+
+            assert model_chunk.param_data_size == model_chunk.param_data.cpu_data.storage().size()
+
+            if model_chunk.grad_data.storage().size() > 0:
                 # if the grad_data size is already zero, we assume that it is already offloaded
-                buffer.grad_data_size = buffer.grad_data.storage().size()
-                buffer.grad_data.storage().resize_(0)
-
+                model_chunk.grad_data_size = model_chunk.grad_data.storage().size()
+                model_chunk.grad_data.storage().resize_(0)
+        
     if empty_cache:
         torch.cuda.empty_cache()
 
@@ -274,16 +287,28 @@ def offload_megatron_model_to_cpu(models, empty_cache: bool = False):
 @torch.no_grad()
 def load_megatron_model_to_gpu(models, load_grad=True):
     for model_chunk in models:
-        for buffer in model_chunk.buffers:
-            # sometimes, we don't want to load grad for pure inference
-            if load_grad:
-                buffer.grad_data.storage().resize_(buffer.grad_data_size)
-                buffer.grad_data.zero_()
+        print(f"type(model_chunk): {type(model_chunk)}")
+        if isinstance(model_chunk, DDP):
+            for buffer in model_chunk.buffers:
+                print(f"type(buffer): {type(buffer)}")
+                # sometimes, we don't want to load grad for pure inference
+                if load_grad:
+                    buffer.grad_data.storage().resize_(buffer.grad_data_size)
+                    buffer.grad_data.zero_()
 
-            if buffer.param_data.storage().size() == 0:
-                buffer.param_data.storage().resize_(buffer.param_data_size)
+                if buffer.param_data.storage().size() == 0:
+                    buffer.param_data.storage().resize_(buffer.param_data_size)
+                    # copy data from cpu to cuda
+                    buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
+        else:
+            if load_grad:
+                model_chunk.grad_data.storage().resize_(model_chunk.grad_data_size)
+                model_chunk.grad_data.zero_()
+
+            if model_chunk.param_data.storage().size() == 0:
+                model_chunk.param_data.storage().resize_(model_chunk.param_data_size)
                 # copy data from cpu to cuda
-                buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
+                model_chunk.param_data.copy_(model_chunk.param_data.cpu_data, non_blocking=True)
 
 
 @torch.no_grad()
