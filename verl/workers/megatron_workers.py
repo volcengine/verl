@@ -282,6 +282,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                                     model_hf_config=self.actor_model_config)
             log_gpu_memory_usage(f'After building {self.config.rollout.name} rollout', logger=None)
 
+            from verl.models.mcore import get_mcore_weight_converter
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
             sharding_manager = MegatronSGLangShardingManager(actor_module=self.actor.actor_module,
                                                              inference_engine=rollout.inference_engine,
                                                              model_config=self.actor_model_config,
