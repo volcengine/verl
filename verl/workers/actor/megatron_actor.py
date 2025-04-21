@@ -19,6 +19,8 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import logging
+import os
 from functools import partial
 from typing import Dict, Iterable
 
@@ -40,9 +42,13 @@ from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_pa
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.debug import GPUMemoryLogger
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class MegatronPPOActor(BasePPOActor):
@@ -137,6 +143,7 @@ class MegatronPPOActor(BasePPOActor):
             config.megatron.sequence_parallel = False
         self.config = config
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -419,6 +426,7 @@ class MegatronPPOActor(BasePPOActor):
         # loss_reduces contains the stats returned from loss_func
         return losses_reduced
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
         """Update the policy with an iterator of DataProto
 
