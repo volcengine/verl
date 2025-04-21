@@ -355,18 +355,22 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
             local_path = copy_to_local(self.config.model.path)
             if vllm_mode == "customized":
-                rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
-                                      config=self.config.rollout,
-                                      tokenizer=self.tokenizer,
-                                      model_hf_config=self.actor_model_config)
+                rollout = vLLMRollout(
+                    actor_module=self.actor_module_fsdp,
+                    config=self.config.rollout,
+                    tokenizer=self.tokenizer,
+                    model_hf_config=self.actor_model_config,
+                )
             elif vllm_mode == "spmd":
                 vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
-                rollout = vllm_rollout_cls(model_path=local_path,
-                                           config=self.config.rollout,
-                                           tokenizer=self.tokenizer,
-                                           model_hf_config=self.actor_model_config,
-                                           device_mesh=rollout_device_mesh,
-                                           trust_remote_code=trust_remote_code)
+                rollout = vllm_rollout_cls(
+                    model_path=local_path,
+                    config=self.config.rollout,
+                    tokenizer=self.tokenizer,
+                    model_hf_config=self.actor_model_config,
+                    device_mesh=rollout_device_mesh,
+                    trust_remote_code=trust_remote_code,
+                )
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)
@@ -378,6 +382,7 @@ class ActorRolloutRefWorker(Worker):
                 model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
             )
             log_gpu_memory_usage("After building sharding manager", logger=None)
 
@@ -409,6 +414,7 @@ class ActorRolloutRefWorker(Worker):
                 model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
             )
             log_gpu_memory_usage("After building sharding manager", logger=None)
 
@@ -544,8 +550,6 @@ class ActorRolloutRefWorker(Worker):
         prompts = prompts.to(torch.cuda.current_device())
 
         assert self._is_rollout
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id
@@ -557,11 +561,7 @@ class ActorRolloutRefWorker(Worker):
         }
         prompts.meta_info.update(meta_info)
         with self.rollout_sharding_manager:
-            # after parameters sync with rollout, offload actor model to CPU
-            if self._is_offload_param:
-                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-            if self._is_offload_optimizer:
-                offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+            log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)

@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from unittest.mock import patch
 
 import ray
 from ray.experimental.state.api import get_actor
@@ -23,6 +25,7 @@ from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
+from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 
 __all__ = ["Worker"]
 
@@ -300,17 +303,23 @@ class RayWorkerGroup(WorkerGroup):
                         elapsed = int(time.time() - start_time)
                         if elapsed % 30 == 0:
                             logging.warning(
-                                f"Waiting for register center actor {actor_name} to be ready. "
-                                f"Elapsed time: {elapsed} seconds out of {self._ray_wait_register_center_timeout} seconds."
+                                "Waiting for register center actor %s to be ready. "
+                                "Elapsed time: %s seconds out of %s seconds.",
+                                actor_name,
+                                elapsed,
+                                self._ray_wait_register_center_timeout,
                             )
                         time.sleep(1)
 
                     if register_center_actor is None:
                         raise TimeoutError(
-                            f"Failed to get register_center_actor {actor_name} in {list_named_actors(all_namespaces=True)} "
+                            f"Failed to get register_center_actor {actor_name} "
+                            f"in {list_named_actors(all_namespaces=True)} "
                             f"for {self._ray_wait_register_center_timeout} seconds. "
-                            "Ensure that any lingering Ray resources from previous runs are cleaned up (e.g., by restarting the Ray cluster), "
-                            "or adjust the waiting time by modifying the config `trainer.ray_wait_register_center_timeout`."
+                            "Ensure that any lingering Ray resources from previous "
+                            "runs are cleaned up (e.g., by restarting the Ray cluster), "
+                            "or adjust the waiting time by modifying the config "
+                            "`trainer.ray_wait_register_center_timeout`."
                         )
 
                     rank_zero_info = ray.get(register_center_actor.get_rank_zero_info.remote())
@@ -329,10 +338,9 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         ray_cls_with_init=None,
     ):
-        worker_group = cls(resource_pool=None,
-                           ray_cls_with_init=ray_cls_with_init,
-                           name_prefix=name_prefix,
-                           worker_names=worker_names)
+        worker_group = cls(
+            resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names
+        )
         return worker_group
 
     def spawn(self, prefix_set):
@@ -382,8 +390,9 @@ class RayWorkerGroup(WorkerGroup):
         return ray.get(self.execute_all_async(method_name, *args, **kwargs))
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
-        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers),
-        # we'll distribute each element in these lists to the corresponding worker
+        # Here, we assume that if all arguments in args and kwargs are lists,
+        # and their lengths match len(self._workers), we'll distribute each
+        # element in these lists to the corresponding worker
         # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
@@ -421,11 +430,6 @@ Utilities that enables creating workers inside the same ray.Actor,
 with code written in separate ray.Actors.
 """
 
-import os
-from unittest.mock import patch
-
-from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
-
 
 def _bind_workers_method_to_parent(cls, key, user_defined_cls):
     """
@@ -443,12 +447,12 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
 
         if hasattr(method, MAGIC_ATTR):
 
-            def generate_function(name):
+            def generate_function(name, key=key):
                 def func(self, *args, **kwargs):
                     # dispatch to the actual worker
                     return getattr(self.worker_dict[key], name)(*args, **kwargs)
 
-                return func
+                return func  # noqa: B023
 
             func = generate_function(method_name)
             # pass MAGIC_ATTR for outer worker group
@@ -457,15 +461,16 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
             try:
                 # bind direct rollout method to class without prefix
                 if attrs["dispatch_mode"] == Dispatch.DIRECT_ROLLOUT_METHOD and "rollout" in key:
-                    assert not hasattr(cls, method_name), \
+                    assert not hasattr(cls, method_name), (
                         f"conflict direct rollout method {method_name} with role {key}"
+                    )
                     setattr(cls, method_name, func)
                     print(f"bind role {key} method {method_name} to class {cls}")
                 else:
-                    method_name_with_prefix = key + '_' + method_name
+                    method_name_with_prefix = key + "_" + method_name
                     setattr(cls, method_name_with_prefix, func)
             except Exception as e:
-                raise ValueError(f"Fail to set method_name {method_name}")
+                raise ValueError(f"Fail to set method_name {method_name}") from e
 
 
 def _unwrap_ray_remote(cls):
@@ -474,32 +479,31 @@ def _unwrap_ray_remote(cls):
     return cls
 
 
-def _nearest_common_base(mros: List):
-    last_common = object
-    min_len = min([len(mro) for mro in mros]) - 1  # exclude final derived class
+def _determine_fsdp_megatron_base_class(mros: List):
+    """
+    - megatron: base class should be MegatronWorker
+    - fsdp: base class should be Worker
+    """
+    for cls in mros[0]:
+        if cls.__name__ == "MegatronWorker":
+            return cls
+        if cls.__name__ == "Worker":
+            return cls
+    raise ValueError(f"Cannot determine base class for {mros}")
 
-    for i in range(min_len):
-        mro = mros[0][i]
-        for j in range(1, len(mros)):
-            if mro != mros[j][i]:
-                return last_common
-        last_common = mro
 
-    return last_common
-
-
-def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs], worker_cls: type = None):
+def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     """
     This function should return a class instance that delegates the calls to every
     cls in cls_dict
     """
     cls_dict = {}
     init_args_dict = {}
-    if worker_cls is None:
-        worker_cls = _nearest_common_base(
-            [list(reversed(cls.cls.__ray_actor_class__.__mro__)) for cls in class_dict.values()])
+    worker_cls = _determine_fsdp_megatron_base_class(
+        [cls.cls.__ray_actor_class__.__mro__ for cls in class_dict.values()]
+    )
     assert issubclass(worker_cls, Worker), f"worker_cls {worker_cls} should be a subclass of Worker"
-    print(f"find nearest common base class {worker_cls}")
+    print(f"colocated worker base class {worker_cls}")
 
     for key, cls in class_dict.items():
         cls_dict[key] = cls.cls
@@ -515,7 +519,8 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs], wor
             for key, user_defined_cls in cls_dict.items():
                 user_defined_cls = _unwrap_ray_remote(user_defined_cls)
                 # directly instantiate the class without remote
-                # in worker class, e.g. <verl.single_controller.base.worker.Worker> when DISABLE_WORKER_INIT == 1 it will return immediately
+                # in worker class, e.g. <verl.single_controller.base.worker.Worker>
+                # when DISABLE_WORKER_INIT == 1 it will return immediately
                 with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})

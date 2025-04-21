@@ -30,6 +30,7 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 
 from .base import BaseShardingManager
 
@@ -45,13 +46,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
+        offload_param: bool = False,
     ):
         self.module = module
         # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
-        self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
+        self.model_runner = (
+            inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
+        )
         self.model_config = model_config
         self.device_mesh = device_mesh
+        self.offload_param = offload_param
 
         # Full params
         self.full_params = full_params
@@ -92,6 +97,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
+        if self.offload_param:
+            load_fsdp_model_to_gpu(self.module)
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
@@ -114,18 +121,14 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.update_params(params)
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
+            if self.offload_param:
+                offload_fsdp_model_to_cpu(self.module)
             torch.cuda.empty_cache()
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
-
-        # TODO: offload FSDP model weights
-        # self.module.cpu()
-        # torch.cuda.empty_cache()
-        # if torch.distributed.get_rank() == 0:
-        # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:

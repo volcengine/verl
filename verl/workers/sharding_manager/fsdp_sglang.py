@@ -37,6 +37,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataP
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.torch_functional import broadcast_dict_tensor
 
 from .base import BaseShardingManager
@@ -55,11 +56,13 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         model_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
+        offload_param: bool = False,
     ):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.device_mesh = device_mesh
+        self.offload_param = offload_param
 
         # Full params
         self.full_params = full_params
@@ -88,6 +91,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         torch.cuda.empty_cache()
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
+        if self.offload_param:
+            load_fsdp_model_to_gpu(self.module)
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
@@ -98,14 +103,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
+        if self.offload_param:
+            offload_fsdp_model_to_cpu(self.module)
         torch.cuda.empty_cache()
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
-
-        # TODO: offload FSDP model weights
-        # self.module.cpu()
-        # torch.cuda.empty_cache()
-        # if torch.distributed.get_rank() == 0:
-        # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:

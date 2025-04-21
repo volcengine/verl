@@ -773,7 +773,7 @@ class RayPPOTrainer:
 
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.get("mode", "sync") == 'async':
+        if self.config.actor_rollout_ref.rollout.mode == "async":
             from verl.workers.fsdp_async_workers import AsyncLLMManager
 
             self.async_rollout_mode = True

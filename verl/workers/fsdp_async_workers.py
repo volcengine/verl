@@ -34,12 +34,10 @@ from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils.fs import copy_to_local
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
-from verl.workers.sharding_manager import FSDPVLLMShardingManager
 
 logger = logging.getLogger(__file__)
 
@@ -52,16 +50,17 @@ def _get_free_port():
 
 class ExternalRayDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
+
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        assert self.vllm_config.instance_id is not None, \
-            "instance_id must be set for external ray actors."
+        assert self.vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
 
         fields = self.vllm_config.instance_id.split(":")
-        assert len(fields) == 4, \
-            f"instance_id: {self.vllm_config.instance_id} must be in " \
+        assert len(fields) == 4, (
+            f"instance_id: {self.vllm_config.instance_id} must be in "
             f"the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
+        )
         namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
 
         # Make sure subprocess in same namespace as parent actor.
@@ -72,10 +71,11 @@ class ExternalRayDistributedExecutor(Executor):
         ]
 
         vllm_tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-        assert len(actor_names) == vllm_dp_size * vllm_tp_size, \
-            f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, " \
-            f"but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = " \
+        assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
+            f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, "
+            f"but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = "
             f"{vllm_dp_size * vllm_tp_size} is expected."
+        )
 
         def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
             fields = actor_name.split(":")
@@ -85,7 +85,7 @@ class ExternalRayDistributedExecutor(Executor):
 
         # sort actor names by pg_index and local_rank
         actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
-        actor_names = actor_names[vllm_dp_rank * vllm_tp_size:(vllm_dp_rank + 1) * vllm_tp_size]
+        actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
         self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
         print(f"instance_id: {self.vllm_config.instance_id} intializes with external actors: {actor_names}")
 
@@ -101,11 +101,13 @@ class ExternalRayDistributedExecutor(Executor):
         self.collective_rpc("load_model")
         print(f"instance_id: {self.vllm_config.instance_id} intializes finished.")
 
-    def collective_rpc(self,
-                       method: Union[str, Callable],
-                       timeout: Optional[float] = None,
-                       args: Tuple = (),
-                       kwargs: Optional[Dict[str, Any]] = None) -> List[Any]:
+    def collective_rpc(
+        self,
+        method: Union[str, Callable],
+        timeout: Optional[float] = None,
+        args: Tuple = (),
+        kwargs: Optional[Dict[str, Any]] = None,
+    ) -> List[Any]:
         # TODO(wuxibin): support ray compiled graph
         if isinstance(method, str):
             sent_method = method
@@ -114,7 +116,8 @@ class ExternalRayDistributedExecutor(Executor):
         del method
 
         outputs = ray.get(
-            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
+            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
+        )
         return outputs
 
     def check_health(self):
@@ -126,7 +129,7 @@ class AsyncLLMWorker:
     """
     AsyncLLMWorker is a wrapper for AsyncLLM, it uses ExternalRayDistributedExecutor to launch engines
     in hybrid rollout workers, i.e AsyncActorRolloutRefWorker.
- 
+
     It works as follows:
     1. Initialize AsyncLLM with ExternalRayDistributedExecutor.
     2. AsyncLLM spawn EngineCore in subprocess.
@@ -149,18 +152,19 @@ class AsyncLLMWorker:
         model_path = config.model.path
         model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(model_path)
-        trust_remote_code = config.model.get('trust_remote_code', False)
+        trust_remote_code = config.model.get("trust_remote_code", False)
         config = config.rollout
 
-        tensor_parallel_size = config.get('tensor_model_parallel_size', 1)
-        max_num_batched_tokens = config.get('max_num_batched_tokens', 8192)
-        max_model_len = config.max_model_len if config.max_model_len \
-                        else config.prompt_length + config.response_length
+        tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
+        max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
+        max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         max_model_len = int(max_model_len)
 
         if max_num_batched_tokens < max_model_len and config.enable_chunked_prefill:
-            raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill')
+            raise ValueError(
+                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
+                             please increase max_num_batched_tokens or disable chunked prefill"
+            )
 
         engine_args = AsyncEngineArgs(
             model=local_path,
@@ -250,7 +254,6 @@ class AsyncLLMWorker:
 
 
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-
     def _build_rollout(self, trust_remote_code=False):
         rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
 
@@ -274,8 +277,10 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     def execute_method(self, method: Union[str, bytes], *args, **kwargs):
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] "
-                  f"execute_method: {method if isinstance(method, str) else 'Callable'}")
+            print(
+                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] "
+                f"execute_method: {method if isinstance(method, str) else 'Callable'}"
+            )
         return self.rollout.execute_method(method, *args, **kwargs)
 
 
@@ -287,7 +292,7 @@ class AsyncLLMManager:
 
         Args:
             config: DictConfig, actor_rollout_ref config.
-            worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker. 
+            worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
         """
         self.config = config
         self.worker_group = worker_group

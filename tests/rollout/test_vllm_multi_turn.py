@@ -20,7 +20,7 @@ from omegaconf import OmegaConf
 from openai.types.chat.chat_completion import ChatCompletion
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.single_controller.ray.base import Worker, create_colocated_worker_cls
+from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 from verl.workers.fsdp_async_workers import AsyncActorRolloutRefWorker, AsyncLLMManager
 from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
@@ -35,20 +35,25 @@ async def test_vllm_multi_turn():
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
 
+    # test sleep/wake_up with fsdp offload
+    config.actor_rollout_ref.actor.fsdp_config.param_offload = True
+    config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
+
     # =========================== 1. Create hybrid ActorRollout workers ===========================
     ray.init(
         runtime_env={
-            'env_vars': {
-                'TOKENIZERS_PARALLELISM': 'true',
-                'NCCL_DEBUG': 'WARN',
-                'VLLM_LOGGING_LEVEL': 'WARN',
-                'VLLM_USE_V1': '1',
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "VLLM_USE_V1": "1",
             }
-        })
+        }
+    )
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(AsyncActorRolloutRefWorker),
     }
-    global_pool_id = 'global_pool'
+    global_pool_id = "global_pool"
     resource_pool_spec = {
         global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
     }
@@ -61,20 +66,20 @@ async def test_vllm_multi_turn():
 
     # create actor and rollout
     resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
-    actor_rollout_cls = RayClassWithInitArgs(cls=role_worker_mapping[Role.ActorRollout],
-                                             config=config.actor_rollout_ref,
-                                             role='actor_rollout')
-    resource_pool_to_cls[resource_pool]['actor_rollout'] = actor_rollout_cls
+    actor_rollout_cls = RayClassWithInitArgs(
+        cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout"
+    )
+    resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
     all_wg = {}
     wg_dicts = []
     for resource_pool, class_dict in resource_pool_to_cls.items():
-        worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict, worker_cls=Worker)
+        worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
         wg_dict = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
         spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
         all_wg.update(spawn_wg)
         wg_dicts.append(wg_dict)
-    actor_rollout_wg = all_wg['actor_rollout']
+    actor_rollout_wg = all_wg["actor_rollout"]
     actor_rollout_wg.init_model()
 
     # =========================== 2. Create AsyncLLMManager&ChatScheduler  ===========================
@@ -89,6 +94,10 @@ async def test_vllm_multi_turn():
         server_addresses=async_rollout_manager.server_addresses,
     )
 
+    # test sleep and wake_up
+    async_rollout_manager.sleep()
+    async_rollout_manager.wake_up()
+
     # =========================== 3. Multi turn rollout  ===========================
     async def callback(completions: ChatCompletion, info: Dict[str, Any]):
         messages, round = info["messages"], info["round"]
@@ -101,10 +110,7 @@ async def test_vllm_multi_turn():
             messages.append({"role": "user", "content": "What is your name?"})
             await async_chat_scheduler.submit_chat_completions(
                 callback=callback,
-                callback_additional_info={
-                    "messages": messages,
-                    "round": 1
-                },
+                callback_additional_info={"messages": messages, "round": 1},
                 model=model_name,
                 messages=messages,
                 extra_headers=extra_headers,
@@ -113,10 +119,7 @@ async def test_vllm_multi_turn():
             messages.append({"role": "user", "content": "What is your favorite color?"})
             await async_chat_scheduler.submit_chat_completions(
                 callback=callback,
-                callback_additional_info={
-                    "messages": messages,
-                    "round": 2
-                },
+                callback_additional_info={"messages": messages, "round": 2},
                 model=model_name,
                 messages=messages,
                 extra_headers=extra_headers,
@@ -124,16 +127,12 @@ async def test_vllm_multi_turn():
         else:
             print("Done!")
 
-    messages = [{
-        "role": "user",
-        "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."
-    }]
+    messages = [
+        {"role": "user", "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."}
+    ]
     await async_chat_scheduler.submit_chat_completions(
         callback=callback,
-        callback_additional_info={
-            "messages": messages,
-            "round": 0
-        },
+        callback_additional_info={"messages": messages, "round": 0},
         model=model_name,
         messages=messages,
     )
