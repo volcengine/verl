@@ -120,7 +120,7 @@ class RLHFDataset(Dataset):
             print(f"filter dataset len: {len(self.dataframe)}")
 
     def resume_dataset_state(self):
-        self.serialize_dataset = False if hasattr(self, "original_data_files") else True
+        self.serialize_dataset = not hasattr(self, "original_data_files")
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
             self._download(use_origin_parquet=True)  # download and resume from original parquet files

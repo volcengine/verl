@@ -142,14 +142,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             warnings.simplefilter("ignore")
             with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
                 model_state_dict = self.model.state_dict()
-                if self.optimizer is not None:
-                    optimizer_state_dict = self.optimizer.state_dict()
-                else:
-                    optimizer_state_dict = None
-                if self.lr_scheduler is not None:
-                    lr_scheduler_state_dict = self.lr_scheduler.state_dict()
-                else:
-                    lr_scheduler_state_dict = None
+                optimizer_state_dict = self.optimizer.state_dict() if self.optimizer is not None else None
+                lr_scheduler_state_dict = self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None
 
                 extra_state_dict = {
                     "lr_scheduler": lr_scheduler_state_dict,

@@ -4,10 +4,11 @@ name: e2e_ppo_trainer_megatron
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
   pull_request:
     branches:
       - main
-      - v0.3.x
+      - v0.*
     paths:
       - "**/*.py"
       # Entrypoints
@@ -43,7 +44,6 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-      VLLM_ATTENTION_BACKEND: XFORMERS # TODO: Remove this if we update the vLLM
     container:
       image: whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0
       options: --gpus all --shm-size=10g

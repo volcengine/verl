@@ -180,10 +180,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
             state_dict[key] = torch.cat(state_dict[key], dim=0)
 
     print("Writing to local disk")
-    if args.target_dir is None:
-        hf_path = os.path.join(local_dir, "huggingface")
-    else:
-        hf_path = args.target_dir
+    hf_path = os.path.join(local_dir, "huggingface") if args.target_dir is None else args.target_dir
     config = AutoConfig.from_pretrained(args.hf_model_path)
 
     if "ForTokenClassification" in config.architectures[0]:
@@ -389,10 +386,7 @@ def convert_megatron_checkpoints_to_hfmodels():
             torch.testing.assert_close(loaded_weight, param, atol=1e-4, rtol=1e-4)
 
     print("Writing to local disk")
-    if args.target_dir is None:
-        hf_path = os.path.join(args.local_dir, "huggingface")
-    else:
-        hf_path = args.target_dir
+    hf_path = os.path.join(args.local_dir, "huggingface") if args.target_dir is None else args.target_dir
 
     if "ForTokenClassification" in config.architectures[0]:
         auto_model = AutoModelForTokenClassification
