@@ -79,7 +79,6 @@ actor_rollout_ref:
       step_start: -1
       step_end: -1
       save_path: null
-      use_pytorch_profiler: False
     load_weight: True
     checkpoint:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
@@ -101,7 +100,6 @@ actor_rollout_ref:
       step_start: -1
       step_end: -1
       save_path: null
-      use_pytorch_profiler: False
     load_weight: True
     param_offload: False
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
