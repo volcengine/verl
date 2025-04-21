@@ -1,5 +1,5 @@
 data:
-  train_batch_size: 256
+  train_batch_size: 8
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: 2  # this is also val batch size
   train_files: ~/data/gsm8k/train.parquet
@@ -25,7 +25,7 @@ model:
   fsdp_config:
     wrap_policy:
       min_num_params: 0
-    cpu_offload: False
+    cpu_offload: True
     offload_params: False
   external_lib: null
   enable_gradient_checkpointing: False

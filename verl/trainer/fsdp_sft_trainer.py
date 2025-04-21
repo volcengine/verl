@@ -30,6 +30,7 @@ import torch
 import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
+# from torch.distributed.optim import _apply_optimizer_in_backward
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
@@ -53,10 +54,10 @@ from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl import DataProto
 
-from verl.utils.memory import register_optim_in_bwd_hooks
+from verl.utils.memory import register_optim_in_bwd_hooks, _apply_optimizer_in_backward
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN'))
+logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN')) 
 
 
 def extract_step(path):
@@ -269,7 +270,7 @@ class FSDPSFTTrainer(object):
                                sync_module_states=True,
                                device_id=torch.cuda.current_device(),
                                cpu_offload=cpu_offload,
-                               use_orig_params=False)
+                               use_orig_params=True)
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
@@ -279,10 +280,39 @@ class FSDPSFTTrainer(object):
 
         self.optimizer = None
         if self.optim_bwd_hook:
+            # self.optim_dict = {
+            #     param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
+            # }
+            # register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict, acc_steps=acc_steps)
+            # def _gather_handles(module, handles):
+            #     if isinstance(module, FSDP) and getattr(module, "_handle", None) is not None:
+            #         handles.append(module._handle)
+            #     for child in module.children():
+            #         _gather_handles(child, handles)
+
+            # handles = []
+            # _gather_handles(self.fsdp_model, handles)
+            # self.optim_dict = {handle.flat_param: torch.optim.AdamW([handle.flat_param],lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for handle in handles}
+            # register_optim_in_bwd_hooks(handles, optim_dict=self.optim_dict, acc_steps=acc_steps)
+            
+            # first_p = next((p for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers") ), None)
+            # assert first_p is not None, "Must have at least one trainable parameter"
+            # optimizer = first_p._in_backward_optimizers[0]
+            _apply_optimizer_in_backward(
+                optim.AdamW,
+                self.fsdp_model.named_parameters(),
+                {
+                    "lr":self.config.optim.lr, 
+                    "betas":self.config.optim.betas, 
+                    "weight_decay":self.config.optim.weight_decay
+                }
+            )
+            # for name, param in self.fsdp_model.named_parameters():
+            #     if param.view_as(param).grad_fn is None:
+            #         print(f"PARAM WITH NO GRAD FN: {name}")
             self.optim_dict = {
-                param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
+                p: p._in_backward_optimizers[0] for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers")
             }
-            register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict, acc_steps=acc_steps)
         else:
             self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
                                         lr=self.config.optim.lr,
@@ -423,6 +453,7 @@ class FSDPSFTTrainer(object):
                 loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
 
                 if do_backward:
+                    print("STARTING BACKWARD LOSS")
                     loss.backward()
                 return loss
 
@@ -437,15 +468,15 @@ class FSDPSFTTrainer(object):
         # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
         
         step_loss = 0
-        if self.optim_bwd_hook:
-            loss = self._compute_loss_and_backward(batch)
-            step_loss += loss.item()
-        else:
-            micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
-            n_micro_batches = len(micro_batches)
-            for micro_batch in micro_batches:
-                loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
-                step_loss += loss.item()
+        # if self.optim_bwd_hook:
+        loss = self._compute_loss_and_backward(batch)
+        step_loss += loss.item()
+        # else:
+        #     micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
+        #     n_micro_batches = len(micro_batches)
+        #     for micro_batch in micro_batches:
+        #         loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+        #         step_loss += loss.item()
 
         grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
