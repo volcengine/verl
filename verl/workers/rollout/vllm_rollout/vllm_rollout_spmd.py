@@ -92,7 +92,10 @@ class vLLMRollout(BaseRollout):
 
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3"):
+            if vllm_version in (
+                "0.5.4",
+                "0.6.3",
+            ):
                 train_tp = kwargs.get("train_tp")
                 num_tp_per_train_tp = train_tp // tensor_parallel_size
                 vllm_ps.initialize_parallel_state(
@@ -184,7 +187,14 @@ class vLLMRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if (
+            vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            and self.config.free_cache_engine
+        ):
             self.inference_engine.init_cache_engine()
 
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
@@ -310,7 +320,14 @@ class vLLMRollout(BaseRollout):
         )
 
         # free vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if (
+            vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            and self.config.free_cache_engine
+        ):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

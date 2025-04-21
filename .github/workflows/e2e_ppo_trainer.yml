@@ -3,10 +3,11 @@ name: e2e_ppo_trainer
 on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
+  push:
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       # Entrypoints
@@ -34,6 +35,26 @@ permissions:
   contents: read
 
 jobs:
+  pre_commit_for_ppo:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Set ruff --output-format=github
+      run: |
+        sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
+        git add .pre-commit-config.yaml
+    - uses: pre-commit/action@v3.0.1
+      with:
+        extra_args: "" # Overriding default "--all-files"
+        # TODO: Remove this once all the files are fixed, i.e., `pre-commit run --all-files` passes
+
   e2e_ppo_trainer_vllm:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
@@ -113,6 +134,7 @@ jobs:
 
   e2e_ppo_trainer_vllm_vlm:
     runs-on: [L20x8]
+    needs: pre_commit_for_ppo
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -145,6 +167,7 @@ jobs:
 
   e2e_ppo_trainer_sglang:
     runs-on: [L20x8]
+    needs: pre_commit_for_ppo
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -172,6 +195,7 @@ jobs:
 
   e2e_ppo_trainer_sglang_vlm:
     runs-on: [L20x8]
+    needs: pre_commit_for_ppo
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

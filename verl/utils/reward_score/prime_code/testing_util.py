@@ -124,7 +124,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
         print(f"loaded input_output = {datetime.now().time()}")
 
     if test is None:
-        assert False, "should not happen: test code is none"
+        raise AssertionError("should not happen: test code is none")
         return in_outs, {"error": "no test code provided"}
     elif test is not None:
         results = []
@@ -139,10 +139,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
             signal.alarm(timeout)
             try:
                 tmp_sol = RuntimeModule.from_string("tmp_sol", "", sol)
-                if "class Solution" not in test:
-                    tmp = tmp_sol
-                else:
-                    tmp = tmp_sol.Solution()
+                tmp = tmp_sol if "class Solution" not in test else tmp_sol.Solution()
                 signal.alarm(0)
             except Exception as e:
                 signal.alarm(0)
@@ -296,7 +293,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     except:
                         True
                     results.append(tmp_result)
-                    if tmp_result != True:
+                    if tmp_result is not True:
                         return results, {
                             "output": raw_true_output_copy,
                             "expected": raw_outputs,
@@ -418,7 +415,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check1 exception = {e}")
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -443,7 +440,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check2 exception = {e}")
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -462,7 +459,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                             f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}"
                         )
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -520,7 +517,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 except Exception:
                     pass
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -543,7 +540,7 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"Failed check4 exception = {e}")
                     continue
 
-                if tmp_result == True:
+                if tmp_result is True:
                     results.append(tmp_result)
                     continue
 
@@ -565,11 +562,11 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                 if debug:
                     print(f"{tmp_result=} @g")
 
-                if tmp_result == True and debug:
+                if tmp_result is True and debug:
                     print("PASSED")
 
                 results.append(tmp_result)
-                if tmp_result != True:
+                if tmp_result is not True:
                     return results, {
                         "output": raw_true_output_copy,
                         "expected": raw_outputs,
@@ -658,7 +655,7 @@ def reliability_guard(maximum_memory_bytes=None):
 
         resource.setrlimit(resource.RLIMIT_AS, (maximum_memory_bytes, maximum_memory_bytes))
         resource.setrlimit(resource.RLIMIT_DATA, (maximum_memory_bytes, maximum_memory_bytes))
-        if not platform.uname().system == "Darwin":
+        if platform.uname().system != "Darwin":
             resource.setrlimit(resource.RLIMIT_STACK, (maximum_memory_bytes, maximum_memory_bytes))
 
     faulthandler.disable()

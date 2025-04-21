@@ -19,6 +19,7 @@ Call grade_answer(given_answer: str, ground_truth: str).
 FROM: https://github.com/openai/prm800k/blob/main/prm800k/grading/grader.py
 """
 
+import contextlib
 import os
 import re
 
@@ -196,10 +197,8 @@ def _normalize(expr: str) -> str:
     if _is_float(expr) and _is_int(float(expr)):
         expr = str(int(round(float(expr))))
     if "\\" in expr:
-        try:
+        with contextlib.suppress(Exception):
             expr = _parse_latex(expr)
-        except:
-            pass
 
     # edge case with mixed numbers and negative signs
     expr = re.sub("- *", "-", expr)
@@ -231,11 +230,7 @@ def should_allow_eval(expr: str):
         if bad_string in expr:
             return False
 
-    for bad_regex in BAD_REGEXES:
-        if re.search(bad_regex, expr) is not None:
-            return False
-
-    return True
+    return all(re.search(bad_regex, expr) is None for bad_regex in BAD_REGEXES)
 
 
 @timeout(timeout_seconds=10)
