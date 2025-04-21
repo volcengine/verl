@@ -31,14 +31,7 @@ from megatron.core.distributed import finalize_model_grads
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
-from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
-from verl.utils.megatron.pipeline_parallel import (compute_transformers_input_shapes, make_batch_generator)
-from verl import DataProto
-from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
-from verl.workers.actor import BasePPOActor
-from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, masked_mean, broadcast_dict_tensor, split_dict_tensor_into_batches
-from verl.utils.debug.profile import Profiler
+from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
@@ -47,6 +40,7 @@ from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_pa
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.debug.profile import Profiler
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
