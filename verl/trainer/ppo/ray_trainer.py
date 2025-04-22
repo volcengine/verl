@@ -24,9 +24,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type, Dict
-from collections import defaultdict
-from tqdm import tqdm
+from typing import Dict, Type
 
 import numpy as np
 import ray
@@ -53,11 +51,9 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
-from verl.utils.tracking import ValidationGenerationsLogger, RolloutLogger
-from torch.utils.data import RandomSampler, SequentialSampler
-from torchdata.stateful_dataloader import StatefulDataLoader
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
+from verl.utils.tracking import ValidationGenerationsLogger
 
 WorkerType = Type[Worker]
 
@@ -298,10 +294,7 @@ class RayPPOTrainer:
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
-        validation_data_dir = config.trainer.logger_kwargs.get('validation_data_dir', None)
-        self.validation_generations_logger = ValidationGenerationsLogger(data_dir=validation_data_dir)
-        rollout_data_dir = config.trainer.logger_kwargs.get('rollout_data_dir', None)
-        self.rollout_logger = RolloutLogger(data_dir=rollout_data_dir)
+        self.validation_generations_logger = ValidationGenerationsLogger()
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -538,89 +531,46 @@ class RayPPOTrainer:
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
-    def _maybe_log_all_generations(self, batch: DataProto, epoch=None):
-        """Log a table of rollout samples to the configured database logger if enabled.
-
-        Args:
-            batch: The DataProto object containing the batch data, including 'input_ids',
-                   'responses', and 'token_level_scores'.
-            epoch: The current epoch number.
+    def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
+        """
+        Dump rollout or validation samples locally if enabled.
         """
 
-        generations_to_log = self.config.trainer.logger_kwargs.log_rollout_generations
+        # Create a directory for the dump if it doesn't exist
+        os.makedirs(dump_path, exist_ok=True)
 
-        if generations_to_log is False:
-            return
+        # Create a unique filename for the dump
+        dump_filename = os.path.join(dump_path, f"{self.global_steps}.parquet")
 
-        # Extract inputs, outputs and scores from the batch
-        if 'raw_prompt_ids' in batch.non_tensor_batch:
-            raw_prompt_ids = batch.non_tensor_batch['raw_prompt_ids']
-            # Ensure it's a list of lists/tensors before decoding
-            if isinstance(raw_prompt_ids, (list, np.ndarray)) and len(raw_prompt_ids) > 0:
-                 input_texts = self.tokenizer.batch_decode(raw_prompt_ids, skip_special_tokens=True)
-            else:
-                 print(f"Warning: 'raw_prompt_ids' in non_tensor_batch is not a valid list/array: {type(raw_prompt_ids)}. Falling back to decoding input_ids.")
-                 input_ids = batch.batch['input_ids']
-                 input_texts = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-        else:
-            print(f"Warning: 'raw_prompt_ids' not found in non_tensor_batch. Falling back to decoding input_ids for logging.")
-            input_ids = batch.batch['input_ids']
-            input_texts = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+        # Create a DataFrame from the inputs, outputs, and reward_extra_infos_dict
+        data_dict = {
+            "input": inputs,
+            "output": outputs,
+            "score": scores,
+        }
 
-        output_ids = batch.batch['responses']
-        output_texts = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-        # Assuming token_level_scores exist in the batch after reward calculation
-        scores = batch.batch['token_level_scores'].sum(-1).cpu().tolist()
+        for key, values in reward_extra_infos_dict.items():
+            if len(values) == len(inputs):
+                data_dict[key] = values
 
-        # Create tuples of (input, output, score)
-        # samples format: List[Tuple[str, str, float]]
-        samples = list(zip(input_texts, output_texts, scores))
+        data_dict["step"] = [self.global_steps] * len(inputs)
 
-        self.rollout_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch)
+        from datasets import Dataset
 
-    def _maybe_log_val_generations(self, batch: DataProto, epoch=None):
-        """
-        Log a table of validation samples to the configured logger (wand, mlflow, swanlab or database)
-        Args:
-            batch: The DataProto object containing the batch data, including 'input_ids',
-                   'responses', and 'token_level_scores'.
-            epoch: The current epoch number."""
+        ds = Dataset.from_dict(data_dict)
+        ds.to_parquet(dump_filename)
 
-        generations_to_log = self.config.trainer.logger_kwargs.log_val_generations
-        num_generations_to_log = self.config.trainer.logger_kwargs.num_log_val_generations
+        print(f"Dumped generations to {dump_filename}")
 
-        if generations_to_log is False:
+    def _maybe_log_val_generations(self, inputs, outputs, scores):
+        """Log a table of validation samples to the configured logger (wandb or swanlab)"""
+
+        generations_to_log = self.config.trainer.log_val_generations
+
+        if generations_to_log == 0:
             return
 
         import numpy as np
-
-        # Extract inputs, outputs and scores from the batch
-        if 'raw_prompt_ids' in batch.non_tensor_batch:
-            raw_prompt_ids = batch.non_tensor_batch['raw_prompt_ids']
-             # Ensure it's a list of lists/tensors before decoding
-            if isinstance(raw_prompt_ids, (list, np.ndarray)) and len(raw_prompt_ids) > 0:
-                 inputs = self.tokenizer.batch_decode(raw_prompt_ids, skip_special_tokens=True)
-            else:
-                 print(f"Warning: 'raw_prompt_ids' in non_tensor_batch is not a valid list/array: {type(raw_prompt_ids)}. Falling back to decoding input_ids.")
-                 input_ids = batch.batch['input_ids']
-                 inputs = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-        else:
-            print(f"Warning: 'raw_prompt_ids' not found in non_tensor_batch. Falling back to decoding input_ids for validation logging.")
-            input_ids = batch.batch['input_ids']
-            inputs = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-
-        output_ids = batch.batch['responses']
-        outputs = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-        # Assuming token_level_scores exist in the batch after reward calculation
-        if 'token_level_scores' in batch.batch:
-             scores = batch.batch['token_level_scores'].sum(-1).cpu().tolist()
-        # Fallback if reward_tensor is directly available
-        elif 'reward_tensor' in batch.batch: 
-             scores = batch.batch['reward_tensor'].sum(-1).cpu().tolist()
-        else:
-             print("Warning: Neither 'token_level_scores' nor 'reward_tensor' found in batch for validation logging.")
-             scores = [0.0] * len(inputs) # Placeholder scores
-
 
         # Create tuples of (input, output, score) and sort by input text
         samples = list(zip(inputs, outputs, scores))
@@ -631,16 +581,18 @@ class RayPPOTrainer:
         rng.shuffle(samples)
 
         # Take first N samples after shuffling
-        samples = samples[:num_generations_to_log]
+        samples = samples[:generations_to_log]
 
         # Log to each configured logger
-        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, epoch)
+        self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
-    def _validate(self, epoch=-1):
+    def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
-        all_val_batches = [] # Collect batches to log at the end
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -699,53 +651,56 @@ class RayPPOTrainer:
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
             # Add reward tensor to batch for logging
-            test_batch.batch['reward_tensor'] = reward_tensor
+            test_batch.batch["reward_tensor"] = reward_tensor
             scores = reward_tensor.sum(-1).cpu().tolist()
+            sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
             if "reward_extra_info" in result:
                 for key, lst in result["reward_extra_info"].items():
                     reward_extra_infos_dict[key].extend(lst)
 
-            data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
-            all_val_batches.append(test_batch) # Collect the batch
+            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
-        # Combine all validation batches into one DataProto for logging
-        if all_val_batches:
-            combined_val_batch = DataProto.concat(all_val_batches)
-            # Extract necessary info again for process_validation_metrics
-            final_input_ids = combined_val_batch.batch['input_ids']
-            final_input_texts = self.tokenizer.batch_decode(final_input_ids, skip_special_tokens=True)
-            final_scores = combined_val_batch.batch['reward_tensor'].sum(-1).cpu().tolist()
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-            self._maybe_log_val_generations(batch=combined_val_batch, epoch=epoch)
+        # dump generations
+        from omegaconf import OmegaConf
 
-            for key_info, lst in reward_extra_infos_dict.items():
-                assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
+        val_data_dir = OmegaConf.select(self.config.trainer, "validation_data_dir", default=None)
+        if val_data_dir:
+            self._dump_generations(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+            )
 
-            data_sources = np.concatenate(data_source_lst, axis=0)
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
-            data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
-            metric_dict = {}
-            for data_source, var2metric2val in data_src2var2metric2val.items():
-                core_var = "acc" if "acc" in var2metric2val else "reward"
-                for var_name, metric2val in var2metric2val.items():
-                    n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
-                    for metric_name, metric_val in metric2val.items():
-                        if (
-                            (var_name == core_var)
-                            and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
-                            and (f"@{n_max}" in metric_name)
-                        ):
-                            metric_sec = "val-core"
-                        else:
-                            metric_sec = "val-aux"
-                        pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
-                        metric_dict[pfx] = metric_val
+        data_sources = np.concatenate(data_source_lst, axis=0)
 
-            return metric_dict
-        else:
-            return {} # Return empty dict if no validation batches were processed
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
+        metric_dict = {}
+        for data_source, var2metric2val in data_src2var2metric2val.items():
+            core_var = "acc" if "acc" in var2metric2val else "reward"
+            for var_name, metric2val in var2metric2val.items():
+                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                for metric_name, metric_val in metric2val.items():
+                    if (
+                        (var_name == core_var)
+                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
+                        and (f"@{n_max}" in metric_name)
+                    ):
+                        metric_sec = "val-core"
+                    else:
+                        metric_sec = "val-aux"
+                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
+                    metric_dict[pfx] = metric_val
+
+        return metric_dict
 
     def init_workers(self):
         """Init resource pool and worker group"""
@@ -1098,10 +1053,7 @@ class RayPPOTrainer:
 
                         batch.batch["token_level_scores"] = reward_tensor
 
-                        # Log rollout generations if enabled
-                        self._maybe_log_all_generations(batch=batch, epoch=epoch)
-
-                        print(f'{list(reward_extra_infos_dict.keys())=}')
+                        print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
@@ -1141,6 +1093,22 @@ class RayPPOTrainer:
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+
+                    # Log rollout generations if enabled
+                    rollout_data_dir = OmegaConf.select(self.config.trainer, "rollout_data_dir", default=None)
+                    if rollout_data_dir:
+                        with _timer("dump_rollout_generations", timing_raw):
+                            print(batch.batch.keys())
+                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+                            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                            self._dump_generations(
+                                inputs=inputs,
+                                outputs=outputs,
+                                scores=scores,
+                                reward_extra_infos_dict=reward_extra_infos_dict,
+                                dump_path=rollout_data_dir,
+                            )
 
                     # validate
                     if (
