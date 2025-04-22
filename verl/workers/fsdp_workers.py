@@ -1026,7 +1026,6 @@ class RewardModelWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
-        self.return_last_hidden_state = self.config.model.get("return_last_hidden_state", False)
 
         # normalize config
         if self.config.micro_batch_size is not None:
