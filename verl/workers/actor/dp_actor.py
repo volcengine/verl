@@ -149,7 +149,7 @@ class DataParallelPPOActor(BasePPOActor):
                     if self.return_last_hidden_state:
                         hidden_states = output.last_hidden_state
                         logits = self.actor_module.lm_head(hidden_states)
-                        logits_rmpad = logits.squeeze(0)    # (total_nnz, vocab_size)
+                        logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
                     else:
                         logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
