@@ -482,7 +482,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             offload_megatron_model_to_cpu(self.actor_module)
             log_gpu_memory_usage('After offload actor params and grad during compute_log_prob', logger=logger)
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After generate_sequences", logger=logger)
+        log_gpu_memory_usage("After compute_log_prob", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
