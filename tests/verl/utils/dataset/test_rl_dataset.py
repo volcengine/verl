@@ -12,26 +12,81 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+
 import torch
+from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 
 def get_gsm8k_data():
     # prepare test dataset
     url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
-    local_folder = os.path.expanduser('~/verl-data/gsm8k/')
-    local_path = os.path.join(local_folder, 'train.parquet')
+    local_folder = os.path.expanduser("~/verl-data/gsm8k/")
+    local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
 
 def test_rl_dataset():
-    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
     from verl.utils import hf_tokenizer
-    tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
     local_path = get_gsm8k_data()
-    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
+    config = OmegaConf.create(
+        {
+            "prompt_key": "prompt",
+            "max_prompt_length": 256,
+            "filter_overlong_prompts": True,
+            "filter_overlong_prompts_workers": 2,
+        }
+    )
+    dataset = RLHFDataset(data_files=local_path, tokenizer=tokenizer, config=config)
+
+    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
+
+    a = next(iter(dataloader))
+
+    from verl import DataProto
+
+    tensors = {}
+    non_tensors = {}
+
+    for key, val in a.items():
+        if isinstance(val, torch.Tensor):
+            tensors[key] = val
+        else:
+            non_tensors[key] = val
+
+    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+    assert "input_ids" in data_proto.batch
+
+    data = dataset[0]["input_ids"]
+    output = tokenizer.batch_decode([data])[0]
+    print(f"type: type{output}")
+    print(f"\n\noutput: {output}")
+
+
+def test_image_rl_data():
+    from verl.utils import hf_processor, hf_tokenizer
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
+    tokenizer = hf_tokenizer("Qwen/Qwen2-VL-2B-Instruct")
+    processor = hf_processor("Qwen/Qwen2-VL-2B-Instruct")
+    config = OmegaConf.create(
+        {
+            "prompt_key": "prompt",
+            "max_prompt_length": 1024,
+            "filter_overlong_prompts": True,
+            "filter_overlong_prompts_workers": 2,
+        }
+    )
+    dataset = RLHFDataset(
+        data_files=os.path.expanduser("~/data/geo3k/train.parquet"),
+        tokenizer=tokenizer,
+        config=config,
+        processor=processor,
+    )
 
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
 
@@ -50,7 +105,10 @@ def test_rl_dataset():
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
 
-    data = dataset[0]['input_ids']
+    assert "multi_modal_data" in data_proto.non_tensor_batch
+    assert "multi_modal_inputs" in data_proto.non_tensor_batch
+
+    data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
-    print(f'type: type{output}')
-    print(f'\n\noutput: {output}')
+    print(f"type: type{output}")
+    print(f"\n\noutput: {output}")

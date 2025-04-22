@@ -15,27 +15,21 @@
 In this test, we instantiate a data parallel worker with 8 GPUs
 """
 
-from verl.single_controller.base import Worker
-from verl.single_controller.ray import RayWorkerGroup, RayClassWithInitArgs, RayResourcePool
-
-from verl.single_controller.base.decorator import Dispatch, register
-
 import ray
+import tensordict
 import torch
-
+from codetiming import Timer
 from torch import distributed as dist
 
 from verl import DataProto
+from verl.single_controller.base import Worker
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils.ray_utils import parallel_put
-
-from codetiming import Timer
-
-import tensordict
 
 
 @ray.remote
 class DummyWorker(Worker):
-
     def __init__(self):
         super().__init__()
         dist.init_process_group()
@@ -44,7 +38,7 @@ class DummyWorker(Worker):
     def do_nothing(self, data):
         for key in data.batch.keys():
             data.batch[key] += 1
-        if tensordict.__version__ >= '0.5.0':
+        if tensordict.__version__ >= "0.5.0":
             data.batch = data.batch.consolidate()
         return data
 
@@ -75,35 +69,39 @@ def test_data_transfer():
 
     for i in range(wg.world_size):
         # consolidate is necessary
-        if tensordict.__version__ >= '0.5.0':
+        if tensordict.__version__ >= "0.5.0":
             data_list[i].batch = data_list[i].batch.consolidate()
 
-    with Timer(name='ray.pickle', initial_text=True):
+    with Timer(name="ray.pickle", initial_text=True):
         for i in range(wg.world_size):
             ray.cloudpickle.pickle.dumps(data_list[i])
 
-    with Timer(name='raw.pickle', initial_text=True):
+    with Timer(name="raw.pickle", initial_text=True):
         import pickle
+
         for i in range(wg.world_size):
             pickle.dumps(data_list[i])
 
     # we put in advance
-    with Timer(name='put', initial_text=True):
+    with Timer(name="put", initial_text=True):
         # takes around 40 seconds
         data_list_ref = parallel_put(data_list)
         # for i in range(wg.world_size):
         #     data_list[i] = ray.put(data_list[i])
 
-    with Timer(name='launch', initial_text=True):
+    with Timer(name="launch", initial_text=True):
         output_ref = wg.do_nothing(data_list_ref)
 
-    with Timer(name='get', initial_text=True):
+    with Timer(name="get", initial_text=True):
         # takes around 40 seconds
         output_lst = ray.get(output_ref)
 
     for input_data, output_data in zip(data_list, output_lst):
         for key in input_data.batch.keys():
-            assert torch.all(torch.eq(input_data.batch[key] + 1,
-                                      output_data.batch[key])), (input_data.batch[key], output_data.batch[key], key)
+            assert torch.all(torch.eq(input_data.batch[key] + 1, output_data.batch[key])), (
+                input_data.batch[key],
+                output_data.batch[key],
+                key,
+            )
 
     ray.shutdown()

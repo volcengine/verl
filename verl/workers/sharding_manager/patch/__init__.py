@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .fsdp_vllm_patch import patched_ds_v3_load_weights
+from .fsdp_vllm_patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights

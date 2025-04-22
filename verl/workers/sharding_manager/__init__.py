@@ -13,23 +13,13 @@
 # limitations under the License.
 
 from verl.utils.import_utils import (
-    is_vllm_available,
-    is_sglang_available,
     is_megatron_core_available,
+    is_sglang_available,
+    is_vllm_available,
 )
 
 from .base import BaseShardingManager
 from .fsdp_ulysses import FSDPUlyssesShardingManager
-
-AllGatherPPModel = None
-
-if is_megatron_core_available() and is_vllm_available():
-    from .megatron_vllm import AllGatherPPModel, MegatronVLLMShardingManager
-elif AllGatherPPModel is not None:
-    pass
-else:
-    AllGatherPPModel = None
-    MegatronVLLMShardingManager = None
 
 if is_vllm_available():
     from .fsdp_vllm import FSDPVLLMShardingManager

@@ -36,6 +36,7 @@ This logic is largely copied from the Hendrycks' MATH release (math_equivalence)
 
 From: https://github.com/openai/prm800k/blob/main/prm800k/grading/math_normalize.py
 """
+
 import re
 from typing import Optional
 
@@ -168,9 +169,8 @@ def _strip_string(string):
         string = "0" + string
 
     # to consider: get rid of e.g. "k = " or "q = " at beginning
-    if len(string.split("=")) == 2:
-        if len(string.split("=")[0]) <= 2:
-            string = string.split("=")[1]
+    if len(string.split("=")) == 2 and len(string.split("=")[0]) <= 2:
+        string = string.split("=")[1]
 
     # fix sqrt3 --> sqrt{3}
     string = _fix_sqrt(string)
