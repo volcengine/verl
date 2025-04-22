@@ -28,7 +28,7 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import log_gpu_memory_usage
 
 from .base import BaseShardingManager
-from .patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights
+from .patch import _patch_vllm_moe_model_weight_loader
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
@@ -178,25 +178,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def update_params(self, updated_params):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        _patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
-        if model.config.architectures[0] in ["DeepseekV2ForCausalLM", "DeepseekV3ForCausalLM"]:
-            loaded_params = patched_ds_v3_load_weights(
-                model,
-                (
-                    (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
-                    for name, param in updated_params.items()
-                ),
-            )
-        elif model.config.architectures[0] in ["Qwen2MoeForCausalLM"]:
-            loaded_params = patched_qwen_moe_load_weights(
-                model,
-                (
-                    (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
-                    for name, param in updated_params.items()
-                ),
-            )
-        else:
-            loaded_params = model.load_weights(
-                ((name, param.full_tensor() if world_size != 1 else param) for name, param in updated_params.items())
-            )
+        loaded_params = model.load_weights(
+            ((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items())
+        )
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
