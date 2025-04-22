@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
+
 NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}

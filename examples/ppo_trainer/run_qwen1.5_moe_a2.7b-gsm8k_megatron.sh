@@ -1,4 +1,9 @@
 set -x
+
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
+
 # 0. download the model
 huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat
 
