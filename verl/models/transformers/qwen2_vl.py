@@ -14,24 +14,17 @@
 
 import inspect
 import os
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
-from torch.nn import CrossEntropyLoss
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.models.qwen2_vl.modeling_qwen2_vl import (
-    _CONFIG_FOR_DOC,
-    QWEN2_VL_INPUTS_DOCSTRING,
     Qwen2VLCausalLMOutputWithPast,
     Qwen2VLForConditionalGeneration,
 )
-from transformers.utils import (
-    add_start_docstrings_to_model_forward,
-    is_flash_attn_greater_or_equal,
-    replace_return_docstrings,
-)
+from transformers.utils import is_flash_attn_greater_or_equal
 
-from verl.utils.liger import is_liger_kernel_available
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -311,9 +304,12 @@ def ulysses_flash_attn_forward(
     return attn_output, None, None
 
 
-@add_start_docstrings_to_model_forward(QWEN2_VL_INPUTS_DOCSTRING)
-@replace_return_docstrings(output_type=Qwen2VLCausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
-def patched_forward(
+@dataclass
+class Qwen2VLCausalLMOutputWithoutLogits(Qwen2VLCausalLMOutputWithPast):
+    last_hidden_state: Optional[torch.FloatTensor] = None
+
+
+def foward_without_logits(
     self: Qwen2VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -332,47 +328,10 @@ def patched_forward(
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
     **loss_kwargs,
-) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
+) -> Union[Tuple, Qwen2VLCausalLMOutputWithoutLogits]:
     r"""
-    Copy paste Qwen2VL's forward but replace torch cross entropy with liger fused linear cross entropy
-
-    Args:
-        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
-            config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
-            (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
-
-    Returns:
-
-    Example:
-
-    ```python
-    >>> from PIL import Image
-    >>> import requests
-    >>> from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
-
-    >>> model = Qwen2VLForConditionalGeneration.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
-    >>> processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
-
-    >>> messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image"},
-                {"type": "text", "text": "What is shown in this image?"},
-            ],
-        },
-    ]
-    >>> url = "https://www.ilankelman.org/stopsigns/australia.jpg"
-    >>> image = Image.open(requests.get(url, stream=True).raw)
-
-    >>> text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    >>> inputs = processor(text=[text], images=[image], vision_infos=[vision_infos])
-
-    >>> # Generate
-    >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
-    >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
+    Copy paste Qwen2VL's forward
+    https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/qwen2_vl.py
     ```"""
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
@@ -424,9 +383,7 @@ def patched_forward(
     if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
         # calculate RoPE index once per generation in the pre-fill stage only
         if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
-            position_ids, rope_deltas = self.get_rope_index(
-                input_ids, image_grid_thw, video_grid_thw, attention_mask
-            )
+            position_ids, rope_deltas = self.get_rope_index(input_ids, image_grid_thw, video_grid_thw, attention_mask)
             self.rope_deltas = rope_deltas
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
@@ -454,42 +411,13 @@ def patched_forward(
 
     hidden_states = outputs[0]
 
-    loss = None
-    logits = None
-
-    if is_liger_kernel_available() and self.training and (labels is not None):
-        from liger_kernel.transformers.model.loss_utils import LigerForCausalLMLoss
-
-        loss = LigerForCausalLMLoss(
-            hidden_states=hidden_states,
-            lm_head_weight=self.lm_head.weight,
-            labels=labels,
-            hidden_size=self.config.hidden_size,
-            **loss_kwargs,
-        )
-    else:
-        logits = self.lm_head(hidden_states)
-        if labels is not None:
-            # Upcast to float if we need to compute the loss to avoid potential precision issues
-            logits = logits.float()
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, self.config.vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
-
+    if labels is not None:
+        raise NotImplementedError("foward_without_logits does not support labels")
     if not return_dict:
-        output = (logits,) + outputs[1:]
-        return (loss,) + output if loss is not None else output
+        raise NotImplementedError("foward_without_logits has to return_dict")
 
-    return Qwen2VLCausalLMOutputWithPast(
-        loss=loss,
-        logits=logits,
+    return Qwen2VLCausalLMOutputWithoutLogits(
+        last_hidden_state=hidden_states,
         past_key_values=outputs.past_key_values,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,
