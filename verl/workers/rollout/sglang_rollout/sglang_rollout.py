@@ -154,14 +154,13 @@ class SGLangRollout(BaseRollout):
 
         nnodes = -(-tp_size // len(visible_devices_set))
         server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
-        ip, port_args = get_ip(),custom_find_port(server_args)
+        ip, port_args = get_ip(), custom_find_port(server_args)
         
         [ip, port_args] = broadcast_pyobj(
             [ip, port_args],
             rank=tp_rank,
             dist_group=device_mesh_cpu.get_group("tp"),
             src=device_mesh_cpu["tp"].mesh[0].item(),
-            force_cpu_device = False
         )
 
         dist_init_addr = f"[{ip}]:{port_args.nccl_port}"
