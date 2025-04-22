@@ -109,7 +109,7 @@ def apply_monkey_patch(
     model: PreTrainedModel,
     use_remove_padding: bool = False,
     ulysses_sp_size: int = 1,
-    return_last_hidden_states: bool = False,
+    return_last_hidden_state: bool = False,
 ):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
@@ -136,7 +136,7 @@ def apply_monkey_patch(
             Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
 
-        if return_last_hidden_states:
+        if return_last_hidden_state:
             from verl.models.transformers.qwen2_5_vl import forward_without_logits
 
             Qwen2_5_VLForConditionalGeneration.forward = forward_without_logits
@@ -155,7 +155,7 @@ def apply_monkey_patch(
             Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2VL")
 
-        if return_last_hidden_states:
+        if return_last_hidden_state:
             from verl.models.transformers.qwen2_vl import forward_without_logits
 
             Qwen2VLForConditionalGeneration.forward = forward_without_logits
@@ -174,7 +174,7 @@ def apply_monkey_patch(
             flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
-    if return_last_hidden_states:
+    if return_last_hidden_state:
         from verl.models.transformers.llama import forward_without_logits
 
         model.__class__.forward = forward_without_logits
