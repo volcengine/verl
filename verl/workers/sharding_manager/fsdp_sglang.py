@@ -44,7 +44,7 @@ from .base import BaseShardingManager
 # from vllm.distributed import parallel_state as sglang_ps
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPSGLangShardingManager(BaseShardingManager):
