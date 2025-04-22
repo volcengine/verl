@@ -41,11 +41,19 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
+
         self.use_remove_padding = self.config.get("use_remove_padding", False)
         print(f"Actor use_remove_padding={self.use_remove_padding}")
+        self.return_last_hidden_state = self.config.get("return_last_hidden_state", False)
+        print(f"Actor return_last_hidden_state={self.return_last_hidden_state}")
+        self.use_fused_loss = self.config.get("use_fused_loss", False)
+        print(f"Actor use_fused_loss={self.use_fused_loss}")
+
+        if self.use_fused_loss:
+            assert self.return_last_hidden_state, "Unable to use `use_fused_loss` without `return_last_hidden_state`"
+
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
-        self.use_non_materialized_logits = self.config.get("use_non_materialized_logits", False)
 
         self.compute_entropy_from_logits = (
             torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -119,12 +127,11 @@ class DataParallelPPOActor(BasePPOActor):
                     use_cache=False,
                 )  # prevent model thinks we are generating
 
-                if self.use_non_materialized_logits:
+                if self.use_fused_loss:
                     from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
 
                     hidden_states = output.last_hidden_state
                     vocab_weights = self.actor_module.lm_head.weight
-                    assert hidden_states.ndim == 3 and hidden_states.shape[0] == 1
 
                     log_probs = fused_log_probs(
                         hidden_states=hidden_states,
@@ -132,14 +139,21 @@ class DataParallelPPOActor(BasePPOActor):
                         input_ids=input_ids_rmpad_rolled[None],
                         temperature=temperature,
                     ).squeeze(0)
-                    entropy_rmpad = fused_entropy(
-                        hidden_states=hidden_states,
-                        vocab_weights=vocab_weights,
-                    ).squeeze(0)
+                    if calculate_entropy:
+                        entropy_rmpad = fused_entropy(
+                            hidden_states=hidden_states,
+                            vocab_weights=vocab_weights,
+                        ).squeeze(0)
 
                 else:
-                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                    if self.return_last_hidden_state:
+                        hidden_states = output.last_hidden_state
+                        logits = self.actor_module.lm_head(hidden_states)
+                        logits_rmpad = logits.squeeze(0)    # (total_nnz, vocab_size)
+                    else:
+                        logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
+                    # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -185,7 +199,7 @@ class DataParallelPPOActor(BasePPOActor):
                     use_cache=False,
                 )  # prevent model thinks we are generating
 
-                if self.use_non_materialized_logits:
+                if self.use_fused_loss:
                     from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
 
                     hidden_states = output.last_hidden_state
@@ -203,7 +217,12 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                 else:
-                    logits = output.logits
+                    if self.return_last_hidden_state:
+                        hidden_states = output.last_hidden_state
+                        logits = self.actor_module.lm_head(hidden_states)
+                    else:
+                        logits = output.logits
+
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
