@@ -244,7 +244,7 @@ def mcore_model_parallel_config(
 
 
 @torch.no_grad()
-def offload_megatron_model_to_cpu(models, empty_cache: bool = False):
+def offload_megatron_model_to_cpu(models):
     """
     In megatron, the model and optimizer storage are:
     - bf16 parameter data chunked in model parallel group
@@ -268,29 +268,19 @@ def offload_megatron_model_to_cpu(models, empty_cache: bool = False):
                     buffer.grad_data_size = buffer.grad_data.storage().size()
                     buffer.grad_data.storage().resize_(0)
         else:
-            if model_chunk.param_data.storage().size() > 0:
-                model_chunk.param_data.cpu_data = model_chunk.param_data.data.cpu().pin_memory()
-                model_chunk.param_data_size = model_chunk.param_data.storage().size()
-                model_chunk.param_data.storage().resize_(0)
-
-            assert model_chunk.param_data_size == model_chunk.param_data.cpu_data.storage().size()
-
-            if model_chunk.grad_data.storage().size() > 0:
-                # if the grad_data size is already zero, we assume that it is already offloaded
-                model_chunk.grad_data_size = model_chunk.grad_data.storage().size()
-                model_chunk.grad_data.storage().resize_(0)
-        
-    if empty_cache:
-        torch.cuda.empty_cache()
+            # we need this for ref module
+            for _, param in model_chunk.named_parameters():
+                param.data = param.data.to("cpu", non_blocking=True)
+                if param.grad is not None:
+                    param.grad = param.grad.to("cpu", non_blocking=True)
+    torch.cuda.empty_cache()
 
 
 @torch.no_grad()
 def load_megatron_model_to_gpu(models, load_grad=True):
     for model_chunk in models:
-        print(f"type(model_chunk): {type(model_chunk)}")
         if isinstance(model_chunk, DDP):
             for buffer in model_chunk.buffers:
-                print(f"type(buffer): {type(buffer)}")
                 # sometimes, we don't want to load grad for pure inference
                 if load_grad:
                     buffer.grad_data.storage().resize_(buffer.grad_data_size)
@@ -301,31 +291,108 @@ def load_megatron_model_to_gpu(models, load_grad=True):
                     # copy data from cpu to cuda
                     buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
         else:
-            if load_grad:
-                model_chunk.grad_data.storage().resize_(model_chunk.grad_data_size)
-                model_chunk.grad_data.zero_()
+            # we need this for ref module
+            device_id = torch.cuda.current_device()
+            for _, param in model_chunk.named_parameters():
+                param.data = param.data.to(device_id, non_blocking=True)
+                if param.grad is not None:
+                    param.grad = param.grad.to(device_id, non_blocking=True)
+    torch.cuda.empty_cache()
 
-            if model_chunk.param_data.storage().size() == 0:
-                model_chunk.param_data.storage().resize_(model_chunk.param_data_size)
-                # copy data from cpu to cuda
-                model_chunk.param_data.copy_(model_chunk.param_data.cpu_data, non_blocking=True)
+@torch.no_grad()
+def offload_megatron_copy_params(optimizers):
+    """
+    Offload optimizer parameters to CPU
+    
+    Args:
+        optimizers: The optimizer containing parameter groups to offload
+    """
+    def offload_tensor_to_cpu(tensor):
+        """Offload a single tensor to CPU"""
+        if tensor is None:
+            return
+        tensor.data = tensor.data.to('cpu', non_blocking=True)
+        if tensor.grad is not None:
+            tensor.grad = tensor.grad.to('cpu', non_blocking=True)
+
+    def offload_group_to_cpu(group):
+        """Offload a parameter group to CPU"""
+        if group is None:
+            return
+            
+        if isinstance(group, list):
+            for param_group in group:
+                if isinstance(param_group, list):
+                    for param in param_group:
+                        offload_tensor_to_cpu(param)
+                else:
+                    offload_tensor_to_cpu(param_group)
+        else:
+            offload_tensor_to_cpu(group)
+
+    # Offload all parameter groups to CPU
+
+    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
+        offload_group_to_cpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+
+
+@torch.no_grad()
+def load_megatron_copy_params(optimizers):
+    """
+    Load optimizer parameters back to GPU
+    
+    Args:
+        optimizers: The optimizer containing parameter groups to load
+    """
+    def load_tensor_to_gpu(tensor):
+        """Load a single tensor to GPU"""
+        if tensor is None:
+            return
+        device_id = torch.cuda.current_device()
+        tensor.data = tensor.data.to(device_id, non_blocking=True)
+        if tensor.grad is not None:
+            tensor.grad = tensor.grad.to(device_id, non_blocking=True)
+
+    def load_group_to_gpu(group):
+        """Load a parameter group to GPU"""
+        if group is None:
+            return
+            
+        if isinstance(group, list):
+            for param_group in group:
+                if isinstance(param_group, list):
+                    for param in param_group:
+                        load_tensor_to_gpu(param)
+                else:
+                    load_tensor_to_gpu(param_group)
+        else:
+            load_tensor_to_gpu(group)
+
+    # Load all parameter groups to GPU
+
+    group_name='shard_fp32_from_float16_groups'
+    if hasattr(optimizers, group_name):
+        load_group_to_gpu(getattr(optimizers, group_name))
 
 
 @torch.no_grad()
 def offload_megatron_optimizer(optimizers):
+    offload_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=False)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=False)
+        v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
+        v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+    torch.cuda.empty_cache()
 
 
 @torch.no_grad()
 def load_megatron_optimizer(optimizers):
+    load_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=False)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=False)
-
+        v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
+        v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+    torch.cuda.empty_cache()
 
 
 def print_rank_0(message):

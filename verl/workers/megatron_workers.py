@@ -129,7 +129,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             if self.config.ref.get("ppo_micro_batch_size", None):
                 self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
-            self._is_offload_param = self.config.ref.megatron.get('param_offload', False)
+            self._ref_is_offload_param = self.config.ref.megatron.get('param_offload', False)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -284,7 +284,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         self.param_dtype = torch.bfloat16
-
+        log_gpu_memory_usage("Before init actor model and optimizer")
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -304,6 +304,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
 
         if self._is_actor:
+            log_gpu_memory_usage('Before init MegatronPPOActor', logger=logger)
             self.actor = MegatronPPOActor(
                 config=self.config.actor,
                 model_config=self.actor_model_config,
@@ -312,18 +313,23 @@ class ActorRolloutRefWorker(MegatronWorker):
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )
+            log_gpu_memory_usage('After init MegatronPPOActor', logger=logger)
 
         if self._is_rollout:
+            log_gpu_memory_usage('Before init rollout', logger=logger)
             self.rollout, self.sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
+            log_gpu_memory_usage('After init rollout', logger=logger)
 
         if self._is_ref:
+            log_gpu_memory_usage('Before init ref', logger=logger)
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
             )
+            log_gpu_memory_usage('After init ref', logger=logger)
             self.ref_policy = MegatronPPOActor(
                 config=self.config.ref,
                 model_config=self.ref_model_config,
@@ -332,8 +338,12 @@ class ActorRolloutRefWorker(MegatronWorker):
                 actor_module=self.ref_module,
                 actor_optimizer=None,
             )
+            if self._ref_is_offload_param:
+                offload_megatron_model_to_cpu(self.ref_module)
+                log_gpu_memory_usage('After offload ref params and grad during init', logger=logger)
 
         if self._is_actor:
+            log_gpu_memory_usage('Before init MegatronCheckpointManager', logger=logger)
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_mananager = MegatronCheckpointManager(
                 config=self.config,
@@ -349,8 +359,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 checkpoint_contents=self.config.actor.checkpoint.contents,
             )
-
+            log_gpu_memory_usage('After init MegatronCheckpointManager', logger=logger)
         torch.cuda.empty_cache()
+        log_gpu_memory_usage('After init_model end', logger=logger)
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
@@ -429,16 +440,18 @@ class ActorRolloutRefWorker(MegatronWorker):
         data = data.to("cuda")
 
         assert self._is_ref
-        if self._is_offload_param:
+        if self._ref_is_offload_param:
             load_megatron_model_to_gpu(self.ref_module, load_grad=self._is_offload_grad)
+            log_gpu_memory_usage('After load ref params and grad during compute_ref_log_prob', logger=logger)
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["temperature"] = self.config.rollout.temperature
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
-        if self._is_offload_param:
+        if self._ref_is_offload_param:
             offload_megatron_model_to_cpu(self.ref_module)
+            log_gpu_memory_usage('After offload ref params and grad during compute_ref_log_prob', logger=logger)
         torch.cuda.empty_cache()
         return output
 
@@ -489,7 +502,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                                                   max_ckpt_to_keep=max_ckpt_to_keep)
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_megatron_model_to_cpu(self.ref_module)
+            offload_megatron_model_to_cpu(self.actor_module)
 
 
 class CriticWorker(MegatronWorker):
