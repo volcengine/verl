@@ -287,7 +287,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             sharding_manager = MegatronSGLangShardingManager(actor_module=self.actor.actor_module,
                                                              inference_engine=rollout.inference_engine,
                                                              model_config=self.actor_model_config,
-                                                             layer_name_mapping=layer_name_mapping)
+                                                             layer_name_mapping=layer_name_mapping,
+                                                             weight_converter=weight_converter,)
             log_gpu_memory_usage('After building sharding manager', logger=logger)
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")

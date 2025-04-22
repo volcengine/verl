@@ -62,12 +62,13 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 class MegatronSGLangShardingManager(BaseShardingManager):
 
-    def __init__(self, actor_module: nn.ModuleList, inference_engine: VerlEngine, model_config, layer_name_mapping):
+    def __init__(self, actor_module: nn.ModuleList, inference_engine: VerlEngine, model_config, layer_name_mapping, weight_converter):
         from megatron.core import parallel_state as mpu
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.layer_name_mapping = layer_name_mapping
+        self.weight_converter = weight_converter
         global _MICRO_DATA_PARALLEL_GROUP
         world_size = torch.distributed.get_world_size()
         rank = torch.distributed.get_rank()
@@ -93,18 +94,29 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 _MICRO_DATA_PARALLEL_GROUP = group
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
+        """
+        convert_qkv_gate_up_by_simple_split is a parameter affected by the vLLM version.
+        """
         from megatron.core import parallel_state as mpu
+
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = self.train_tp_group
+        all_gather_group = (
+            get_micro_data_parallel_group()
+            if vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            else self.train_tp_group
+        )
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
             for scan_vpp_idx in range(vpp_size):
-                for name, param in self.actor_module[scan_vpp_idx].named_parameters():
-                    yield name, param
+                yield from self.actor_module[scan_vpp_idx].named_parameters()
 
         # we need first make all rank get full model information
         meta_info = []
@@ -113,9 +125,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
         obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-        torch.distributed.all_gather_object(object_list=obj_spec_output,
-                                            obj=meta_info,
-                                            group=mpu.get_pipeline_model_parallel_group())
+        torch.distributed.all_gather_object(
+            object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group()
+        )
         layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
         gen_func = tensor_generator()
@@ -127,8 +139,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size,
-                                                self.model_config.num_hidden_layers)
+                cur_name = normalize_model_name(
+                    name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers
+                )
             else:
                 cur_tensor, cur_name = None, None
 
@@ -138,7 +151,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
-                cur_name = cur_name[len("module."):]
+                cur_name = cur_name[len("module.") :]
 
             # tp all gather
             if tp_utils.is_tensor_parallel_param(broad_pp_tensor):
@@ -147,25 +160,30 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                     infer_params = [broad_pp_tensor]
                 else:
                     infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
-                    torch.distributed.all_gather(infer_params,
-                                                 broad_pp_tensor,
-                                                 group=mpu.get_tensor_model_parallel_group())
-                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_tensor, infer_params, self.model_config,
-                                                         convert_qkv_gate_up_by_simple_split)
+                    torch.distributed.all_gather(
+                        infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
+                    )
+                infer_params = self.default_tp_concat_fn(
+                    cur_name, broad_pp_tensor, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split
+                )
             else:
                 infer_params = broad_pp_tensor
 
-            # change megatron tensor name to hf model name
-            converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                cur_name,
-                infer_params,
-                self.model_config,
-                self.train_tp_size,
-                0,  # no impact
-                convert_qkv_gate_up_by_trunk_concat=False)  # defualt false
+            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+                converted_names, converted_params = convert_megatron_model_to_transformers_model(
+                    cur_name,
+                    infer_params,
+                    self.model_config,
+                    self.train_tp_size,
+                    0,  # no impact
+                    convert_qkv_gate_up_by_trunk_concat=False,
+                )  # defualt false
+            else:
+                if not isinstance(infer_params, list):
+                    infer_params = [infer_params]
+                converted_names, converted_params = self.weight_converter.convert_param(cur_name, infer_params)
 
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
+            yield from zip(converted_names, converted_params)
 
     def default_tp_concat_fn(self, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
         """
