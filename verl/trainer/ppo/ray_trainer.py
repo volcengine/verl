@@ -433,6 +433,11 @@ class RayPPOTrainer:
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
             )
 
+        if config.actor_rollout_ref.model.use_fused_loss:
+            assert config.actor_rollout_ref.model.return_last_hidden_state, (
+                "When `use_fused_loss` is enabled, you must enable `use_remove_padding`."
+            )
+
         if self.use_critic and config.critic.strategy == "fsdp":
             if config.critic.get("ulysses_sequence_parallel_size", 1) > 1:
                 assert config.critic.model.use_remove_padding, (
