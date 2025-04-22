@@ -149,6 +149,7 @@ class DataParallelPPOActor(BasePPOActor):
                         entropy_rmpad = fused_entropy(
                             hidden_states=hidden_states,
                             vocab_weights=vocab_weights,
+                            temperature=temperature,
                         ).squeeze(0)
 
                 else:
@@ -220,6 +221,7 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy = fused_entropy(
                         hidden_states=hidden_states,
                         vocab_weights=vocab_weights,
+                        temperature=temperature,
                     )
 
                 else:
