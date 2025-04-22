@@ -19,7 +19,7 @@ class FusedEntropy(torch.autograd.Function):
             entropy (torch.Tensor): [B, T]
         """
         output_dtype = hidden_states.dtype
-        logits = torch.einsum("bth,vh->btv", hidden_states, vocab_weights)
+        logits = (hidden_states @ vocab_weights.t())
         logits.div_(temperature)
         logits = logits.to(torch.float32)
         pd = torch.nn.functional.softmax(logits, dim=-1)
@@ -108,6 +108,7 @@ class FusedEntropy(torch.autograd.Function):
 def fused_entropy(
     hidden_states: torch.Tensor,
     vocab_weights: torch.Tensor,
+    temperature: float = 1.0,
     chunk_size: int = 512,
 ) -> torch.Tensor:
     """Fuse the logits calculations with entropy calculation to save memory.
@@ -122,6 +123,7 @@ def fused_entropy(
     return FusedEntropy.apply(
         hidden_states,
         vocab_weights,
+        temperature,
         chunk_size,
     )
 
