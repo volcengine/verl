@@ -91,6 +91,7 @@ async def test_vllm_multi_turn():
     async_chat_scheduler = ChatCompletionScheduler(
         config=config.actor_rollout_ref.rollout,
         model_path=config.actor_rollout_ref.model.path,
+        tokenizer=None,
         server_addresses=async_rollout_manager.server_addresses,
     )
 

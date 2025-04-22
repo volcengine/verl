@@ -20,22 +20,31 @@ from cachetools import LRUCache
 from omegaconf import DictConfig
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
+from transformers import PreTrainedTokenizer
 
 from verl.protocol import DataProto
 
 
 class ChatCompletionScheduler:
-
-    def __init__(self, config: DictConfig, model_path: str, server_addresses: List[str], max_cache_size: int = 10000):
+    def __init__(
+        self,
+        config: DictConfig,
+        model_path: str,
+        tokenizer: PreTrainedTokenizer,
+        server_addresses: List[str],
+        max_cache_size: int = 10000,
+    ):
         """
         Args:
             config: DictConfig, rollout config.
             model_path: str, model path.
+            tokenizer: PreTrainedTokenizer, tokenizer.
             server_addresses: List[str], server addresses.
             max_cache_size: int, max cache size of request_id to address mapping.
         """
         self.config = config
         self.model_name = "/".join(model_path.split("/")[-2:])
+        self.tokenizer = tokenizer
 
         # Least requests load balancing
         self.weighted_addresses = [[0, address] for address in server_addresses]
@@ -71,7 +80,7 @@ class ChatCompletionScheduler:
         request_id = extra_headers.get("x-request-id", None)
         if request_id:
             if request_id.startswith("chatcmpl-"):
-                request_id = request_id[len("chatcmpl-"):]
+                request_id = request_id[len("chatcmpl-") :]
                 extra_headers["x-request-id"] = request_id
 
             address = self.request_id_to_address[request_id]
@@ -100,9 +109,9 @@ class ChatCompletionScheduler:
         try:
             session = aiohttp.ClientSession()
             async with session.post(
-                    url=f"http://{address}/v1/chat/completions",
-                    headers={"Authorization": "Bearer token-abc123"},
-                    json=chat_complete_request,
+                url=f"http://{address}/v1/chat/completions",
+                headers={"Authorization": "Bearer token-abc123"},
+                json=chat_complete_request,
             ) as resp:
                 data = await resp.json()
                 return ChatCompletion(**data)

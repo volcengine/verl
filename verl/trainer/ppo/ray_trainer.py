@@ -787,6 +787,7 @@ class RayPPOTrainer:
             self.async_chat_scheduler = scheduler_cls(
                 config=self.config.actor_rollout_ref.rollout,
                 model_path=self.config.actor_rollout_ref.model.path,
+                tokenizer=self.tokenizer,
                 server_addresses=self.async_rollout_manager.server_addresses,
             )
 
