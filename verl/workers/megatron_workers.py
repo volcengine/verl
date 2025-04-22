@@ -366,11 +366,13 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         assert self._is_actor
+        log_gpu_memory_usage('Before update policy', logger=logger)
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
+            log_gpu_memory_usage('After load actor params and grad during update_actor', logger=logger)
         if self._is_offload_optimizer:
             load_megatron_optimizer(self.actor_optimizer)
-
+            log_gpu_memory_usage('After load actor optimizer during update_actor', logger=logger)
         data.batch = data.batch.cuda()
 
         log_gpu_memory_usage("Before update policy", logger=logger)
@@ -393,18 +395,22 @@ class ActorRolloutRefWorker(MegatronWorker):
         
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+            log_gpu_memory_usage('After offload actor params and grad during update_actor', logger=logger)
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.actor_optimizer)
+            log_gpu_memory_usage('After offload actor optimizer during update_actor', logger=logger)
 
         torch.cuda.empty_cache()
+        log_gpu_memory_usage('After update_actor end', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
+        log_gpu_memory_usage('Before generate_sequences', logger=logger)
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
-        
+            log_gpu_memory_usage('After load actor params and grad during generate_sequences', logger=logger)
         prompts.batch = prompts.batch.cuda()
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id
@@ -438,7 +444,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
         data = data.to("cuda")
-
+        log_gpu_memory_usage('Before compute_ref_log_prob', logger=logger)
         assert self._is_ref
         if self._ref_is_offload_param:
             load_megatron_model_to_gpu(self.ref_module, load_grad=self._is_offload_grad)
@@ -458,8 +464,10 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
+        log_gpu_memory_usage('Before compute_log_prob', logger=logger)
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
+            log_gpu_memory_usage('After load actor params and grad during compute_log_prob', logger=logger)
         data = data.to("cuda")
         output = data
         # we should always recompute old_log_probs when it is HybridEngine
@@ -472,6 +480,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # clear kv cache
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+            log_gpu_memory_usage('After offload actor params and grad during compute_log_prob', logger=logger)
         torch.cuda.empty_cache()
         log_gpu_memory_usage("After generate_sequences", logger=logger)
         return output
