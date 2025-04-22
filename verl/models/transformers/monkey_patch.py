@@ -107,8 +107,8 @@ def _ulysses_flash_attention_forward(
 
 def apply_monkey_patch(
     model: PreTrainedModel,
-    use_remove_padding: bool = False,
     ulysses_sp_size: int = 1,
+    use_remove_padding: bool = True,
     return_last_hidden_state: bool = False,
 ):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
