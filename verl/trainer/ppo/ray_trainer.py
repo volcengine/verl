@@ -651,8 +651,6 @@ class RayPPOTrainer:
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
-            # Add reward tensor to batch for logging
-            test_batch.batch["reward_tensor"] = reward_tensor
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
