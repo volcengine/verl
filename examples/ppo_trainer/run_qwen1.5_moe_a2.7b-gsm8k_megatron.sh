@@ -54,7 +54,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.experiment_name='qwen1.5_moe_nochat' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=$NODES \
-    trainer.save_freq=-1 \
+    trainer.save_freq=20 \
     trainer.test_freq=5 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$VLLM_TP \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
