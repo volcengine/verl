@@ -215,6 +215,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
+        layer_name_mapping = {
+            "qkv_layer_name": "self_attention.linear_qkv.",
+            "gate_proj_layer_name": "linear_fc1.weight",
+        }
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
@@ -223,10 +227,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
-            layer_name_mapping = {
-                "qkv_layer_name": "self_attention.linear_qkv.",
-                "gate_proj_layer_name": "linear_fc1.weight",
-            }
+            
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
