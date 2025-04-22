@@ -431,7 +431,10 @@ class ActorRolloutRefWorker(Worker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
 
         use_remove_padding = self.config.model.get("use_remove_padding", False)
-        return_last_hidden_state = self.config.get("return_last_hidden_state", False)
+        return_last_hidden_state = self.config.model.get("return_last_hidden_state", False)
+        use_fused_loss = self.config.model.get("use_fused_loss", False)
+        if use_fused_loss:
+            assert return_last_hidden_state, "`use_fused_loss` requires `return_last_hidden_state`"
 
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -468,6 +471,7 @@ class ActorRolloutRefWorker(Worker):
             with open_dict(self.config.actor):
                 self.config.actor.use_remove_padding = use_remove_padding
                 self.config.actor.return_last_hidden_state = return_last_hidden_state
+                self.config.actor.use_fused_loss = use_fused_loss
             self.actor = DataParallelPPOActor(
                 config=self.config.actor, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
@@ -493,6 +497,7 @@ class ActorRolloutRefWorker(Worker):
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
                 self.config.actor.return_last_hidden_state = return_last_hidden_state
+                self.config.actor.use_fused_loss = use_fused_loss
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:

@@ -29,6 +29,8 @@ actor_rollout_ref:
     enable_gradient_checkpointing: True
     use_remove_padding: False
     use_liger: False
+    return_last_hidden_state: False
+    use_fused_loss: False
   actor:
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
