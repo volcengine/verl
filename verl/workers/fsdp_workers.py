@@ -496,8 +496,8 @@ class ActorRolloutRefWorker(Worker):
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
-                self.config.actor.return_last_hidden_state = return_last_hidden_state
-                self.config.actor.use_fused_loss = use_fused_loss
+                self.config.ref.return_last_hidden_state = return_last_hidden_state
+                self.config.ref.use_fused_loss = use_fused_loss
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
