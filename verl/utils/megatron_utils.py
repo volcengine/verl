@@ -312,8 +312,6 @@ def offload_megatron_copy_params(optimizers):
         if tensor is None:
             return
         tensor.data = tensor.data.to('cpu', non_blocking=True)
-        if tensor.grad is not None:
-            tensor.grad = tensor.grad.to('cpu', non_blocking=True)
 
     def offload_group_to_cpu(group):
         """Offload a parameter group to CPU"""
@@ -350,8 +348,6 @@ def load_megatron_copy_params(optimizers):
             return
         device_id = torch.cuda.current_device()
         tensor.data = tensor.data.to(device_id, non_blocking=True)
-        if tensor.grad is not None:
-            tensor.grad = tensor.grad.to(device_id, non_blocking=True)
 
     def load_group_to_gpu(group):
         """Load a parameter group to GPU"""
