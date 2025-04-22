@@ -264,6 +264,8 @@ def forward_without_logits(
     r"""
     Copy paste LLaMa's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/llama.py
+
+    This function should be generic enough for all pure text models.
     ```"""
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
