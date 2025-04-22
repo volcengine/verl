@@ -1,9 +1,14 @@
+from typing import Tuple
 import torch
 
 
 class FusedEntropy(torch.autograd.Function):
     @staticmethod
-    def entropy_fn(hidden_states: torch.Tensor, vocab_weights: torch.Tensor) -> torch.Tensor:
+    def entropy_fn(
+        hidden_states: torch.Tensor,
+        vocab_weights: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
         """Naive entropy function
 
         Args:
@@ -15,6 +20,7 @@ class FusedEntropy(torch.autograd.Function):
         """
         output_dtype = hidden_states.dtype
         logits = torch.einsum("bth,vh->btv", hidden_states, vocab_weights)
+        logits.div_(temperature)
         logits = logits.to(torch.float32)
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
@@ -25,6 +31,7 @@ class FusedEntropy(torch.autograd.Function):
         ctx,
         hidden_states: torch.Tensor,
         vocab_weights: torch.Tensor,
+        temperature: float = 1.0,
         chunk_size: int = 512,
     ) -> torch.Tensor:
         B, T, _ = hidden_states.shape
@@ -40,19 +47,25 @@ class FusedEntropy(torch.autograd.Function):
             chunk_end = min(chunk_start + chunk_size, T)
             chunk_hidden = hidden_states[:, chunk_start:chunk_end, :]
 
-            chunk_entropy = FusedEntropy.entropy_fn(chunk_hidden, vocab_weights)
+            chunk_entropy = FusedEntropy.entropy_fn(
+                chunk_hidden,
+                vocab_weights,
+                temperature=temperature,
+            )
 
             entropy[:, chunk_start:chunk_end] = chunk_entropy
 
         # Save necessary tensors for backward
         ctx.save_for_backward(hidden_states, vocab_weights)
         ctx.chunk_size = chunk_size
+        ctx.temperature = temperature
 
         return entropy
 
     @staticmethod
     def backward(ctx, grad_output):
         hidden_states, vocab_weights = ctx.saved_tensors
+        temperature = ctx.temperature
         chunk_size = ctx.chunk_size
         B, T, H = hidden_states.shape
         V = vocab_weights.shape[0]
@@ -68,7 +81,11 @@ class FusedEntropy(torch.autograd.Function):
             chunk_grad_output = grad_output[:, chunk_start:chunk_end]
 
             with torch.enable_grad():
-                chunk_entropy = FusedEntropy.entropy_fn(chunk_hidden, vocab_weights)
+                chunk_entropy = FusedEntropy.entropy_fn(
+                    chunk_hidden,
+                    vocab_weights,
+                    temperature=temperature,
+                )
                 torch.autograd.backward(chunk_entropy, grad_tensors=chunk_grad_output, retain_graph=False)
 
             # Accumulate gradients
@@ -83,6 +100,7 @@ class FusedEntropy(torch.autograd.Function):
         return (
             grad_hidden_states,  # hidden_states
             grad_vocab_weights,  # vocab_weights
+            None,  # temperature
             None,  # chunk_size
         )
 
@@ -91,7 +109,7 @@ def fused_entropy(
     hidden_states: torch.Tensor,
     vocab_weights: torch.Tensor,
     chunk_size: int = 512,
-):
+) -> torch.Tensor:
     """Fuse the logits calculations with entropy calculation to save memory.
 
     Args:
