@@ -83,7 +83,8 @@ Ray Distributed Debugger VSCode Extension (Recommended)
    .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/debugger.png?raw=true
       :alt: Ray Distributed Debugger VSCode extension screenshot
 
-2. Prerequisites
+2. Prerequisites.
+
    Ensure the following are installed (see the extension README for more detail):
 
    - Visual Studio Code  
@@ -93,7 +94,8 @@ Ray Distributed Debugger VSCode Extension (Recommended)
    .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/c7098b755ff689859837773a916c857.png?raw=true
       :alt: VSCode with Ray prerequisites
 
-3. Environment Variables
+3. Environment Variables.
+
    To enable post‑mortem debugging, set:
 
    .. code-block:: bash
@@ -121,7 +123,7 @@ Ray Distributed Debugger VSCode Extension (Recommended)
 
    **Note:** Breakpoints are only supported inside functions decorated with `@ray.remote`.
 
-5. Launching the Debugger
+5. Launching the Debugger.
 
    Run your job directly from the command line (do not use a `launch.json`):
 
@@ -129,14 +131,14 @@ Ray Distributed Debugger VSCode Extension (Recommended)
 
       python job.py
 
-6. Attaching to a Breakpoint 
+6. Attaching to a Breakpoint.
 
  Once the process hits the first `breakpoint()`, click the Ray Distributed Debugger icon in the VSCode sidebar to attach the debugger.
 
    .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/4ddad74395c79a1402331c0ce73316f.png?raw=true
       :alt: Attaching VSCode debugger to Ray process
 
-7. Debugging With Multiple breakpoint()
+7. Debugging With Multiple breakpoint().
 
    For each subsequent task, first disconnect the current debugger session, then click the extension icon again to attach to the next breakpoint.
 
