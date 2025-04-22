@@ -19,26 +19,12 @@ from typing import List, Dict, Any
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
 
-def get_random_string(length):
-    import random
-    import string
-    letters_digits = string.ascii_letters + string.digits
-    return ''.join(random.choice(letters_digits) for _ in range(length))
-
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
         args, kwargs = dispatch_fn(self, *args, **kwargs)
         output = execute_fn(method_name, *args, **kwargs)
         if blocking:
-            if isinstance(output, List):
-                new_output = []
-                for o in output:
-                    if isinstance(o, rpc.PyRRef):
-                        o = o.to_here()
-                    new_output.append(o)
-                output = new_output
-            elif isinstance(output, rpc.PyRRef):
-                    output = output.to_here()
+            output = rref_to_here(output)
         output = collect_fn(self, output)
         return output
 
@@ -58,6 +44,12 @@ def _create_local_instance(cls, args, kwargs, env_vars):
             os.environ[k] = v
     return cls(*args, **kwargs)
 
+def rref_to_here(x):
+    if isinstance(x, list):
+        return [i.to_here() for i in x]
+    else:
+        return x.to_here()
+
 class Node:
     def __init__(self, name, total_cpu=-1, total_gpu=-1, used_cpu=0, used_gpu=0):
         self.name = name
@@ -71,7 +63,7 @@ global_nodes = None
 def get_global_nodes():
     global global_nodes
     if not global_nodes:
-        global_nodes = [Node('header'), Node('worker1')]
+        global_nodes = [Node('header')] + [Node(f'worker{i}') for i in range(1, os.environ.get('TORCHRPC_WORLD_SIZE', 2))]
     return global_nodes
 
 def get_best_node(cpu, gpu):
@@ -88,14 +80,15 @@ class TorchRPCResourcePool(ResourcePool):
     def __init__(self,
                  process_on_nodes: List[int] = None,
                  use_gpu: bool = True,
-                 name_prefix: str = "",
+                #  name_prefix: str = "",
                  max_colocate_count: int = 5,
-                 detached=False) -> None:
+                #  detached=False
+                ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
-        self.name_prefix = name_prefix
+        # self.name_prefix = name_prefix
         self.nodes = None
-        self.detached = detached
+        # self.detached = detached
 
     def get_nodes(self):
         if self.nodes is not None:
@@ -116,18 +109,18 @@ class TorchRPCResourcePool(ResourcePool):
 class TorchRPCClassWithInitArgs(ClassWithInitArgs):
     def __init__(self, cls, *args, **kwargs) -> None:
         super().__init__(cls, *args, **kwargs)
-        self._options = {}
-        self._additional_resource = {}
-        self.env_vars = {}
+        # self._options = {}
+        # self._additional_resource = {}
+        self._env_vars = {}
 
-    def set_additional_resource(self, additional_resource):
-        self._additional_resource = additional_resource
+    # def set_additional_resource(self, additional_resource):
+    #     self._additional_resource = additional_resource
 
-    def update_options(self, options: Dict):
-        self._options.update(options)
+    # def update_options(self, options: Dict):
+    #     self._options.update(options)
 
     def update_env_vars(self, env_vars: Dict):
-        self.env_vars.update(env_vars)
+        self._env_vars.update(env_vars)
 
     def __call__(self,
                  node: Node,
@@ -142,7 +135,7 @@ class TorchRPCClassWithInitArgs(ClassWithInitArgs):
         #     for k, v in self._additional_resource.items():
         #         options[k] = v
 
-        return rpc.remote(node.name, _create_local_instance, args=(self.cls, self.args, self.kwargs, self.env_vars))
+        return rpc.remote(node.name, _create_local_instance, args=(self.cls, self.args, self.kwargs, self._env_vars))
 
 class TorchRPCWorkerGroup(WorkerGroup):
 
@@ -150,20 +143,20 @@ class TorchRPCWorkerGroup(WorkerGroup):
                  resource_pool: TorchRPCResourcePool = None,
                  cls_with_init: TorchRPCClassWithInitArgs = None,
                  bin_pack: bool = True,
-                 name_prefix: str = None,
-                 detached=False,
-                 worker_names=None,
+                #  name_prefix: str = None,
+                #  detached=False,
+                #  worker_names=None,
+                 worker_rrefs=None,
                  **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.cls_with_init = cls_with_init
         # 名字怎么用？
-        self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
+        # self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
 
-        if worker_names is not None:
-            # 我们的worker是无名的
+        if worker_rrefs is not None:
             # _is_init_with_detached_workers -> resource_pool is None
             assert self._is_init_with_detached_workers
-            self._worker_names = worker_names
+            self._workers = worker_rrefs
 
         if self._is_init_with_detached_workers:
             # 我们有 detached worker吗？
@@ -171,11 +164,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
         else:
             self._init_with_resource_pool(resource_pool=resource_pool,
                                           cls_with_init=cls_with_init,
-                                          bin_pack=bin_pack,
-                                          detached=detached)
+                                          bin_pack=bin_pack)
+                                        #   detached=detached)
 
         if cls_with_init is not None:
-            # 研究下如何绑定
             self._bind_worker_method(self.cls_with_init.cls, func_generator)
 
     def _is_worker_alive(self, worker):
@@ -184,7 +176,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
     def _init_with_detached_workers(self, worker_names):
         raise NotImplementedError # TODO
 
-    def _init_with_resource_pool(self, resource_pool, cls_with_init, bin_pack, detached):
+    def _init_with_resource_pool(self, resource_pool, cls_with_init, bin_pack):
         use_gpu = resource_pool.use_gpu
 
         nodes = resource_pool.get_nodes()
@@ -247,7 +239,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
         ret = self.execute_all_async(method_name, *args, **kwargs)
-        return [r.to_here() for r in ret]
+        return rref_to_here(ret)
 
     def execute_all(self, method_name: str, *args, **kwargs):
         return self.execute_all_async(method_name, *args, **kwargs)
@@ -291,9 +283,3 @@ def create_colocated_worker_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]
     remote_cls = TorchRPCClassWithInitArgs(cls=WorkerDict)
     return remote_cls
 
-
-def rref_to_here(x):
-    if isinstance(x, list):
-        return [i.to_here() for i in x]
-    else:
-        return x.to_here()
