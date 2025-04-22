@@ -590,6 +590,7 @@ class RayPPOTrainer:
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
+        # Lists to collect samples for the table
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
