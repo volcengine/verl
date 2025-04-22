@@ -276,8 +276,9 @@ class ActorRolloutRefWorker(MegatronWorker):
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
+            local_path = copy_to_local(self.config.model.path)
             log_gpu_memory_usage(f'Before building {self.config.rollout.name} rollout', logger=None)
-            rollout = SGLangRollout(actor_module=self.config.model.path,
+            rollout = SGLangRollout(actor_module=local_path,
                                     config=self.config.rollout,
                                     tokenizer=self.tokenizer,
                                     model_hf_config=self.actor_model_config)

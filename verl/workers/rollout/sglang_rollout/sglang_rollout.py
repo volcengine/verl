@@ -154,14 +154,17 @@ class SGLangRollout(BaseRollout):
 
         nnodes = -(-tp_size // len(visible_devices_set))
         server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
-        ip, port_args = get_ip(), PortArgs.init_new(server_args)
+        ip, port_args = get_ip(),custom_find_port(server_args)
+        
         [ip, port_args] = broadcast_pyobj(
             [ip, port_args],
             rank=tp_rank,
             dist_group=device_mesh_cpu.get_group("tp"),
             src=device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device = False
         )
-        dist_init_addr = f"{ip}:{port_args.nccl_port}"
+
+        dist_init_addr = f"[{ip}]:{port_args.nccl_port}"
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
         self.inference_engine = VerlEngine(
             model_path=actor_module,
@@ -355,3 +358,57 @@ class SGLangRollout(BaseRollout):
             self.inference_engine._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+
+import socket
+from typing import List, Optional
+import tempfile
+from sglang.srt.utils import configure_ipv6
+ZMQ_TCP_PORT_DELTA = 233
+def custom_find_port(server_args,dp_rank: Optional[int] = None) -> "PortArgs":
+    def _get_free_port():
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            return sock.getsockname()[1]
+    
+    port =_get_free_port()
+
+    if not server_args.enable_dp_attention:
+        # Normal case, use IPC within a single node
+        return PortArgs(
+            tokenizer_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
+            scheduler_input_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
+            detokenizer_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
+            nccl_port=port,
+            rpc_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
+        )
+    else:
+        # DP attention. Use TCP + port to handle both single-node and multi-node.
+        if server_args.nnodes == 1 and server_args.dist_init_addr is None:
+            dist_init_addr = ("127.0.0.1", server_args.port + ZMQ_TCP_PORT_DELTA)
+        elif server_args.dist_init_addr.startswith("["):  # ipv6 address
+            port_num, host = configure_ipv6(server_args.dist_init_addr)
+            dist_init_addr = (host, str(port_num))
+        else:
+            dist_init_addr = server_args.dist_init_addr.split(":")
+
+        assert (
+            len(dist_init_addr) == 2
+        ), "please provide --dist-init-addr as host:port of head node"
+
+        dist_init_host, dist_init_port = dist_init_addr
+        port_base = int(dist_init_port) + 1
+        if dp_rank is None:
+            scheduler_input_port = (
+                port_base + 3
+            )  # TokenizerManager to DataParallelController
+        else:
+            scheduler_input_port = port_base + 3 + 1 + dp_rank
+
+        return PortArgs(
+            tokenizer_ipc_name=f"tcp://{dist_init_host}:{port_base}",
+            scheduler_input_ipc_name=f"tcp://{dist_init_host}:{scheduler_input_port}",
+            detokenizer_ipc_name=f"tcp://{dist_init_host}:{port_base + 1}",
+            nccl_port=port,
+            rpc_ipc_name=f"tcp://{dist_init_host}:{port_base + 2}",
+        )

@@ -79,7 +79,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
         self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
 
-        # TODO(sgm): this may not be true for FSDP -> vLLM
         assert self.infer_tp_size <= self.train_tp_size, \
             'Not implemented for infer_tp > train_tp'
         assert self.train_tp_size % self.infer_tp_size == 0
@@ -94,24 +93,14 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 _MICRO_DATA_PARALLEL_GROUP = group
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
-        """
-        convert_qkv_gate_up_by_simple_split is a parameter affected by the vLLM version.
-        """
         from megatron.core import parallel_state as mpu
 
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = (self.train_tp_group)
+
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -169,19 +158,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             else:
                 infer_params = broad_pp_tensor
 
-            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
-                converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                    cur_name,
-                    infer_params,
-                    self.model_config,
-                    self.train_tp_size,
-                    0,  # no impact
-                    convert_qkv_gate_up_by_trunk_concat=False,
-                )  # defualt false
-            else:
-                if not isinstance(infer_params, list):
-                    infer_params = [infer_params]
-                converted_names, converted_params = self.weight_converter.convert_param(cur_name, infer_params)
+
+            if not isinstance(infer_params, list):
+                infer_params = [infer_params]
+            converted_names, converted_params = self.weight_converter.convert_param(cur_name, infer_params)
 
             yield from zip(converted_names, converted_params)
 
@@ -294,7 +274,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
         log_gpu_memory_usage('After delete params sharding manager memory', logger=None)
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
         self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
