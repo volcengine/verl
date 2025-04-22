@@ -14,7 +14,6 @@
 
 from dataclasses import dataclass
 import sys
-from turtle import forward
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
