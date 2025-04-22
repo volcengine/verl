@@ -4,16 +4,10 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
-    branches:
-      - main
-      - v0.3.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/sandbox.yml
   pull_request:
     branches:
       - main
-      - v0.3.x
+      - v0.*
     paths:
       - "**/*.py"
       - .github/workflows/sandbox.yml

@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -44,11 +45,15 @@ from torch.nn.utils.rnn import pad_sequence
 
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 
 if TYPE_CHECKING:
     from torch import nn
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
@@ -139,6 +144,7 @@ class SGLangRollout(BaseRollout):
             mesh_shape=(world_size // tp_size, tp_size, 1),
             mesh_dim_names=["dp", "tp", "pp"],
         )
+
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
@@ -218,6 +224,7 @@ class SGLangRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             self.sampling_params[key] = value
 
+    @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # if self.config.free_cache_engine:

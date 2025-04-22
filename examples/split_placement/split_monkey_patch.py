@@ -37,7 +37,8 @@ from verl.trainer.ppo.ray_trainer import (
 def fit(self):
     """
     The training loop of PPO.
-    The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
+    The driver process only need to call the compute functions of the worker group through RPC
+    to construct the PPO dataflow.
     The light-weight advantage computation is done on the driver process.
     """
     from omegaconf import OmegaConf
@@ -156,12 +157,14 @@ def fit(self):
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                     # compute advantages, executed on the driver process
+                    norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
                     batch = compute_advantage(
                         batch,
                         adv_estimator=self.config.algorithm.adv_estimator,
                         gamma=self.config.algorithm.gamma,
                         lam=self.config.algorithm.lam,
                         num_repeat=self.config.actor_rollout_ref.rollout.n,
+                        norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                     )
 
                 # update critic

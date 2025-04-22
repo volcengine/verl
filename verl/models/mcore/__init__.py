@@ -13,6 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .registry import get_mcore_forward_fn, hf_to_mcore_config, init_mcore_model
+from .registry import get_mcore_forward_fn, get_mcore_weight_converter, hf_to_mcore_config, init_mcore_model
 
-__all__ = ["init_mcore_model", "hf_to_mcore_config", "get_mcore_forward_fn"]
+__all__ = ["init_mcore_model", "hf_to_mcore_config", "get_mcore_forward_fn", "get_mcore_weight_converter"]
