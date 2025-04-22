@@ -25,6 +25,8 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import logging
+import os
 from contextlib import contextmanager
 from typing import Any, List, Union
 
@@ -38,8 +40,12 @@ from vllm.distributed import parallel_state as vllm_ps
 
 from verl import DataProto
 from verl.third_party.vllm import vllm_version
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # TODO
 # 1. support pp in vllm
@@ -92,7 +98,10 @@ class vLLMRollout(BaseRollout):
 
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3"):
+            if vllm_version in (
+                "0.5.4",
+                "0.6.3",
+            ):
                 train_tp = kwargs.get("train_tp")
                 num_tp_per_train_tp = train_tp // tensor_parallel_size
                 vllm_ps.initialize_parallel_state(
@@ -181,10 +190,18 @@ class vLLMRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
 
+    @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if (
+            vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            and self.config.free_cache_engine
+        ):
             self.inference_engine.init_cache_engine()
 
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
@@ -310,7 +327,14 @@ class vLLMRollout(BaseRollout):
         )
 
         # free vllm cache engine
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3") and self.config.free_cache_engine:
+        if (
+            vllm_version
+            in (
+                "0.5.4",
+                "0.6.3",
+            )
+            and self.config.free_cache_engine
+        ):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

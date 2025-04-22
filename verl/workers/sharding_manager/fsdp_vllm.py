@@ -25,13 +25,13 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 
 from .base import BaseShardingManager
 from .patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPVLLMShardingManager(BaseShardingManager):
@@ -75,6 +75,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
         # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
         # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
@@ -91,7 +92,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # Copy, not share memory
         load_format = "hf" if self.full_params else "dtensor"
 
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
@@ -123,14 +127,16 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
         # TODO(ZSL): check this
-        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
-        log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
         # self.module.to('cuda')
         # if torch.distributed.get_rank() == 0:
@@ -146,13 +152,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.gen_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.torch_random_states)
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
         """All gather across tp group to make each rank has identical input."""
         if self.tp_size == 1:
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in ("0.3.1", "0.4.2", "0.5.4", "0.6.3"):
+        if vllm_version in (
+            "0.5.4",
+            "0.6.3",
+        ):
             group = vllm_ps.get_tensor_model_parallel_group()
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
@@ -160,6 +170,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         all_gather_data_proto(data=data, process_group=group)
         return data
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
         """Get chunk data of this tp rank since we do all gather in preprocess."""
         if self.tp_size == 1:

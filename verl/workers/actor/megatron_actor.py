@@ -19,6 +19,8 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import logging
+import os
 from functools import partial
 from typing import Dict, Iterable
 
@@ -35,6 +37,7 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
@@ -43,6 +46,9 @@ from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class MegatronPPOActor(BasePPOActor):
@@ -137,6 +143,7 @@ class MegatronPPOActor(BasePPOActor):
             config.megatron.sequence_parallel = False
         self.config = config
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -300,7 +307,7 @@ class MegatronPPOActor(BasePPOActor):
                     stats = post_process_fn(output, data)
                     metrics.update(stats)
                 if not calculate_entropy:
-                    return 1.0, metrics
+                    return torch.tensor(1.0, device=output.device), metrics
 
             responses = data["responses"]
             response_length = responses.size(1)
@@ -344,7 +351,7 @@ class MegatronPPOActor(BasePPOActor):
 
             stats = {}
             if forward_only:
-                policy_loss = 1.0
+                policy_loss = torch.tensor(1.0, device=output.device)
             else:
                 if self.config.use_kl_loss:
                     ref_log_prob = data["ref_log_prob"]
@@ -419,6 +426,7 @@ class MegatronPPOActor(BasePPOActor):
         # loss_reduces contains the stats returned from loss_func
         return losses_reduced
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
         """Update the policy with an iterator of DataProto
 
@@ -440,10 +448,7 @@ class MegatronPPOActor(BasePPOActor):
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
                 chunk.zero_grad_buffer()
 
-            if self.config.entropy_coeff != 0:
-                calculate_entropy = True
-            else:
-                calculate_entropy = False
+            calculate_entropy = self.config.entropy_coeff != 0
             metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy)
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask

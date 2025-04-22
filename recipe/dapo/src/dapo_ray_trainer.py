@@ -43,7 +43,8 @@ class RayDAPOTrainer(RayPPOTrainer):
     def fit(self):
         """
         The training loop of PPO.
-        The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
+        The driver process only need to call the compute functions of the worker group through RPC
+        to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
@@ -171,7 +172,8 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                     if not self.config.algorithm.filter_groups.enable:
                         batch = new_batch
-                    else:  # NOTE: When prompts after filtering is less than train batch size, we skip to the next generation batch
+                    else:  # NOTE: When prompts after filtering is less than train batch size,
+                        # we skip to the next generation batch
                         metric_name = self.config.algorithm.filter_groups.metric
                         if metric_name == "seq_final_reward":
                             # Turn to numpy for easier filtering
@@ -207,10 +209,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 kept_traj_idxs.append(idx)
 
                         new_batch = new_batch[kept_traj_idxs]
-                        if batch is None:
-                            batch = new_batch
-                        else:
-                            batch = DataProto.concat([batch, new_batch])
+                        batch = new_batch if batch is None else DataProto.concat([batch, new_batch])
 
                         prompt_bsz = self.config.data.train_batch_size
                         if num_prompt_in_batch < prompt_bsz:
@@ -221,7 +220,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 continue
                             else:
                                 raise ValueError(
-                                    f"{num_gen_batches=} >= {max_num_gen_batches=}. Generated too many. Please check your data."
+                                    f"{num_gen_batches=} >= {max_num_gen_batches=}."
+                                    + " Generated too many. Please check if your data are too difficult."
+                                    + " You could also try set max_num_gen_batches=0 to enable endless trials."
                                 )
                         else:
                             # Align the batch
@@ -256,12 +257,14 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                     with _timer("adv", timing_raw):
                         # compute advantages, executed on the driver process
+                        norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
                         batch = compute_advantage(
                             batch,
                             adv_estimator=self.config.algorithm.adv_estimator,
                             gamma=self.config.algorithm.gamma,
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
+                            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                         )
 
                     # update critic

@@ -106,7 +106,10 @@ def test_vllm_with_hf():
         n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True
     )
 
-    if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+    if vllm_version in (
+        "0.5.4",
+        "0.6.3",
+    ):
         kwargs["detokenize"] = False
     sampling_params = SamplingParams(**kwargs)
 

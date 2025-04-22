@@ -135,11 +135,10 @@ class DummyModelLoader(BaseModelLoader):
         scheduler_config: SchedulerConfig,
         cache_config: CacheConfig,
     ) -> nn.Module:
-        with set_default_torch_dtype(model_config.dtype):
-            with torch.device(device_config.device):
-                model = _initialize_model(
-                    model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
-                )
+        with set_default_torch_dtype(model_config.dtype), torch.device(device_config.device):
+            model = _initialize_model(
+                model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
+            )
             # NOTE(woosuk): For accurate performance evaluation, we assign
             # random values to the weights.
             # initialize_dummy_weights(model)

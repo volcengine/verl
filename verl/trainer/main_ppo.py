@@ -42,7 +42,7 @@ def get_custom_reward_fn(config):
         sys.modules["custom_module"] = module
         spec.loader.exec_module(module)
     except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+        raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
 
     function_name = reward_fn_config.get("name")
     if not hasattr(module, function_name):
@@ -73,7 +73,8 @@ def run_ppo(config) -> None:
         ray.init(
             runtime_env={
                 "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
-            }
+            },
+            num_cpus=config.ray_init.num_cpus,
         )
 
     runner = TaskRunner.remote()

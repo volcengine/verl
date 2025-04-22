@@ -189,6 +189,7 @@ algorithm:
   gamma: 1.0
   lam: 1.0
   adv_estimator: gae
+  norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
   kl_ctrl:
@@ -221,3 +222,6 @@ trainer:
   max_critic_ckpt_to_keep: null
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
+
+ray_init:
+  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.

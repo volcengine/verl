@@ -47,7 +47,7 @@ def get_custom_reward_fn(config):
         sys.modules["custom_module"] = module
         spec.loader.exec_module(module)
     except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+        raise RuntimeError(f"Error loading module from '{file_path}'") from e
 
     function_name = reward_fn_config.get("name")
     if not hasattr(module, function_name):
@@ -75,7 +75,6 @@ def process_item(reward_fn, data_source, response_lst, reward_data):
 def main(config):
     local_path = copy_to_local(config.data.path)
     dataset = pd.read_parquet(local_path)
-    prompts = dataset[config.data.prompt_key]
     responses = dataset[config.data.response_key]
     data_sources = dataset[config.data.data_source_key]
     reward_model_data = dataset[config.data.reward_model_key]
@@ -84,7 +83,7 @@ def main(config):
 
     # Initialize Ray
     if not ray.is_initialized():
-        ray.init()
+        ray.init(num_cpus=config.ray_init.num_cpus)
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
