@@ -280,24 +280,6 @@ class FSDPSFTTrainer(object):
 
         self.optimizer = None
         if self.optim_bwd_hook:
-            # self.optim_dict = {
-            #     param: optim.AdamW([param], lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for param in self.fsdp_model.parameters()
-            # }
-            # register_optim_in_bwd_hooks(model=self.fsdp_model, optim_dict=self.optim_dict, acc_steps=acc_steps)
-            # def _gather_handles(module, handles):
-            #     if isinstance(module, FSDP) and getattr(module, "_handle", None) is not None:
-            #         handles.append(module._handle)
-            #     for child in module.children():
-            #         _gather_handles(child, handles)
-
-            # handles = []
-            # _gather_handles(self.fsdp_model, handles)
-            # self.optim_dict = {handle.flat_param: torch.optim.AdamW([handle.flat_param],lr=self.config.optim.lr, betas=self.config.optim.betas, weight_decay=self.config.optim.weight_decay) for handle in handles}
-            # register_optim_in_bwd_hooks(handles, optim_dict=self.optim_dict, acc_steps=acc_steps)
-            
-            # first_p = next((p for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers") ), None)
-            # assert first_p is not None, "Must have at least one trainable parameter"
-            # optimizer = first_p._in_backward_optimizers[0]
             _apply_optimizer_in_backward(
                 optim.AdamW,
                 self.fsdp_model.named_parameters(),
@@ -305,11 +287,9 @@ class FSDPSFTTrainer(object):
                     "lr":self.config.optim.lr, 
                     "betas":self.config.optim.betas, 
                     "weight_decay":self.config.optim.weight_decay
-                }
+                },
+                register_hook=False
             )
-            # for name, param in self.fsdp_model.named_parameters():
-            #     if param.view_as(param).grad_fn is None:
-            #         print(f"PARAM WITH NO GRAD FN: {name}")
             self.optim_dict = {
                 p: p._in_backward_optimizers[0] for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers")
             }
@@ -549,7 +529,6 @@ class FSDPSFTTrainer(object):
         print(f'Total training steps: {self.total_training_steps}')
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
-
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
             for data in tqdm(self.train_dataloader,
@@ -593,7 +572,6 @@ class FSDPSFTTrainer(object):
 
             # save checkpoint
             self.save_checkpoint(step=global_step)
-
 
 from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
 import hydra
