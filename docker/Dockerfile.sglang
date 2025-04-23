@@ -42,7 +42,7 @@ RUN pip install "sglang[all]==0.4.4.post4" --no-cache-dir --find-links https://f
 # Install torch-2.5.1
 RUN pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 tensordict torchdata \
     transformers>=4.49.0 accelerate datasets peft hf_transfer \
-    ray codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb liger-kernel \
+    ray[default] codetiming hydra-core pandas pyarrow>=15.0.0 pylatexenc qwen-vl-utils wandb liger-kernel \
     pytest pre-commit py-spy pyext
 
 # Install flash_attn-2.7.4.post1
