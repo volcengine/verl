@@ -49,6 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
     reduce_metrics,
 )
+from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
@@ -961,6 +962,17 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
+                    with _timer("reward", timing_raw):
+                        # compute reward model score
+                        if self.use_rm:
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        if self.config.reward_model.launch_reward_fn_async:
+                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                        else:
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+
                     # recompute old_log_probs
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -988,25 +1000,10 @@ class RayPPOTrainer:
                             batch = batch.union(values)
 
                     with _timer("adv", timing_raw):
-                        # compute scores. Support both model and function-based.
-                        # We first compute the scores using reward model. Then, we call reward_fn to combine
-                        # the results from reward model and rule-based results.
-                        if self.use_rm:
-                            # we first compute reward model score
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        try:
-                            reward_result = self.reward_fn(batch, return_dict=True)
-                            reward_tensor = reward_result["reward_tensor"]
-                            reward_extra_infos_dict = reward_result["reward_extra_info"]
-                        except Exception as e:
-                            print(f"Error in reward_fn: {e}")
-                            reward_tensor = self.reward_fn(batch)
-                            reward_extra_infos_dict = {}
-
+                        if self.config.reward_model.launch_reward_fn_async:
+                            reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
