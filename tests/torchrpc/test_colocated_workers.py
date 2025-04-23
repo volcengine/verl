@@ -50,11 +50,12 @@ class Critic(Worker):
 
 
 def test_colocated_workers():
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_LOCAL_RANK, TORCHRPC_WORLD_SIZE must be set in the environment
-    local_rank = int(os.environ.get('TORCHRPC_LOCAL_RANK'))
+    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
+    # Then run this code on every node
+    rank = int(os.environ.get('TORCHRPC_RANK'))
     world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{local_rank}", rank=local_rank, world_size=world_size)
-    if local_rank == 0:
+    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
+    if rank == 0:
         data = DataProto.from_dict({"a": torch.zeros(10)})
         # create separate workers on the same resource pool
         actor_cls = TorchRPCClassWithInitArgs(cls=Actor)
@@ -71,7 +72,6 @@ def test_colocated_workers():
         cls_dict = {"actor": actor_cls, "critic": critic_cls}
         cls_with_init = create_colocated_worker_cls(cls_dict)
         wg_dict = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=cls_with_init)
-
 
 
 

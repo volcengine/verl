@@ -52,11 +52,12 @@ def get_aux_metrics(self, test_proto):
 
 def test():
     # construct model
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_LOCAL_RANK, TORCHRPC_WORLD_SIZE must be set in the environment
-    local_rank = int(os.environ.get('TORCHRPC_LOCAL_RANK'))
+    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
+    # Then run this code on every node
+    rank = int(os.environ.get('TORCHRPC_RANK'))
     world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{local_rank}", rank=local_rank, world_size=world_size)
-    if local_rank == 0:
+    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
+    if rank == 0:
 
         # create 2 workers, each hold a GPU
         resource_pool = TorchRPCResourcePool([2], use_gpu=True)

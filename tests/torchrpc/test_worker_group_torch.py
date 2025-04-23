@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@ class TestAllGatherActor(Worker):
     def init(self):
         print(os.environ['RANK'], os.environ['LOCAL_RANK'], os.environ['WORLD_SIZE'])
         torch.distributed.init_process_group()
-        print("2")
         self.tensor = torch.zeros(size=(self.size,), dtype=torch.int64, device="cuda")
         self.tensor += self.rank
 
@@ -70,11 +69,12 @@ def test_all_gather_torch():
     """
     In this test, we instantiate 4 GPUs in a group and test the all_gather
     """
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_LOCAL_RANK, TORCHRPC_WORLD_SIZE must be set in the environment
-    local_rank = int(os.environ.get('TORCHRPC_LOCAL_RANK'))
+    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
+    # Then run this code on every node
+    rank = int(os.environ.get('TORCHRPC_RANK'))
     world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{local_rank}", rank=local_rank, world_size=world_size)
-    if local_rank == 0:
+    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
+    if rank == 0:
 
         # create 4 workers, each hold a GPU
         resource_pool = TorchRPCResourcePool([2, 2], use_gpu=True)

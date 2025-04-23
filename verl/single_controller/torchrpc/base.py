@@ -69,7 +69,6 @@ def get_global_nodes():
 
 def get_best_node(cpu, gpu):
     nodes = get_global_nodes()
-    print(global_nodes[0].total_gpu, global_nodes[1].total_gpu)
     ret = None
     for node in nodes:
         if node.total_cpu - node.used_cpu >= cpu and node.total_gpu - node.used_gpu >= gpu:
