@@ -34,7 +34,7 @@ class FusedEntropy(torch.autograd.Function):
         vocab_weights: torch.Tensor,
         temperature: float = 1.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        seq_len = grad_output.shape[-1]
+        # seq_len = grad_output.shape[-1]
 
         logits = (hidden_states @ vocab_weights.t()) / temperature
         orig_logits_dtype = logits.dtype
@@ -43,8 +43,8 @@ class FusedEntropy(torch.autograd.Function):
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
 
-        entropy_broadcasted = entropy.unsqueeze(-1)
-        grad_logits = -pd * (torch.log_softmax(logits, dim=-1) + entropy_broadcasted) / seq_len
+        grad_logits = pd * (torch.log_softmax(logits, dim=-1) + entropy.unsqueeze(-1))
+        grad_logits *= -grad_output.unsqueeze(-1)
         grad_logits = grad_logits.to(orig_logits_dtype) / temperature
 
         grad_hidden_states = grad_logits @ vocab_weights
