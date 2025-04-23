@@ -180,6 +180,7 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
 
 custom_reward_function:
   path: null
