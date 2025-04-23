@@ -582,7 +582,7 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
-    def _validate(self):
+    async def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -617,7 +617,7 @@ class RayPPOTrainer:
             else:
                 test_gen_batch = test_batch.pop(
                     batch_keys=["input_ids", "attention_mask", "position_ids"],
-                    non_tensor_batch_keys=["raw_prompt_ids"],
+                    non_tensor_batch_keys=["raw_prompt_ids"] + ["raw_prompt"] if self.async_rollout_mode else [],
                 )
 
             test_gen_batch.meta_info = {
@@ -631,7 +631,12 @@ class RayPPOTrainer:
 
             # pad to be divisible by dp_size
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
-            test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            if not self.async_rollout_mode:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            else:
+                await self.async_rollout_manager.wake_up()
+                test_output_gen_batch_padded = await self.async_chat_scheduler.generate_sequences(test_gen_batch_padded)
+                await self.async_rollout_manager.sleep()
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -1131,7 +1136,7 @@ class RayPPOTrainer:
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with _timer("testing", timing_raw):
-                            val_metrics: dict = self._validate()
+                            val_metrics: dict = await self._validate()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)

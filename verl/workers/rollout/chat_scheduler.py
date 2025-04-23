@@ -55,7 +55,7 @@ class ChatCompletionScheduler:
 
     async def submit_chat_completions(
         self,
-        callback: Callable[[ChatCompletion, Dict[str, Any]], None],
+        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
         callback_additional_info: Dict[str, Any],
         **chat_complete_request,
     ):
@@ -63,7 +63,16 @@ class ChatCompletionScheduler:
         Submit a chat completion request to the server with the least number of requests.
 
         Args:
-            callback: Callable[[ChatCompletion, Dict[str, Any]], None], async callback function to handle the response.
+            callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None], async callback function
+                to handle the response. The callback function should have the following signature:
+
+                ```python
+                async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+                    ...
+                ```
+                - completions: chat completion response from server.
+                - info: user provided `callback_additional_info`.
+                - exception: exception raise from OpenAI client if request failed, otherwise None.
 
                 **CAUTION**: the callback function must be async and non-blocking, if you have any blocking operation,
                 please move to seperate thread or process pool to avoid blocking the event loop.
@@ -93,10 +102,15 @@ class ChatCompletionScheduler:
             self.request_id_to_address[request_id] = address
             chat_complete_request["extra_headers"]["x-request-id"] = request_id
 
-        # TODO: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-        completions = await self._chat_completions_openai(address, **chat_complete_request)
+        completions, exception = None, None
+        try:
+            # TODO: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
+            completions = await self._chat_completions_openai(address, **chat_complete_request)
+        except Exception as e:
+            # Let user handle the exception
+            exception = e
 
-        await callback(completions, callback_additional_info)
+        await callback(completions, callback_additional_info, exception)
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
         client = AsyncOpenAI(

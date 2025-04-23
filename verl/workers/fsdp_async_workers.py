@@ -14,8 +14,8 @@
 import asyncio
 import logging
 import os
-import random
 import socket
+from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -131,12 +131,12 @@ class AsyncLLMWorker:
     in hybrid rollout workers, i.e AsyncActorRolloutRefWorker.
 
     It works as follows:
-    1. Initialize AsyncLLM with ExternalRayDistributedExecutor.
-    2. AsyncLLM spawn EngineCore in subprocess.
-    3. EngineCore initialize ExternalRayDistributedExecutor.
-    4. ExternalRayDistributedExecutor lookup its corresponding actors by name.
-    5. ExternalRayDistributedExecutor init executor: init_worker, init_device, load_model.
-    6. AsyncLLM initialize done, start FastAPI server.
+    1. Start FastAPI server first.
+    2. Initialize AsyncLLM with ExternalRayDistributedExecutor.
+    3. AsyncLLM spawn EngineCore in subprocess.
+    4. EngineCore initialize ExternalRayDistributedExecutor.
+    5. ExternalRayDistributedExecutor lookup its corresponding actors by name.
+    6. ExternalRayDistributedExecutor init executor: init_worker, init_device, load_model.
 
     For vLLM AsyncLLM design, see: https://github.com/vllm-project/vllm/pull/9826
     """
@@ -149,6 +149,21 @@ class AsyncLLMWorker:
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
+        self.config = config
+        self.vllm_dp_size = vllm_dp_size
+        self.vllm_dp_rank = vllm_dp_rank
+        self.wg_prefix = wg_prefix
+        self.engine: AsyncLLM = None
+
+        # start FastAPI server
+        self.address = ray._private.services.get_node_ip_address()
+        self.port = None
+        self.server_ready = asyncio.Event()
+        asyncio.create_task(self._start_fastapi_server())
+
+    async def init_async_llm(self):
+        """Init vLLM AsyncLLM engine."""
+        config = self.config
         model_path = config.model.path
         model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(model_path)
@@ -184,13 +199,13 @@ class AsyncLLMWorker:
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
-            seed=vllm_dp_rank,
+            seed=self.vllm_dp_rank,
         )
 
         # init async llm engine
         vllm_config = engine_args.create_engine_config()
         namespace = ray.get_runtime_context().namespace
-        vllm_config.instance_id = f"{namespace}:{wg_prefix}:{vllm_dp_size}:{vllm_dp_rank}"
+        vllm_config.instance_id = f"{namespace}:{self.wg_prefix}:{self.vllm_dp_size}:{self.vllm_dp_rank}"
         self.engine = AsyncLLM.from_vllm_config(vllm_config)
 
         # build serving chat
@@ -206,12 +221,6 @@ class AsyncLLMWorker:
             chat_template=None,
             chat_template_content_format="auto",
         )
-
-        # start FastAPI server
-        self.address = ray._private.services.get_node_ip_address()
-        self.port = None
-        self.server_ready = asyncio.Event()
-        asyncio.create_task(self._start_fastapi_server())
 
     async def chat_completion(self, raw_request: Request):
         """OpenAI-compatible HTTP endpoint.
@@ -231,11 +240,20 @@ class AsyncLLMWorker:
             return JSONResponse(content=generator.model_dump())
 
     async def _start_fastapi_server(self):
-        app = fastapi.FastAPI()
+        @asynccontextmanager
+        async def lifespan(app: fastapi.FastAPI):
+            print("FastAPI startup")
+            self.server_ready.set()
+            yield
+
+            # There's no way to gracefully restart uvicorn server if port is already in use,
+            # so we exit the process directly and let AsyncLLMManager restart it.
+            print("FastAPI shutdown, maybe address already in use, exit process immediately.")
+            os._exit(-1)
+
+        app = fastapi.FastAPI(lifespan=lifespan)
         app.router.add_api_route("/v1/chat/completions", self.chat_completion, methods=["POST"])
 
-        # TODO: random sleep to reduce port conflict, retry if port is already in use
-        asyncio.sleep(random.uniform(0, 3))
         self.port = _get_free_port()
         config = uvicorn.Config(app, host=["::", "0.0.0.0"], port=self.port)
         server = uvicorn.Server(config)
@@ -243,6 +261,7 @@ class AsyncLLMWorker:
         await server.serve()
 
     async def get_server_address(self) -> Tuple[str, int]:
+        """Get FastAPI server address."""
         await self.server_ready.wait()
         return f"{self.address}:{self.port}"
 
@@ -304,18 +323,36 @@ class AsyncLLMManager:
         workers_info = ray.get(register_center.get_worker_info.remote())
         assert len(workers_info) == self.worker_group.world_size
 
-        # make sure AsyncLLMWorker colocates with its corresponding workers
-        self.async_llm_workers = [
-            AsyncLLMWorker.options(
-                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                    node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
-                    soft=False,
-                ),
-                name=f"async_llm_worker_{rollout_dp_rank}",
-            ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
-            for rollout_dp_rank in range(self.rollout_dp_size)
-        ]
-        self.server_addresses = ray.get([worker.get_server_address.remote() for worker in self.async_llm_workers])
+        self.async_llm_workers = [None] * self.rollout_dp_size
+        self.server_addresses = [None] * self.rollout_dp_size
+
+        # Start all server instances, restart if address already in use.
+        unready_dp_ranks = set(range(self.rollout_dp_size))
+        while len(unready_dp_ranks) > 0:
+            workers = {
+                rollout_dp_rank: AsyncLLMWorker.options(
+                    # make sure AsyncLLMWorker colocates with its corresponding workers
+                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                        node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
+                        soft=False,
+                    ),
+                    name=f"async_llm_worker_{rollout_dp_rank}",
+                ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
+                for rollout_dp_rank in unready_dp_ranks
+            }
+
+            for rollout_dp_rank, worker in workers.items():
+                try:
+                    address = ray.get(worker.get_server_address.remote())
+                    self.server_addresses[rollout_dp_rank] = address
+                    self.async_llm_workers[rollout_dp_rank] = worker
+                    unready_dp_ranks.remove(rollout_dp_rank)
+                except Exception:
+                    ray.kill(worker)
+                    print(f"worker {rollout_dp_rank} failed, maybe address already in use, restarting...")
+
+        # All server instances are ready, init AsyncLLM engine.
+        ray.get([worker.init_async_llm.remote() for worker in self.async_llm_workers])
 
     @property
     def server_address(self):

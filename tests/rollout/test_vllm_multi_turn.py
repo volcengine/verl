@@ -96,11 +96,12 @@ async def test_vllm_multi_turn():
     )
 
     # test sleep and wake_up
-    async_rollout_manager.sleep()
-    async_rollout_manager.wake_up()
+    await async_rollout_manager.sleep()
+    await async_rollout_manager.wake_up()
 
     # =========================== 3. Multi turn rollout  ===========================
-    async def callback(completions: ChatCompletion, info: Dict[str, Any]):
+    async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+        assert exception is None, f"exception: {exception}"
         messages, round = info["messages"], info["round"]
         message = completions.choices[0].message
         messages.append({"role": message.role, "content": message.content})

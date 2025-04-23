@@ -57,7 +57,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         kwargs.update(sampling_params)
         print(f"[NaiveChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
 
-        async def callback(completions: ChatCompletion, info: Dict[str, Any]):
+        async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
             conversation, batch_conversations, batch_index = (
                 info["conversation"],
                 info["batch_conversations"],
@@ -150,4 +150,4 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
             batch_size=len(input_ids),
         )
 
-        return batch
+        return DataProto(batch=batch)
