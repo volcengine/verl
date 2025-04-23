@@ -90,7 +90,6 @@ class AdvantageEstimator(str, Enum):
 class ResourcePoolManager:
     """
     Define a resource pool specification. Resource pool will be initialized first.
-    Mapping
     """
 
     resource_pool_spec: dict[str, list[int]]
