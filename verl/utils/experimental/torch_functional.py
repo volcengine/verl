@@ -286,15 +286,6 @@ def fused_log_probs(
     Returns:
         torch.Tensor: _description_
     """
-    return checkpoint(
-        FusedTokenLogProbs.apply,
-        hidden_states,
-        vocab_weights,
-        input_ids,
-        temperature,
-        chunk_size,
-        use_reentrant=True,
-    )
     return FusedTokenLogProbs.apply(
         hidden_states,
         vocab_weights,
