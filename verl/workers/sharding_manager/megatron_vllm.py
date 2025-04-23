@@ -32,9 +32,8 @@ from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
-from verl.third_party.vllm import LLM
+from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron_utils import (
     broadcast_from_megatron_pp, broadcast_str_from_megatron_pp,
