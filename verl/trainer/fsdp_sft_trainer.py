@@ -92,6 +92,8 @@ class FSDPSFTTrainer(object):
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 
+        self.micro_batch_size = self.config.data.micro_batch_size_per_gpu
+
         # normalize dp size
         self._normalize_config_bsz()
 
@@ -106,7 +108,7 @@ class FSDPSFTTrainer(object):
         self.optim_bwd_hook = self.config.optim.bwd_hook
         self.optim_dict = None
         self.lr_scheduler = None
-        self.micro_batch_size = self.config.data.micro_batch_size_per_gpu
+        
 
         # Optimizer in backward is not compatible with gradient accumulation 
         if self.optim_bwd_hook:
@@ -467,15 +469,6 @@ class FSDPSFTTrainer(object):
         else:
             loss = self._compute_loss_and_backward(batch)
             step_loss += loss.item()
-
-        # if self.optim_bwd_hook:
-        
-        # else:
-        #     micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
-        #     n_micro_batches = len(micro_batches)
-        #     for micro_batch in micro_batches:
-        #         loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
-        #         step_loss += loss.item()
 
         grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
