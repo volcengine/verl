@@ -4,7 +4,7 @@ import torch
 
 class FusedEntropy(torch.autograd.Function):
     @staticmethod
-    def entropy_fn(
+    def entropy_fwd(
         hidden_states: torch.Tensor,
         vocab_weights: torch.Tensor,
         temperature: float = 1.0,
@@ -19,12 +19,38 @@ class FusedEntropy(torch.autograd.Function):
             entropy (torch.Tensor): [B, T]
         """
         output_dtype = hidden_states.dtype
-        logits = (hidden_states @ vocab_weights.t())
-        logits.div_(temperature)
+        logits = (hidden_states @ vocab_weights.t()) / temperature
         logits = logits.to(torch.float32)
+
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+
         return entropy.to(output_dtype)
+
+    @staticmethod
+    def entropy_bwd(
+        grad_output: torch.Tensor,
+        hidden_states: torch.Tensor,
+        vocab_weights: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        seq_len = grad_output.shape[-1]
+
+        logits = (hidden_states @ vocab_weights.t()) / temperature
+        orig_logits_dtype = logits.dtype
+        logits = logits.to(torch.float32)
+
+        pd = torch.nn.functional.softmax(logits, dim=-1)
+        entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+
+        entropy_broadcasted = entropy.unsqueeze(-1)
+        grad_logits = -pd * (torch.log_softmax(logits, dim=-1) + entropy_broadcasted) / seq_len
+        grad_logits = grad_logits.to(orig_logits_dtype)
+
+        grad_hidden_states = grad_logits @ vocab_weights
+        grad_vocab_weights = (grad_logits.transpose(-1, -2) @ hidden_states).sum(0)
+
+        return grad_hidden_states, grad_vocab_weights
 
     @staticmethod
     def forward(
@@ -47,7 +73,7 @@ class FusedEntropy(torch.autograd.Function):
             chunk_end = min(chunk_start + chunk_size, T)
             chunk_hidden = hidden_states[:, chunk_start:chunk_end, :]
 
-            chunk_entropy = FusedEntropy.entropy_fn(
+            chunk_entropy = FusedEntropy.entropy_fwd(
                 chunk_hidden,
                 vocab_weights,
                 temperature=temperature,
@@ -77,25 +103,16 @@ class FusedEntropy(torch.autograd.Function):
         # Process in chunks to save memory
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
-            chunk_hidden = hidden_states[:, chunk_start:chunk_end, :].detach().requires_grad_(True)
+            chunk_hidden = hidden_states[:, chunk_start:chunk_end, :]
             chunk_grad_output = grad_output[:, chunk_start:chunk_end]
 
-            with torch.enable_grad():
-                chunk_entropy = FusedEntropy.entropy_fn(
-                    chunk_hidden,
-                    vocab_weights,
-                    temperature=temperature,
-                )
-                torch.autograd.backward(chunk_entropy, grad_tensors=chunk_grad_output, retain_graph=False)
-
-            # Accumulate gradients
-            grad_hidden_states[:, chunk_start:chunk_end, :] += chunk_hidden.grad
-            grad_vocab_weights += vocab_weights.grad if vocab_weights.grad is not None else 0
-
-            if chunk_hidden.grad is not None:
-                chunk_hidden.grad.zero_()
-            if vocab_weights.grad is not None:
-                vocab_weights.grad.zero_()
+            h, v = FusedEntropy.entropy_bwd(
+                grad_output=chunk_grad_output,
+                hidden_states=chunk_hidden,
+                vocab_weights=vocab_weights,
+            )
+            grad_hidden_states[:, chunk_start:chunk_end] += h
+            grad_vocab_weights += v
 
         return (
             grad_hidden_states,  # hidden_states
@@ -130,7 +147,7 @@ def fused_entropy(
 
 class FusedTokenLogProbs(torch.autograd.Function):
     @staticmethod
-    def log_probs_fn(
+    def log_probs_fwd(
         hidden_states: torch.Tensor,
         vocab_weights: torch.Tensor,
         input_ids: torch.Tensor,
@@ -179,7 +196,7 @@ class FusedTokenLogProbs(torch.autograd.Function):
             chunk_hidden = hidden_states[:, chunk_start:chunk_end, :]
             chunk_ids = input_ids[:, chunk_start:chunk_end]
 
-            chunk_token_log_probs = FusedTokenLogProbs.log_probs_fn(
+            chunk_token_log_probs = FusedTokenLogProbs.log_probs_fwd(
                 hidden_states=chunk_hidden,
                 vocab_weights=vocab_weights,
                 input_ids=chunk_ids,
@@ -214,7 +231,7 @@ class FusedTokenLogProbs(torch.autograd.Function):
             chunk_grad = grad_output[:, chunk_start:chunk_end]
 
             with torch.enable_grad():
-                chunk_token_log_probs = FusedTokenLogProbs.log_probs_fn(
+                chunk_token_log_probs = FusedTokenLogProbs.log_probs_fwd(
                     hidden_states=chunk_hidden,
                     vocab_weights=vocab_weights,
                     input_ids=chunk_ids,
@@ -265,6 +282,15 @@ def fused_log_probs(
     Returns:
         torch.Tensor: _description_
     """
+    return checkpoint(
+        FusedTokenLogProbs.apply,
+        hidden_states,
+        vocab_weights,
+        input_ids,
+        temperature,
+        chunk_size,
+        use_reentrant=True,
+    )
     return FusedTokenLogProbs.apply(
         hidden_states,
         vocab_weights,
