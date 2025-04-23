@@ -312,12 +312,12 @@ class DataParallelPPOActor(BasePPOActor):
                     assert torch.isfinite(attention_mask).all(), f"attention_mask is not finite: {attention_mask.isnan().sum()=}, {attention_mask.isinf().sum()=}"
                     if multi_turn:
                         response_mask = data["loss_mask"][:, -response_length:]
+                        assert data["loss_mask"][:, :-response_length].sum() == 0, "loss_mask should be 0 for the prompt part"
                     else:
                         response_mask = attention_mask[:, -response_length:]
                     # print if response_mask match response_ids correctly
                     response_ids = data['input_ids'][:, -response_length:]
-                    assert data["loss_mask"][:, :-response_length].sum() == 0, "loss_mask should be 0 for the prompt part"
-                    if torch.distributed.get_rank() == 0:
+                    if torch.distributed.get_rank() == 0 and False:
                         if not hasattr(self, 'tokenizer'):
                             from transformers import AutoTokenizer
                             self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
