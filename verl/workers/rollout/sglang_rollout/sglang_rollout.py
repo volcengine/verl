@@ -165,6 +165,7 @@ class SGLangRollout(BaseRollout):
             rank=tp_rank,
             dist_group=device_mesh_cpu.get_group("tp"),
             src=device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
         )
         dist_init_addr = f"{ip}:{port_args.nccl_port}"
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
