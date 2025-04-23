@@ -21,6 +21,7 @@ import hydra
 import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.reward import load_reward_manager
 
 
 def get_custom_reward_fn(config):
@@ -158,40 +159,10 @@ class TaskRunner:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        reward_manager_name = config.reward_model.get("reward_manager", "naive")
-        if reward_manager_name == "naive":
-            from verl.workers.reward_manager import NaiveRewardManager
-
-            reward_manager_cls = NaiveRewardManager
-        elif reward_manager_name == "prime":
-            from verl.workers.reward_manager import PrimeRewardManager
-
-            reward_manager_cls = PrimeRewardManager
-        elif reward_manager_name == "batch":
-            from verl.workers.reward_manager import BatchRewardManager
-
-            reward_manager_cls = BatchRewardManager
-        elif reward_manager_name == "dapo":
-            from verl.workers.reward_manager import DAPORewardManager
-
-            reward_manager_cls = DAPORewardManager
-        else:
-            raise NotImplementedError
-
-        compute_score = get_custom_reward_fn(config)
-        reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
-        reward_fn = reward_manager_cls(
-            tokenizer=tokenizer,
-            num_examine=0,
-            compute_score=compute_score,
-            reward_fn_key=config.data.reward_fn_key,
-            **reward_kwargs,
+        reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
-
-        # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(
-            tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key
-        )
+        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RayPPOTrainer(
