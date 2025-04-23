@@ -1,7 +1,7 @@
 data:
   tokenizer: null
-  train_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed/train.parquet
-  val_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed/test.parquet
+  train_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed_v1/train.parquet
+  val_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed_v1/test.parquet
   prompt_key: prompt
   max_prompt_length: 1024
   max_response_length: 1024
