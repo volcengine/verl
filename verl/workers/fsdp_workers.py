@@ -498,6 +498,15 @@ class ActorRolloutRefWorker(Worker):
                 checkpoint_contents=self.config.actor.checkpoint.contents,
             )
 
+        if self._is_ref:
+            self.checkpoint_manager = FSDPCheckpointManager(
+                model=self.ref_module_fsdp,
+                optimizer=None,
+                lr_scheduler=None,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                checkpoint_contents=self.config.actor.checkpoint.contents,
+            )  # use the same checkpoint contents as actor
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
@@ -640,12 +649,14 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
-        # only support save and load ckpt for actor
-        assert self._is_actor
+        assert self._is_actor or self._is_ref
         import torch
 
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+            if self._is_actor:
+                load_fsdp_model_to_gpu(self.actor_module_fsdp)
+            elif self._is_ref:
+                load_fsdp_model_to_gpu(self.ref_module_fsdp)
 
         self.checkpoint_manager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
@@ -653,22 +664,87 @@ class ActorRolloutRefWorker(Worker):
 
         torch.distributed.barrier()
         if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            if self._is_actor:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            elif self._is_ref:
+                offload_fsdp_model_to_cpu(self.ref_module_fsdp)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        assert self._is_actor or self._is_ref
         if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+            if self._is_actor:
+                load_fsdp_model_to_gpu(self.actor_module_fsdp)
+            elif self._is_ref:
+                load_fsdp_model_to_gpu(self.ref_module_fsdp)
 
         self.checkpoint_manager.load_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
         )
 
         if self._is_offload_param:
+            if self._is_actor:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            elif self._is_ref:
+                offload_fsdp_model_to_cpu(self.ref_module_fsdp)
+
+        if self._is_actor and self._is_offload_optimizer:
+            offload_fsdp_optimizer(self.actor_optimizer)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def export_actor_weights(self):
+        assert self._is_actor
+
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        from torch.distributed.fsdp import ShardedStateDictConfig, StateDictType
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+
+        # Step 1: Force full state dict mode
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
+
+        with FSDP.state_dict_type(self.actor_module_fsdp, StateDictType.SHARDED_STATE_DICT, state_dict_cfg):
+            model_state_dict = self.actor_module_fsdp.state_dict()
+
+        if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        if self._is_offload_optimizer:
-            offload_fsdp_optimizer(self.actor_optimizer)
+        return self.rank, model_state_dict
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def sync_with_actor(self, actor_state_dicts, alpha=1.0):
+        """
+        Loads a given state_dict into the reference model.
+        """
+        assert self._is_ref
+
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        from torch.distributed.fsdp import ShardedStateDictConfig, StateDictType
+
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.ref_module_fsdp)
+
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
+        for rank, actor_state_dict in actor_state_dicts:
+            if rank == self.rank:
+                # 1. Load current ref model state dict
+                with FSDP.state_dict_type(self.ref_module_fsdp, StateDictType.SHARDED_STATE_DICT, state_dict_cfg):
+                    ref_state_dict = self.ref_module_fsdp.state_dict()
+
+                # 2. blend each parameter
+                for key in ref_state_dict:
+                    assert key in actor_state_dict
+                    ref_param = ref_state_dict[key]
+                    actor_param = actor_state_dict[key].to(ref_param.device)
+                    ref_state_dict[key] = (1.0 - alpha) * ref_param + alpha * actor_param
+
+                # 3. Load the blended state dict into the reference model
+                with FSDP.state_dict_type(self.ref_module_fsdp, StateDictType.SHARDED_STATE_DICT, state_dict_cfg):
+                    self.ref_module_fsdp.load_state_dict(ref_state_dict)
+
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.ref_module_fsdp)
 
 
 class CriticWorker(Worker):
