@@ -43,8 +43,9 @@ class FusedEntropy(torch.autograd.Function):
         pd = torch.nn.functional.softmax(logits, dim=-1)
         entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
 
-        grad_logits = pd * (torch.log_softmax(logits, dim=-1) + entropy.unsqueeze(-1))
-        grad_logits *= -grad_output.unsqueeze(-1)
+        # Safer to do this rather than log(pd)
+        log_pd = torch.log_softmax(logits, dim=-1)
+        grad_logits = pd * (log_pd + entropy.unsqueeze(-1)) * (-grad_output.unsqueeze(-1))
         grad_logits = grad_logits.to(orig_logits_dtype) / temperature
 
         grad_hidden_states = grad_logits @ vocab_weights
