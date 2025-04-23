@@ -34,7 +34,9 @@ class FusedEntropy(torch.autograd.Function):
         vocab_weights: torch.Tensor,
         temperature: float = 1.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # seq_len = grad_output.shape[-1]
+        """This function mirrors entroyp_fwd.
+        Down to the location where casting of logits to fp32 is done.
+        """
 
         logits = (hidden_states @ vocab_weights.t()) / temperature
         orig_logits_dtype = logits.dtype
