@@ -543,10 +543,10 @@ class AsyncSGLangRollout(BaseRollout):
             await tool.release(_req.request_id, **_req.tools_kwargs[name].get("release_kwargs", {}))
             return name, reward
 
-        tool_reward_tasks = [
-            calc_reward_and_release_fn(name, tool)
-            for name, tool in self._tool_map.items()
-        ]
+        tool_reward_tasks = []
+        for name in _req.tools_kwargs.keys():
+            tool = self._tool_map[name]
+            tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
         _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
