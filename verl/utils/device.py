@@ -1,98 +1,137 @@
-# This code is inspired by the torchtune.
-# https://github.com/pytorch/torchtune/blob/main/torchtune/utils/_device.py
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without modification,
-# are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice,this list
-# of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright notice, this
-# list of conditions and the following disclaimer in the documentation
-# and/or other materials provided with the distribution.
-#
-# 3. Neither the name of the copyright holder nor the names of its contributors may
-# be used to endorse or promote products derived from this software without specific
-# prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY
-# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
-# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
-# SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
-# TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-# BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
-# DAMAGE.
-
 import logging
-from typing import Optional
-
+from typing import Optional, Dict, Type, Protocol, runtime_checkable
+from threading import Lock
 import torch
 
 logger = logging.getLogger(__name__)
 
+@runtime_checkable
+class DeviceStrategy(Protocol):
+    """Device strategy protocol"""
+    @classmethod
+    def is_available(cls) -> bool:
+        """Check device availability"""
+        ...
+    
+    @classmethod
+    def device_name(cls) -> str:
+        """Get device name"""
+        ...
+    
+    @classmethod
+    def resource_name(cls) -> str:
+        """Get resource name for scheduling"""
+        ...
+    
+    @classmethod
+    def get_torch_device(cls) -> any:
+        """Get torch device module"""
+        ...
 
-def is_torch_npu_available() -> bool:
-    """Check the availability of NPU"""
-    try:
-        import torch_npu  # noqa: F401
-
-        return torch.npu.is_available()
-    except ImportError:
-        return False
-
-
-is_cuda_available = torch.cuda.is_available()
-is_npu_available = is_torch_npu_available()
-
-
-def get_device_name() -> str:
-    """Function that gets the torch.device based on the current machine.
-    This currently only supports CPU, CUDA, NPU.
-    Returns:
-        device
-    """
-    if is_cuda_available:
-        device = "cuda"
-    elif is_npu_available:
-        device = "npu"
-    else:
-        device = "cpu"
-    return device
-
-
-def get_device(device_name: Optional[str] = None) -> torch.device:
-    """Function that takes an optional device string, verifies it's correct and available given the machine and
-    distributed settings, and returns a :func:`~torch.device`. If device string is not provided, this function will
-    infer the device based on the environment.
-    If CUDA-like is available and being used, this function also sets the CUDA-like device.
-    Args:
-        device (Optional[str]): The name of the device to use, e.g. "cuda" or "cpu" or "npu".
-    Example:
-        >>> device = get_device("cuda")
-        >>> device
-        device(type='cuda', index=0)
-    Returns:
-        torch.device: Device
-    """
-    if device_name is None:
-        device_name = get_device_name()
-    device = torch.device(device_name)
-    return device
-
-
-def get_torch_device() -> any:
-    """Return the corresponding torch attribute based on the device type string.
-    Returns:
-        module: The corresponding torch device namespace, or torch.cuda if not found.
-    """
-    device_name = get_device_name()
-    try:
-        return getattr(torch, device_name)
-    except AttributeError:
-        logger.warning(f"Device namespace '{device_name}' not found in torch, try to load torch.cuda.")
+class CudaStrategy:
+    """NVIDIA GPU strategy"""
+    @classmethod
+    def is_available(cls) -> bool:
+        return torch.cuda.is_available()
+    
+    @classmethod
+    def device_name(cls) -> str:
+        return "cuda"
+    
+    @classmethod
+    def resource_name(cls) -> str:
+        return "GPU"
+    
+    @classmethod
+    def get_torch_device(cls) -> any:
         return torch.cuda
+
+class NpuStrategy:
+    """Ascend NPU strategy"""
+    @classmethod
+    def is_available(cls) -> bool:
+        try:
+            import torch_npu    # noqa: F401
+            return torch.npu.is_available()
+        except ImportError:
+            return False
+    
+    @classmethod
+    def device_name(cls) -> str:
+        return "npu"
+    
+    @classmethod
+    def resource_name(cls) -> str:
+        return "NPU"
+    
+    @classmethod
+    def get_torch_device(cls) -> any:
+        return torch.npu
+    
+# 全局设备策略注册表
+DEVICE_REGISTRY: Dict[str, Type[DeviceStrategy]] = {
+    "npu": NpuStrategy,
+    "cuda": CudaStrategy,
+}
+
+class DeviceManager:
+    _instance = None
+    _lock = Lock()
+    _initialized = False
+
+    @classmethod
+    def get_instance(cls) -> 'DeviceManager':
+        with cls._lock:
+            if not cls._instance:
+                cls._instance = cls.__new__(cls)
+                cls._instance.__init__()
+            return cls._instance
+
+    def __new__(cls):
+        with cls._lock:
+            if not cls._instance:
+                cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        
+        self._strategies = dict(DEVICE_REGISTRY)
+        self._device_priority = ["npu", "cuda"]
+        self._current_strategy = self._auto_detect()
+        
+        self._initialized = True
+    
+    def register_strategy(self, name: str, strategy: Type[DeviceStrategy], priority: int = 0):
+        self._strategies[name] = strategy
+        self._device_priority.insert(priority, name)
+    
+    def _auto_detect(self) -> Type[DeviceStrategy]:
+        for name in self._device_priority:
+            strategy_cls = self._strategies.get(name)
+            if strategy_cls is not None:
+                if strategy_cls().is_available():
+                    logger.info(f"Using device strategy: {name}")
+                    return strategy_cls
+        raise RuntimeError("No available device found")
+    
+    @property
+    def current_device(self) -> str:
+        return self._current_strategy.device_name()
+    
+    @property
+    def resource_name(self) -> str:
+        return self._current_strategy.resource_name()
+    
+    def get_torch_device_module(self):
+        return self._current_strategy.get_torch_device()
+    
+    def get_device(self, device_name: Optional[str] = None) -> torch.device:
+        if device_name:
+            strategy_cls = self._strategies.get(device_name)
+            if strategy_cls is None or not strategy_cls().is_available():
+                raise ValueError(f"Device {device_name} not available")
+            return torch.device(strategy_cls.device_name())
+        return torch.device(self.current_device)
+
