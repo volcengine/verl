@@ -119,7 +119,7 @@ def check_verl():
 
         if not isinstance(e, IOError):
             print("An error occurred trying to import verl.")
-            print("This is very likely due to missing missing or incompatible library files.")
+            print("This is very likely due to missing or incompatible library files.")
         print(traceback.format_exc())
 
 
