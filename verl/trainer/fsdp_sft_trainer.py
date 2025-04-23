@@ -31,7 +31,6 @@ import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
 from torch.distributed.optim import _apply_optimizer_in_backward
-from torch.distributed.fsdp._flat_param import FlatParameter
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
@@ -55,7 +54,6 @@ from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl import DataProto
 
-# from verl.utils.memory import register_optim_in_bwd_hooks, _apply_optimizer_in_backward
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN')) 
@@ -84,9 +82,6 @@ class FSDPSFTTrainer(object):
 
     def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh):
         self.config = config
-        self.optim_bwd_hook = True
-        self.optim_dict = None
-        self.lr_scheduler = None
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
@@ -106,6 +101,20 @@ class FSDPSFTTrainer(object):
         if self.device_mesh.get_rank() == 0:
             print(f'Using sequence parallel size: {self.config.ulysses_sequence_parallel_size}')
             print(f'Using remove padding: {self.use_remove_padding}')
+        
+        self.optimizer = None
+        self.optim_bwd_hook = self.config.optim.bwd_hook
+        self.optim_dict = None
+        self.lr_scheduler = None
+        self.micro_batch_size = self.config.data.micro_batch_size_per_gpu
+
+        # Optimizer in backward is not compatible with gradient accumulation 
+        if self.optim_bwd_hook:
+            if self.micro_batch_size > 0:
+                raise RuntimeError(
+                    "Gradient accumulation is not compatible with optimizer in backward step"
+                )
+
 
         self._build_dataloader()
         # build model
@@ -275,8 +284,6 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
-
-        self.optimizer = None
         flat_params = [p for p in self.fsdp_model.parameters() if p.requires_grad]
         if self.optim_bwd_hook:
             _apply_optimizer_in_backward(
@@ -431,24 +438,33 @@ class FSDPSFTTrainer(object):
                 loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
 
                 if do_backward:
-                    print("STARTING BACKWARD LOSS")
                     loss.backward()
                 return loss
 
     def training_step(self, batch: TensorDict):
         self.fsdp_model.train()
 
-        # log_gpu_memory_usage('Before optimizer zero_grad', logger=logger, level=logging.INFO)
+        log_gpu_memory_usage('Before optimizer zero_grad', logger=logger, level=logging.INFO)
         torch.cuda.reset_peak_memory_stats()
 
         if not self.optim_bwd_hook:
             self.optimizer.zero_grad()
-        # log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
+        log_gpu_memory_usage('After optimizer zero_grad', logger=logger)
         
         step_loss = 0
+
+        if self.micro_batch_size > 0:
+            micro_batches = batch.split(self.micro_batch_size)
+            n_micro_batches = len(micro_batches)
+            for micro_batch in micro_batches:
+                loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+                step_loss += loss.item()
+        else:
+            loss = self._compute_loss_and_backward(batch)
+            step_loss += loss.item()
+
         # if self.optim_bwd_hook:
-        loss = self._compute_loss_and_backward(batch)
-        step_loss += loss.item()
+        
         # else:
         #     micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         #     n_micro_batches = len(micro_batches)
