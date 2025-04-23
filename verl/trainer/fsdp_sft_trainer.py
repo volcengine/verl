@@ -30,7 +30,8 @@ import torch
 import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
-# from torch.distributed.optim import _apply_optimizer_in_backward
+from torch.distributed.optim import _apply_optimizer_in_backward
+from torch.distributed.fsdp._flat_param import FlatParameter
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
@@ -54,7 +55,7 @@ from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl import DataProto
 
-from verl.utils.memory import register_optim_in_bwd_hooks, _apply_optimizer_in_backward
+# from verl.utils.memory import register_optim_in_bwd_hooks, _apply_optimizer_in_backward
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN')) 
@@ -274,21 +275,19 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
-        batch_size = self.config.data.train_batch_size
-        microbatchsize = self.config.data.micro_batch_size_per_gpu
-        acc_steps = batch_size//microbatchsize
 
         self.optimizer = None
+        # 
+        flat_params = flat_params = [p for p in self.fsdp_model.parameters() if isinstance(p, FlatParameter)]
         if self.optim_bwd_hook:
             _apply_optimizer_in_backward(
                 optim.AdamW,
-                self.fsdp_model.named_parameters(),
+                flat_params,
                 {
                     "lr":self.config.optim.lr, 
                     "betas":self.config.optim.betas, 
                     "weight_decay":self.config.optim.weight_decay
                 },
-                register_hook=False
             )
             self.optim_dict = {
                 p: p._in_backward_optimizers[0] for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers")
