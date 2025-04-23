@@ -12,17 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
-from typing import Iterable, Optional, Set, Tuple
-
-import torch
-from torch import nn
-from transformers import PretrainedConfig
-from vllm.model_executor.layers.fused_moe import FusedMoE
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader, maybe_remap_kv_scale_name
-from vllm.model_executor.models.utils import is_pp_missing_parameter
-
-def _patch_vllm_moe_model_weight_loader(model):
+def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2
     # all the weights are supposed to have a weight_loader, but the moe weights
@@ -39,8 +29,9 @@ def _patch_vllm_moe_model_weight_loader(model):
     # (False, 'model.layers.0.post_attention_layernorm.weight') use default
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
+    from vllm.model_executor.models.deepseek_v2 import (DeepseekV2ForCausalLM,
+                                                        DeepseekV3ForCausalLM)
     from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
     
     if not isinstance(model, (Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM)):
         return

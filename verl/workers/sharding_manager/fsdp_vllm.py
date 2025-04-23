@@ -18,18 +18,20 @@ import os
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import (FullStateDictConfig,
+                                        ShardedStateDictConfig, StateDictType)
+from torch.distributed.fsdp.fully_sharded_data_parallel import \
+    FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.vllm_utils import _patch_vllm_moe_model_weight_loader
+from verl.third_party.vllm import vllm_version
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
@@ -179,7 +181,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def update_params(self, updated_params):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-        _patch_vllm_moe_model_weight_loader(model)
+        patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
         loaded_params = model.load_weights(
             ((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items())

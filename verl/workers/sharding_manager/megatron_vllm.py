@@ -32,24 +32,20 @@ from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
+from verl.third_party.vllm import vllm_version
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.megatron_utils import (
-    broadcast_from_megatron_pp,
-    broadcast_str_from_megatron_pp,
-    convert_megatron_model_to_transformers_model,
-    get_model,
-    unwrap_model,
-)
-from verl.utils.memory_buffer import (
-    build_memory_buffer,
-    build_memory_reference_from_module,
-    get_weight_buffer_meta_from_module,
-)
+    broadcast_from_megatron_pp, broadcast_str_from_megatron_pp,
+    convert_megatron_model_to_transformers_model, get_model, unwrap_model)
+from verl.utils.memory_buffer import (build_memory_buffer,
+                                      build_memory_reference_from_module,
+                                      get_weight_buffer_meta_from_module)
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_functional import allgather_dict_tensors
-from verl.utils.vllm_utils import _patch_vllm_moe_model_weight_loader
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+
 from .base import BaseShardingManager
 
 logger = logging.getLogger(__file__)
@@ -530,7 +526,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
             per_tensor_param = self.per_tensor_generator()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            _patch_vllm_moe_model_weight_loader(model)
+            patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
