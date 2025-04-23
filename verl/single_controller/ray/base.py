@@ -84,16 +84,20 @@ class RayResourcePool(ResourcePool):
     def get_placement_groups(self, strategy="STRICT_PACK", name=None):
         if self.pgs is not None:
             return self.pgs
+        
+        from verl.utils.device import DeviceManager
+        device_manager = DeviceManager.get_instance()
 
         pg_name_prefix = name if name else \
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
-        pg_scheme = [[{
-            "CPU": self.max_collocate_count,
-            "GPU": 1
-        } if self.use_gpu else {
-            "CPU": self.max_collocate_count
-        } for _ in range(process_count)] for process_count in self._store]
+        base_resources = {"CPU": self.max_collocate_count}
+        resource_name = device_manager.resource_name
+        if resource_name != "CPU":
+            base_resources[resource_name] = 1
+        
+        pg_scheme = [[base_resources for _ in range(process_count)] 
+                    for process_count in self._store]
 
         lifetime = 'detached' if self.detached else None
 

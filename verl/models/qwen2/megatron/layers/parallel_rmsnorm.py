@@ -17,9 +17,10 @@ import torch
 from megatron.core import ModelParallelConfig
 from torch import nn
 from transformers import Qwen2Config
-from verl.utils.device import is_cuda_available
+from verl.utils.device import DeviceManager
+device_manager = DeviceManager.get_instance()
 
-if is_cuda_available:
+if device_manager.current_device == "cuda":
     from apex.normalization.fused_layer_norm import fused_rms_norm_affine
 from verl.utils.megatron import sequence_parallel as sp_utils
 
@@ -43,7 +44,7 @@ class ParallelQwen2RMSNorm(nn.Module):
             sp_utils.mark_parameter_as_sequence_parallel(self.weight)
 
     def forward(self, hidden_states):
-        if is_cuda_available:
+        if device_manager.current_device == "cuda":
             return fused_rms_norm_affine(input=hidden_states,
                                          weight=self.weight,
                                          normalized_shape=self.normalized_shape,

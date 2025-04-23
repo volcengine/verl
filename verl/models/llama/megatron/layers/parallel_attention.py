@@ -30,7 +30,8 @@ from transformers import LlamaConfig
 from verl.models.llama.megatron.layers.parallel_linear import QKVParallelLinear
 
 from verl.utils.megatron import tensor_parallel as tp_utils
-from verl.utils.device import is_npu_available
+from verl.utils.device import DeviceManager
+device_manager = DeviceManager.get_instance()
 
 
 class LlamaRotaryEmbedding(nn.Module):
@@ -332,14 +333,16 @@ import torch.nn.functional as F
 
 from einops import rearrange
 
-if is_flash_attn_2_available():
+if device_manager.current_device == "cuda" and is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
     from flash_attn.layers.rotary import apply_rotary_emb
-elif is_npu_available:
+elif device_manager.current_device == "npu" and device_manager.is_current_available():
     import numpy as np
     import torch_npu
     from verl.bert_padding import index_first_axis, pad_input, unpad_input
+else:
+    raise NotImplementedError("Only flash-attn 2 and ascend npu are supported")
 
 
 def apply_rotary_pos_emb_rmpad(q, k, cos, sin, position_ids, indices, sequence_length):
@@ -411,7 +414,7 @@ class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
         value_states = value_states.view(total_nnz, self.num_key_value_heads_per_tp, self.head_dim)
 
         cos, sin = self.rotary_emb(value_states, seq_len=sequence_length)
-        if is_flash_attn_2_available():
+        if device_manager.current_device == "cuda" and is_flash_attn_2_available():
             cos, sin = cos[:, :cos.shape[1] // 2], sin[:, :sin.shape[1] // 2]  # flash attn only needs half
             query_states, key_states = apply_rotary_pos_emb_rmpad_flash(query_states,
                                                                         key_states,
@@ -419,7 +422,7 @@ class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
                                                                         sin,
                                                                         cu_seqlens=cu_seqlens,
                                                                         max_seqlen=max_seqlen_in_batch)
-        elif is_npu_available:
+        elif device_manager.current_device == "npu" and device_manager.is_current_available():
             query_states, key_states = apply_rotary_pos_emb_rmpad(query_states, key_states, cos, sin, position_ids,
                                                                   indices, sequence_length)
         else:
@@ -442,7 +445,7 @@ class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
             key_states = key_states.to(torch.float16)
             value_states = value_states.to(torch.float16)
 
-        if is_flash_attn_2_available():
+        if device_manager.current_device == "cuda" and is_flash_attn_2_available():
             attn_output_unpad = flash_attn_varlen_func(
                 query_states,
                 key_states,
@@ -455,7 +458,7 @@ class ParallelLlamaAttentionRmPad(ParallelLlamaAttention):
                 softmax_scale=None,
                 causal=True,
             )
-        elif is_npu_available:
+        elif device_manager.current_device == "npu" and device_manager.is_current_available():
             attention_mask_npu = torch.from_numpy(np.triu(np.ones([max_seqlen_in_batch, max_seqlen_in_batch]),
                                                           k=1)).to(bool).npu()
             head_num = query_states.shape[1]
