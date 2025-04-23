@@ -57,6 +57,34 @@ class BaseMegatronWorker(MegatronWorker):
         self._initialize_distributed()
         self._initialize_model_parallel()
         self._set_random_seed()
+
+    def _init_model_config(self, model_path, override_model_config, is_value_model=False):
+        """Initialize model configuration with common parameters"""
+        from transformers import AutoConfig
+        from verl.utils.model import update_model_config
+        
+        local_path = copy_to_local(model_path)
+        self.tokenizer = hf_tokenizer(local_path)
+        
+        model_config = AutoConfig.from_pretrained(local_path)
+        
+        # Set common tokenizer parameters
+        override_config_kwargs = {
+            'bos_token_id': self.tokenizer.bos_token_id,
+            'eos_token_id': self.tokenizer.eos_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config)
+        update_model_config(model_config, override_config_kwargs=override_config_kwargs)
+
+        # Handle special configurations
+        if not is_value_model and hasattr(self, 'generation_config'):
+            self.generation_config = get_generation_config(local_path)
+        
+        if self.rank == 0:
+            print(f'Model config after override: {model_config}')
+            
+        return model_config
     
     def _initialize_distributed(self):
         """Initialize distributed training environment"""
@@ -145,109 +173,115 @@ class ActorRolloutRefWorker(BaseMegatronWorker):
             self._is_offload_param = self.config.ref.get('param_offload', False)
 
     def _build_model_optimizer(self,
-                               model_path,
-                               megatron_config: ModelParallelConfig,
-                               optim_config,
-                               override_model_config,
-                               enable_gradient_checkpointing=False):
-        from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config, get_generation_config
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
-        from transformers import AutoConfig
+                              model_path: str,
+                              megatron_config: ModelParallelConfig,
+                              optim_config: DictConfig,
+                              override_model_config: dict,
+                              enable_gradient_checkpointing: bool = False) -> tuple:
+        """Initialize model components with optimized structure"""
+        actor_model_config = self._setup_model_config(model_path, override_model_config)
+        megatron_actor_model_provider = self._create_model_provider(
+            actor_model_config, megatron_config, is_value_model=False)
+        
+        model_components = self._initialize_hybrid_engine(
+            megatron_actor_model_provider, 
+            actor_model_config,
+            megatron_config
+        )
+        
+        optimizer = self._setup_optimizer(model_components, optim_config)
+        return (*model_components, actor_model_config, optim_config)
 
-        # Step 1: initialize the tokenizer
+    def _setup_model_config(self, model_path: str, override_config: dict) -> AutoConfig:
+        """Initialize and configure model parameters"""
         local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
         self.tokenizer.max_token_id = max(self.tokenizer.get_vocab().values())
 
-        # Step 2: get the actor_model_config
-        actor_model_config = AutoConfig.from_pretrained(local_path)
-
-        self.generation_config = get_generation_config(local_path)
-
-        override_config_kwargs = {
+        model_config = AutoConfig.from_pretrained(local_path)
+        override_params = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
             'pad_token_id': self.tokenizer.pad_token_id,
+            **override_config
         }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
-
+        update_model_config(model_config, override_params)
+        
         if self.rank == 0:
-            print(f'Model config after override: {actor_model_config}')
+            print(f'Model config after override: {model_config}')
+            
+        self.share_embeddings = getattr(model_config, "tie_word_embeddings", False)
+        return model_config
 
-        self.share_embeddings_and_output_weights = getattr(actor_model_config, "tie_word_embeddings", False)
-        self.architecture = getattr(actor_model_config, "architecture", None)
+    def _initialize_hybrid_engine(self, 
+                                 model_provider: Callable,
+                                 model_config: AutoConfig,
+                                 megatron_config: ModelParallelConfig) -> tuple:
+        """Initialize distributed model components"""
+        with self._memory_context('HybridEngine init'):
+            if self._is_actor_rollout:
+                hybrid_engine = AllGatherPPModel(model_provider=model_provider)
+                actor_module = self._load_model_weights(hybrid_engine, model_config, megatron_config)
+                return (actor_module, hybrid_engine)
+                
+            if self._is_ref:
+                ref_module = get_model(model_provider, ModelType.encoder_or_decoder, wrap_with_ddp=False)
+                self._load_ref_weights(ref_module, model_config, megatron_config)
+                return (ref_module, None)
 
-        def megatron_actor_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_model_from_config
-            # vpp is not supported yet because it will hang for some reason. Need debugging
-            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
-            # this_megatron_config = copy.deepcopy(megatron_config)
-            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(
-                config=actor_model_config,
-                megatron_config=megatron_config,
-                pre_process=pre_process,
-                post_process=post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                value=False)
-            parallel_model.cuda()
-            return parallel_model
+    def _setup_optimizer(self, model: nn.Module, config: DictConfig) -> Optimizer:
+        """Configure and initialize optimizer"""
+        if not self._is_actor:
+            return None
+            
+        with self._memory_context('Optimizer init'):
+            config = init_megatron_optim_config(config)
+            return get_megatron_optimizer(model, config)
 
-        # Step 3: initialize the megatron model
-        if self._is_actor and self._is_rollout:
-            # Initialize the 3D HybridEngine
-            hybrid_engine = AllGatherPPModel(model_provider=megatron_actor_model_provider)
-            # Fetch the model at current rank
-            actor_module = hybrid_engine.this_rank_models
-            actor_modules_list = []
-            if isinstance(actor_module, nn.ModuleList):
-                for module in actor_module:
-                    actor_modules_list.append(module)
-            actor_module = actor_modules_list
-            print(f'actor_module: {len(actor_module)}')
-            if self.config.actor.load_weight:
-                self.hf_config = load_megatron_model_weights(self.config,
-                                                             actor_model_config,
-                                                             actor_module,
-                                                             params_dtype=megatron_config.params_dtype,
-                                                             is_value_model=False)
+    def _load_model_weights(self, 
+                           engine: AllGatherPPModel, 
+                           model_config: AutoConfig,
+                           megatron_config: ModelParallelConfig) -> nn.Module:
+        """Handle model weight loading logic"""
+        actor_module = engine.this_rank_models
+        if isinstance(actor_module, nn.ModuleList):
+            actor_module = list(actor_module.children())
+            
+        if self.config.actor.load_weight:
+            self.hf_config = load_megatron_model_weights(
+                self.config, model_config, actor_module,
+                params_dtype=megatron_config.params_dtype,
+                is_value_model=False
+            )
+            
+        if self.rank == 0:
+            print_model_size(actor_module[0])
+            
+        return actor_module
 
-            if self.rank == 0:
-                print_model_size(actor_module[0])
-            log_gpu_memory_usage('After AllGatherPPModel init', logger=logger)
-        elif self._is_ref:
-            print(f'self.config.ref.load_weight: {self.config.ref.load_weight}')
-            ref_module = get_model(model_provider_func=megatron_actor_model_provider,
-                                   model_type=ModelType.encoder_or_decoder,
-                                   wrap_with_ddp=False)
-            # ref_module = nn.ModuleList(ref_module)
+    def _load_ref_weights(self, 
+                         module: nn.Module,
+                         model_config: AutoConfig,
+                         megatron_config: ModelParallelConfig) -> None:
+        """Handle reference model weight loading"""
+        if self.config.ref.load_weight:
+            assert self.config.actor.load_weight == self.config.ref.load_weight
+            self.hf_config = load_megatron_model_weights(
+                self.config, model_config, module,
+                params_dtype=megatron_config.params_dtype,
+                is_value_model=False
+            )
 
-            if self.config.ref.load_weight:  # should align with the actor:
-                assert self.config.actor.load_weight == self.config.ref.load_weight
-                print(f'load ref weight start')
-                self.hf_config = load_megatron_model_weights(self.config,
-                                                             actor_model_config,
-                                                             ref_module,
-                                                             params_dtype=megatron_config.params_dtype,
-                                                             is_value_model=False)
-            log_gpu_memory_usage('After ref module init', logger=logger)
-            return ref_module, actor_model_config
+    @contextmanager
+    def _memory_context(self, stage_name: str) -> Generator:
+        """Memory management context manager"""
+        try:
+            yield
+        finally:
+            log_gpu_memory_usage(f'After {stage_name}', logger=logger)
+            torch.cuda.empty_cache()
 
-        # TODO: add more optimizer args into config
-        if self._is_actor:
-            optim_config = init_megatron_optim_config(optim_config)
-            actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config)
-        else:
-            optim_config = None
-            actor_optimizer = None
 
-        log_gpu_memory_usage('After actor optimizer init', logger=logger)
-
-        return actor_module, hybrid_engine, actor_optimizer, actor_model_config, optim_config
-    
     def _build_rollout(self):
         if self.config.rollout.name == 'vllm':
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
@@ -512,72 +546,70 @@ class CriticWorker(BaseMegatronWorker):
         # TODO(sgm): support critic model offload
 
     def _build_critic_model_optimizer(self,
-                                      model_path,
-                                      megatron_config: ModelParallelConfig,
-                                      optim_config,
-                                      override_model_config,
-                                      enable_gradient_checkpointing=False):
-        from megatron.core.models.gpt.gpt_model import ModelType
-        from verl.utils.model import print_model_size, update_model_config
-        from verl.utils.megatron.optimizer import get_megatron_optimizer
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config
-        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+                                     model_path: str,
+                                     megatron_config: ModelParallelConfig,
+                                     optim_config: DictConfig,
+                                     override_model_config: dict,
+                                     enable_gradient_checkpointing: bool = False) -> tuple:
+        """Initialize critic model components with optimized structure"""
+        critic_model_config = self._setup_critic_config(model_path, override_model_config)
+        megatron_critic_model_provider = self._create_model_provider(
+            critic_model_config, megatron_config, is_value_model=True)
+        
+        critic_module = self._initialize_critic_model(
+            megatron_critic_model_provider,
+            critic_model_config,
+            megatron_config
+        )
+        
+        optimizer = self._setup_optimizer(critic_module, optim_config)
+        return critic_module, optimizer, critic_model_config, optim_config
 
-        # Step 1: initialize the tokenizer
+    def _setup_critic_config(self, model_path: str, override_config: dict) -> AutoConfig:
+        """Initialize and configure critic model parameters"""
         local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path)
-
-        # Step 2: get the actor_model_config
-        critic_model_config = AutoConfig.from_pretrained(local_path)
-
-        override_config_kwargs = {
+        
+        model_config = AutoConfig.from_pretrained(local_path)
+        override_params = {
             'bos_token_id': self.tokenizer.bos_token_id,
             'eos_token_id': self.tokenizer.eos_token_id,
             'pad_token_id': self.tokenizer.pad_token_id,
+            **override_config
         }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
-
+        update_model_config(model_config, override_params)
+        
         if self.rank == 0:
-            print(f'Model config after override: {critic_model_config}')
+            print(f'Critic model config after override: {model_config}')
+            
+        return model_config
 
-        def megatron_critic_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_model_from_config
-            # TODO: support vpp here
-            # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
-            # this_megatron_config = copy.deepcopy(megatron_config)
-            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
-            parallel_model = get_parallel_model_from_config(config=critic_model_config,
-                                                            megatron_config=megatron_config,
-                                                            pre_process=pre_process,
-                                                            post_process=post_process,
-                                                            share_embeddings_and_output_weights=False,
-                                                            value=True)
-            parallel_model.cuda()
-            return parallel_model
+    def _initialize_critic_model(self,
+                                model_provider: Callable,
+                                model_config: AutoConfig,
+                                megatron_config: ModelParallelConfig) -> nn.Module:
+        """Initialize critic model components"""
+        with self._memory_context('Critic model init'):
+            critic_module = get_model(model_provider, ModelType.encoder_or_decoder, wrap_with_ddp=True)
+            
+            if self.config.load_weight:
+                self._load_critic_weights(critic_module, model_config, megatron_config)
+                
+            if self.rank == 0:
+                print_model_size(critic_module[0])
+                
+            return critic_module
 
-        # Step 3: initialize the megatron model
-        critic_module = get_model(model_provider_func=megatron_critic_model_provider,
-                                  model_type=ModelType.encoder_or_decoder,
-                                  wrap_with_ddp=True)
-        # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
-        # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
-        # critic_module = nn.ModuleList(critic_module)
-
-        if self.config.load_weight:
-            load_megatron_model_weights(self.config,
-                                        critic_model_config,
-                                        critic_module,
-                                        params_dtype=megatron_config.params_dtype,
-                                        is_value_model=True)
-        if self.rank == 0:
-            print_model_size(critic_module[0])
-
-        # TODO: add more optimizer args into config
-        optim_config = init_megatron_optim_config(optim_config)
-        critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config)
-        torch.cuda.empty_cache()
-        return critic_module, critic_optimizer, critic_model_config, optim_config
+    def _load_critic_weights(self,
+                            module: nn.Module,
+                            model_config: AutoConfig,
+                            megatron_config: ModelParallelConfig) -> None:
+        """Handle critic model weight loading"""
+        load_megatron_model_weights(
+            self.config, model_config, module,
+            params_dtype=megatron_config.params_dtype,
+            is_value_model=True
+        )
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
