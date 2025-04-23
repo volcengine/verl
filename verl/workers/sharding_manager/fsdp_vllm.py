@@ -25,10 +25,11 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
+from verl.utils.vllm_utils import _patch_vllm_moe_model_weight_loader
 from verl.utils.debug import log_gpu_memory_usage
 
 from .base import BaseShardingManager
-from .patch import _patch_vllm_moe_model_weight_loader
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))

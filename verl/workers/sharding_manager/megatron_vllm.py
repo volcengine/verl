@@ -49,9 +49,8 @@ from verl.utils.memory_buffer import (
 )
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_functional import allgather_dict_tensors
-
+from verl.utils.vllm_utils import _patch_vllm_moe_model_weight_loader
 from .base import BaseShardingManager
-from .patch import _patch_vllm_moe_model_weight_loader
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
