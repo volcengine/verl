@@ -123,6 +123,36 @@ class Tracking:
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
 
+    def log_token_lengths(self, positive_tokens, negative_tokens, step=None, tag_prefix="test-1.0"):
+        """
+        Log average token lengths for positive and negative samples to wandb.
+        
+        Args:
+            positive_tokens: List of tokenized positive samples
+            negative_tokens: List of tokenized negative samples
+            step: Current training step (optional)
+            tag_prefix: Prefix for wandb tags (default: "test-1.0")
+        """
+        if 'wandb' not in self.logger:
+            return
+            
+        if positive_tokens:
+            pos_avg_len = sum(len(tokens) for tokens in positive_tokens) / len(positive_tokens)
+        else:
+            pos_avg_len = 0
+            
+        if negative_tokens:
+            neg_avg_len = sum(len(tokens) for tokens in negative_tokens) / len(negative_tokens)
+        else:
+            neg_avg_len = 0
+        
+        log_dict = {
+            f"{tag_prefix}/positive_avg_token_length": pos_avg_len,
+            f"{tag_prefix}/negative_avg_token_length": neg_avg_len
+        }
+        
+        self.log(log_dict, step=step, backend=['wandb'])
+
 
 class _TensorboardAdapter:
     def __init__(self):

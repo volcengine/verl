@@ -56,7 +56,40 @@ class BatchRewardManager:
 
         return scores
 
-    def __call__(self, data: DataProto, return_dict=False):
+    def track_token_lengths(self, responses_ids, scores, tracker, step):
+        """
+        Track token lengths of positive and negative responses.
+        
+        Args:
+            responses_ids: List of response token IDs
+            scores: List of reward scores
+            tracker: Tracking instance
+            step: Current step
+        """
+        if tracker is None or 'wandb' not in tracker.logger:
+            return
+            
+        positive_tokens = []
+        negative_tokens = []
+        
+        for response_ids, score in zip(responses_ids, scores):
+            if isinstance(score, dict):
+                is_positive = score.get("acc", 0.0) > 0.5  # Using acc which is the proof validation result
+            else:
+                is_positive = score > 0.5
+                
+            if is_positive:
+                positive_tokens.append(response_ids)
+            else:
+                negative_tokens.append(response_ids)
+        
+        tracker.log_token_lengths(
+            positive_tokens=positive_tokens,
+            negative_tokens=negative_tokens,
+            step=step
+        )
+
+    def __call__(self, data: DataProto, return_dict=False, tracker=None, step=None):
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
@@ -102,6 +135,15 @@ class BatchRewardManager:
                 already_printed[data_source] = already_printed.get(data_source, 0) + 1
 
         data.batch["acc"] = torch.tensor(rewards, dtype=torch.float32, device=prompt_ids.device)
+
+        if tracker is not None and step is not None:
+            response_tokens = []
+            for i in range(len(data)):
+                length = valid_response_lengths[i].item()
+                response_token_ids = data.batch['responses'][i][:length].tolist()
+                response_tokens.append(response_token_ids)
+            
+            self.track_token_lengths(response_tokens, scores, tracker, step)
 
         if return_dict:
             return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
