@@ -140,12 +140,12 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
     
-    if multi_turn:
-        loss_mask = data.batch['loss_mask']
-        response_mask = loss_mask[:, -response_length:]
-    else:
-        attention_mask = data.batch['attention_mask']
-        response_mask = attention_mask[:, -response_length:]
+    # if multi_turn:
+    #     loss_mask = data.batch['loss_mask']
+    #     response_mask = loss_mask[:, -response_length:]
+    # else:
+    attention_mask = data.batch['attention_mask']
+    response_mask = attention_mask[:, -response_length:]
         
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
@@ -922,6 +922,7 @@ class RayPPOTrainer(object):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
+                            batch.meta_info['multi_turn'] = self.config.actor_rollout_ref.rollout.get('multi_turn', False)
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)

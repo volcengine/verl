@@ -58,7 +58,7 @@ class Gsm8kTool(BaseTool):
         try:
             _parameters = json.loads(parameters)
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse parameters: {parameters}, JSONDecodeError: {e}")
+            # logger.warning(f"Failed to parse parameters: {parameters}, JSONDecodeError: {e}")
             _parameters = {}
         # logger.debug(f"{_parameters=}")
         if isinstance(_parameters, dict):

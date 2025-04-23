@@ -508,12 +508,12 @@ class AsyncSGLangRollout(BaseRollout):
                         try:
                             normed_content, tool_calls = self._function_call_parser.parse_non_stream(content)
                         except JSONDecodeError as e:
-                            logger.warning(f"Failed to parse tool calls from content: {content}, JSONDecodeError: {e}")
+                            # logger.warning(f"Failed to parse tool calls from content: {content}, JSONDecodeError: {e}")
                             normed_content = content
                             tool_calls = []
                             # raise e
                         except AttributeError as e:
-                            logger.warning(f"Failed to parse tool calls from content: {content}, AttributeError: {e}")
+                            # logger.warning(f"Failed to parse tool calls from content: {content}, AttributeError: {e}")
                             normed_content = content
                             tool_calls = []
                             # raise e
@@ -653,7 +653,7 @@ class AsyncSGLangRollout(BaseRollout):
         # print(f"{reward_scores_tensor=}")
         # print(f"{prompt_ids.shape=}, {response_ids.shape=}, {input_ids.shape=}, {attention_mask.shape=}, {position_ids.shape=}, {loss_mask.shape=}, {len(reward_scores)=}, {len(sorted_output_req_list)=}, {len(messages)=}")
         
-        if self._tp_rank == 0:
+        if self._tp_rank == 0 and self._device_mesh_cpu["dp"].get_local_rank() == 0 and not is_validate:
             print(f"examine first request:\n{sorted_output_req_list[0].messages=}\n{self.tokenizer.decode(sorted_output_req_list[0].input_ids)=}")
         # Construct the batch data
         batch = TensorDict(
@@ -677,9 +677,13 @@ class AsyncSGLangRollout(BaseRollout):
         for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch['raw_prompt']):
             for rollout_offset in range(n):
                 if self._tool_schemas:
+                    _tools_kwargs = prompts.non_tensor_batch['tools_kwargs'][data_idx]
+                    _tool_schemas = []
+                    for k in _tools_kwargs.keys():
+                        _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
                         conversation=raw_prompt,
-                        tools=self._tool_schemas,
+                        tools=[tool.model_dump() for tool in _tool_schemas],
                         add_generation_prompt=True,
                         tokenize=False,
                         return_tensors="pt",
@@ -688,10 +692,6 @@ class AsyncSGLangRollout(BaseRollout):
                     _input_ids = input_data['input_ids'][0].tolist()
                     _attention_mask = input_data['attention_mask'][0].tolist()
                     _position_ids = compute_position_id_with_mask(input_data['attention_mask'][0]).tolist()
-                    _tools_kwargs = prompts.non_tensor_batch['tools_kwargs'][data_idx]
-                    _tool_schemas = []
-                    for k in _tools_kwargs.keys():
-                        _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
                     if len(_input_ids) > self.config.prompt_length:
                         logger.warning(f"Prompt {data_idx} has length {len(_input_ids)} greater than max_prompt_len {self.config.prompt_length}")
                         _input_ids = _input_ids[:self.config.prompt_length]

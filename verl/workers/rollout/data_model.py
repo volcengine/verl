@@ -68,10 +68,10 @@ class AsyncRolloutRequest(BaseModel):
 
     format_config: dict = {
         "chatml": {
-            "assistant_prefix_msg": "<|im_start|>assistant\n",
-            "assistant_suffix_msg": "<|im_end|>\n",
-            "tool_prefix_msg": "<|im_start|>tool\n",
-            "tool_suffix_msg": "<|im_end|>\n",
+            "assistant_prefix_msg": "\n<|im_start|>assistant\n",
+            "assistant_suffix_msg": "<|im_end|>",
+            "tool_prefix_msg": "\n<|im_start|>tool\n",
+            "tool_suffix_msg": "<|im_end|>",
         }
     }
 
@@ -113,20 +113,23 @@ class AsyncRolloutRequest(BaseModel):
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)
             if self.input_ids[-len(prefix_token_ids):] == prefix_token_ids:
                 append_token_ids = content_token_ids
+                _loss_mask = [1] * len(content_token_ids)
             elif self.input_ids[-len(suffix_token_ids):] == suffix_token_ids:
                 append_token_ids = prefix_token_ids + content_token_ids
+                _loss_mask = [0] * len(prefix_token_ids) + [1] * len(content_token_ids)
             else:
                 max_len = max(len(prefix_token_ids), len(suffix_token_ids))
                 raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}")
             if not alreadyover_long:
                 append_token_ids += suffix_token_ids
+                _loss_mask += [1] * len(suffix_token_ids)
             self.input_ids += append_token_ids
             _attention_mask = [1] * len(append_token_ids)
             self.attention_mask += _attention_mask
             _delta_position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
             last_position_id = self.position_ids[-1]
             _position_ids = [pos_id + last_position_id for pos_id in _delta_position_ids]
-            self.loss_mask += [1] * len(append_token_ids)
+            self.loss_mask += _loss_mask
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
@@ -178,11 +181,12 @@ class AsyncRolloutRequest(BaseModel):
         self.reward_scores = reward_scores
         self.response_ids = self.input_ids[len(self.prompt_ids):]
         if finish_reason_type == FinishReasonTypeEnum.STOP:
-            eos_token_id = tokenizer.eos_token_id
-            self.input_ids.append(eos_token_id)
-            self.attention_mask.append(1)
-            self.position_ids.append(self.position_ids[-1] + 1)
-            self.loss_mask.append(0)
+            # eos_token_id = tokenizer.eos_token_id
+            # self.input_ids.append(eos_token_id)
+            # self.attention_mask.append(1)
+            # self.position_ids.append(self.position_ids[-1] + 1)
+            # self.loss_mask.append(0)
+            pass
         elif finish_reason_type == FinishReasonTypeEnum.LENGTH:
             pass
         else:
