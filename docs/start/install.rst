@@ -94,8 +94,9 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+   pip3 install torch torchvision
    pip3 install flash-attn --no-build-isolation
+   pip3 install vllm==0.8.2
    git clone https://github.com/volcengine/verl.git
    cd verl
    pip3 install -e .
