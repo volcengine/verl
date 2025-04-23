@@ -17,7 +17,7 @@
 import os
 import warnings
 from typing import Any, Dict
-
+import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -273,6 +273,7 @@ def offload_megatron_model_to_cpu(models):
                 param.data = param.data.to("cpu", non_blocking=True)
                 if param.grad is not None:
                     param.grad = param.grad.to("cpu", non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 
@@ -297,6 +298,7 @@ def load_megatron_model_to_gpu(models, load_grad=True):
                 param.data = param.data.to(device_id, non_blocking=True)
                 if param.grad is not None:
                     param.grad = param.grad.to(device_id, non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 @torch.no_grad()
@@ -378,6 +380,7 @@ def offload_megatron_optimizer(optimizers):
     for v in opt_state_dict_values:
         v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
         v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 
@@ -388,6 +391,7 @@ def load_megatron_optimizer(optimizers):
     for v in opt_state_dict_values:
         v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
         v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 
