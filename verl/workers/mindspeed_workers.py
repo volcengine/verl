@@ -48,63 +48,71 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
 
-def set_random_seed(seed):
-    import torch
-    import numpy as np
-    import random
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    if torch.cuda.device_count() > 0:
-        from megatron.core import tensor_parallel
-        tensor_parallel.model_parallel_cuda_manual_seed(seed)
-    # FIXME: torch cumsum not support deterministic (used in vllm sampler),
-    # https://github.com/pytorch/pytorch/issues/89492
-    # torch.use_deterministic_algorithms(True, warn_only=True)
-    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+class BaseMegatronWorker(MegatronWorker):
+    """Base class for all Megatron workers with common initialization logic"""
+    
+    def __init__(self, config: DictConfig):
+        super().__init__()
+        self.config = config
+        self._initialize_distributed()
+        self._initialize_model_parallel()
+        self._set_random_seed()
+    
+    def _initialize_distributed(self):
+        """Initialize distributed training environment"""
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ['LOCAL_RANK'])
+            torch.distributed.init_process_group(backend='nccl')
+            torch.cuda.set_device(rank)
+    
+    def _initialize_model_parallel(self):
+        """Initialize model parallel configuration"""
+        from megatron.training.arguments import parse_args
+        from megatron.training.global_vars import set_args
+        
+        # Set sequence parallel if configured
+        if self.config.megatron.get('sequence_parallel', False):
+            os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
+        
+        # Parse and set megatron args
+        args = parse_args(ignore_unknown_args=True)
+        set_args(args)
+        
+        # Initialize model parallel
+        mpu.initialize_model_parallel(
+            tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
+            pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
+            virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
+            pipeline_model_parallel_split_rank=None,
+            use_sharp=False,
+            context_parallel_size=1,
+            expert_model_parallel_size=1,
+            nccl_communicator_config_path=None,
+        )
+    
+    def _set_random_seed(self):
+        """Set random seeds for reproducibility"""
+        seed = self.config.megatron.seed
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        if torch.cuda.device_count() > 0:
+            from megatron.core import tensor_parallel
+            tensor_parallel.model_parallel_cuda_manual_seed(seed)
+        # FIXME: torch cumsum not support deterministic (used in vllm sampler),
+        # https://github.com/pytorch/pytorch/issues/89492
+        # torch.use_deterministic_algorithms(True, warn_only=True)
+        # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
-
-class ActorRolloutRefWorker(MegatronWorker):
+class ActorRolloutRefWorker(BaseMegatronWorker):
     """
-    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
-    or a hybrid engine based on the config.rollout
+    Hybrid worker combining actor, rollout and reference policy capabilities
+    Inherits distributed and model parallel initialization from BaseMegatronWorker
     """
 
     def __init__(self, config: DictConfig, role: str):
-        super().__init__()
+        super().__init__(config.actor.megatron)
         self.config = config
-
-        # NOTE(sgm): We utilize colocate WorkerGroup by default.
-        # As a result, Workers for different model share the same process.
-        # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
-        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
-        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ['LOCAL_RANK'])
-            torch.distributed.init_process_group(backend="nccl")
-            torch.cuda.set_device(rank)
-
-            if self.config.actor.megatron.sequence_parallel:
-                os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
-            
-            from megatron.training.arguments import parse_args
-            from megatron.training.global_vars import set_args
-            args = parse_args(ignore_unknown_args=True)
-            set_args(args)
-
-            mpu.initialize_model_parallel(
-                tensor_model_parallel_size=self.config.actor.megatron.tensor_model_parallel_size,
-                pipeline_model_parallel_size=self.config.actor.megatron.pipeline_model_parallel_size,
-                virtual_pipeline_model_parallel_size=self.config.actor.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
-                use_sharp=False,
-                context_parallel_size=1,
-                expert_model_parallel_size=1,
-                nccl_communicator_config_path=None,
-            )
-
-        set_random_seed(seed=self.config.actor.megatron.seed)
 
         self.role = role
         assert self.role in ['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']
@@ -113,8 +121,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         self._is_rollout = self.role in ['rollout', 'actor_rollout', 'actor_rollout_ref']
         self._is_ref = self.role in ['ref', 'actor_rollout_ref']
 
-        # TODO(sgm): Currently, we only support reference model param offload
-        # will support other offload later
         self._is_offload_param = False
         self._is_offload_grad = False
         self._is_offload_optimizer = False
@@ -490,42 +496,12 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.distributed.barrier()
 
 
-class CriticWorker(MegatronWorker):
-
+class CriticWorker(BaseMegatronWorker):
+    """Critic worker for value function estimation in PPO algorithm"""
+    
     def __init__(self, config):
-        super().__init__()
+        super().__init__(config.megatron)
         self.config = config
-
-        # NOTE(sgm): We utilize colocate WorkerGroup by default.
-        # As a result, Workers for different model share the same process.
-        # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
-        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
-        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ['LOCAL_RANK'])
-            torch.distributed.init_process_group(backend="nccl")
-            torch.cuda.set_device(rank)
-
-            from megatron.training.arguments import parse_args
-            from megatron.training.global_vars import set_args
-            args = parse_args(ignore_unknown_args=True)
-            set_args(args)
-
-            if self.config.megatron.sequence_parallel:
-                os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
-            mpu.initialize_model_parallel(
-                tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
-                pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
-                virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
-                use_sharp=False,
-                context_parallel_size=1,
-                expert_model_parallel_size=1,
-                nccl_communicator_config_path=None,
-            )
-
-        set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
         self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
@@ -672,45 +648,12 @@ class CriticWorker(MegatronWorker):
         pass
 
 
-class RewardModelWorker(MegatronWorker):
-    """
-    Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
-    """
-
+class RewardModelWorker(BaseMegatronWorker):
+    """Worker for reward model scoring in RLHF pipeline"""
+    
     def __init__(self, config):
-        super().__init__()
+        super().__init__(config.megatron)
         self.config = config
-
-        # NOTE(sgm): We utilize colocate WorkerGroup by default.
-        # As a result, Workers for different model share the same process.
-        # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
-        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
-        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
-        if not torch.distributed.is_initialized():
-            rank = int(os.environ['LOCAL_RANK'])
-            torch.distributed.init_process_group(backend="nccl")
-            torch.cuda.set_device(rank)
-
-            from megatron.training.arguments import parse_args
-            from megatron.training.global_vars import set_args
-            args = parse_args(ignore_unknown_args=True)
-            set_args(args)
-
-            if self.config.megatron.sequence_parallel:
-                os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
-            mpu.initialize_model_parallel(
-                tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
-                pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
-                virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
-                pipeline_model_parallel_split_rank=None,
-                use_sharp=False,
-                context_parallel_size=1,
-                expert_model_parallel_size=1,
-                nccl_communicator_config_path=None,
-            )
-
-        set_random_seed(seed=self.config.megatron.seed)
 
         # normalize config
         if self.config.micro_batch_size is not None:
