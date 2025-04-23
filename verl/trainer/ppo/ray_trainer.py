@@ -972,9 +972,9 @@ class RayPPOTrainer:
                             batch = batch.union(reward_tensor)
 
                         if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer, tracker=self.tracker, step=self.global_steps)
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn, tracker=self.tracker, step=self.global_steps)
 
                     # recompute old_log_probs
                     with _timer("old_log_prob", timing_raw):
@@ -1005,30 +1005,11 @@ class RayPPOTrainer:
                     with _timer("adv", timing_raw):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
-                        try:
-                            reward_result = self.reward_fn(batch, return_dict=True, tracker=self.tracker, step=self.global_steps)
-                            reward_tensor = reward_result['reward_tensor']
-                            reward_extra_infos_dict = reward_result['reward_extra_info']
-                        except Exception as e:
-                            print(f'Error in reward_fn: {e}')
-                            reward_tensor = self.reward_fn(batch, tracker=self.tracker, step=self.global_steps)
-                            reward_extra_infos_dict = {}
+                        if self.config.reward_model.launch_reward_fn_async:
+                            reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        batch.batch["token_level_scores"] = reward_tensor
 
-                        batch.batch['token_level_scores'] = reward_tensor
-
-                        if self.config.trainer.log_rollout_generations > 0:
-                            # Extract inputs, outputs and scores from the batch
-                            input_ids = batch.batch['input_ids']
-                            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-                            output_ids = batch.batch['responses']
-                            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-                            scores = reward_tensor.sum(-1).cpu().tolist()
-                            self._log_all_generations(inputs=input_texts,
-                                                      outputs=output_texts,
-                                                      scores=scores,
-                                                      epoch=epoch)
-
-                        print(f'{list(reward_extra_infos_dict.keys())=}')
+                        print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
