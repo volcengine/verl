@@ -37,7 +37,12 @@ from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_wei
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
-from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, load_megatron_optimizer, offload_megatron_optimizer
+from verl.utils.megatron_utils import (
+    load_megatron_model_to_gpu, 
+    offload_megatron_model_to_cpu, 
+    load_megatron_optimizer, 
+    offload_megatron_optimizer
+)
 
 
 logger = logging.getLogger(__file__)
@@ -284,7 +289,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         self.param_dtype = torch.bfloat16
-        log_gpu_memory_usage("Before init actor model and optimizer")
+        log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -304,7 +309,6 @@ class ActorRolloutRefWorker(MegatronWorker):
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
 
         if self._is_actor:
-            log_gpu_memory_usage('Before init MegatronPPOActor', logger=logger)
             self.actor = MegatronPPOActor(
                 config=self.config.actor,
                 model_config=self.actor_model_config,
@@ -313,23 +317,21 @@ class ActorRolloutRefWorker(MegatronWorker):
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )
-            log_gpu_memory_usage('After init MegatronPPOActor', logger=logger)
+            log_gpu_memory_usage('After MegatronPPOActor init', logger=logger)
 
         if self._is_rollout:
-            log_gpu_memory_usage('Before init rollout', logger=logger)
             self.rollout, self.sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
-            log_gpu_memory_usage('After init rollout', logger=logger)
+            log_gpu_memory_usage('After rollout init', logger=logger)
 
         if self._is_ref:
-            log_gpu_memory_usage('Before init ref', logger=logger)
             self.ref_module, self.ref_model_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
             )
-            log_gpu_memory_usage('After init ref', logger=logger)
+            log_gpu_memory_usage('After ref model init', logger=logger)
             self.ref_policy = MegatronPPOActor(
                 config=self.config.ref,
                 model_config=self.ref_model_config,
@@ -340,10 +342,9 @@ class ActorRolloutRefWorker(MegatronWorker):
             )
             if self._ref_is_offload_param:
                 offload_megatron_model_to_cpu(self.ref_module)
-                log_gpu_memory_usage('After offload ref params and grad during init', logger=logger)
+                log_gpu_memory_usage('After offload ref params during init', logger=logger)
 
         if self._is_actor:
-            log_gpu_memory_usage('Before init MegatronCheckpointManager', logger=logger)
             self.flops_counter = FlopsCounter(self.actor_model_config)
             self.checkpoint_mananager = MegatronCheckpointManager(
                 config=self.config,
@@ -359,9 +360,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
                 checkpoint_contents=self.config.actor.checkpoint.contents,
             )
-            log_gpu_memory_usage('After init MegatronCheckpointManager', logger=logger)
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After init_model end', logger=logger)
+        log_gpu_memory_usage('After init_model finish', logger=logger)
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
@@ -374,8 +374,6 @@ class ActorRolloutRefWorker(MegatronWorker):
             load_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage('After load actor optimizer during update_actor', logger=logger)
         data.batch = data.batch.cuda()
-
-        log_gpu_memory_usage("Before update policy", logger=logger)
 
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -401,7 +399,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After offload actor optimizer during update_actor', logger=logger)
 
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After update_actor end', logger=logger)
+        log_gpu_memory_usage('After update_actor finish', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
@@ -410,7 +408,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         log_gpu_memory_usage('Before generate_sequences', logger=logger)
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
-            log_gpu_memory_usage('After load actor params and grad during generate_sequences', logger=logger)
+            log_gpu_memory_usage('After load actor params during generate_sequences', logger=logger)
         prompts.batch = prompts.batch.cuda()
         meta_info = {
             "eos_token_id": self.generation_config.eos_token_id
@@ -438,7 +436,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After generate_sequences", logger=logger)
+        log_gpu_memory_usage("After generate_sequences finish", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
