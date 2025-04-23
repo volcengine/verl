@@ -310,13 +310,11 @@ def offload_megatron_copy_params(optimizers):
         optimizers: The optimizer containing parameter groups to offload
     """
     def offload_tensor_to_cpu(tensor):
-        """Offload a single tensor to CPU"""
         if tensor is None:
             return
         tensor.data = tensor.data.to('cpu', non_blocking=True)
 
     def offload_group_to_cpu(group):
-        """Offload a parameter group to CPU"""
         if group is None:
             return
             
@@ -345,14 +343,12 @@ def load_megatron_copy_params(optimizers):
         optimizers: The optimizer containing parameter groups to load
     """
     def load_tensor_to_gpu(tensor):
-        """Load a single tensor to GPU"""
         if tensor is None:
             return
         device_id = torch.cuda.current_device()
         tensor.data = tensor.data.to(device_id, non_blocking=True)
 
     def load_group_to_gpu(group):
-        """Load a parameter group to GPU"""
         if group is None:
             return
             
