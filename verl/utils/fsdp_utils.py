@@ -29,6 +29,8 @@ from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
 from packaging import version
+from torch.distributed.tensor import DTensor
+
 if version.parse(torch.__version__) >= version.parse('2.6'):
     from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy
 elif version.parse(torch.__version__) >= version.parse('2.4'):
@@ -139,7 +141,8 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    model.to('cpu', non_blocking=True)
+    for param in model.parameters():
+        param.data = param.data.to(torch.device('cpu'), non_blocking=True)
     if empty_cache:
         torch.cuda.empty_cache()
 
@@ -164,8 +167,9 @@ def load_fsdp_model_to_gpu(model: FSDP):
 
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
-    device_id = torch.cuda.current_device()
-    model.to(f"cuda:{device_id}", non_blocking=True)
+    device = torch.cuda.current_device()
+    for param in model.parameters():
+        param.data = param.data.to(device, non_blocking=True)
 
 @torch.no_grad()
 def offload_fsdp_optimizer(optimizer):
@@ -175,7 +179,7 @@ def offload_fsdp_optimizer(optimizer):
         for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
-                if isinstance(value, torch.Tensor):
+                if isinstance(value, (torch.Tensor, DTensor)):
                     state[key] = value.to("cpu", non_blocking=True)
 
 
@@ -187,7 +191,7 @@ def load_fsdp_optimizer(optimizer, device_id):
         for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
-                if isinstance(value, torch.Tensor):
+                if isinstance(value, (torch.Tensor, DTensor)):
                     state[key] = value.to(device_id, non_blocking=True)
 
 
@@ -385,60 +389,72 @@ def fsdp2_sharding_strategy(device_mesh):
     return sharding_strategy
 
 
-def fsdp2_load_full_state_dict(model: torch.nn.Module, full_sd: dict):
-    """ refer accelerate
+def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None):
+    """ 
     Loads the full state dict (could be only on rank 0) into the sharded model. This is done by broadcasting the
     parameters from rank 0 to all other ranks. This function modifies the model in-place.
 
     Args:
         model (`torch.nn.Module`): The model to load the state dict into
-        full_sd (`dict`): The full state dict to load, can only be on rank 0
+        full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.tensor import distribute_tensor
+    from torch.distributed.checkpoint.state_dict import set_model_state_dict, StateDictOptions
 
-    sharded_sd = model.state_dict()
-
+    # To broadcast, it needs to be instantiated in the GPU.
     if dist.get_rank() == 0:
-        for (param_name, full_param), sharded_param in zip(full_sd.items(), sharded_sd.values()):
-            full_param = full_param.detach().cuda()
-            mesh = sharded_param.device_mesh
-            dist.broadcast(full_param, src=0, group=mesh.get_group())
-            sharded_tensor = distribute_tensor(full_param, mesh, sharded_param.placements)
-            sharded_sd[param_name] = sharded_tensor
+        model = model.to(device=torch.cuda.current_device(), non_blocking=True)
     else:
-        model.to_empty(device=torch.cuda.current_device())
-        for param_name, sharded_param in sharded_sd.items():
-            full_tensor = torch.empty(sharded_param.size(), device="cuda", dtype=sharded_param.dtype)
-            mesh = sharded_param.device_mesh
-            dist.broadcast(full_tensor, src=0, group=mesh.get_group())
-            sharded_tensor = distribute_tensor(full_tensor, mesh, sharded_param.placements)
-            sharded_sd[param_name] = sharded_tensor
-        
-    model.load_state_dict(sharded_sd)
+        model = model.to_empty(device=torch.cuda.current_device())
 
+    cpu_offload = cpu_offload is not None
+    options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
+    set_model_state_dict(model, full_state, options=options)
+    
+    # rotary_emb is not in state_dict, so we need to broadcast it manually
+    for name, buf in model.named_buffers():
+        dist.broadcast(buf, src=0, group=device_mesh.get_group()) 
 
-def prepare_for_cpu_offload(model: torch.nn.Module, cpu_offload=None):
     if cpu_offload:
         model.to('cpu', non_blocking=True)
         for buf in model.buffers():
             buf.data = buf.data.to(torch.cuda.current_device())
     
 
-def apply_fsdp2(model, fsdp_kwargs, is_infer=False):
+def apply_fsdp2(model, fsdp_kwargs, config):
     '''model: AutoModelForCausalLM
     '''
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
 
-    fsdp_mesh = fsdp_kwargs.get('mesh')
-    reshard_after_forward = fsdp2_sharding_strategy(fsdp_mesh)
+    default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
+    fsdp_transformer_layer_cls_to_wrap = config.get("transformer_layer_cls_to_wrap",
+                                                    default_transformer_cls_names_to_wrap)
     
+    if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
+        fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
+    
+    assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
+
     modules = []
     for name, module in model.named_modules():
-        if module.__class__.__name__ in model._no_split_modules:
+        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or isinstance(module, nn.Embedding):
             modules.append(module)
-
+    
     for idx, module in enumerate(modules):
-        if not is_infer and idx == len(modules) - 1:
-            reshard_after_forward = False
-        fully_shard(module, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)
-    fully_shard(model, **fsdp_kwargs, reshard_after_forward=reshard_after_forward)
+        fully_shard(module, **fsdp_kwargs)
+    fully_shard(model, **fsdp_kwargs) # fsdp2 will not reshard_after_forward for root module
+
+
+def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
+    '''torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor'''
+    from torch.nn.utils.clip_grad import _get_total_norm, _clip_grads_with_norm_
+    
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    else:
+        # prevent generators from being exhausted
+        parameters = list(parameters)
+    grads = [p.grad for p in parameters if p.grad is not None]
+    total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+    total_norm = total_norm.to(torch.cuda.current_device(), non_blocking=True)
+    _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
+    return total_norm

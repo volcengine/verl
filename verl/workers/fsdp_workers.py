@@ -50,7 +50,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from verl.utils.fsdp_utils import CPUOffloadPolicy, MixedPrecisionPolicy, fsdp_version, apply_fsdp2, \
-    fsdp2_load_full_state_dict, prepare_for_cpu_offload
+    fsdp2_load_full_state_dict, fsdp2_sharding_strategy
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -281,17 +281,22 @@ class ActorRolloutRefWorker(Worker):
         elif fsdp_strategy == 'fsdp2':
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
-            cpu_offload = None if role == 'actor' else CPUOffloadPolicy(pin_memory=True)
-            is_infer = role != 'actor'
+            if role == 'actor' and fsdp_config.offload_policy:
+                cpu_offload = CPUOffloadPolicy(pin_memory=True)
+                self._is_offload_param = False
+                self._is_offload_optimizer = False
+            else:
+                cpu_offload = None if role == 'actor' else CPUOffloadPolicy(pin_memory=True)
+
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
+                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
             }
-            full_sd = actor_module.state_dict()
-            apply_fsdp2(actor_module, fsdp_kwargs, is_infer=is_infer)
-            fsdp2_load_full_state_dict(actor_module, full_sd)
-            prepare_for_cpu_offload(actor_module, cpu_offload)
+            full_state = actor_module.state_dict()
+            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
+            fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
             actor_module_fsdp = actor_module
         else:
             raise NotImplementedError(f'not implement {fsdp_strategy}')
@@ -847,15 +852,21 @@ class CriticWorker(Worker):
         elif config.strategy == 'fsdp2':
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
+            offload_policy = None
+            if fsdp_config.offload_policy:
+                self._is_offload_param = False
+                self._is_offload_optimizer = False
+                offload_policy = CPUOffloadPolicy(pin_memory=True)
+                
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
-                "offload_policy": None,
-            }            
-            full_sd = critic_module.state_dict()
-            apply_fsdp2(critic_module, fsdp_kwargs)
-            fsdp2_load_full_state_dict(critic_module, full_sd)
-            prepare_for_cpu_offload(critic_module, None)
+                "offload_policy": offload_policy,
+                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
+            }
+            full_state = critic_module.state_dict()
+            apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
+            fsdp2_load_full_state_dict(critic_module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f'Unknown strategy {config.strategy}')
 
@@ -1105,11 +1116,11 @@ class RewardModelWorker(Worker):
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
+                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
             }            
-            full_sd = reward_module.state_dict()
-            apply_fsdp2(reward_module, fsdp_kwargs, is_infer=True)
-            fsdp2_load_full_state_dict(reward_module, full_sd)
-            prepare_for_cpu_offload(reward_module, cpu_offload)
+            full_state = reward_module.state_dict()
+            apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)
+            fsdp2_load_full_state_dict(reward_module, full_state, fsdp_mesh, cpu_offload)
         else:
             raise NotImplementedError(f"Unknown strategy: {config.strategy}")
         return reward_module

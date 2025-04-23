@@ -67,6 +67,7 @@ actor_rollout_ref:
         min_num_params: 0
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
       fsdp_size: -1
   ref:
     strategy: fsdp
@@ -129,7 +130,7 @@ actor_rollout_ref:
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: fsdp
+  strategy: fsdp # [fsdp, fsdp2]
   optim:
     lr: 1e-5
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -147,6 +148,7 @@ critic:
     fsdp_config:
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0

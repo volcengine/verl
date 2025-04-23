@@ -36,6 +36,7 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
+from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -161,6 +162,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         if isinstance(self.actor_module, FSDP):
             grad_norm = self.actor_module.clip_grad_norm_(max_norm=self.config.grad_clip)
+        elif isinstance(self.actor_module, FSDPModule):
+            grad_norm = fsdp2_clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(self.actor_module.parameters(), max_norm=self.config.grad_clip)
 
