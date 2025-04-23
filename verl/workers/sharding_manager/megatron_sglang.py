@@ -94,13 +94,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         from megatron.core import parallel_state as mpu
-
         pp_rank = mpu.get_pipeline_model_parallel_rank()
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
-
-        all_gather_group = (self.train_tp_group)
-
+        all_gather_group = mpu.get_tensor_model_parallel_group()
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -230,47 +227,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
         return infer_params
 
-    def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
-        from megatron.core import mpu
-        """
-        For each param, if it is a tp-splited param, we all-gather from micro_dp group.
-        """
-        # here the params are in train tp format. we iterate params and all-gather
-        # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
-        # In this way, all the params in the original memory_buffers and can be offload.
-        micro_dp_size = get_micro_data_parallel_world_size()
-        micro_dp_group = get_micro_data_parallel_group()
-
-        for name, param in params:
-            if tp_utils.is_tensor_parallel_param(param):
-                # allocate a new tensor with proper size
-                if micro_dp_size <= 1:
-                    infer_params = [param]
-                else:
-                    infer_params = [torch.empty_like(param) for _ in range(micro_dp_size)]
-                    torch.distributed.all_gather(infer_params, param, group=micro_dp_group)
-                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config,
-                                                         convert_qkv_gate_up_by_simple_split)
-            else:
-                infer_params = param
-            converted_names, converted_params = convert_megatron_model_to_transformers_model(
-                name,
-                infer_params,
-                self.model_config,
-                mpu.get_tensor_model_parallel_world_size(),
-                self.module.pp_models[0][0].config.num_query_groups,
-                convert_qkv_gate_up_by_trunk_concat=False)
-            for converted_name, infer_param in zip(converted_names, converted_params):
-                yield converted_name, infer_param
 
     def __enter__(self):
-        from megatron.core import mpu
-
         per_tensor_param = self.per_tensor_generator()
         self.inference_engine.resume_memory_occupation()
-
         self.inference_engine.update_weights_from_tensor(per_tensor_param, load_format=None)
-
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
         log_gpu_memory_usage('After delete params sharding manager memory', logger=None)
 
@@ -283,21 +244,3 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             model.train()
         # add empty cache after each compute
         torch.cuda.empty_cache()
-
-
-"""
-Micro Data parallel group
-"""
-
-
-def get_micro_data_parallel_group():
-    assert _MICRO_DATA_PARALLEL_GROUP is not None
-    return _MICRO_DATA_PARALLEL_GROUP
-
-
-def get_micro_data_parallel_world_size():
-    return torch.distributed.get_world_size(group=get_micro_data_parallel_group())
-
-
-def get_micro_data_parallel_rank():
-    return torch.distributed.get_rank(group=get_micro_data_parallel_group())
