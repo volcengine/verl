@@ -277,8 +277,7 @@ class FSDPSFTTrainer(object):
 
 
         self.optimizer = None
-        # 
-        flat_params = flat_params = [p for p in self.fsdp_model.parameters() if isinstance(p, FlatParameter)]
+        flat_params = [p for p in self.fsdp_model.parameters() if p.requires_grad]
         if self.optim_bwd_hook:
             _apply_optimizer_in_backward(
                 optim.AdamW,
