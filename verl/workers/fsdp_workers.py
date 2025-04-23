@@ -49,7 +49,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def create_device_mesh(world_size, fsdp_size):
@@ -133,6 +133,8 @@ class ActorRolloutRefWorker(Worker):
                     self.device_mesh.size() // self.ulysses_sequence_parallel_size
                 )
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
+
+            if self.config.actor.ppo_micro_batch_size_per_gpu is not None:
                 assert self.config.actor.ppo_mini_batch_size % self.config.actor.ppo_micro_batch_size_per_gpu == 0, (
                     f"normalized ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.actor.ppo_micro_batch_size_per_gpu}"
                 )
@@ -507,8 +509,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
 
-        log_gpu_memory_usage("Before update policy", logger=logger)
-
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
             # perform training
@@ -527,8 +527,6 @@ class ActorRolloutRefWorker(Worker):
             self.actor_lr_scheduler.step()
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr
-
-            log_gpu_memory_usage("After update policy", logger=logger)
 
             # TODO: here, we should return all metrics
             output = DataProto(meta_info={"metrics": metrics})
@@ -568,18 +566,14 @@ class ActorRolloutRefWorker(Worker):
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
 
-            log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
-
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
-            log_gpu_memory_usage("After rollout generation", logger=logger)
-
             output = self.rollout_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
 
         # clear kv cache
-        log_gpu_memory_usage("After generate_sequences", logger=logger)
+        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -615,7 +609,6 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
-        log_gpu_memory_usage("After compute_log_prob", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -720,6 +713,8 @@ class CriticWorker(Worker):
             )
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
+
+        if self.config.ppo_micro_batch_size_per_gpu is not None:
             assert self.config.ppo_mini_batch_size % self.config.ppo_micro_batch_size_per_gpu == 0, (
                 f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be divisible by ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
