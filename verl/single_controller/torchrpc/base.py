@@ -14,6 +14,7 @@
 
 import os
 import torch
+import socket
 from typing import List, Dict, Any
 
 import torch.distributed.rpc as rpc
@@ -63,17 +64,31 @@ global_nodes = None
 def get_global_nodes():
     global global_nodes
     if not global_nodes:
-        global_nodes = [Node('header')] + [Node(f'worker{i}') for i in range(1, os.environ.get('TORCHRPC_WORLD_SIZE', 2))]
+        global_nodes = [Node(f'worker{i}') for i in range(int(os.environ.get('TORCHRPC_WORLD_SIZE', 2)))]
     return global_nodes
 
 def get_best_node(cpu, gpu):
     nodes = get_global_nodes()
+    print(global_nodes[0].total_gpu, global_nodes[1].total_gpu)
     ret = None
     for node in nodes:
         if node.total_cpu - node.used_cpu >= cpu and node.total_gpu - node.used_gpu >= gpu:
             if ret is None or node.total_gpu - node.used_gpu < ret.total_gpu - ret.used_gpu:
                 ret = node
     return ret
+
+def _get_node_ip():
+    # TODO: 暂时没找到TorchRPC相关API，使用环境变量
+    host_ip = os.getenv("MY_HOST_IP", None)
+    return host_ip
+
+def _get_free_port():
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            return sock.getsockname()[1]
+        
+def _get_available_master_addr_port():
+    return _get_node_ip(), str(_get_free_port())
 
 # name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
@@ -96,7 +111,7 @@ class TorchRPCResourcePool(ResourcePool):
         
         self.nodes = []
         for process_count in self._store:
-            cpu = self.max_collocate_count * process_count
+            cpu = self.max_colocate_count * process_count
             gpu = process_count if self.use_gpu else 0
             node = get_best_node(cpu, gpu)
             if node is None:
@@ -160,7 +175,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
 
         if self._is_init_with_detached_workers:
             # 我们有 detached worker吗？
-            self._init_with_detached_workers(worker_names=worker_names)
+            self._init_with_detached_workers(worker_rrefs=worker_rrefs)
         else:
             self._init_with_resource_pool(resource_pool=resource_pool,
                                           cls_with_init=cls_with_init,
@@ -198,18 +213,16 @@ class TorchRPCWorkerGroup(WorkerGroup):
                     'TORCHRPC_LOCAL_WORLD_SIZE': str(local_world_size),
                     'TORCHRPC_LOCAL_RANK': str(local_rank),
                 }
-                # if rank != 0:
-                #     env_vars['MASTER_ADDR'] = self._master_addr
-                #     env_vars['MASTER_PORT'] = self._master_port
+
+                if rank == 0:
+                    self._master_addr, self._master_port = rpc.remote(node.name, _get_available_master_addr_port).to_here()
+
+                env_vars['MASTER_ADDR'] = self._master_addr
+                env_vars['MASTER_PORT'] = self._master_port
 
                 cls_with_init.update_env_vars(env_vars)
                 worker = cls_with_init(node, use_gpu, )
                 self._workers.append(worker)
-
-                # if rank == 0:
-                #     # TODO: GET ADDR
-                #     self._master_addr = worker.get_master_addr()
-                #     self._master_port = worker.get_master_port()
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
         return _call_remote_method(self._workers[0], method_name, args, kwargs)
