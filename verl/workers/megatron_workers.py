@@ -443,11 +443,12 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
+        log_gpu_memory_usage('Before compute_ref_log_prob load data', logger=logger)
         data = data.to("cuda")
         log_gpu_memory_usage('Before compute_ref_log_prob', logger=logger)
         assert self._is_ref
         if self._ref_is_offload_param:
-            load_megatron_model_to_gpu(self.ref_module, load_grad=self._is_offload_grad)
+            load_megatron_model_to_gpu(self.ref_module, load_grad=False)
             log_gpu_memory_usage('After load ref params and grad during compute_ref_log_prob', logger=logger)
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -459,6 +460,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             offload_megatron_model_to_cpu(self.ref_module)
             log_gpu_memory_usage('After offload ref params and grad during compute_ref_log_prob', logger=logger)
         torch.cuda.empty_cache()
+        
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -466,7 +468,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         assert self._is_actor
         log_gpu_memory_usage('Before compute_log_prob', logger=logger)
         if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module,load_grad=False)
             log_gpu_memory_usage('After load actor params and grad during compute_log_prob', logger=logger)
         data = data.to("cuda")
         output = data
