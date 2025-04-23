@@ -168,11 +168,34 @@ class FusedTokenLogProbs(torch.autograd.Function):
             token_log_probs (torch.FloatTensor): [B, T]
         """
         output_dtype = hidden_states.dtype
-        logits = torch.einsum("bth,vh->btv", hidden_states, vocab_weights)
-        logits.div_(temperature)
-        log_probs = torch.log_softmax(logits.to(torch.float32), dim=-1)
+        logits = torch.einsum("bth,vh->btv", hidden_states, vocab_weights) / temperature
+        logits = logits.to(torch.float32)
+        log_probs = torch.log_softmax(logits, dim=-1)
         token_log_probs = log_probs.gather(-1, input_ids.unsqueeze(-1)).squeeze(-1)
         return token_log_probs.to(output_dtype)
+
+    @staticmethod
+    def log_probs_bwd(
+        grad_output: torch.Tensor,
+        hidden_states: torch.Tensor,
+        vocab_weights: torch.Tensor,
+        input_ids: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        logits = torch.einsum("bth,vh->btv", hidden_states, vocab_weights) / temperature
+        orig_logits_dtype = logits.dtype
+        logits = logits.to(torch.float32)
+        probs = torch.softmax(logits, dim=-1)
+
+        one_hot_input = torch.zeros_like(logits).scatter_(-1, input_ids.unsqueeze(-1), 1)
+        grad_log_probs = one_hot_input - probs
+        grad_logits = grad_output.to(torch.float32).unsqueeze(-1) * grad_log_probs
+        grad_logits = grad_logits.to(orig_logits_dtype) / temperature
+
+        grad_hidden_states = grad_logits @ vocab_weights
+        grad_vocab_weights = (grad_logits.transpose(-1, -2) @ hidden_states).sum(0)
+
+        return grad_hidden_states, grad_vocab_weights
 
     @staticmethod
     def forward(
@@ -230,34 +253,19 @@ class FusedTokenLogProbs(torch.autograd.Function):
         # Process in chunks to save memory
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
-            chunk_hidden = hidden_states[:, chunk_start:chunk_end, :].detach().requires_grad_(True)
+            chunk_hidden = hidden_states[:, chunk_start:chunk_end, :]
             chunk_ids = input_ids[:, chunk_start:chunk_end]
             chunk_grad = grad_output[:, chunk_start:chunk_end]
 
-            with torch.enable_grad():
-                chunk_token_log_probs = FusedTokenLogProbs.log_probs_fwd(
-                    hidden_states=chunk_hidden,
-                    vocab_weights=vocab_weights,
-                    input_ids=chunk_ids,
-                    temperature=temperature,
-                )
-
-                # Compute gradients for this chunk
-                torch.autograd.backward(
-                    chunk_token_log_probs,
-                    grad_tensors=chunk_grad,
-                    retain_graph=False,
-                )
-
-            # Accumulate gradients
-            grad_hidden[:, chunk_start:chunk_end, :] += chunk_hidden.grad
-            grad_vocab += vocab_weights.grad if vocab_weights.grad is not None else 0
-
-            # Clean up to save memory
-            if chunk_hidden.grad is not None:
-                chunk_hidden.grad.zero_()
-            if vocab_weights.grad is not None:
-                vocab_weights.grad.zero_()
+            h, v = FusedTokenLogProbs.log_probs_bwd(
+                grad_output=chunk_grad,
+                hidden_states=chunk_hidden,
+                vocab_weights=vocab_weights,
+                input_ids=chunk_ids,
+                temperature=temperature,
+            )
+            grad_hidden[:, chunk_start:chunk_end, :] += h
+            grad_vocab += v
 
         return (
             grad_hidden,  # hidden_states
