@@ -550,8 +550,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
-        torch.cuda.empty_cache()
 
+        torch.cuda.empty_cache()
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
