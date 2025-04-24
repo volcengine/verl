@@ -1067,9 +1067,7 @@ class RayPPOTrainer:
                 # training metrics
                 metrics.update({
                     'training/global_step': self.global_steps,
-                    'training/total_global_steps': self.total_training_steps,
                     'training/epoch': epoch,
-                    'training/total_epochs': self.config.trainer.total_epochs,
                 })
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
