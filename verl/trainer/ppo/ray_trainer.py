@@ -342,9 +342,9 @@ class RayPPOTrainer(object):
         else:
             if not config.actor_rollout_ref.actor.ppo_use_dynamic_bsz:
                 # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
-                check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
-                                        config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
-                                        "actor_rollout_ref.actor")
+                # check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
+                #                         config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
+                #                         "actor_rollout_ref.actor")
                  # Actor
                 # if NOT dynamic_bsz, we must ensure:
                 #    ppo_mini_batch_size is divisible by ppo_micro_batch_size

@@ -122,7 +122,7 @@ class FSDPSFTTrainer(object):
         # build model
         self._build_model_optimizer()
 
-        self._build_lr_scheduler()
+        # self._build_lr_scheduler()
 
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:

@@ -256,14 +256,15 @@ class ActorRolloutRefWorker(Worker):
             actor_module,
             cpu_offload=cpu_offload,
             param_init_fn=init_fn,
-            use_orig_params=False,
+            use_orig_params=True,
             auto_wrap_policy=auto_wrap_policy,
             device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
             sync_module_states=True,
             device_mesh=self.device_mesh,
-            forward_prefetch=False)
+            forward_prefetch=False
+            )
 
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 

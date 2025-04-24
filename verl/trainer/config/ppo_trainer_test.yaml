@@ -57,7 +57,7 @@ actor_rollout_ref:
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
-      bwd_hook: True
+      bwd_hook: False
     fsdp_config:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None

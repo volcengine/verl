@@ -232,14 +232,14 @@ class DataParallelPPOActor(BasePPOActor):
 
         return log_probs
 
-    def _compute_loss_and_backward(self, data, metrics):
+    def _compute_loss_and_backward(self, data, temperature,  metrics):
+        
         # Support all hardwares
         if isinstance(data, DataProto):
             data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
         else:
             data = data.to(torch.cuda.current_device())  # actor device is cpu when using offload
-        temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
-
+        
         responses = data['responses']
         response_length = responses.size(1)
         attention_mask = data['attention_mask']
@@ -286,14 +286,13 @@ class DataParallelPPOActor(BasePPOActor):
             metrics['actor/kl_loss'] = kl_loss.detach().item()
             metrics['actor/kl_coef'] = self.config.kl_loss_coef
 
-        if self.config.optim.bwd_hook:
-            loss = policy_loss
-        else:
-            if self.config.ppo_use_dynamic_bsz:
-                # relative to the dynamic bsz
-                loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
-            else:
-                loss = policy_loss / self.gradient_accumulation
+        scaling_factor = 1.0
+        if self.config.ppo_use_dynamic_bsz:
+            scaling_factor = len(data) / self.config.ppo_mini_batch_size
+        elif self.config.ppo_micro_batch_size_per_gpu and not self.config.optim.bwd_hook:
+            scaling_factor = 1.0 / self.gradient_accumulation
+
+        loss = policy_loss * scaling_factor
         loss.backward()
 
         data = {
@@ -303,10 +302,11 @@ class DataParallelPPOActor(BasePPOActor):
             'actor/ppo_kl': ppo_kl.detach().item(),
             'actor/pg_clipfrac_lower': pg_clipfrac_lower.detach().item(),
         }
-
         return data
 
     def update_policy(self, data: DataProto):
+        temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
+
         # make sure we are in training mode
         self.actor_module.train()
 
@@ -329,7 +329,7 @@ class DataParallelPPOActor(BasePPOActor):
         for epoch in range(self.config.ppo_epochs):
             for batch_idx, data in enumerate(dataloader):
                 mini_batch = data
-                if self.config.self.config.ppo_micro_batch_size_per_gpu or self.config.ppo_use_dynamic_bsz:
+                if self.config.ppo_micro_batch_size_per_gpu or self.config.ppo_use_dynamic_bsz:
                     # split batch into micro_batches
                     if has_multi_modal_inputs:
                         self.gradient_accumulation = self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
@@ -346,13 +346,17 @@ class DataParallelPPOActor(BasePPOActor):
                     self.actor_optimizer.zero_grad()
 
                     for data in micro_batches:
-                        data = self._compute_loss_and_backward(data, metrics)
+                        data = self._compute_loss_and_backward(data, temperature, metrics)
                         append_to_dict(metrics, data)
+                        print(f"STEP OUTPUT METRICS {metrics}")
                 else:
                     if has_multi_modal_inputs:
                         mini_batch = data.select(select_keys, non_tensor_select_keys)
-                    data = self._compute_loss_and_backward(mini_batch, metrics)
+                    data = self._compute_loss_and_backward(mini_batch, temperature, metrics)
+                    print(f"STEP OUTPUT DATA {data}")
                     append_to_dict(metrics, data)
+                    print(f"STEP OUTPUT METRICS {metrics}")
+                    
                 if not self.config.optim.bwd_hook:
                     grad_norm = self._optimizer_step()
                     data = {'actor/grad_norm': grad_norm.detach().item()}
