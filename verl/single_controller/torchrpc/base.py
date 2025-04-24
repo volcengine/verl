@@ -19,6 +19,7 @@ from typing import List, Dict, Any
 
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
+from verl.single_controller.torchrpc.utils import create_remote_actor, remote_actor_call, rref_to_here
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
@@ -28,28 +29,8 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
             output = rref_to_here(output)
         output = collect_fn(self, output)
         return output
-
     return func
 
-def _call_local_method(rref, method_name, args, kwargs):
-    obj = rref.local_value()
-    method = getattr(obj, method_name)
-    return method(*args, **kwargs)
-
-def _call_remote_method(rref, method_name, args, kwargs):
-    return rpc.remote(rref.owner(), _call_local_method, args=(rref, method_name, args, kwargs))
-
-def _create_local_instance(cls, args, kwargs, env_vars):
-    if env_vars:
-        for k, v in env_vars.items():
-            os.environ[k] = v
-    return cls(*args, **kwargs)
-
-def rref_to_here(x):
-    if isinstance(x, list):
-        return [i.to_here() for i in x]
-    else:
-        return x.to_here()
 
 class Node:
     def __init__(self, name, total_cpu=-1, total_gpu=-1, used_cpu=0, used_gpu=0):
@@ -149,7 +130,7 @@ class TorchRPCClassWithInitArgs(ClassWithInitArgs):
         #     for k, v in self._additional_resource.items():
         #         options[k] = v
 
-        return rpc.remote(node.name, _create_local_instance, args=(self.cls, self.args, self.kwargs, self._env_vars))
+        return rpc.remote(node.name, create_remote_actor, args=(self.cls, self.args, self.kwargs, self._env_vars))
 
 class TorchRPCWorkerGroup(WorkerGroup):
 
@@ -179,7 +160,6 @@ class TorchRPCWorkerGroup(WorkerGroup):
             self._init_with_resource_pool(resource_pool=resource_pool,
                                           cls_with_init=cls_with_init,
                                           bin_pack=bin_pack)
-                                        #   detached=detached)
 
         if cls_with_init is not None:
             self._bind_worker_method(self.cls_with_init.cls, func_generator)
@@ -224,7 +204,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 self._workers.append(worker)
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
-        return _call_remote_method(self._workers[0], method_name, args, kwargs)
+        return remote_actor_call(self._workers[0], method_name, args, kwargs)
 
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
         return self.execute_rank_zero_async(method_name, *args, **kwargs).to_here()
@@ -244,10 +224,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(_call_remote_method(self._workers[i], method_name, sliced_args, sliced_kwargs))
+                    result.append(remote_actor_call(self._workers[i], method_name, sliced_args, sliced_kwargs))
                 return result
 
-        return [_call_remote_method(worker, method_name, args, kwargs) for worker in self._workers]
+        return [remote_actor_call(worker, method_name, args, kwargs) for worker in self._workers]
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
         ret = self.execute_all_async(method_name, *args, **kwargs)
