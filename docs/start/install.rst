@@ -23,8 +23,7 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 
 .. note:: 
 
-    We are announcing the direct support of megatron GPTModel, without need to implement your own model any more. Also it's easy to use TransformerEngine's support for even higher performance.
-    The main branch of verl has enabled this as an preview feature. If you encounter issues, please feel free to report and try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
+    verl directly supports megatron's `GPTModel` API on the main branch with mcore v0.11. For mcore v0.4 try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
 
 2. Inference:
 
@@ -74,7 +73,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     - **Ray**: 2.44.0
     - **TransformerEngine**: 2.0.0
 
-    Now verl has been **compatible to Megatron-LM v0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM v0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
+    Now verl is integrated with **Megatron-LM v0.11.0** by default without Megatron-LM patches. Also, the image has integrated **Megatron-LM v0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
 
 
 Install from custom environment
