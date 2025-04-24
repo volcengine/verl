@@ -364,9 +364,8 @@ def load_megatron_copy_params(optimizers):
 
     # Load all parameter groups to GPU
 
-    group_name='shard_fp32_from_float16_groups'
-    if hasattr(optimizers, group_name):
-        load_group_to_gpu(getattr(optimizers, group_name))
+    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
+        load_group_to_gpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
 
 
 @torch.no_grad()
