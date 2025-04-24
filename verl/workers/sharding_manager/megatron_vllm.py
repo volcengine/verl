@@ -551,7 +551,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         for model in self.actor_module:
             model.train()
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
