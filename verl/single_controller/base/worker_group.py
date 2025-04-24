@@ -91,8 +91,6 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
         time.sleep(gap_time)
 
 
-from .worker import DistGlobalInfo, DistRankInfo
-
 class WorkerGroup:
     """A group of workers"""
 
@@ -140,10 +138,11 @@ class WorkerGroup:
     def world_size(self):
         return len(self._workers)
     
-    def register_dist_info(self, name, dist_global_info: DistGlobalInfo, ordering='tp-cp-ep-dp-pp'):
+    def register_dist_info(self, name, dist_global_info, order='tp-cp-ep-dp-pp'):
         """register the nD distributed info. Currently, we only support megatron mesh
         # TODO: we can support general device mesh in the future
         """
+        from verl.single_controller.base.worker import DistGlobalInfo
         assert isinstance(dist_global_info, DistGlobalInfo)
         assert name not in self._dist_global_info, f"dist_info {name} already exists"
         assert name not in self._dist_workers_info, f"dist_info {name} already exists"
@@ -155,7 +154,7 @@ class WorkerGroup:
             f"world_size mismatch. Got {self.world_size} and {dist_global_info.get_world_size()}"
 
         for i in range(self.world_size):
-            dist_rank_info = dist_global_info.get_rank_info(global_rank=i, ordering=ordering)
+            dist_rank_info = dist_global_info.get_rank_info(global_rank=i, order=order)
             self._dist_workers_info[name].append(dist_rank_info)
         
 

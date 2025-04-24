@@ -2,6 +2,7 @@
 Test the global distributed info
 """
 
+import torch
 from verl.single_controller.base.worker import DistRankInfo, DistGlobalInfo
 
 
@@ -53,7 +54,7 @@ def test_dist_global_info():
 
 
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.base.decorator import register, Dispatch, make_nd_compute_dataproto_dispatch_fn, make_nd_compute_dispatch_fn
 from verl import DataProto
 import ray
 
@@ -70,40 +71,51 @@ class TestActor(Worker):
                                                                                 mesh_shape=[2, 2, 2], mesh_dim_names=['pp', 'dp', 'tp'])
 
 
-    @register(dispatch_mode=Dispatch.nDProto, mesh='infer')
-    def generate(self, data: DataProto):
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name='infer'))
+    def generate_data_proto(self, data: DataProto):
         tp_rank = self.infer_device_mesh['tp'].get_local_rank()
         dp_rank = self.infer_device_mesh['dp'].get_local_rank()
-        data.batch['a'] += tp_rank * dp_rank
+        data.batch['a'] += (tp_rank + 1) * dp_rank
+        return data
+    
+    @register(dispatch_mode=make_nd_compute_dispatch_fn(mesh_name='infer'))
+    def generate(self, data: int):
+        tp_rank = self.infer_device_mesh['tp'].get_local_rank()
+        dp_rank = self.infer_device_mesh['dp'].get_local_rank()
+        print(f'tp_rank: {tp_rank}, dp_rank: {dp_rank}, init data: {data}')
+        data += (tp_rank + 1) * dp_rank
+        print(f'tp_rank: {tp_rank}, dp_rank: {dp_rank}, output data: {data}')
         return data
 
-    @register(dispatch_mode=Dispatch.nDProto, mesh='train')
-    def train(self, data: DataProto):
-        tp_rank = self.train_device_mesh['tp'].get_local_rank()
-        dp_rank = self.train_device_mesh['dp'].get_local_rank()
-        pp_rank = self.train_device_mesh['pp'].get_local_rank()
+    # @register(dispatch_mode=Dispatch.nDProto, mesh='train')
+    # def train(self, data: DataProto):
+    #     tp_rank = self.train_device_mesh['tp'].get_local_rank()
+    #     dp_rank = self.train_device_mesh['dp'].get_local_rank()
+    #     pp_rank = self.train_device_mesh['pp'].get_local_rank()
         
 
 
 
-def test_dist_global_info_wg():
-    # create a worker group with size 8
-    # register a infer dist info with tp=4, dp=2
-    # register a train dist info with tp=2, dp=2, pp=2
-    # test the correctness of data dispatch and computation
-    from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-    
+# def test_dist_global_info_wg():
+# create a worker group with size 8
+# register a infer dist info with tp=4, dp=2
+# register a train dist info with tp=2, dp=2, pp=2
+# test the correctness of data dispatch and computation
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
-    ray.init()
-    
-    ray_cls = RayClassWithInitArgs(TestActor)
-    resource_pool = RayResourcePool(process_on_nodes=[8])
-    wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls)
 
-    wg.register_dist_info(name='infer', dist_global_info=DistGlobalInfo(tp_size=4, dp_size=2))
-    wg.register_dist_info(name='train', dist_global_info=DistGlobalInfo(tp_size=2, dp_size=2, pp_size=2))
+ray.init()
 
-    
+ray_cls = RayClassWithInitArgs(TestActor)
+resource_pool = RayResourcePool(process_on_nodes=[8])
+wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls)
 
-    pass
+wg.register_dist_info(name='infer', dist_global_info=DistGlobalInfo(tp_size=4, dp_size=2))
+wg.register_dist_info(name='train', dist_global_info=DistGlobalInfo(tp_size=2, dp_size=2, pp_size=2))
+
+infer_input_data = [1, 2]
+infer_output_data = wg.generate(infer_input_data)
+
+infer_input_data_proto = DataProto.from_single_dict(data={'a': torch.tensor([1, 2])})
+infer_output_data_proto = wg.generate_data_proto(infer_input_data_proto)
 

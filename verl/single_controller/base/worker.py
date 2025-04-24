@@ -33,11 +33,11 @@ class DistRankInfo:
 
 @dataclass
 class DistGlobalInfo:
-    tp_size: int
-    cp_size: int
-    ep_size: int
-    dp_size: int
-    pp_size: int
+    tp_size: int = 1
+    cp_size: int = 1
+    ep_size: int = 1
+    dp_size: int = 1
+    pp_size: int = 1
 
     def get_world_size(self):
         return self.tp_size * self.cp_size * self.ep_size * self.dp_size * self.pp_size
