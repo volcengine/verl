@@ -25,17 +25,50 @@ from .decorator import Dispatch, Execute, register
 @dataclass
 class DistRankInfo:
     tp_rank: int
+    cp_rank: int
+    ep_rank: int
     dp_rank: int
     pp_rank: int
-    cp_rank: int
 
 
 @dataclass
 class DistGlobalInfo:
     tp_size: int
+    cp_size: int
+    ep_size: int
     dp_size: int
     pp_size: int
-    cp_size: int
+
+    def get_world_size(self):
+        return self.tp_size * self.cp_size * self.ep_size * self.dp_size * self.pp_size
+
+    def get_rank_info(self, global_rank, order='tp-cp-ep-dp-pp') -> DistRankInfo:
+        sizes = {
+            'tp': self.tp_size,
+            'cp': self.cp_size,
+            'ep': self.ep_size,
+            'dp': self.dp_size,
+            'pp': self.pp_size
+        }
+        sub_orders = order.split('-')
+        assert len(sub_orders) == len(sizes), f"order must be from {list(sizes.keys())}, got {order}"
+
+        remaining_rank = global_rank
+        ranks = {}
+        for sub_order in sub_orders:
+            assert sub_order in sizes, f"order must be from {list(sizes.keys())}, got {order}"
+            size = sizes[sub_order]
+            ranks[sub_order] = remaining_rank % size
+            remaining_rank //= size
+
+        return DistRankInfo(
+            tp_rank=ranks.get('tp', 0),
+            cp_rank=ranks.get('cp', 0),
+            ep_rank=ranks.get('ep', 0),
+            dp_rank=ranks.get('dp', 0),
+            pp_rank=ranks.get('pp', 0)
+        )
+        
 
 
 class WorkerHelper:
