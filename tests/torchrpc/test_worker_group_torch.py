@@ -23,8 +23,7 @@ import torch.distributed
 import torch.distributed.rpc as rpc
 
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup
-
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
 
 class TestAllGatherActor(Worker):
     def __init__(self, size) -> None:
@@ -32,7 +31,17 @@ class TestAllGatherActor(Worker):
         self.size = size
 
     def init(self):
-        print(os.environ['RANK'], os.environ['LOCAL_RANK'], os.environ['WORLD_SIZE'])
+        os.environ["NCCL_DEBUG"]="WARN"
+        os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["LOCAL_RANK"]
+        print(
+            os.environ["WORLD_SIZE"],
+            os.environ["RANK"],
+            os.environ["LOCAL_WORLD_SIZE"],
+            os.environ["LOCAL_RANK"],
+            os.environ["MASTER_ADDR"],
+            os.environ["MASTER_PORT"],
+            os.environ["CUDA_VISIBLE_DEVICES"],
+        )
         torch.distributed.init_process_group()
         self.tensor = torch.zeros(size=(self.size,), dtype=torch.int64, device="cuda")
         self.tensor += self.rank
@@ -64,33 +73,24 @@ class TestAllGatherActorV2(Worker):
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
         return output
 
-
+@torchrpc_remote
 def test_all_gather_torch():
     """
     In this test, we instantiate 4 GPUs in a group and test the all_gather
     """
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
-    # Then run this code on every node
-    rank = int(os.environ.get('TORCHRPC_RANK'))
-    world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
-    if rank == 0:
+    resource_pool = TorchRPCResourcePool([1, 1], use_gpu=True)
+    class_with_args = TorchRPCClassWithInitArgs(cls=TestAllGatherActor, size=2)
 
-        # create 4 workers, each hold a GPU
-        resource_pool = TorchRPCResourcePool([2, 2], use_gpu=True)
-        class_with_args = TorchRPCClassWithInitArgs(cls=TestAllGatherActor, size=2)
+    worker_group = TorchRPCWorkerGroup(resource_pool, class_with_args, name_prefix="worker_group_torch")
 
-        worker_group = TorchRPCWorkerGroup(resource_pool, class_with_args, name_prefix="worker_group_torch")
+    worker_group.execute_all_sync("init")
+    output = worker_group.execute_all_sync("all_gather")
+    for i in range(1, len(output)):
+        assert torch.all(output[i] == output[0])
 
-        worker_group.execute_all_sync("init")
-        output = worker_group.execute_all_sync("all_gather")
-        for i in range(1, len(output)):
-            assert torch.all(output[i] == output[0])
-
-        output = output[0].cpu()
-        print(output)
-        assert torch.all(output == torch.tensor([0, 0, 1, 1, 2, 2, 3, 3], dtype=torch.int64))
-
+    output = output[0].cpu()
+    print(output)
+    assert torch.all(output == torch.tensor([0, 0, 1, 1, 2, 2, 3, 3], dtype=torch.int64))
     rpc.shutdown()
 
 

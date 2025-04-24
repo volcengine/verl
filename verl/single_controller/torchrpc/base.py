@@ -189,8 +189,8 @@ class TorchRPCWorkerGroup(WorkerGroup):
                     # TODO:前缀
                     # 'WG_PREFIX': self.name_prefix,
                     'WG_BACKEND': 'torchrpc',
-                    'TORCHRPC_LOCAL_WORLD_SIZE': str(local_world_size),
-                    'TORCHRPC_LOCAL_RANK': str(local_rank),
+                    'LOCAL_WORLD_SIZE': str(local_world_size),
+                    'LOCAL_RANK': str(local_rank),
                 }
 
                 if rank == 0:

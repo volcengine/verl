@@ -3,7 +3,10 @@ from multiprocessing import Process, Queue
 import torch.distributed.rpc as rpc
 import multiprocessing as mp
 
-def _local_actor_runner(cls, args, kwargs, input_queue, output_queue):
+def _local_actor_runner(cls, args, kwargs, env_vars, input_queue, output_queue):
+    if env_vars is not None:
+        for k, v in env_vars.items():
+            os.environ[k] = v
     inst = cls(*args, **kwargs)
     while True:
         cmd = input_queue.get()
@@ -15,11 +18,11 @@ def _local_actor_runner(cls, args, kwargs, input_queue, output_queue):
         output_queue.put(result)
 
 class RemoteActor:
-    def __init__(self, cls, args, kwargs):
+    def __init__(self, cls, args, kwargs, env_vars):
         ctx = mp.get_context('spawn')
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
-        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, self.input_queue, self.output_queue))
+        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue))
         self.process.start()
 
     def run_method(self, method_name, args, kwargs):
@@ -36,10 +39,7 @@ def create_remote_actor(cls, args, kwargs, env_vars=None):
     global remote_actors
     if not remote_actors:
         remote_actors = []
-    if env_vars is not None:
-        for k, v in env_vars.items():
-            os.environ[k] = v
-    actor = RemoteActor(cls, args, kwargs)
+    actor = RemoteActor(cls, args, kwargs, env_vars)
     remote_actors.append(actor)
     return actor
 
