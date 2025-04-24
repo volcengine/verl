@@ -179,7 +179,7 @@ def offload_fsdp_optimizer(optimizer):
         for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
-                if isinstance(value, (torch.Tensor, DTensor)):
+                if isinstance(value, torch.Tensor):
                     state[key] = value.to("cpu", non_blocking=True)
 
 
@@ -191,7 +191,7 @@ def load_fsdp_optimizer(optimizer, device_id):
         for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
-                if isinstance(value, (torch.Tensor, DTensor)):
+                if isinstance(value, torch.Tensor):
                     state[key] = value.to(device_id, non_blocking=True)
 
 
@@ -412,7 +412,7 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
     
     # rotary_emb is not in state_dict, so we need to broadcast it manually
     for name, buf in model.named_buffers():
-        dist.broadcast(buf, src=0, group=device_mesh.get_group()) 
+        dist.broadcast(buf, src=0)
 
     if cpu_offload:
         model.to('cpu', non_blocking=True)
@@ -436,7 +436,8 @@ def apply_fsdp2(model, fsdp_kwargs, config):
 
     modules = []
     for name, module in model.named_modules():
-        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or isinstance(module, nn.Embedding):
+        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
+            (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
             modules.append(module)
     
     for idx, module in enumerate(modules):
