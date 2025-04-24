@@ -286,3 +286,160 @@ class ActorRolloutRefWorker(MegatronWorker):
             NotImplementedError('Only vllmRollout is supported with Megatron now')
 
         return rollout, sharding_manager
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        if self.config.model.get('external_lib', None) is not None:
+            # This is used to import external_lib into the huggingface systems
+            import importlib
+            importlib.import_module(self.config.model.external_lib)
+
+        from omegaconf import OmegaConf
+        from verl.utils.torch_dtypes import PrecisionType
+        override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
+        self.param_dtype = torch.bfloat16
+
+        megatron_config = OmegaConf.create({
+            'sequence_parallel': self.config.actor.megatron.get('sequence_parallel', True),
+            'param_dtype': PrecisionType.to_str(self.param_dtype),
+            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
+            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
+            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
+            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
+            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
+        })
+
+        megatron_config = init_model_parallel_config(megatron_config)
+
+        if self._is_actor or self._is_rollout:
+            # we need the model for actor and rollout
+            if self._is_actor:
+                optim_config = self.config.actor.optim
+            else:
+                optim_config = None
+            self.actor_module, self.hybrid_engine, self.actor_optimizer, \
+            self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
+                model_path=self.config.model.path,
+                megatron_config=megatron_config,
+                optim_config=optim_config,
+                override_model_config=override_model_config,
+            )
+
+        if self._is_actor:
+            self.actor = MegatronPPOActor(config=self.config.actor,
+                                          model_config=self.actor_model_config,
+                                          megatron_config=megatron_config,
+                                          actor_module=self.actor_module,
+                                          actor_optimizer=self.actor_optimizer,
+                                          actor_optimizer_config=self.actor_optim_config)
+
+        if self._is_rollout:
+            self.rollout, self.sharding_manager = self._build_rollout()
+
+        if self._is_ref:
+            self.ref_module, self.ref_model_config = self._build_model_optimizer(
+                model_path=self.config.model.path,
+                megatron_config=megatron_config,
+                optim_config=None,
+                override_model_config=override_model_config,
+            )
+            self.ref_policy = MegatronPPOActor(config=self.config.ref,
+                                               model_config=self.ref_model_config,
+                                               megatron_config=megatron_config,
+                                               actor_module=self.ref_module,
+                                               actor_optimizer=None,
+                                               actor_optimizer_config=None)
+
+        if self._is_actor:
+            self.flops_counter = FlopsCounter(self.actor_model_config)
+
+        torch.cuda.empty_cache()
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def update_actor(self, data: DataProto):
+        assert self._is_actor
+
+        data.batch = data.batch.to(torch.cuda.current_device())
+
+        log_gpu_memory_usage('Before update policy', logger=logger)
+
+        dataloader = self.actor.make_minibatch_iterator(data=data)
+        with Timer(name='update_policy', logger=None) as timer:
+            metrics = self.actor.update_policy(dataloader=dataloader)
+        delta_time = timer.last
+        global_num_tokens = data.meta_info['global_token_num']
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+        metrics['perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+
+        log_gpu_memory_usage('After update policy', logger=logger)
+
+        # TODO: here, we should return all metrics
+        output = DataProto(meta_info={'metrics': metrics})
+        output = output.to('cpu')
+        torch.cuda.empty_cache()
+        return output
+
+    @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
+    def generate_sequences(self, prompts: DataProto):
+        assert self._is_rollout
+
+        prompts.batch = prompts.batch.to(torch.cuda.current_device())
+        meta_info = {
+            'eos_token_id':
+                self.generation_config.eos_token_id
+                if self.generation_config is not None else self.tokenizer.eos_token_id,
+            'pad_token_id':
+                self.generation_config.pad_token_id
+                if self.generation_config is not None else self.tokenizer.pad_token_id,
+        }
+        prompts.meta_info.update(meta_info)
+        with self.sharding_manager:
+            log_gpu_memory_usage('After entering sharding manager', logger=logger)
+
+            prompts = self.sharding_manager.preprocess_data(prompts)
+            output = self.rollout.generate_sequences(prompts=prompts)
+
+            log_gpu_memory_usage('After rollout generation', logger=logger)
+
+            output = self.sharding_manager.postprocess_data(output)
+
+        output = output.to('cpu')
+        # clear kv cache
+        torch.cuda.empty_cache()
+        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        return output
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_ref_log_prob(self, data: DataProto):
+        data = data.to('cuda')
+
+        assert self._is_ref
+        if self._is_offload_param:
+            load_megatron_param_and_grad(self.ref_module, torch.cuda.current_device(), self._is_offload_grad)
+
+        micro_batch_size = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        data.meta_info['micro_batch_size'] = micro_batch_size
+        data.meta_info['temperature'] = self.config.rollout.temperature
+        output = self.ref_policy.compute_log_prob(data=data)
+        output = DataProto.from_dict(tensors={'ref_log_prob': output})
+        output = output.to('cpu')
+        if self._is_offload_param:
+            offload_megatron_param_and_grad(self.ref_module, self._is_offload_grad)
+        torch.cuda.empty_cache()
+        return output
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_log_prob(self, data: DataProto):
+        assert self._is_actor
+        data = data.to('cuda')
+        output = data
+        # we should always recompute old_log_probs when it is HybridEngine
+        output.meta_info['micro_batch_size'] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        output.meta_info['temperature'] = self.config.rollout.temperature
+        old_log_probs = self.actor.compute_log_prob(data=output)
+        output.batch['old_log_probs'] = old_log_probs
+        output = output.to('cpu')
+        # clear kv cache
+        torch.cuda.empty_cache()
+        log_gpu_memory_usage('After recompute log prob', logger=logger)
+        return output
