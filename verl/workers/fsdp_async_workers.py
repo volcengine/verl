@@ -269,9 +269,8 @@ class AsyncLLMWorker:
         app.router.add_api_route("/v1/chat/completions", self.chat_completion, methods=["POST"])
 
         self.port = _get_free_port()
-        config = uvicorn.Config(app, host=["::", "0.0.0.0"], port=self.port)
+        config = uvicorn.Config(app, host=["::", "0.0.0.0"], port=self.port, log_level="warning")
         server = uvicorn.Server(config)
-        self.server_ready.set()
         await server.serve()
 
     async def get_server_address(self) -> Tuple[str, int]:
@@ -283,6 +282,8 @@ class AsyncLLMWorker:
         await self.engine.wake_up()
 
     async def sleep(self):
+        # TODO: https://github.com/vllm-project/vllm/issues/17103
+        await self.engine.reset_prefix_cache()
         await self.engine.sleep()
 
 
