@@ -1,4 +1,4 @@
-VERL performance tuning for AMD (ROCm Kernel)
+verl performance tuning for AMD (ROCm Kernel)
 =====================================================
 
 Author: `Yang Wang <https://github.com/YangWang92/>`_
