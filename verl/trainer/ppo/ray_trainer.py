@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import json
 import os
 import uuid
 from collections import defaultdict
@@ -532,35 +533,28 @@ class RayPPOTrainer:
             self.config.critic.optim.total_training_steps = total_training_steps
 
     def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
-        """
-        Dump rollout or validation samples locally if enabled.
-        """
-
-        # Create a directory for the dump if it doesn't exist
+        """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
+        filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
 
-        # Create a unique filename for the dump
-        dump_filename = os.path.join(dump_path, f"{self.global_steps}.parquet")
-
-        # Create a DataFrame from the inputs, outputs, and reward_extra_infos_dict
-        data_dict = {
+        n = len(inputs)
+        base_data = {
             "input": inputs,
             "output": outputs,
             "score": scores,
+            "step": [self.global_steps] * n,
         }
 
-        for key, values in reward_extra_infos_dict.items():
-            if len(values) == len(inputs):
-                data_dict[key] = values
+        for k, v in reward_extra_infos_dict.items():
+            if len(v) == n:
+                base_data[k] = v
 
-        data_dict["step"] = [self.global_steps] * len(inputs)
+        with open(filename, "w") as f:
+            for i in range(n):
+                entry = {k: v[i] for k, v in base_data.items()}
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-        from datasets import Dataset
-
-        ds = Dataset.from_dict(data_dict)
-        ds.to_parquet(dump_filename)
-
-        print(f"Dumped generations to {dump_filename}")
+        print(f"Dumped generations to {filename}")
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
@@ -664,9 +658,7 @@ class RayPPOTrainer:
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # dump generations
-        from omegaconf import OmegaConf
-
-        val_data_dir = OmegaConf.select(self.config.trainer, "validation_data_dir", default=None)
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
             self._dump_generations(
                 inputs=sample_inputs,
@@ -1094,7 +1086,7 @@ class RayPPOTrainer:
                         metrics.update(actor_output_metrics)
 
                     # Log rollout generations if enabled
-                    rollout_data_dir = OmegaConf.select(self.config.trainer, "rollout_data_dir", default=None)
+                    rollout_data_dir = self.config.trainer.get("validation_data_dir", None)
                     if rollout_data_dir:
                         with _timer("dump_rollout_generations", timing_raw):
                             print(batch.batch.keys())
