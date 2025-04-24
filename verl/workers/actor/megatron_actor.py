@@ -254,7 +254,11 @@ class MegatronPPOActor(BasePPOActor):
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
-        data = data.select(batch_keys=select_keys)
+        self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        if self.has_multi_modal_inputs:
+            data = data.select(select_keys, ["multi_modal_inputs"])
+        else:
+            data = data.select(batch_keys=select_keys)
         return data.make_iterator(
             mini_batch_size=self.config.ppo_mini_batch_size,
             epochs=self.config.ppo_epochs,
@@ -282,15 +286,12 @@ class MegatronPPOActor(BasePPOActor):
             batch_size = data.meta_info["micro_batch_size"]
         else:
             batch_size = self.config.ppo_micro_batch_size_per_gpu
+        self.has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        if self.has_multi_modal_inputs:
+            data.batch["multi_modal_inputs"] = data.non_tensor_batch["multi_modal_inputs"]
+            data.batch["multi_modal_inputs_idx"] = torch.Tensor(list(range(len(data.non_tensor_batch["multi_modal_inputs"])))).to(torch.int64)
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
-        # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "hidden_size": self.model_config.hidden_size,
-            },
-        )
+
         n_micro_batch = len(batches)
         seq_len = batches[0]["input_ids"].shape[1]
 
@@ -380,12 +381,21 @@ class MegatronPPOActor(BasePPOActor):
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
             position_ids = batch["position_ids"]
+
+            multi_modal_inputs = {}
+            if "multi_modal_inputs" in batch:
+                for key in batch["multi_modal_inputs"][0].keys():
+                    multi_modal_inputs[key] = torch.cat(
+                        [batch["multi_modal_inputs"][i][key] for i in batch['multi_modal_inputs_idx']], dim=0
+                    )
+
             from verl.models.mcore import get_mcore_forward_fn
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
             output = forward_fn(
-                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel
+                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel,
+                multi_modal_inputs=multi_modal_inputs
             )
             if forward_only:
                 meta_info = None

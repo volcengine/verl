@@ -76,6 +76,24 @@ def gptmodel_forward_dpskv3(
 
 
 def gptmodel_forward_qwen2_5_vl(
-    model, input_ids, attention_mask, position_ids, sequence_parallel, value_model=False, pack_seqs=True
+    model, input_ids, attention_mask, position_ids, sequence_parallel, value_model=False, pack_seqs=False,
+    multi_modal_inputs=None,
 ):
-    raise NotImplementedError("VLM is not supported yet")
+    assert pack_seqs == False
+    pre_process = unwrap_model(model).pre_process
+    post_process = unwrap_model(model).post_process
+    batch_size, sequence_length = attention_mask.shape
+    new_input_ids, new_attention_mask, new_position_ids = remove_left_padding(
+        input_ids, attention_mask, position_ids, sequence_parallel, pre_process=pre_process
+    )
+    output = model(
+        input_ids=new_input_ids,
+        position_ids=new_position_ids,
+        attention_mask=new_attention_mask,
+        pixel_values=multi_modal_inputs["pixel_values"].to(input_ids.device),
+        image_grid_thw=multi_modal_inputs["image_grid_thw"].to(input_ids.device),
+    )
+    output = recover_left_padding(
+        output, new_attention_mask, attention_mask, sequence_length, post_process=post_process
+    )
+    return output

@@ -138,3 +138,6 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
         else:
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
+
+class McoreToHFWeightConverterQwen2_5_VL(McoreToHFWeightConverterDense):
+    pass

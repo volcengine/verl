@@ -124,7 +124,7 @@ class vLLMRollout(BaseRollout):
 
         trust_remote_code = kwargs.get("trust_remote_code", False)
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
-
+        load_format = 'safetensors'
         limit_mm_per_prompt = None
         if config.get("limit_images", None):  # support for multi-image data
             limit_mm_per_prompt = {"image": config.get("limit_images")}

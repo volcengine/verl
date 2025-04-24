@@ -58,7 +58,7 @@ class Qwen2_5VLModel(MegatronModule):
         vision_projection_type: str = "mlp",
         allow_missing_vision_projection_checkpoint: bool = False,
         parallel_output: bool = True,
-        language_position_embedding_type: str = "rope",
+        language_position_embedding_type: str = "mrope",
         language_rotary_percent: float = 1.0,
         pre_process: bool = True,
         post_process: bool = True,
@@ -67,6 +67,8 @@ class Qwen2_5VLModel(MegatronModule):
         language_rotary_base: int = 10000,
         fp16_lm_cross_entropy: bool = False,
         language_share_embeddings_and_output_weights: bool = False,
+        image_token_id: int = 151655,
+        video_token_id: int = 151656,
     ) -> None:
         super().__init__(config=language_transformer_config)
 
@@ -81,6 +83,8 @@ class Qwen2_5VLModel(MegatronModule):
         self.vision_model = None
         self.vision_projection = None
         self.language_model = None
+        self.image_token_id = image_token_id
+        self.video_token_id = video_token_id
 
         self.square_merge_size = vision_projection_config.ffn_hidden_size // vision_transformer_config.hidden_size
 
@@ -115,10 +119,13 @@ class Qwen2_5VLModel(MegatronModule):
             position_embedding_type=language_position_embedding_type,
             rotary_percent=language_rotary_percent,
             rotary_base=language_rotary_base,
+            scatter_embedding_sequence_parallel=False
         )
-        # patch the rotary_pos_emb
+        # patch the mrope rotary_pos_emb 
+        # mcore 0.11 not support mrope while 0.12 support 
+        # this patch will be removed after 0.12 is released
         self.language_model.rotary_pos_emb = Qwen2VLRotaryEmbedding(
-            kv_channels=language_transformer_config.hidden_size,
+            kv_channels=language_transformer_config.kv_channels,
             rotary_percent=language_rotary_percent,
             rotary_interleaved=language_transformer_config.rotary_interleaved,
             seq_len_interpolation_factor=language_transformer_config.seq_len_interpolation_factor,
@@ -172,16 +179,21 @@ class Qwen2_5VLModel(MegatronModule):
         self,
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
-        vision_data: torch.Tensor = None,
-        vision_grid_thw: torch.Tensor = None,
-        video_start_index: int = -1,
-        image_input_mask: torch.Tensor = None,
-        video_input_mask: torch.Tensor = None,
         attention_mask: torch.Tensor = None,
         labels: torch.Tensor = None,
         inference_params: InferenceParams = None,
         packed_seq_params: PackedSeqParams = None,
         extra_block_kwargs: dict = None,
+        # vision_data: torch.Tensor = None,
+        # vision_grid_thw: torch.Tensor = None,
+        # video_start_index: int = -1,
+        # image_input_mask: torch.Tensor = None,
+        # video_input_mask: torch.Tensor = None,
+        pixel_values: torch.Tensor = None,
+        pixel_values_videos: torch.Tensor = None,
+        image_grid_thw: torch.Tensor = None,
+        video_grid_thw: torch.Tensor = None,
+
     ) -> torch.Tensor:
         """Forward function of the Qwen2VL model.
 
@@ -201,6 +213,17 @@ class Qwen2_5VLModel(MegatronModule):
         Returns:
             output (torch.Tensor): Loss of shape [b, s] if labels are provided, otherwise logits of shape [b, s, vocab_size].
         """
+        video_start_index = 0
+        if image_grid_thw is not None:
+            image_mask = (input_ids == self.image_token_id)
+            vision_grid_thw = image_grid_thw
+            vision_data = pixel_values
+            video_start_index = image_mask.sum().item()
+        if video_grid_thw is not None:
+            video_mask = (input_ids == self.video_token_id)
+            vision_grid_thw = torch.cat([vision_grid_thw, video_grid_thw], dim=0)
+            vision_data = torch.cat([vision_data, pixel_values_videos], dim=0)
+            video_start_index = image_mask.sum().item() + video_mask.sum().item()
         use_inference_kv_cache = (
             inference_params is not None and "image_tokens_count" in inference_params.key_value_memory_dict
         )
@@ -214,7 +237,6 @@ class Qwen2_5VLModel(MegatronModule):
                     vision_data=vision_data,  # If None, vision model should use intermediate outputs (EPP > 1)
                     grid_thw=vision_grid_thw,  # should provided in each EPP stage
                 )
-
             # If running inference, the language model KV cache will be updated for image token positions.
             # Here we store the image tokens sequence length, which can be used as an offset to the KV cache later.
             if inference_params is not None:
@@ -246,26 +268,44 @@ class Qwen2_5VLModel(MegatronModule):
                         f"Expect video token start index in range [0, {vision_embeds.shape[0]}], but got {video_start_index}"
                     )
 
-                if image_embeds is not None:
-                    image_input_mask = image_input_mask.T  # shape [seqlen, mbs]
-                if video_embeds is not None:
-                    video_input_mask = video_input_mask.T
+                # if image_embeds is not None:
+                #     image_input_mask = image_input_mask.T  # shape [seqlen, mbs]
+                # if video_embeds is not None:
+                #     video_input_mask = video_input_mask.T
                 combined_embeddings = self.language_model.embedding(
                     input_ids=input_ids,
                     position_ids=None,  # NOTE: disable
-                    image_input_mask=image_input_mask,
-                    video_input_mask=video_input_mask,
-                    image_embeds=image_embeds,
-                    video_embeds=video_embeds,
+                    # image_input_mask=image_input_mask,
+                    # video_input_mask=video_input_mask,
+                    # image_embeds=image_embeds,
+                    # video_embeds=video_embeds,
                 )  # [text_seq_len, b, h_language]
+                if image_embeds is not None:
+                    image_mask = (input_ids == self.image_token_id)
+                    combined_embeddings[image_mask.T] = image_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
+                if video_embeds is not None:
+                    video_mask = (input_ids == self.video_token_id)
+                    combined_embeddings[video_mask.T] = video_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
             else:
                 combined_embeddings = self.language_model.embedding(
                     input_ids=input_ids,
-                    position_ids=None,  # NOTE: disable
+                    position_ids=None
                 )  # [text_seq_len, b, h_language]
         else:
             combined_embeddings = None
 
+        from .rope_utils import get_rope_index
+        position_ids,_ = get_rope_index(input_ids,
+                                      image_token_id=self.image_token_id,
+                                      video_token_id=self.video_token_id,
+                                      image_grid_thw=image_grid_thw,
+                                      video_grid_thw=video_grid_thw,
+                                      attention_mask=attention_mask)
+
+        # if torch.distributed.get_rank()!=0:
+        #     __import__('remote_pdb').RemotePdb('127.0.0.1', 4444+torch.distributed.get_rank()).set_trace()   
+        # else:
+        #     __import__('ipdb').set_trace()
         output = self.language_model(
             input_ids=None,
             position_ids=position_ids,  # None in encoder

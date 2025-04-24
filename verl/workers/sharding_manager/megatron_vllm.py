@@ -517,6 +517,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __enter__(self):
+        self.inference_engine.wake_up()
+        return
         if vllm_version in (
             "0.5.4",
             "0.6.3",

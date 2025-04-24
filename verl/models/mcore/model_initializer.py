@@ -161,7 +161,7 @@ def init_mcore_model_qwen2_5_vl(
     )
 
     transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=True)
-    __import__("ipdb").set_trace()
+
     qwen25_vl_model = Qwen2_5VLModel(
         vision_transformer_config=vision_config,
         drop_vision_class_token=False,  # NOTE: no class token to drop?
@@ -172,7 +172,7 @@ def init_mcore_model_qwen2_5_vl(
         language_transformer_layer_spec=transformer_layer_spec,
         language_vocab_size=hf_config.vocab_size,
         language_max_sequence_length=hf_config.max_position_embeddings,
-        language_position_embedding_type="rope",
+        language_position_embedding_type="mrope",
         language_rotary_percent=1.0,
         language_rotary_base=hf_config.rope_theta,
         language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
