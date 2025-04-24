@@ -1086,7 +1086,7 @@ class RayPPOTrainer:
                         metrics.update(actor_output_metrics)
 
                     # Log rollout generations if enabled
-                    rollout_data_dir = self.config.trainer.get("validation_data_dir", None)
+                    rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
                         with _timer("dump_rollout_generations", timing_raw):
                             print(batch.batch.keys())
