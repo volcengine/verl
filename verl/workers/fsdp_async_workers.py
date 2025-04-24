@@ -25,6 +25,7 @@ import uvicorn
 from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
+from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
@@ -181,9 +182,22 @@ class AsyncLLMWorker:
                              please increase max_num_batched_tokens or disable chunked prefill"
             )
 
+        # Override default generation config from hugging face model config,
+        # user can still override them by passing kwargs in each request.
+        kwargs = dict(
+            n=1,
+            logprobs=0,
+            max_tokens=config.response_length,
+        )
+        for k in config.keys():
+            if hasattr(SamplingParams(), str(k)):
+                kwargs[k] = config.get(k)
+        print(f"override_generation_config: {kwargs}")
+
         engine_args = AsyncEngineArgs(
             model=local_path,
             enable_sleep_mode=True,
+            override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend=ExternalRayDistributedExecutor,
             dtype=config.dtype,
