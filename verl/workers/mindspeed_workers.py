@@ -671,3 +671,163 @@ class CriticWorker(MegatronWorker):
         print("save for critic model not tested.")
         pass
 
+
+class RewardModelWorker(MegatronWorker):
+    """
+    Note that we only implement the reward model that is subclass of AutoModelForSequenceClassification.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+        # NOTE(sgm): We utilize colocate WorkerGroup by default.
+        # As a result, Workers for different model share the same process.
+        # Therefore, we only require one distribute initialization.
+        # To utilize different parallel startegy in different models:
+        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
+        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ['LOCAL_RANK'])
+            torch.distributed.init_process_group(backend="nccl")
+            torch.cuda.set_device(rank)
+
+            from megatron.training.arguments import parse_args
+            from megatron.training.global_vars import set_args
+            args = parse_args(ignore_unknown_args=True)
+            set_args(args)
+
+            if self.config.megatron.sequence_parallel:
+                os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
+            mpu.initialize_model_parallel(
+                tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
+                pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
+                virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
+                pipeline_model_parallel_split_rank=None,
+                use_sharp=False,
+                context_parallel_size=1,
+                expert_model_parallel_size=1,
+                nccl_communicator_config_path=None,
+            )
+
+        set_random_seed(seed=self.config.megatron.seed)
+
+        # normalize config
+        if self.config.micro_batch_size is not None:
+            self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
+            self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
+
+    def _build_rm_model(self, model_path, megatron_config: ModelParallelConfig, override_model_config):
+        from megatron.core.models.gpt.gpt_model import ModelType
+        from verl.utils.model import update_model_config
+        from verl.utils.megatron_utils import get_model
+        from transformers import AutoConfig
+
+        # Step 1: initialize the tokenizer
+        local_path = copy_to_local(model_path)
+        self.tokenizer = hf_tokenizer(local_path)
+
+        # Step 2: get the actor_model_config
+        rm_model_config = AutoConfig.from_pretrained(local_path)
+
+        override_config_kwargs = {
+            'bos_token_id': self.tokenizer.bos_token_id,
+            'eos_token_id': self.tokenizer.eos_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config)
+        update_model_config(rm_model_config, override_config_kwargs=override_config_kwargs)
+
+        if self.rank == 0:
+            print(f'Model config after override: {rm_model_config}')
+
+        def megatron_rm_model_provider(pre_process, post_process):
+            from verl.utils.model import get_parallel_model_from_config
+            # vpp is not supported yet because it will hang for some reason. Need debugging
+            vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
+            # this_megatron_config = copy.deepcopy(megatron_config)
+            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
+            parallel_model = get_parallel_model_from_config(config=rm_model_config,
+                                                            megatron_config=megatron_config,
+                                                            pre_process=pre_process,
+                                                            post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
+                                                            value=True)
+            parallel_model.cuda()
+            return parallel_model
+
+        # Step 3: initialize the megatron model
+        reward_model = get_model(model_provider_func=megatron_rm_model_provider,
+                                 model_type=ModelType.encoder_or_decoder,
+                                 wrap_with_ddp=False)
+        # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
+        # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
+        # reward_model = nn.ModuleList(reward_model)
+
+        if self.config.load_weight:
+            load_megatron_model_weights(self.config,
+                                        rm_model_config,
+                                        reward_model,
+                                        params_dtype=megatron_config.params_dtype,
+                                        is_value_model=True)
+
+        # TODO: add more optimizer args into config
+        torch.cuda.empty_cache()
+        return reward_model, rm_model_config
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        # create critic
+        from omegaconf import OmegaConf
+        from verl.utils.torch_dtypes import PrecisionType
+
+        if self.config.model.get('external_lib', None) is not None:
+            # This is used to import external_lib into the huggingface systems
+            import importlib
+            importlib.import_module(self.config.model.external_lib)
+        override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
+
+        sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer)
+        sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
+        rm_tokenizer_path = self.config.model.get('rm_tokenizer', None)
+        rm_tokenizer = None
+        if rm_tokenizer_path is not None:
+            rm_tokenizer_local_path = copy_to_local(rm_tokenizer_path)
+            rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path)
+
+        self.param_dtype = torch.bfloat16
+
+        megatron_config = OmegaConf.create({
+            'sequence_parallel': self.config.megatron.get('sequence_parallel', True),
+            'param_dtype': PrecisionType.to_str(self.param_dtype),
+            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
+            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
+            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
+            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
+            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
+        })
+
+        megatron_config = init_model_parallel_config(megatron_config)
+
+        reward_model_module, reward_model_config = self._build_rm_model(
+            model_path=self.config.model.path,
+            megatron_config=megatron_config,
+            override_model_config=override_model_config,
+        )
+        # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
+        # should be implemented in workers
+        self.rm = MegatronRewardModel(config=self.config,
+                                      reward_model_module=reward_model_module,
+                                      model_config=reward_model_config,
+                                      megatron_config=megatron_config,
+                                      sft_tokenizer=sft_tokenizer,
+                                      rm_tokenizer=rm_tokenizer)
+
+    # TODO: reward model use itself tokenizer instead of sft tokenizer
+    # the input_ids, responses, attention_mask and position_ids may be different!
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_rm_score(self, data: DataProto):
+        data.batch = data.batch.cuda()
+        output = self.rm.compute_reward(data)
+        output = output.to('cpu')
+        return output
