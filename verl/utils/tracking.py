@@ -32,7 +32,7 @@ class Tracking:
             if backend == "tracking":
                 import warnings
 
-                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning)
+                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning, stacklevel=2)
             else:
                 assert backend in self.supported_backend, f"{backend} is not supported"
 
