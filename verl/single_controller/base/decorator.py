@@ -318,6 +318,89 @@ def collect_dp_compute_data_proto(worker_group, output):
     output = collect_dp_compute(worker_group, output)
     return _concat_data_proto_or_future(output)
 
+from verl.single_controller.base.worker_group import WorkerGroup
+from verl.single_controller.base.worker import DistGlobalInfo, DistRankInfo
+
+
+def dispatch_nd_compute(device_mesh, worker_group, *args, **kwargs):
+    assert isinstance(worker_group, WorkerGroup)
+
+    assert device_mesh in worker_group._dist_global_info, f"expecting {device_mesh} in {worker_group._dist_global_info}"
+    assert device_mesh in worker_group._dist_workers_info, f"expecting {device_mesh} in {worker_group._dist_workers_info}"
+
+    dist_global_info: DistGlobalInfo = worker_group._dist_global_info[device_mesh]
+    dist_workers_info: list[DistRankInfo] = worker_group._dist_workers_info[device_mesh]
+    
+    all_args = []
+    for arg in args:
+        assert isinstance(arg, (Tuple, List)) and len(arg) == dist_global_info.dp_size
+        transformed_args = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dist_workers_info[i].dp_rank
+            transformed_args.append(arg[local_dp_rank])
+        all_args.append(transformed_args)
+    all_args = tuple(all_args)
+
+    all_kwargs = {}
+    for k, v in kwargs.items():
+        assert isinstance(v, (Tuple, List)) and len(v) == dist_global_info.dp_size
+        transformed_v = []
+        for i in range(worker_group.world_size):
+            local_dp_rank = dist_workers_info[i].dp_rank
+            transformed_v.append(v[local_dp_rank])
+        all_kwargs[k] = transformed_v
+    return all_args, all_kwargs
+
+
+def dispatch_nd_compute_dataproto(device_mesh, worker_group, *args, **kwargs):
+    dist_global_info: DistGlobalInfo = worker_group._dist_global_info[device_mesh]
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(dist_global_info.dp_size, *args, **kwargs)
+    return dispatch_nd_compute(device_mesh, worker_group, *splitted_args, **splitted_kwargs)
+
+
+def collect_nd_compute(device_mesh, worker_group, output):
+    from verl.single_controller.base.worker_group import WorkerGroup
+    assert isinstance(worker_group, WorkerGroup)
+    assert len(output) == worker_group.world_size
+
+    assert device_mesh in worker_group._dist_global_info, f"expecting {device_mesh} in {worker_group._dist_global_info}"
+    assert device_mesh in worker_group._dist_workers_info, f"expecting {device_mesh} in {worker_group._dist_workers_info}"
+
+    dist_global_info: DistGlobalInfo = worker_group._dist_global_info[device_mesh]
+    dist_workers_info: list[DistRankInfo] = worker_group._dist_workers_info[device_mesh]
+
+    output_in_dp = []
+    pp_size = dist_global_info.pp_size
+    for global_rank in range(worker_group.world_size):
+        local_rank_info = dist_workers_info[global_rank]
+        if local_rank_info.tp_rank == 0 and local_rank_info.pp_rank == pp_size - 1 and local_rank_info.cp_rank == 0 and local_rank_info.ep_rank == 0:
+            output_in_dp.append(output[global_rank])
+    return output_in_dp
+
+def collect_nd_compute_dataproto(device_mesh, worker_group, output):
+    output = collect_nd_compute(device_mesh, worker_group, output)
+    import ray
+
+    from verl.protocol import DataProto
+    for o in output:
+        assert isinstance(o, (DataProto, ray.ObjectRef)), f"expecting {o} to be DataProto, but got {type(o)}"
+    return _concat_data_proto_or_future(output)
+
+
+from functools import partial
+
+def make_nd_compute_dispatch_fn(device_mesh):
+    return {
+        "dispatch_fn": partial(dispatch_nd_compute, device_mesh),
+        "collect_fn": partial(collect_nd_compute, device_mesh),
+    }
+
+def make_nd_compute_dataproto_dispatch_fn(device_mesh):
+    return {
+        "dispatch_fn": partial(dispatch_nd_compute_dataproto, device_mesh),
+        "collect_fn": partial(collect_nd_compute_dataproto, device_mesh),
+    }
+    
 
 def get_predefined_dispatch_fn(dispatch_mode):
     predefined_dispatch_mode_fn = {
