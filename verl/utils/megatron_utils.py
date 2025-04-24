@@ -27,7 +27,6 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
@@ -197,7 +196,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
-        attention_backend=AttnBackend.flash,
         bf16=dt is torch.bfloat16,
     )
 
