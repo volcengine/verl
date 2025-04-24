@@ -23,6 +23,7 @@ import psutil
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
+# from torch.distributed.optim import _apply_optimizer_in_backward
 import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from verl import DataProto
@@ -268,11 +269,16 @@ class ActorRolloutRefWorker(Worker):
 
         # TODO: add more optimizer args into config
         if role == 'actor' and optim_config is not None:
-            from verl.utils.torch_functional import get_constant_schedule_with_warmup
-            actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
-                                          lr=optim_config.lr,
-                                          betas=optim_config.get('betas', (0.9, 0.999)),
-                                          weight_decay=optim_config.get('weight_decay', 1e-2))
+            from verl.utils.torch_functional import apply_optimizer_in_backward, get_constant_schedule_with_warmup, update_scheduler_with_custom_step
+            
+            if optim_config.bwd_hook:
+                optim_dict = apply_optimizer_in_backward(actor_module_fsdp, optim_config)
+                actor_optimizer = next(iter(optim_dict.values()))
+            else:
+                actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
+                                            lr=optim_config.lr,
+                                            betas=optim_config.get('betas', (0.9, 0.999)),
+                                            weight_decay=optim_config.get('weight_decay', 1e-2))
 
             total_steps = optim_config.get('total_training_steps', 0)
             num_warmup_steps = int(optim_config.get('lr_warmup_steps', -1))
@@ -283,7 +289,10 @@ class ActorRolloutRefWorker(Worker):
             print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
             actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer,
-                                                                   num_warmup_steps=num_warmup_steps)
+                                                                num_warmup_steps=num_warmup_steps)
+            if optim_config.bwd_hook:
+                update_scheduler_with_custom_step(actor_lr_scheduler, optim_dict)
+
         else:
             actor_optimizer = None
             actor_lr_scheduler = None

@@ -409,7 +409,28 @@ Optimizer related
 
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
+from torch.distributed.optim import _apply_optimizer_in_backward
 import math
+
+def apply_optimizer_in_backward(
+        model: torch.nn.Module,
+        optim_config
+
+):
+    flat_params = [p for p in model.parameters() if p.requires_grad]
+    _apply_optimizer_in_backward(
+        torch.optim.AdamW,
+        flat_params,
+        {
+            "lr": optim_config.lr,
+            "betas": optim_config.get('betas', (0.9, 0.999)),
+            "weight_decay":optim_config.get('weight_decay', 1e-2)
+        }
+    )
+    optim_dict = {
+        p: p._in_backward_optimizers[0] for p in model.parameters() if hasattr(p, "_in_backward_optimizers")
+    }
+    return optim_dict
 
 
 def get_cosine_schedule_with_warmup(
@@ -466,6 +487,20 @@ def get_constant_schedule_with_warmup(
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
+def update_scheduler_with_custom_step(scheduler, optim_dict):
+    original_step = scheduler.step
+
+    def custom_step(epoch=None):
+        if epoch is None:
+            original_step()
+        else:
+            original_step(epoch)
+        new_lr = scheduler.get_last_lr()[0]
+        for opt in optim_dict.values():
+            for param_group in opt.param_groups:
+                param_group["lr"] = new_lr 
+        
+    scheduler.step = custom_step
 
 def prepare_decoder_attention_mask(attention_mask, input_shape, inputs_embeds):
     # create causal mask
