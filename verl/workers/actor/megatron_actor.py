@@ -347,9 +347,13 @@ class MegatronPPOActor(BasePPOActor):
                     entropy_coeff = meta_info["entropy_coeff"]
                     target_entropy = meta_info["target_entropy"]
                     use_adaptive_entropy_adjustment = meta_info["use_adaptive_entropy_adjustment"]
+                    entropy_coeff_delta = meta_info["entropy_coeff_delta"]
                     if use_adaptive_entropy_adjustment:
                         if entropy_loss.detach().item() > target_entropy:
                             entropy_coeff = 0
+                        else:
+                            self.config.entropy_coeff += entropy_coeff_delta
+                            entropy_coeff = self.config.entropy_coeff
                         metrics["actor/entropy_coeff"] = entropy_coeff
                         metrics["actor/entropy_loss"] = entropy_loss.detach().item()
                     if entropy_coeff > 0:
@@ -403,15 +407,18 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
                 use_adaptive_entropy_adjustment = self.config.get("use_adaptive_entropy_adjustment", False)
                 target_entropy = self.config.get("target_entropy", None)
+                entropy_coeff_delta = self.config.get("entropy_coeff_delta", None)
                 if use_adaptive_entropy_adjustment:
                     assert target_entropy is not None, f"target_entropy must be provided if {use_adaptive_entropy_adjustment=}, but got None."
                     assert self.config.entropy_coeff != 0, f"entropy_coeff must be not 0 if {use_adaptive_entropy_adjustment=}, but got 0."
+                    assert entropy_coeff_delta is not None, f"entropy_coeff_delta must be provided if {use_adaptive_entropy_adjustment=}, but got None."
                 meta_info = {
                     "clip_ratio": self.config.clip_ratio,
                     "entropy_coeff": self.config.entropy_coeff,
                     "clip_ratio_c": clip_ratio_c,
                     "use_adaptive_entropy_adjustment": use_adaptive_entropy_adjustment,
                     "target_entropy": target_entropy,
+                    "entropy_coeff_delta": entropy_coeff_delta
                 }
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 
@@ -465,7 +472,7 @@ class MegatronPPOActor(BasePPOActor):
                 # if use distributed optimizer, zero grad buffer will be handled by optimizer
                 chunk.zero_grad_buffer()
 
-            calculate_entropy = self.config.entropy_coeff != 0
+            calculate_entropy = (self.config.entropy_coeff != 0 or self.config.use_adaptive_entropy_adjustment)
             metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy)
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
