@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, create_colocated_worker_cls, rref_to_here
+from .base import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, create_colocated_worker_cls, rref_to_here, torchrpc_remote

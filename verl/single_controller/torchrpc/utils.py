@@ -3,43 +3,52 @@ from multiprocessing import Process, Queue
 import torch.distributed.rpc as rpc
 import multiprocessing as mp
 
-def _local_actor_runner(cls, args, kwargs, queue):
+def _local_actor_runner(cls, args, kwargs, input_queue, output_queue):
     inst = cls(*args, **kwargs)
     while True:
-        cmd = queue.get()
+        cmd = input_queue.get()
         if cmd is None:
             break
-        out_queue, method_name, args, kwargs = cmd
+        method_name, args, kwargs = cmd
         method = getattr(inst, method_name)
         result = method(*args, **kwargs)
-        out_queue.put(result)
+        output_queue.put(result)
 
 class RemoteActor:
-    def __init__(self):
-        pass
-
-    def init(self, cls, args, kwargs):
+    def __init__(self, cls, args, kwargs):
         ctx = mp.get_context('spawn')
-        self.queue = ctx.Queue()
-        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, self.queue))
+        self.input_queue = ctx.Queue()
+        self.output_queue = ctx.Queue()
+        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, self.input_queue, self.output_queue))
         self.process.start()
 
-    def run_method(self, method_name, *args, **kwargs):
-        out_queue = Queue()
-        self.queue.put((out_queue, method_name, args, kwargs))
-        return out_queue.get()
-
-    def terminate(self):
-        self.queue.put(None)
+    def run_method(self, method_name, args, kwargs):
+        self.input_queue.put((method_name, args, kwargs))
+        return self.output_queue.get()
+    
+    def __del__(self):
+        self.input_queue.put(None)
         self.process.join()
 
+remote_actors = None
+
 def create_remote_actor(cls, args, kwargs, env_vars=None):
+    global remote_actors
+    if not remote_actors:
+        remote_actors = []
     if env_vars is not None:
         for k, v in env_vars.items():
             os.environ[k] = v
-    actor = RemoteActor()
-    actor.init(cls, args, kwargs)
+    actor = RemoteActor(cls, args, kwargs)
+    remote_actors.append(actor)
     return actor
+
+def stop_remote_actors():
+    global remote_actors
+    if remote_actors:
+        for actor in remote_actors:
+            del actor
+        remote_actors = None
 
 def _remote_actor_call_local(actor_rref, method_name, args, kwargs):
     actor = actor_rref.local_value()

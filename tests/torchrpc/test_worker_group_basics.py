@@ -18,7 +18,7 @@ import torch.distributed.rpc as rpc
 
 from verl.single_controller.base.decorator import Dispatch, Execute, collect_all_to_all, register
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCResourcePool, TorchRPCClassWithInitArgs, TorchRPCWorkerGroup, rref_to_here
+from verl.single_controller.torchrpc import TorchRPCResourcePool, TorchRPCClassWithInitArgs, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
     """
@@ -64,43 +64,37 @@ def add_one(data):
     data = data.to("cpu")
     return data
 
+@torchrpc_remote
 def test_basics():
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
-    # Then run this code on every node
-    rank = int(os.environ.get('TORCHRPC_RANK'))
-    world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
-    if rank == 0:
-        resource_pool = TorchRPCResourcePool([2,2], use_gpu=True)
-        class_with_args = TorchRPCClassWithInitArgs(cls=TestActor, x=2)
-        worker_group = TorchRPCWorkerGroup(
-            resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic"
-        )
+    resource_pool = TorchRPCResourcePool([2,2], use_gpu=True)
+    class_with_args = TorchRPCClassWithInitArgs(cls=TestActor, x=2)
+    worker_group = TorchRPCWorkerGroup(
+        resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic"
+    )
 
-        output = worker_group.execute_all_sync("foo", y=3)
-        assert output == [5, 5, 5, 5]
+    output = worker_group.execute_all_sync("foo", y=3)
+    assert output == [5, 5, 5, 5]
 
-        # this is a list of object reference. It won't block.
-        output_ref = worker_group.execute_all_async("foo", y=4)
-        print(output_ref)
+    # this is a list of object reference. It won't block.
+    output_ref = worker_group.execute_all_async("foo", y=4)
+    print(output_ref)
 
-        assert rref_to_here(output_ref) == [6, 6, 6, 6]
+    assert rref_to_here(output_ref) == [6, 6, 6, 6]
 
-        output_ref = worker_group.foo_one_to_all(x=1, y=2)
-        assert rref_to_here(output_ref) == [5, 5, 5, 5]
+    output_ref = worker_group.foo_one_to_all(x=1, y=2)
+    assert rref_to_here(output_ref) == [5, 5, 5, 5]
 
-        output_ref = worker_group.foo_all_to_all(x=[1, 2, 3, 4], y=[5, 6, 7, 8])
-        assert rref_to_here(output_ref) == [8, 10, 12, 14]
+    output_ref = worker_group.foo_all_to_all(x=[1, 2, 3, 4], y=[5, 6, 7, 8])
+    assert rref_to_here(output_ref) == [8, 10, 12, 14]
 
-        output = worker_group.execute_func_rank_zero(add_one, torch.ones(2, 2))
-        torch.testing.assert_close(output, torch.ones(2, 2) + 1)
+    output = worker_group.execute_func_rank_zero(add_one, torch.ones(2, 2))
+    torch.testing.assert_close(output, torch.ones(2, 2) + 1)
 
-        output_ref = worker_group.foo_custom(x=[1, 2], y=[5, 6])
-        assert output_ref == [8, 10, 8, 10]
+    output_ref = worker_group.foo_custom(x=[1, 2], y=[5, 6])
+    assert output_ref == [8, 10, 8, 10]
 
-        output_ref = worker_group.foo_rank_zero(x=1, y=2)
-        assert output_ref == 5
-    rpc.shutdown()
+    output_ref = worker_group.foo_rank_zero(x=1, y=2)
+    assert output_ref == 5
 
 if __name__ == "__main__":
     test_basics()

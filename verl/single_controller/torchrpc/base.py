@@ -19,7 +19,7 @@ from typing import List, Dict, Any
 
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
-from verl.single_controller.torchrpc.utils import create_remote_actor, remote_actor_call, rref_to_here
+from verl.single_controller.torchrpc.utils import create_remote_actor, remote_actor_call, rref_to_here, stop_remote_actors
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
@@ -275,3 +275,13 @@ def create_colocated_worker_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]
     remote_cls = TorchRPCClassWithInitArgs(cls=WorkerDict)
     return remote_cls
 
+def torchrpc_remote(func):
+    def wrapper():
+        rank = int(os.environ.get('TORCHRPC_RANK'))
+        world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
+        rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
+        if rank == 0:
+            func()
+        rpc.shutdown()
+        stop_remote_actors()
+    return wrapper
