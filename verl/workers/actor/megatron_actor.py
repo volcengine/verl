@@ -345,10 +345,20 @@ class MegatronPPOActor(BasePPOActor):
                 if not forward_only:
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                     entropy_coeff = meta_info["entropy_coeff"]
-                    policy_loss = pg_loss - entropy_coeff * entropy_loss
+                    target_entropy = meta_info["target_entropy"]
+                    use_adaptive_entropy_adjustment = meta_info["use_adaptive_entropy_adjustment"]
+                    if use_adaptive_entropy_adjustment:
+                        if entropy_loss.detach().item() > target_entropy:
+                            entropy_coeff = 0
+                        metrics["actor/entropy_coeff"] = entropy_coeff
+                        metrics["actor/entropy_loss"] = entropy_loss.detach().item()
+                    if entropy_coeff > 0:
+                        policy_loss = pg_loss - entropy_coeff * entropy_loss
+                    else:
+                        policy_loss = pg_loss
                 else:
                     ret_entropy = entropy
-
+            
             stats = {}
             if forward_only:
                 policy_loss = torch.tensor(1.0, device=output.device)
@@ -391,10 +401,17 @@ class MegatronPPOActor(BasePPOActor):
                 meta_info = None
             else:
                 clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
+                use_adaptive_entropy_adjustment = self.config.get("use_adaptive_entropy_adjustment", False)
+                target_entropy = self.config.get("target_entropy", None)
+                if use_adaptive_entropy_adjustment:
+                    assert target_entropy is not None, f"target_entropy must be provided if {use_adaptive_entropy_adjustment=}, but got None."
+                    assert self.config.entropy_coeff != 0, f"entropy_coeff must be not 0 if {use_adaptive_entropy_adjustment=}, but got 0."
                 meta_info = {
                     "clip_ratio": self.config.clip_ratio,
                     "entropy_coeff": self.config.entropy_coeff,
                     "clip_ratio_c": clip_ratio_c,
+                    "use_adaptive_entropy_adjustment": use_adaptive_entropy_adjustment,
+                    "target_entropy": target_entropy,
                 }
             return output, partial(loss_func, data=batch, meta_info=meta_info)
 

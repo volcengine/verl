@@ -44,6 +44,8 @@ actor_rollout_ref:
     clip_ratio_c: 3.0 # lower bound of the value for Dual-clip PPO from https://arxiv.org/pdf/1912.09729
     loss_agg_mode: "token-mean" # / "seq-mean-token-sum" / "seq-mean-token-mean"
     entropy_coeff: 0
+    target_entropy: 0.5 # target entropy for adaptive entropy control in Skywork-OR1-32B
+    use_adaptive_entropy_adjustment: True # target entropy for adaptive entropy control in Skywork-OR1-32B
     use_kl_loss: False # True for GRPO
     use_torch_compile: True # False to disable torch compile
     kl_loss_coef: 0.001 # for grpo
