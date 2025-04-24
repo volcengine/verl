@@ -33,7 +33,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecis
 from torch.distributed.optim import _apply_optimizer_in_backward
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
-from verl.utils.torch_functional import get_cosine_schedule_with_warmup
+# from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, DistributedSampler
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
@@ -291,20 +291,11 @@ class FSDPSFTTrainer(object):
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
-        flat_params = [p for p in self.fsdp_model.parameters() if p.requires_grad]
+        from verl.utils.torch_functional import apply_optimizer_in_backward, get_cosine_schedule_with_warmup, update_scheduler_with_custom_step
+        
         if self.optim_bwd_hook:
-            _apply_optimizer_in_backward(
-                optim.AdamW,
-                flat_params,
-                {
-                    "lr":self.config.optim.lr, 
-                    "betas":self.config.optim.betas, 
-                    "weight_decay":self.config.optim.weight_decay
-                },
-            )
-            self.optim_dict = {
-                p: p._in_backward_optimizers[0] for p in self.fsdp_model.parameters() if hasattr(p, "_in_backward_optimizers")
-            }
+            optim_dict = apply_optimizer_in_backward(self.fsdp_model, self.config.optim)
+            self.optimizer = next(iter(optim_dict.values()))
         else:
             self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
                                         lr=self.config.optim.lr,
@@ -320,36 +311,15 @@ class FSDPSFTTrainer(object):
             print(
                 f'Number of steps/epoch {self.steps_per_epoch}, number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}'
             )
-
-        
-    def _build_lr_scheduler(self):
-
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
 
-        if self.optim_bwd_hook:
-            optimizer = next(iter(self.optim_dict.values()))
-        else:
-            optimizer = self.optimizer
         
-        self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer,
+        self.lr_scheduler = get_cosine_schedule_with_warmup(self.optimizer,
                                                             num_warmup_steps=num_warmup_steps,
                                                             num_training_steps=self.total_steps)
 
         if self.optim_bwd_hook:
-            original_step = self.lr_scheduler.step
-
-            def custom_step(epoch=None):
-                if epoch is None:
-                    original_step()
-                else:
-                    original_step(epoch)
-                new_lr = self.lr_scheduler.get_last_lr()[0]
-                for opt in self.optim_dict.values():
-                    for param_group in opt.param_groups:
-                        param_group["lr"] = new_lr 
-        
-            self.lr_scheduler.step = custom_step
-        
+            update_scheduler_with_custom_step(self.lr_scheduler, optim_dict)
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
