@@ -488,3 +488,186 @@ class ActorRolloutRefWorker(MegatronWorker):
                     hdfs_io.copy(src=checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
 
         torch.distributed.barrier()
+
+
+class CriticWorker(MegatronWorker):
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+        # NOTE(sgm): We utilize colocate WorkerGroup by default.
+        # As a result, Workers for different model share the same process.
+        # Therefore, we only require one distribute initialization.
+        # To utilize different parallel startegy in different models:
+        # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
+        # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ['LOCAL_RANK'])
+            torch.distributed.init_process_group(backend="nccl")
+            torch.cuda.set_device(rank)
+
+            from megatron.training.arguments import parse_args
+            from megatron.training.global_vars import set_args
+            args = parse_args(ignore_unknown_args=True)
+            set_args(args)
+
+            if self.config.megatron.sequence_parallel:
+                os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
+            mpu.initialize_model_parallel(
+                tensor_model_parallel_size=self.config.megatron.tensor_model_parallel_size,
+                pipeline_model_parallel_size=self.config.megatron.pipeline_model_parallel_size,
+                virtual_pipeline_model_parallel_size=self.config.megatron.virtual_pipeline_model_parallel_size,
+                pipeline_model_parallel_split_rank=None,
+                use_sharp=False,
+                context_parallel_size=1,
+                expert_model_parallel_size=1,
+                nccl_communicator_config_path=None,
+            )
+
+        set_random_seed(seed=self.config.megatron.seed)
+
+        # normalize config
+        self.config.ppo_mini_batch_size //= mpu.get_data_parallel_world_size()
+        if self.config.get('ppo_micro_batch_size', None):
+            self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
+            self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
+
+        # TODO(sgm): support critic model offload
+
+    def _build_critic_model_optimizer(self,
+                                      model_path,
+                                      megatron_config: ModelParallelConfig,
+                                      optim_config,
+                                      override_model_config,
+                                      enable_gradient_checkpointing=False):
+        from megatron.core.models.gpt.gpt_model import ModelType
+        from verl.utils.model import print_model_size, update_model_config
+        from verl.utils.megatron.optimizer import get_megatron_optimizer
+        from verl.utils.megatron_utils import get_model, init_megatron_optim_config, init_model_parallel_config
+        from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+        # Step 1: initialize the tokenizer
+        local_path = copy_to_local(model_path)
+        self.tokenizer = hf_tokenizer(local_path)
+
+        # Step 2: get the actor_model_config
+        critic_model_config = AutoConfig.from_pretrained(local_path)
+
+        override_config_kwargs = {
+            'bos_token_id': self.tokenizer.bos_token_id,
+            'eos_token_id': self.tokenizer.eos_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config)
+        update_model_config(critic_model_config, override_config_kwargs=override_config_kwargs)
+
+        if self.rank == 0:
+            print(f'Model config after override: {critic_model_config}')
+
+        def megatron_critic_model_provider(pre_process, post_process):
+            from verl.utils.model import get_parallel_model_from_config
+            # TODO: support vpp here
+            # vpp_rank = mpu.get_virtual_pipeline_model_parallel_rank()  # this will be set inside get_model
+            # this_megatron_config = copy.deepcopy(megatron_config)
+            # this_megatron_config.virtual_pipeline_model_parallel_rank = vpp_rank
+            parallel_model = get_parallel_model_from_config(config=critic_model_config,
+                                                            megatron_config=megatron_config,
+                                                            pre_process=pre_process,
+                                                            post_process=post_process,
+                                                            share_embeddings_and_output_weights=False,
+                                                            value=True)
+            parallel_model.cuda()
+            return parallel_model
+
+        # Step 3: initialize the megatron model
+        critic_module = get_model(model_provider_func=megatron_critic_model_provider,
+                                  model_type=ModelType.encoder_or_decoder,
+                                  wrap_with_ddp=True)
+        # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
+        # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
+        # critic_module = nn.ModuleList(critic_module)
+
+        if self.config.load_weight:
+            load_megatron_model_weights(self.config,
+                                        critic_model_config,
+                                        critic_module,
+                                        params_dtype=megatron_config.params_dtype,
+                                        is_value_model=True)
+        if self.rank == 0:
+            print_model_size(critic_module[0])
+
+        # TODO: add more optimizer args into config
+        optim_config = init_megatron_optim_config(optim_config)
+        critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config)
+        torch.cuda.empty_cache()
+        return critic_module, critic_optimizer, critic_model_config, optim_config
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_model(self):
+        # create critic
+        from omegaconf import OmegaConf
+        from verl.utils.torch_dtypes import PrecisionType
+
+        if self.config.model.get('external_lib', None) is not None:
+            # This is used to import external_lib into the huggingface systems
+            import importlib
+            importlib.import_module(self.config.model.external_lib)
+        override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
+        self.param_dtype = torch.bfloat16
+
+        megatron_config = OmegaConf.create({
+            'sequence_parallel': self.config.megatron.get('sequence_parallel', True),
+            'param_dtype': PrecisionType.to_str(self.param_dtype),
+            'tensor_model_parallel_size': mpu.get_tensor_model_parallel_world_size(),
+            'pipeline_model_parallel_rank': mpu.get_pipeline_model_parallel_rank(),
+            'pipeline_model_parallel_size': mpu.get_pipeline_model_parallel_world_size(),
+            'virtual_pipeline_model_parallel_rank': mpu.get_virtual_pipeline_model_parallel_rank(),
+            'virtual_pipeline_model_parallel_size': mpu.get_virtual_pipeline_model_parallel_world_size()
+        })
+
+        megatron_config = init_model_parallel_config(megatron_config)
+        critic_module, critic_optimizer, critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
+            model_path=self.config.model.path,
+            megatron_config=megatron_config,
+            optim_config=self.config.optim,
+            override_model_config=override_model_config)
+        self.critic = MegatronPPOCritic(config=self.config,
+                                        model_config=critic_model_config,
+                                        megatron_config=megatron_config,
+                                        critic_module=critic_module,
+                                        critic_optimizer=critic_optimizer,
+                                        critic_optimizer_config=critic_optimizer_config)
+        self.flops_counter = FlopsCounter(critic_model_config)
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def compute_values(self, data: DataProto):
+        data = data.to('cuda')
+        values = self.critic.compute_values(data=data)
+        output = DataProto.from_dict(tensors={'values': values})
+        output = output.to('cpu')
+        return output
+
+    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
+    def update_critic(self, data: DataProto):
+        data = data.to('cuda')
+        dataloader = self.critic.make_minibatch_iterator(data)
+        with Timer(name='update_critic', logger=None) as timer:
+            metrics = self.critic.update_critic(dataloader=dataloader)
+        delta_time = timer.last
+        global_num_tokens = data.meta_info['global_token_num']
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+        metrics['perf/mfu/critic'] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+        output = DataProto(batch=None, meta_info={'metrics': metrics})
+        output = output.to('cpu')
+        return output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, checkpoint_path, **kwargs):
+        pass
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
+        print("save for critic model not tested.")
+        pass
+
