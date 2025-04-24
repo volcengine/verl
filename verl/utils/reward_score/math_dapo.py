@@ -267,7 +267,7 @@ def compute_score(
     Args:
         solution_str: The solution string
         ground_truth: The ground truth answer
-        config: Configuration object containing reward model settings
+        strict_box_verify: Whether to use strict box verification
         pause_tokens_index: Indices of pause tokens
 
     Returns:

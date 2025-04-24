@@ -1,4 +1,9 @@
 set -x
+
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation overlapping
+
 # 0. download the model
 huggingface-cli download Qwen/Qwen1.5-MoE-A2.7B-Chat
 
@@ -49,7 +54,7 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.experiment_name='qwen1.5_moe_nochat' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=$NODES \
-    trainer.save_freq=-1 \
+    trainer.save_freq=20 \
     trainer.test_freq=5 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$VLLM_TP \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
