@@ -1,0 +1,24 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  train_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed_v1/train.parquet
+  val_files: /user/longxiang1/data/gsm8k_verl_sgl_multi_turn_preprocessed_v1/test.parquet
+  max_prompt_length: 1024
+  max_response_length: 1024
+  train_batch_size: 256
+  return_raw_chat: True
+
+actor_rollout_ref:
+  hybrid_engine: True
+  rollout:
+    name: sglang_async
+    multi_turn: True
+    max_turns: 5
+    tool_kwargs:
+      tools_config_file: "examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml"
