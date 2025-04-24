@@ -17,6 +17,7 @@ ulimit -n 65535
 python3 -m verl.trainer.main_ppo \
     --config-path=/local/apps/verl/examples/sglang_multiturn/config \
     --config-name='gsm8k_multiturn_grpo_w_patch' \
+    algorithm.adv_estimator=grpo \
     data.train_files=/user/longxiang1/data/gsm8k_verl_preprocesssed/train.parquet \
     data.val_files=/user/longxiang1/data/gsm8k_verl_preprocesssed/test.parquet \
     data.train_batch_size=256 \
