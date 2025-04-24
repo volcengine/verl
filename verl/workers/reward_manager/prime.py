@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import Callable, Optional
@@ -76,6 +77,8 @@ async def parallel_compute_score_async(
             scores.append(0.0)
         elif isinstance(result[0], (int, float, bool)):
             scores.append(float(result[0]))
+        elif isinstance(result[0], dict):
+            scores.append(result[0])
         else:
             scores.append(float(result[0][0]))
     return scores
@@ -140,6 +143,7 @@ class PrimeRewardManager:
             return data.batch["rm_scores"]
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
+        reward_extra_info = defaultdict(list)
 
         already_print_data_sources = {}
 
@@ -155,8 +159,19 @@ class PrimeRewardManager:
         scores = self.verify(data)
 
         for i in range(len(data)):
+            score = scores[i]
+
+            if isinstance(score, dict):
+                reward = score["score"]
+                del score["score"]
+                # Store the information including original reward
+                for key, value in score.items():
+                    reward_extra_info[key].append(value)
+            else:
+                reward = score
+
             data_source = data_sources[i]
-            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
+            reward_tensor[i, valid_response_length[i].item() - 1] = reward
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -166,6 +181,9 @@ class PrimeRewardManager:
                 print(sequences_str)
 
         if return_dict:
-            return {"reward_tensor": reward_tensor}
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info,
+            }
         else:
             return reward_tensor
