@@ -443,3 +443,48 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         log_gpu_memory_usage('After recompute log prob', logger=logger)
         return output
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, checkpoint_path, **kwargs):
+        pass
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_pretrained_model(self, checkpoint_path, **kwargs):
+        pass
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, **kwargs):
+        assert self._is_actor
+        from verl.models.weight_loader_registry import get_weight_saver
+        arch = self.architecture[0]  # assume only one element in config architecture
+        weight_saver = get_weight_saver(arch)
+        state_dict = weight_saver(self.actor_module,
+                                  self.hf_config,
+                                  dtype=self.param_dtype,
+                                  tie_word_embeddings=self.share_embeddings_and_output_weights)
+
+        if self.rank == 0:
+            print(f'Saving actor checkpoint to {checkpoint_path}')
+            os.makedirs(checkpoint_path, exist_ok=True)
+            from accelerate import init_empty_weights
+            import warnings
+            with init_empty_weights(), warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if 'mistral7b-rm' in self.config.model.path:
+                    from transformers import MistralForSequenceClassification
+                    model = MistralForSequenceClassification.from_pretrained(
+                        self.config.model.path)  # use score head instead of lm_head
+                    state_dict['score.weight'] = state_dict['score.weight']
+                else:
+                    from transformers import AutoModelForCausalLM
+                    model = AutoModelForCausalLM.from_pretrained(self.config.model.path)
+
+                model.save_pretrained(checkpoint_path, state_dict=state_dict)
+                self.tokenizer.save_pretrained(checkpoint_path)
+                if hdfs_path is not None:
+                    print(f'Uploading actor checkpoint to {hdfs_path}')
+                    from verl.utils import hdfs_io
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
+
+        torch.distributed.barrier()
