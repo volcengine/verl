@@ -229,12 +229,11 @@ def check_megatron_checkpoint_path(model_path):
 
 
 def convert_megatron_checkpoints_to_hfmodels():
-    from verl.utils.megatron_utils import get_hf_model_checkpoint_path, get_model_checkpoint_path
+    from verl.utils.megatron_utils import get_model_checkpoint_path
 
     local_path = args.local_dir
 
     model_ckpt_path = get_model_checkpoint_path(local_path)
-    hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
     sharded_dirs, tp_size, pp_size = check_megatron_checkpoint_path(model_ckpt_path)
     mp_size = len(sharded_dirs)
 

@@ -46,7 +46,7 @@ from verl.utils.megatron_utils import (
 
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def set_random_seed(seed):
@@ -366,7 +366,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         assert self._is_actor
-        log_gpu_memory_usage('Before update policy', logger=logger)
+        log_gpu_memory_usage('Before update_actor', logger=logger)
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
             log_gpu_memory_usage('After load actor params and grad during update_actor', logger=logger)
@@ -385,8 +385,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
 
-        log_gpu_memory_usage("After update policy", logger=logger)
-
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={'metrics': metrics})
         output = output.to('cpu')
@@ -399,7 +397,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage('After offload actor optimizer during update_actor', logger=logger)
 
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After update_actor finish', logger=logger)
+        log_gpu_memory_usage('After update_actor', logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
@@ -428,15 +426,12 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             prompts = self.sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
-
-            log_gpu_memory_usage("After rollout generation", logger=logger)
-
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After generate_sequences finish", logger=logger)
+        log_gpu_memory_usage("After generate_sequences", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
