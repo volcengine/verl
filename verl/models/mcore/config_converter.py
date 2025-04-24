@@ -17,6 +17,7 @@
 
 import torch
 import torch.nn.functional as F
+from megatron.core import parallel_state as mpu
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.enums import AttnBackend
 from transformers import PretrainedConfig
@@ -139,7 +140,105 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
 
 def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
-    raise NotImplementedError("Qwen2_5_VLForConditionalGeneration is not supported yet")
+
+    from .qwen2_5_vl.model import Qwen2VLTransformerConfig
+
+    config = Qwen2VLTransformerConfig(
+        tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
+        pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
+        virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
+        context_parallel_size=mpu.get_context_parallel_world_size(),
+        moe_extended_tp=False,
+        perform_initialization=True,
+        use_cpu_initialization=True,
+        fp16=False,
+        bf16=True,
+        params_dtype=torch.bfloat16,
+        timers=None,
+        finalize_model_grads_func=None,
+        grad_scale_func=None,
+        no_sync_func=None,
+        grad_sync_func=None,
+        param_sync_func=None,
+        deterministic_mode=False,
+        enable_autocast=False,
+        autocast_dtype=torch.bfloat16,
+        num_microbatches_with_partial_activation_checkpoints=None,
+        gradient_accumulation_fusion=True,
+        pipeline_dtype=torch.bfloat16,
+        variable_seq_lengths=False,
+        overlap_p2p_comm=False,
+        batch_p2p_comm=True,
+        batch_p2p_sync=True,
+        use_ring_exchange_p2p=False,
+        deallocate_pipeline_outputs=True,
+        defer_embedding_wgrad_compute=False,
+        wgrad_deferral_limit=0,
+        pipeline_model_parallel_split_rank=None,
+        overlap_p2p_comm_warmup_flush=False,
+        microbatch_group_size_per_vp_stage=1,
+        num_layers=36,
+        num_layers_in_first_pipeline_stage=None,
+        num_layers_in_last_pipeline_stage=None,
+        account_for_embedding_in_pipeline_split=False,
+        account_for_loss_in_pipeline_split=False,
+        hidden_size=2048,
+        num_attention_heads=16,
+        softmax_scale=None,
+        num_query_groups=2,
+        ffn_hidden_size=11008,
+        kv_channels=128,
+        hidden_dropout=0.0,
+        attention_dropout=0.0,
+        fp32_residual_connection=False,
+        apply_residual_connection_post_layernorm=False,
+        layernorm_epsilon=1e-06,
+        layernorm_zero_centered_gamma=False,
+        add_bias_linear=False,
+        add_qkv_bias=True,
+        gated_linear_unit=True,
+        activation_func_fp8_input_store=False,
+        num_moe_experts=None,
+        rotary_interleaved=False,
+        window_size=None,
+        normalization="RMSNorm",
+        qk_layernorm=False,
+        test_mode=False,
+        calculate_per_token_loss=False,
+        multi_latent_attention=False,
+        init_method_std=0.02,
+        apply_query_key_layer_scaling=False,
+        attention_softmax_in_fp32=False,
+        bias_activation_fusion=False,
+        masked_softmax_fusion=True,
+        persist_layer_norm=True,
+        memory_efficient_layer_norm=False,
+        bias_dropout_fusion=True,
+        apply_rope_fusion=False,
+        recompute_granularity=None,
+        recompute_method=None,
+        recompute_num_layers=None,
+        distribute_saved_activations=False,
+        tp_only_amax_red=False,
+        cp_comm_type="p2p",
+        enable_cuda_graph=False,
+        cuda_graph_use_single_mempool=False,
+        cuda_graph_retain_backward_graph=False,
+        cuda_graph_warmup_steps=2,
+        external_cuda_graph=False,
+        clone_scatter_output_in_embedding=True,
+        disable_parameter_transpose_cache=False,
+        config_logger_dir="",
+        flash_decode=False,
+        inference_rng_tracker=False,
+        transformer_impl="transformer_engine",
+        rotary_base=1000000,
+        rotary_scaling_factor=1.0,
+        max_position_embeddings=128000,
+        mrope_section=[16, 24, 24],
+    )
+
+    return config
 
 
 def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:

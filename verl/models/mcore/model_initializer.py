@@ -146,4 +146,47 @@ def init_mcore_model_qwen2_5_vl(
     **extra_kwargs,
 ):
     # Qwen2_5_VLForConditionalGeneration
-    raise NotImplementedError("VLM is not supported yet")
+    from copy import deepcopy
+
+    from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+
+    from .qwen2_5_vl.model import Qwen2_5VLModel
+    from .qwen2_5_vl.transformer_config import get_vision_model_config, get_vision_projection_config
+
+    vision_config = get_vision_model_config(deepcopy(tfconfig))
+    vision_config.pipeline_model_parallel_size = 1
+    vision_config.first_pipeline_num_layers = None
+    vision_projector_config = get_vision_projection_config(
+        deepcopy(tfconfig), vision_config.hidden_size, spatial_merge_size=hf_config.vision_config.spatial_merge_size
+    )
+
+    transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=True)
+    __import__("ipdb").set_trace()
+    qwen25_vl_model = Qwen2_5VLModel(
+        vision_transformer_config=vision_config,
+        drop_vision_class_token=False,  # NOTE: no class token to drop?
+        vision_projection_config=vision_projector_config,
+        vision_projection_type="mlp",
+        allow_missing_vision_projection_checkpoint=False,  # TODO: may parameterized
+        language_transformer_config=tfconfig,
+        language_transformer_layer_spec=transformer_layer_spec,
+        language_vocab_size=hf_config.vocab_size,
+        language_max_sequence_length=hf_config.max_position_embeddings,
+        language_position_embedding_type="rope",
+        language_rotary_percent=1.0,
+        language_rotary_base=hf_config.rope_theta,
+        language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+        pre_process=pre_process,
+        post_process=post_process,
+        add_decoder=True,
+        add_encoder=True,
+    )
+
+    if post_process and value:
+        from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
+
+        qwen25_vl_model.language_model.output_layer = LinearForLastLayer(
+            input_size=tfconfig.hidden_size, output_size=1, config=tfconfig
+        )
+
+    return qwen25_vl_model
