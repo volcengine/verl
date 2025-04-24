@@ -32,3 +32,6 @@ RUN pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_r0
 
 # 9. Fix opencv
 RUN pip install opencv-python
+
+RUN pip install opencv-fixer && \
+    python -c "from opencv_fixer import AutoFix; AutoFix()"
