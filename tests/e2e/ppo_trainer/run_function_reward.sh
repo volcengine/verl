@@ -13,6 +13,7 @@ MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-512}
 MAX_RESPONSE_LEN=${MAX_RESPONSE_LEN:-512}
 
 ENGINE=${ENGINE:-vllm}
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
 RM_PAD=${RM_PAD:-True}
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
 USE_KL=${USE_KL:-False}
@@ -70,7 +71,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name="${ENGINE}" \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization="${GPU_MEMORY_UTILIZATION}" \
     actor_rollout_ref.rollout.enable_chunked_prefill="${ENABLE_CHUNKED_PREFILL}" \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     critic.optim.lr=1e-5 \

@@ -224,4 +224,4 @@ jobs:
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
-            ENGINE=sglang bash tests/e2e/ppo_trainer/run_function_reward.sh
+            ENGINE=sglang GPU_MEMORY_UTILIZATION=0.4 bash tests/e2e/ppo_trainer/run_function_reward.sh
