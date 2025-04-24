@@ -1064,6 +1064,13 @@ class RayPPOTrainer:
                         with _timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
+                # training metrics
+                metrics.update({
+                    'training/global_step': self.global_steps,
+                    'training/total_global_steps': self.total_training_steps,
+                    'training/epoch': epoch,
+                    'training/total_epochs': self.config.trainer.total_epochs,
+                })
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
