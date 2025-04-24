@@ -15,6 +15,10 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.utils.device import DeviceManager
+device_manager = DeviceManager.get_instance()
+if device_manager.current_device == "npu":
+    import mindspeed.megatron_adaptor
 
 import os
 import ray
@@ -106,8 +110,12 @@ class TaskRunner:
 
         elif config.actor_rollout_ref.actor.strategy == 'megatron':
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+            if device_manager.current_device == "npu":
+                from verl.workers.mindspeed_workers import ActorRolloutRefWorker, CriticWorker
+                from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+            else:
+                from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+                from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             ray_worker_group_cls = NVMegatronRayWorkerGroup
 
         else:
@@ -139,7 +147,10 @@ class TaskRunner:
             if config.reward_model.strategy == 'fsdp':
                 from verl.workers.fsdp_workers import RewardModelWorker
             elif config.reward_model.strategy == 'megatron':
-                from verl.workers.megatron_workers import RewardModelWorker
+                if device_manager.current_device == "npu":
+                    from verl.workers.mindspeed_workers import RewardModelWorker
+                else:   # megatron
+                    from verl.workers.megatron_workers import RewardModelWorker
             else:
                 raise NotImplementedError
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
