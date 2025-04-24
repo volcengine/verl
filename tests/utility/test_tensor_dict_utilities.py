@@ -50,6 +50,29 @@ def test_union_tensor_dict():
         union_numpy_dict(a, b_)
 
 
+def test_meta_info_metrics():
+    data1 = DataProto(batch=TensorDict({'obs': torch.randn(100, 10)}, batch_size=[100]),
+                      non_tensor_batch={'labels': np.array(["abc"] * 100, dtype=object)},
+                      meta_info={'metrics': {
+                          'loss': [0, 1, 2],
+                          "norm": [0],
+                          "lr": 0.1
+                      }})
+
+    data2 = DataProto(batch=TensorDict({'obs': torch.randn(100, 10)}, batch_size=[100]),
+                      non_tensor_batch={'labels': np.array(["cde"] * 100, dtype=object)},
+                      meta_info={'metrics': {
+                          'loss': [3, 4, 5],
+                          "norm": [1],
+                          "lr": 0.2
+                      }})
+
+    data3 = DataProto.concat([data1, data2])
+    np.testing.assert_array_equal(data3.meta_info['metrics']['loss'], np.array([0, 1, 2, 3, 4, 5]))
+    np.testing.assert_array_equal(data3.meta_info['metrics']['norm'], np.array([0, 1]))
+    np.testing.assert_array_equal(data3.meta_info['metrics']['lr'], np.array([0.1, 0.2]))
+
+
 def test_tensor_dict_constructor():
     obs = torch.randn(100, 10)
     act = torch.randn(100, 10, 3)
