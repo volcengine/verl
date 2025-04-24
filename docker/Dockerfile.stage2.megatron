@@ -29,3 +29,6 @@ RUN export NVTE_FRAMEWORK=pytorch && pip3 install --no-deps git+https://github.c
 
 # 8. Install Megatron-LM
 RUN pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_r0.12.0
+
+# 9. Fix opencv
+RUN pip install opencv-python
