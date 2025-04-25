@@ -36,11 +36,17 @@ from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron_utils import (
-    broadcast_from_megatron_pp, broadcast_str_from_megatron_pp,
-    convert_megatron_model_to_transformers_model, get_model, unwrap_model)
-from verl.utils.memory_buffer import (build_memory_buffer,
-                                      build_memory_reference_from_module,
-                                      get_weight_buffer_meta_from_module)
+    broadcast_from_megatron_pp,
+    broadcast_str_from_megatron_pp,
+    convert_megatron_model_to_transformers_model,
+    get_model,
+    unwrap_model,
+)
+from verl.utils.memory_buffer import (
+    build_memory_buffer,
+    build_memory_reference_from_module,
+    get_weight_buffer_meta_from_module,
+)
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_functional import allgather_dict_tensors
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader

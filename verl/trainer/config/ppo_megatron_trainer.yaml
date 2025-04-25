@@ -94,6 +94,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size_per_gpu: null
   rollout:
     name: vllm
+    mode: sync # sync: LLM, async: AsyncLLM
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
