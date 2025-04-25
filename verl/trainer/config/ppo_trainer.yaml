@@ -82,6 +82,8 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
+    max_turns: -1
+    stop: ["answer",] # vllm sampling stop param, if set, will open detokenize in vllm rollout
     name: vllm
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
