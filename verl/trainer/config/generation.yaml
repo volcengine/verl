@@ -14,6 +14,7 @@ model:
   external_lib: null
 rollout:
   name: vllm
+  mode: sync # sync: LLM, async: AsyncLLM
   temperature: 1.0
   top_k: 50 # 0 for hf rollout, -1 for vllm rollout
   top_p: 0.7
