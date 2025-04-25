@@ -140,12 +140,12 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     token_level_scores = data.batch['token_level_scores']
     batch_size = data.batch.batch_size[0]
     
-    # if multi_turn:
-    #     loss_mask = data.batch['loss_mask']
-    #     response_mask = loss_mask[:, -response_length:]
-    # else:
-    attention_mask = data.batch['attention_mask']
-    response_mask = attention_mask[:, -response_length:]
+    if multi_turn:
+        loss_mask = data.batch['loss_mask']
+        response_mask = loss_mask[:, -response_length:]
+    else:
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
         
     # compute kl between ref_policy and current policy
     # When apply_kl_penalty, algorithm.use_kl_in_reward=True, so the reference model has been enabled.
@@ -175,7 +175,7 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False):
     # Back-compatible with trainers that do not compute response mask in fit
     if "response_mask" not in data.batch.keys():
         data.batch['response_mask'] = compute_response_mask(data)
@@ -192,9 +192,14 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.GRPO:
+        # TODO: test on more adv estimator type
+        response_mask = data.batch["response_mask"]
+        if multi_turn:
+            response_length = response_mask.size(1)
+            response_mask = data.batch["loss_mask"][:, -response_length:]
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
-            eos_mask=data.batch['response_mask'],
+            eos_mask=response_mask,
             index=data.non_tensor_batch['uid'])
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
@@ -909,7 +914,8 @@ class RayPPOTrainer(object):
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
-                                                  num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                                  num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                                  multi_turn=self.config.actor_rollout_ref.rollout.get('multi_turn', False))
 
                     # update critic
                     if self.use_critic:
