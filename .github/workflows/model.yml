@@ -40,7 +40,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
-          pip3 install -e --no-deps .[test]
+          pip3 install -e .[test]
+          pip3 install nvidia-cudnn-cu12==9.8.0.87
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |

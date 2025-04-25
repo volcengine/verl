@@ -54,7 +54,8 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install peft
-          pip3 install -e --no-deps .[test,gpu]
+          pip3 install -e .[test,gpu]
+          pip3 install nvidia-cudnn-cu12==9.8.0.87
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

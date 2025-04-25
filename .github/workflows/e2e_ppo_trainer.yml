@@ -75,7 +75,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e --no-deps .[test,vllm]
+          pip3 install -e .[test,vllm]
+          pip3 install nvidia-cudnn-cu12==9.8.0.87
       - name: Prepare GSM8K dataset
         run: |
           ray stop --force
@@ -153,7 +154,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e --no-deps .[test,geo,vllm]
+          pip3 install -e .[test,geo,vllm]
       # Geo3k
       - name: Prepare Geo3k dataset
         run: |
@@ -186,7 +187,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e --no-deps .[test,gpu,sglang] --no-deps
+          pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -214,7 +215,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e --no-deps .[test,geo,gpu,sglang]
+          pip3 install -e .[test,geo,gpu,sglang]
       # Geo3k
       - name: Prepare Geo3k dataset
         run: |
