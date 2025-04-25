@@ -18,5 +18,5 @@ torchdata
 torchvision
 transformers
 wandb
-sglang[all]==0.4.4.post4
+sglang[all]==0.4.5
 torch-memory-saver>=0.0.5
