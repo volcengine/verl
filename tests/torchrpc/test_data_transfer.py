@@ -25,8 +25,7 @@ from torch import distributed as dist
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup
-from verl.utils.ray_utils import parallel_put
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
 
 
 class DummyWorker(Worker):
@@ -42,71 +41,50 @@ class DummyWorker(Worker):
             data.batch = data.batch.consolidate()
         return data
 
-
+@torchrpc_remote
 def test_data_transfer():
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
-    # Then run this code on every node
-    rank = int(os.environ.get('TORCHRPC_RANK'))
-    world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
-    if rank == 0:
-        # construct resource pool
-        resource_pool = TorchRPCResourcePool([8])
-        cls_with_init = TorchRPCClassWithInitArgs(cls=DummyWorker)
-        # construct worker group
-        wg = TorchRPCWorkerGroup(resource_pool, cls_with_init)
+    # construct resource pool
+    resource_pool = TorchRPCResourcePool([2, 2])
+    cls_with_init = TorchRPCClassWithInitArgs(cls=DummyWorker)
+    # construct worker group
+    wg = TorchRPCWorkerGroup(resource_pool, cls_with_init)
 
-        # this is real dataset size
-        batch_size = 4096
-        seqlen = 32768
+    # this is real dataset size
+    batch_size = 4096
+    seqlen = 32768
 
-        data_dict = {}
+    data_dict = {}
 
-        for i in range(2):
-            data_dict[str(i)] = torch.randint(0, 10000, (batch_size, seqlen))
+    for i in range(2):
+        data_dict[str(i)] = torch.randint(0, 10000, (batch_size, seqlen))
 
-        data = DataProto.from_dict(tensors=data_dict)
+    data = DataProto.from_dict(tensors=data_dict)
 
-        print(data)
+    print(data)
 
-        # we manually split data here and send to each worker
-        data_list = data.chunk(wg.world_size)
+    # we manually split data here and send to each worker
+    data_list = data.chunk(wg.world_size)
 
-        for i in range(wg.world_size):
-            # consolidate is necessary
-            if tensordict.__version__ >= "0.5.0":
-                data_list[i].batch = data_list[i].batch.consolidate()
+    for i in range(wg.world_size):
+        # consolidate is necessary
+        if tensordict.__version__ >= "0.5.0":
+            data_list[i].batch = data_list[i].batch.consolidate()
 
-        # with Timer(name="ray.pickle", initial_text=True):
-        #     for i in range(wg.world_size):
-        #         ray.cloudpickle.pickle.dumps(data_list[i])
 
-        # with Timer(name="raw.pickle", initial_text=True):
-        #     import pickle
+    with Timer(name="launch", initial_text=True):
+        output_ref = wg.do_nothing(data_list)
 
-        #     for i in range(wg.world_size):
-        #         pickle.dumps(data_list[i])
+    with Timer(name="get", initial_text=True):
+        # takes around 40 seconds
+        output_lst = rref_to_here(output_ref)
 
-        # we put in advance
-        with Timer(name="put", initial_text=True):
-            # takes around 40 seconds
-            data_list_ref = parallel_put(data_list)
-            # for i in range(wg.world_size):
-            #     data_list[i] = ray.put(data_list[i])
+    for input_data, output_data in zip(data_list, output_lst):
+        for key in input_data.batch.keys():
+            assert torch.all(torch.eq(input_data.batch[key] + 1, output_data.batch[key])), (
+                input_data.batch[key],
+                output_data.batch[key],
+                key,
+            )
 
-        with Timer(name="launch", initial_text=True):
-            output_ref = wg.do_nothing(data_list_ref)
-
-        with Timer(name="get", initial_text=True):
-            # takes around 40 seconds
-            output_lst = ray.get(output_ref)
-
-        for input_data, output_data in zip(data_list, output_lst):
-            for key in input_data.batch.keys():
-                assert torch.all(torch.eq(input_data.batch[key] + 1, output_data.batch[key])), (
-                    input_data.batch[key],
-                    output_data.batch[key],
-                    key,
-                )
-
-    rpc.shutdown()
+if __name__ == "__main__":
+    test_data_transfer()

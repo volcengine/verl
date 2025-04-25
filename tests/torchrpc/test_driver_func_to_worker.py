@@ -21,7 +21,7 @@ from tensordict import TensorDict
 
 from verl import DataProto
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCWorkerGroup, TorchRPCClassWithInitArgs, TorchRPCResourcePool
+from verl.single_controller.torchrpc import TorchRPCWorkerGroup, TorchRPCClassWithInitArgs, TorchRPCResourcePool, torchrpc_remote
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["NCCL_DEBUG"] = "WARN"
@@ -49,43 +49,33 @@ def get_aux_metrics(self, test_proto):
     )
     return ret_proto
 
-
+@torchrpc_remote
 def test():
-    # construct model
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
-    # Then run this code on every node
-    rank = int(os.environ.get('TORCHRPC_RANK'))
-    world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
-    if rank == 0:
+    # create 2 workers, each hold a GPU
+    resource_pool = TorchRPCResourcePool([2], use_gpu=True)
 
-        # create 2 workers, each hold a GPU
-        resource_pool = TorchRPCResourcePool([2], use_gpu=True)
+    class_with_args = TorchRPCClassWithInitArgs(cls=ModelActor)
+    shard_wg = TorchRPCWorkerGroup(resource_pool, class_with_args)
 
-        class_with_args = TorchRPCClassWithInitArgs(cls=ModelActor)
-        shard_wg = TorchRPCWorkerGroup(resource_pool, class_with_args)
+    test_bs = 8
+    test_proto = DataProto(
+        TensorDict(
+            {
+                "sequence_ids": torch.ones([test_bs, 2048], dtype=torch.int64),
+            },
+            batch_size=test_bs,
+        ),
+        meta_info={"query_length": 1536},
+    )
 
-        test_bs = 8
-        test_proto = DataProto(
-            TensorDict(
-                {
-                    "sequence_ids": torch.ones([test_bs, 2048], dtype=torch.int64),
-                },
-                batch_size=test_bs,
-            ),
-            meta_info={"query_length": 1536},
-        )
+    # Sharding among different ranks
+    ret_proto1 = shard_wg.execute_with_func_generator(get_aux_metrics, test_proto)
 
-        # Sharding among different ranks
-        ret_proto1 = shard_wg.execute_with_func_generator(get_aux_metrics, test_proto)
+    # compare execute on driver
+    hs = HackSelf()
+    ret_proto2 = get_aux_metrics(hs, test_proto)
 
-        # compare execute on driver
-        hs = HackSelf()
-        ret_proto2 = get_aux_metrics(hs, test_proto)
-
-        torch.testing.assert_close(ret_proto1.batch["decode_count"], ret_proto2.batch["decode_count"])
-
-    rpc.shutdown()
+    torch.testing.assert_close(ret_proto1.batch["decode_count"], ret_proto2.batch["decode_count"])
 
 if __name__ == "__main__":
     test()
