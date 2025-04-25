@@ -248,7 +248,6 @@ class RayPRIMETrainer(RayPPOTrainer):
             actor_local_path,
             actor_remote_path,
             self.global_steps,
-            remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save,
         )
 
         if self.use_rm:
@@ -262,7 +261,6 @@ class RayPRIMETrainer(RayPPOTrainer):
                 reward_local_path,
                 reward_remote_path,
                 self.global_steps,
-                remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save,
             )
 
         # save dataloader
