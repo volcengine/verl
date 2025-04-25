@@ -433,8 +433,8 @@ class RayPPOTrainer:
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
             )
 
-        if config.actor_rollout_ref.model.use_fused_loss:
-            assert config.actor_rollout_ref.model.return_last_hidden_state, (
+        if config.actor_rollout_ref.model.get("use_fused_loss", False):
+            assert config.actor_rollout_ref.model.get("return_last_hidden_state", False), (
                 "When `use_fused_loss` is enabled, you must enable `use_remove_padding`."
             )
 
