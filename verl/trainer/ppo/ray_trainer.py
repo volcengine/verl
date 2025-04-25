@@ -56,6 +56,7 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 WorkerType = Type[Worker]
 
@@ -581,7 +582,7 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
-    def _validate(self):
+    async def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -616,7 +617,7 @@ class RayPPOTrainer:
             else:
                 test_gen_batch = test_batch.pop(
                     batch_keys=["input_ids", "attention_mask", "position_ids"],
-                    non_tensor_batch_keys=["raw_prompt_ids"],
+                    non_tensor_batch_keys=["raw_prompt_ids"] + ["raw_prompt"] if self.async_rollout_mode else [],
                 )
 
             test_gen_batch.meta_info = {
@@ -630,7 +631,14 @@ class RayPPOTrainer:
 
             # pad to be divisible by dp_size
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
-            test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            if not self.async_rollout_mode:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            else:
+                await self.async_rollout_manager.wake_up()
+                test_output_gen_batch_padded = await self.async_rollout_manager.generate_sequences(
+                    test_gen_batch_padded
+                )
+                await self.async_rollout_manager.sleep()
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -770,6 +778,15 @@ class RayPPOTrainer:
         self.actor_rollout_wg = all_wg["actor_rollout"]
         self.actor_rollout_wg.init_model()
 
+        # create async rollout manager and request scheduler
+        self.async_rollout_mode = False
+        if self.config.actor_rollout_ref.rollout.mode == "async":
+            self.async_rollout_mode = True
+            self.async_rollout_manager = AsyncLLMServerManager(
+                config=self.config.actor_rollout_ref,
+                worker_group=self.actor_rollout_wg,
+            )
+
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(
@@ -899,7 +916,7 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
-    def fit(self):
+    async def fit(self):
         """
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC
@@ -925,7 +942,7 @@ class RayPPOTrainer:
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
+            val_metrics = await self._validate()
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
@@ -954,7 +971,7 @@ class RayPPOTrainer:
                 else:
                     gen_batch = batch.pop(
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
-                        non_tensor_batch_keys=["raw_prompt_ids"],
+                        non_tensor_batch_keys=["raw_prompt_ids"] + ["raw_prompt"] if self.async_rollout_mode else [],
                     )
 
                 is_last_step = self.global_steps >= self.total_training_steps
@@ -962,7 +979,12 @@ class RayPPOTrainer:
                 with _timer("step", timing_raw):
                     # generate a batch
                     with _timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        if not self.async_rollout_mode:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        else:
+                            await self.async_rollout_manager.wake_up()
+                            gen_batch_output = await self.async_rollout_manager.generate_sequences(gen_batch)
+                            await self.async_rollout_manager.sleep()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):
@@ -1105,7 +1127,7 @@ class RayPPOTrainer:
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with _timer("testing", timing_raw):
-                            val_metrics: dict = self._validate()
+                            val_metrics: dict = await self._validate()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
@@ -1117,10 +1139,12 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 # training metrics
-                metrics.update({
-                    'training/global_step': self.global_steps,
-                    'training/epoch': epoch,
-                })
+                metrics.update(
+                    {
+                        "training/global_step": self.global_steps,
+                        "training/epoch": epoch,
+                    }
+                )
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))

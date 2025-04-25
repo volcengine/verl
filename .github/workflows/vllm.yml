@@ -85,3 +85,7 @@ jobs:
           export OUTPUT_PATH="${HOME}/data/gen/qwen_05_gen_test.parquet"
           MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct NGPUS_PER_NODE=1 GEN_TP=1 bash ./run_gen_qwen05.sh
           rm -rf "${OUTPUT_PATH}"
+      - name: Running multi-turn rollout tests on 8 L20 GPUs
+        run: |
+          pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
+          python3 tests/rollout/test_vllm_multi_turn.py

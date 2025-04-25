@@ -18,17 +18,15 @@ import os
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp.api import (FullStateDictConfig,
-                                        ShardedStateDictConfig, StateDictType)
-from torch.distributed.fsdp.fully_sharded_data_parallel import \
-    FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM
+from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -45,11 +43,17 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
+        offload_param: bool = False,
     ):
         self.module = module
+        # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
+        self.model_runner = (
+            inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
+        )
         self.model_config = model_config
         self.device_mesh = device_mesh
+        self.offload_param = offload_param
 
         # Full params
         self.full_params = full_params
@@ -64,8 +68,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 state_dict_config=ShardedStateDictConfig(),
             )
 
-        self.tp_size = vllm_ps.get_tensor_model_parallel_world_size()
-        self.tp_rank = vllm_ps.get_tensor_model_parallel_rank()
+        self.tp_size = self.device_mesh["infer_tp"].size()
+        self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
@@ -90,6 +94,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         torch.cuda.empty_cache()
 
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
+        if self.offload_param:
+            load_fsdp_model_to_gpu(self.module)
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
@@ -112,18 +118,14 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.update_params(params)
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
+            if self.offload_param:
+                offload_fsdp_model_to_cpu(self.module)
             torch.cuda.empty_cache()
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
-
-        # TODO: offload FSDP model weights
-        # self.module.cpu()
-        # torch.cuda.empty_cache()
-        # if torch.distributed.get_rank() == 0:
-        # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
@@ -140,10 +142,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
-
-        # self.module.to('cuda')
-        # if torch.distributed.get_rank() == 0:
-        #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         self.module.train()
 
@@ -182,10 +180,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
     def update_params(self, updated_params):
-        model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
         loaded_params = model.load_weights(
-            ((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items())
+            (
+                (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
+                for name, param in updated_params.items()
+            )
         )
-        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+        logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))
