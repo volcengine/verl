@@ -876,7 +876,7 @@ class RayPPOTrainer:
             return
             
         threshold = self.config.trainer.get('positive_reward_threshold', 0.5)
-        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'test-1.0')
+        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'token_length')
         
         # Extract rewards and responses
         rewards = data.batch['acc'].cpu().tolist()

@@ -212,7 +212,7 @@ trainer:
   save_freq: -1
   track_token_lengths: true
   positive_reward_threshold: 0.5
-  token_length_tag_prefix: "test-1.0"
+  token_length_tag_prefix: "token_length"
   # auto: find the last ckpt to resume. If can't find, start from scratch
   resume_mode: auto # or disable or resume_path if resume_from_path is set
   resume_from_path: null
