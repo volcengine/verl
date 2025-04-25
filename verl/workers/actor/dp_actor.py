@@ -329,6 +329,7 @@ class DataParallelPPOActor(BasePPOActor):
         for epoch in range(self.config.ppo_epochs):
             for batch_idx, data in enumerate(dataloader):
                 mini_batch = data
+                # use gradient_accumulation
                 if self.config.ppo_micro_batch_size_per_gpu or self.config.ppo_use_dynamic_bsz:
                     # split batch into micro_batches
                     if has_multi_modal_inputs:

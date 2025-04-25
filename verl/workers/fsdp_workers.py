@@ -757,7 +757,7 @@ class CriticWorker(Worker):
         # Note: We force turn off CPUOffload for critic because it causes incorrect results when using grad accumulation
         critic_module = FSDP(critic_module,
                              param_init_fn=init_fn,
-                             use_orig_params=False,
+                             use_orig_params=True,
                              auto_wrap_policy=auto_wrap_policy,
                              device_id=torch.cuda.current_device(),
                              sharding_strategy=sharding_strategy,
@@ -769,10 +769,16 @@ class CriticWorker(Worker):
 
         log_gpu_memory_usage('After critic FSDP', logger=None)
 
-        critic_optimizer = optim.AdamW(critic_module.parameters(),
-                                       lr=config.optim.lr,
-                                       betas=config.optim.get('betas', (0.9, 0.999)),
-                                       weight_decay=config.optim.get('weight_decay', 1e-2))
+        from verl.utils.torch_functional import apply_optimizer_in_backward, get_constant_schedule_with_warmup, update_scheduler_with_custom_step
+
+        if config.optim.bwd_hook:
+            optim_dict = apply_optimizer_in_backward(critic_module, config.optim)
+            critic_optimizer = next(iter(optim_dict.values()))
+        else:
+            critic_optimizer = optim.AdamW(critic_module.parameters(),
+                                        lr=config.optim.lr,
+                                        betas=config.optim.get('betas', (0.9, 0.999)),
+                                        weight_decay=config.optim.get('weight_decay', 1e-2))
 
         total_steps = config.optim.get('total_training_steps', 0)
         num_warmup_steps = int(config.optim.get('lr_warmup_steps', -1))
@@ -782,9 +788,11 @@ class CriticWorker(Worker):
 
         print(f'Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}')
 
-        from verl.utils.torch_functional import get_constant_schedule_with_warmup
         critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer,
                                                                 num_warmup_steps=num_warmup_steps)
+
+        if config.optim.bwd_hook:
+            update_scheduler_with_custom_step(critic_lr_scheduler, optim_dict)
 
         return critic_module, critic_optimizer, critic_lr_scheduler
 
