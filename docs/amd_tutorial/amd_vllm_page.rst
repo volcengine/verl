@@ -14,7 +14,7 @@ To enable vLLM's sleep mode, you can first use community patched code (from `thi
 
 .. code-block:: bash
 
-    git clone https://github.com/vllm-project/vllm.git
+    git clone -b sleep_amd https://github.com/HollowMan6/vllm.git
     cd vllm
     sudo ln -sf /opt/rocm/lib/libamdhip64.so /usr/lib/libamdhip64.so
     VLLM_TARGET_DEVICE=rocm ROCM_PATH=/opt/rocm/ VLLM_GPU_LANG=HIP SETUPTOOLS_SCM_PRETEND_VERSION=0.8.4.dev python3 setup.py develop
@@ -71,7 +71,7 @@ Our investigation shows that ROCm may trigger an unexpected crash when attemptin
 
 .. code-block:: python
 	
-	self.inference_engine = LLM(
+    self.inference_engine = LLM(
         model=model_path,
         enable_sleep_mode=True,
         tensor_parallel_size=tensor_parallel_size,
@@ -91,7 +91,7 @@ Our investigation shows that ROCm may trigger an unexpected crash when attemptin
         enable_prefix_caching=True,
         trust_remote_code=trust_remote_code,
         # enable compilation config to bypass oom on rocm
-		# change depends on your GPU memory size
+	# change depends on your GPU memory size
         compilation_config={"cudagraph_capture_sizes": [1, 2, 4, 8, 16, 32, 64]},
         seed=config.get('seed', 0),
     )
