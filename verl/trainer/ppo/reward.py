@@ -15,8 +15,10 @@
 import os
 
 import ray
+import torch
 
 from verl import DataProto
+from verl.utils.length_penalty import apply_length_penalty
 
 
 def get_custom_reward_fn(config):
@@ -75,6 +77,10 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     else:
         raise NotImplementedError
 
+    # Pass length penalty config to reward manager
+    length_penalty_config = dict(config.reward_model.get("length_penalty", {}))
+    reward_kwargs.update({"length_penalty_config": length_penalty_config})
+
     compute_score = get_custom_reward_fn(config)
     return reward_manager_cls(
         tokenizer=tokenizer,
@@ -102,6 +108,36 @@ def compute_reward(data: DataProto, reward_fn):
         print(f"Error in reward_fn: {e}")
         reward_tensor = reward_fn(data)
         reward_extra_infos_dict = {}
+    
+    # Apply length penalty if configured and if sequence lengths are available
+    if hasattr(reward_fn, "length_penalty_config") and reward_fn.length_penalty_config.get("enabled", False):
+        sequence_lengths = None
+        if "response_lengths" in data:
+            sequence_lengths = data["response_lengths"]
+        elif "attention_mask" in data and "prompt_lengths" in data:
+            # Calculate response length by subtracting prompt length from total length
+            total_lengths = torch.sum(data["attention_mask"], dim=1)
+            prompt_lengths = data["prompt_lengths"]
+            sequence_lengths = total_lengths - prompt_lengths
+        
+        if sequence_lengths is not None:
+            # Apply length penalty
+            alpha = reward_fn.length_penalty_config.get("alpha", 0.0)
+            min_length = reward_fn.length_penalty_config.get("min_length", 0)
+            max_length = reward_fn.length_penalty_config.get("max_length", None)
+            
+            reward_tensor = apply_length_penalty(
+                reward_tensor, 
+                sequence_lengths,
+                alpha=alpha,
+                min_length=min_length,
+                max_length=max_length
+            )
+            
+            # Add length penalty info to extra_infos if returning dict
+            if reward_extra_infos_dict is not None:
+                reward_extra_infos_dict["length_penalty_applied"] = True
+                reward_extra_infos_dict["length_penalty_alpha"] = alpha
 
     return reward_tensor, reward_extra_infos_dict
 
