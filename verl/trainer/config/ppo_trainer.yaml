@@ -4,6 +4,7 @@ data:
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
   reward_fn_key: data_source
+  custom_chat_template: null
   max_prompt_length: 512
   max_response_length: 512
   train_batch_size: 1024
@@ -181,6 +182,8 @@ reward_model:
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
+  num_examine: 0
+  val_num_examine: 5
 
 custom_reward_function:
   path: null
