@@ -18,20 +18,23 @@ import os
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import (FullStateDictConfig,
+                                        ShardedStateDictConfig, StateDictType)
+from torch.distributed.fsdp.fully_sharded_data_parallel import \
+    FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import log_gpu_memory_usage
+from verl.third_party.vllm import vllm_version
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
-from .patch import patched_ds_v3_load_weights, patched_qwen_moe_load_weights
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPVLLMShardingManager(BaseShardingManager):
@@ -75,6 +78,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
         # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
         # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
@@ -126,8 +130,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
         # TODO(ZSL): check this
         if vllm_version in (
             "0.5.4",
@@ -136,7 +140,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
-        log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
         # self.module.to('cuda')
         # if torch.distributed.get_rank() == 0:
@@ -152,6 +155,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.gen_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.torch_random_states)
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
         """All gather across tp group to make each rank has identical input."""
         if self.tp_size == 1:
@@ -169,6 +173,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         all_gather_data_proto(data=data, process_group=group)
         return data
 
+    @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
         """Get chunk data of this tp rank since we do all gather in preprocess."""
         if self.tp_size == 1:
@@ -178,25 +183,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     def update_params(self, updated_params):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
-        if model.config.architectures[0] in ["DeepseekV2ForCausalLM", "DeepseekV3ForCausalLM"]:
-            loaded_params = patched_ds_v3_load_weights(
-                model,
-                (
-                    (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
-                    for name, param in updated_params.items()
-                ),
-            )
-        elif model.config.architectures[0] in ["Qwen2MoeForCausalLM"]:
-            loaded_params = patched_qwen_moe_load_weights(
-                model,
-                (
-                    (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
-                    for name, param in updated_params.items()
-                ),
-            )
-        else:
-            loaded_params = model.load_weights(
-                ((name, param.full_tensor() if world_size != 1 else param) for name, param in updated_params.items())
-            )
+        loaded_params = model.load_weights(
+            ((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items())
+        )
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")

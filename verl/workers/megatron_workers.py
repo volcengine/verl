@@ -43,7 +43,7 @@ from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def set_random_seed(seed):
@@ -216,9 +216,10 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     def _build_rollout(self, trust_remote_code=False):
         if self.config.rollout.name == "vllm":
+            from torch.distributed.device_mesh import init_device_mesh
+
             from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
             from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
-            from torch.distributed.device_mesh import init_device_mesh
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
@@ -353,8 +354,6 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         data.batch = data.batch.cuda()
 
-        log_gpu_memory_usage("Before update policy", logger=logger)
-
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         dataloader = self.actor.make_minibatch_iterator(data=data)
@@ -364,8 +363,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
-
-        log_gpu_memory_usage("After update policy", logger=logger)
 
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={"metrics": metrics})
@@ -388,19 +385,13 @@ class ActorRolloutRefWorker(MegatronWorker):
         }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
-            log_gpu_memory_usage("After entering sharding manager", logger=logger)
-
             prompts = self.sharding_manager.preprocess_data(prompts)
             output = self.rollout.generate_sequences(prompts=prompts)
-
-            log_gpu_memory_usage("After rollout generation", logger=logger)
-
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After generate_sequences", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
@@ -436,7 +427,6 @@ class ActorRolloutRefWorker(MegatronWorker):
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
-        log_gpu_memory_usage("After generate_sequences", logger=logger)
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

@@ -27,9 +27,9 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import OptimizerConfig
 from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
+from transformers import PretrainedConfig
 
 from verl.utils.memory_buffer import build_memory_reference_from_module
 from verl.utils.torch_dtypes import PrecisionType
@@ -157,9 +157,6 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
     return unwrapped_model
 
 
-from transformers import PretrainedConfig
-
-
 def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerConfig:
     print(f"megatron config {megatron_config}")
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
@@ -199,7 +196,6 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
-        attention_backend=AttnBackend.flash,
         bf16=dt is torch.bfloat16,
     )
 
@@ -208,10 +204,10 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
 
 def init_megatron_optim_config(optim_config: Dict) -> OptimizerConfig:
     config = OptimizerConfig(
-        optimizer='adam',
-        lr=optim_config.get('lr'),
-        clip_grad=optim_config.get('clip_grad'),
-        weight_decay=optim_config.get('weight_decay'),
+        optimizer="adam",
+        lr=optim_config.get("lr"),
+        clip_grad=optim_config.get("clip_grad"),
+        weight_decay=optim_config.get("weight_decay"),
         bf16=True,
         params_dtype=torch.bfloat16,
         use_distributed_optimizer=True,
