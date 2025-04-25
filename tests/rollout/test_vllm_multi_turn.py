@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import os
 from typing import Any, Dict
 
 import ray
@@ -41,6 +42,11 @@ async def test_vllm_multi_turn():
     config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
 
     # =========================== 1. Create hybrid ActorRollout workers ===========================
+    # make openai client happy
+    os.environ["no_proxy"] = ""
+    os.environ["http_proxy"] = ""
+    os.environ["https_proxy"] = ""
+
     ray.init(
         runtime_env={
             "env_vars": {
@@ -48,9 +54,6 @@ async def test_vllm_multi_turn():
                 "NCCL_DEBUG": "WARN",
                 "VLLM_LOGGING_LEVEL": "WARN",
                 "VLLM_USE_V1": "1",
-                "no_proxy": "",
-                "http_proxy": "",
-                "https_proxy": "",
             }
         }
     )
