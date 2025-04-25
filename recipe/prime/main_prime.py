@@ -123,6 +123,10 @@ def main_task(config, compute_score=None):
         from verl.workers.reward_manager import PrimeRewardManager
 
         reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == "ray":
+        from verl.workers.reward_manager import RayRewardManager
+
+        reward_manager_cls = RayRewardManager
     else:
         raise NotImplementedError
     reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
