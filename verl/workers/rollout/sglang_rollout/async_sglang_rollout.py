@@ -657,12 +657,14 @@ class AsyncSGLangRollout(BaseRollout):
             print(f"examine first request:\n{sorted_output_req_list[0].messages=}\n{self.tokenizer.decode(sorted_output_req_list[0].input_ids)=}")
             attn_mask1_input_ids = []
             loss_mask1_input_ids = []
-            for i in range(input_ids.shape[-1]):
+            attn_mask1_position_ids = []
+            for i in range(input_ids[0].shape[-1]):
                 if attention_mask[0][i] == 1:
                     attn_mask1_input_ids.append(input_ids[0][i])
+                    attn_mask1_position_ids.append(position_ids[0][i].item())
                 if loss_mask[0][i] == 1:
                     loss_mask1_input_ids.append(input_ids[0][i])
-            print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(attn_mask1_input_ids)=}\n{self.tokenizer.decode(loss_mask1_input_ids)=}")
+            print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(attn_mask1_input_ids)=}\n{attn_mask1_position_ids=}\n{self.tokenizer.decode(loss_mask1_input_ids)=}")
         # Construct the batch data
         batch = TensorDict(
             {

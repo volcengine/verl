@@ -109,7 +109,9 @@ class DataParallelPPOActor(BasePPOActor):
                     if not hasattr(self, 'tokenizer'):
                             from transformers import AutoTokenizer
                             self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
-                    print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(input_ids_rmpad[0])=}\n{position_ids_rmpad[0]=}")
+                    print(f"{position_ids_rmpad.shape=}")
+                    input_ids0_len = (input_ids[0] != self.tokenizer.pad_token_id).sum().item()
+                    print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(input_ids_rmpad[0][:input_ids0_len])=}\n{position_ids_rmpad[0][:input_ids0_len]=}")
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(input_ids=input_ids_rmpad,
