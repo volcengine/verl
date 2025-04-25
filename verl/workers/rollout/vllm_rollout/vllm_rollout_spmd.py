@@ -292,12 +292,14 @@ class vLLMRollout(BaseRollout):
                 attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
                 position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
                 batch_size = batch_size * self.sampling_params.n
-                if 'multi_modal_inputs' in non_tensor_batch.keys():
-                    non_tensor_batch['multi_modal_inputs'] = _repeat_interleave(non_tensor_batch['multi_modal_inputs'],
-                                                                                self.sampling_params.n)
+                if "multi_modal_inputs" in non_tensor_batch.keys():
+                    non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(
+                        non_tensor_batch["multi_modal_inputs"], self.sampling_params.n
+                    )
                 if 'raw_prompt_ids' in non_tensor_batch.keys():
-                    non_tensor_batch['raw_prompt_ids'] = _repeat_interleave(non_tensor_batch['raw_prompt_ids'],
-                                                                             self.sampling_params.n)
+                    non_tensor_batch['raw_prompt_ids'] = _repeat_interleave(
+                        non_tensor_batch['raw_prompt_ids'], self.sampling_params.n
+                    )
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
