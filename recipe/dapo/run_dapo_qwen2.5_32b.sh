@@ -46,6 +46,7 @@ TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 temperature=1.0
 top_p=1.0
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
+val_top_p=0.7
 
 # Performance Related Parameter
 sp_size=8
@@ -108,7 +109,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k="${top_k}" \
     actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
-    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p} \
+    actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \

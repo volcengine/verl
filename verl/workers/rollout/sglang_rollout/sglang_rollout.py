@@ -37,8 +37,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.verl_engine import VerlEngine
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.server_args import PortArgs, ServerArgs
-from sglang.srt.utils import broadcast_pyobj, get_ip
+from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -46,6 +45,7 @@ from torch.nn.utils.rnn import pad_sequence
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 
@@ -59,7 +59,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
-    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
+    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is
+    # not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
@@ -67,11 +68,10 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 
 # NOTE(linjunrong): adhoc
 def _post_process_outputs(tokenizer, output):
-    def _map_each_response(l):
-        # output_token_ids = torch.tensor(l['token_ids'])
+    def _map_each_response(resp):
         log_probs = []
         output_token_ids = []
-        for log_prob, token_ids, _ in l["meta_info"]["output_token_logprobs"]:
+        for log_prob, token_ids, _ in resp["meta_info"]["output_token_logprobs"]:
             log_probs.append(log_prob)
             output_token_ids.append(token_ids)
         log_probs = torch.tensor(log_probs)
@@ -98,6 +98,7 @@ class SGLangRollout(BaseRollout):
         config: DictConfig,
         tokenizer,
         model_hf_config,
+        port=None,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -154,19 +155,25 @@ class SGLangRollout(BaseRollout):
         torch.distributed.all_gather_object(
             visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp")
         )
-        visible_devices_set = set(visible_devices)
+        visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
         nnodes = -(-tp_size // len(visible_devices_set))
-        server_args = ServerArgs(model_path=actor_module, nnodes=nnodes)
-        ip, port_args = get_ip(), PortArgs.init_new(server_args)
-        [ip, port_args] = broadcast_pyobj(
-            [ip, port_args],
-            rank=tp_rank,
-            dist_group=device_mesh_cpu.get_group("tp"),
-            src=device_mesh_cpu["tp"].mesh[0].item(),
-        )
-        dist_init_addr = f"{ip}:{port_args.nccl_port}"
+        if nnodes > 1:
+            ip = get_ip()
+            port = get_open_port() if port is None else port
+            [ip, port] = broadcast_pyobj(
+                [ip, port],
+                rank=tp_rank,
+                dist_group=device_mesh_cpu.get_group("tp"),
+                src=device_mesh_cpu["tp"].mesh[0].item(),
+                force_cpu_device=False,
+            )
+            dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
+
+        else:
+            dist_init_addr = None
+
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
         self.inference_engine = VerlEngine(
             model_path=actor_module,
@@ -313,7 +320,7 @@ class SGLangRollout(BaseRollout):
         if response.shape[1] < self.config.response_length:
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-        if self.config.n > 1 and do_sample:
+        if self.sampling_params.get("n", 1) > 1 and do_sample:
             idx = idx.repeat_interleave(self.config.n, dim=0)
             attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
             position_ids = position_ids.repeat_interleave(self.config.n, dim=0)

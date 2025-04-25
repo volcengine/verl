@@ -52,9 +52,6 @@ Ray Distributed Debugger VSCode Extension (Recommended)
 
    The extension will detect active breakpoints and display them in VSCode.
 
-   .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/launch.png?raw=true
-      :alt: Detected breakpoint in VSCode
-
    **Note:** Breakpoints are only supported inside functions decorated with `@ray.remote`.
 
 5. Launching the Debugger.
@@ -69,7 +66,7 @@ Ray Distributed Debugger VSCode Extension (Recommended)
 
  Once the process hits the first `breakpoint()`, click the Ray Distributed Debugger icon in the VSCode sidebar to attach the debugger.
 
-   .. image:: https://github.com/aoshen524/verl/blob/main/docs/start/4ddad74395c79a1402331c0ce73316f.png?raw=true
+   .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/launch.png?raw=true
       :alt: Attaching VSCode debugger to Ray process
 
 7. Debugging With Multiple breakpoint().
@@ -93,5 +90,4 @@ Legacy Ray Debugger
 2. Set up breakpoint in your code, and submit job to cluster. Then run ``ray debug`` to wait breakpoint:
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/ray/legacy.png?raw=true
-
 

@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import json
 import os
 import uuid
 from collections import defaultdict
@@ -532,6 +533,30 @@ class RayPPOTrainer:
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
+    def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
+        """Dump rollout/validation samples as JSONL."""
+        os.makedirs(dump_path, exist_ok=True)
+        filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
+
+        n = len(inputs)
+        base_data = {
+            "input": inputs,
+            "output": outputs,
+            "score": scores,
+            "step": [self.global_steps] * n,
+        }
+
+        for k, v in reward_extra_infos_dict.items():
+            if len(v) == n:
+                base_data[k] = v
+
+        with open(filename, "w") as f:
+            for i in range(n):
+                entry = {k: v[i] for k, v in base_data.items()}
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        print(f"Dumped generations to {filename}")
+
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
@@ -632,6 +657,17 @@ class RayPPOTrainer:
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
+        # dump generations
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        if val_data_dir:
+            self._dump_generations(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+            )
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
@@ -1078,6 +1114,21 @@ class RayPPOTrainer:
                             self.ref_policy_wg.sync_with_actor(
                                 self.actor_rollout_wg.export_actor_weights(),
                                 self.config.actor_rollout_ref.ref.sync_actor_alpha,
+
+                    # Log rollout generations if enabled
+                    rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                    if rollout_data_dir:
+                        with _timer("dump_rollout_generations", timing_raw):
+                            print(batch.batch.keys())
+                            inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+                            outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+                            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
+                            self._dump_generations(
+                                inputs=inputs,
+                                outputs=outputs,
+                                scores=scores,
+                                reward_extra_infos_dict=reward_extra_infos_dict,
+                                dump_path=rollout_data_dir,
                             )
 
                     # validate
@@ -1098,6 +1149,11 @@ class RayPPOTrainer:
                         with _timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
+                # training metrics
+                metrics.update({
+                    'training/global_step': self.global_steps,
+                    'training/epoch': epoch,
+                })
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
