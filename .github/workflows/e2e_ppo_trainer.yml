@@ -175,7 +175,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4
+      image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -203,7 +203,7 @@ jobs:
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4
+      image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
       options: --gpus all --shm-size=50g # Visual dataloader requires large memory
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -224,4 +224,6 @@ jobs:
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
-            ENGINE=sglang bash tests/e2e/ppo_trainer/run_function_reward.sh
+            ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
+            ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
+            bash tests/e2e/ppo_trainer/run_function_reward.sh
