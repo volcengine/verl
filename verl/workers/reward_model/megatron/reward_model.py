@@ -62,7 +62,7 @@ class MegatronRewardModel(BasePPORewardModel):
         attention_mask = data.batch["attention_mask"]
         position_ids = data.batch["position_ids"]
         ori_values = {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids}
-        ori_bs, ori_seqlen = input_ids.size(0), input_ids.size(1)
+        _, ori_seqlen = input_ids.size(0), input_ids.size(1)
         input_ids_for_rm = []
         attention_mask_for_rm = []
         position_ids_for_rm = []
@@ -86,7 +86,8 @@ class MegatronRewardModel(BasePPORewardModel):
                 # only print first decode result
                 print(
                     f"device {torch.cuda.current_device()}: sft decode result:\n{decode_result}\n \
-                        \ndevice {torch.cuda.current_device()}: sft decode result with rm chat template:\n{decode_with_rm_chat}\n\n"
+                        \ndevice {torch.cuda.current_device()}: sft decode result with \
+                        rm chat template:\n{decode_with_rm_chat}\n\n"
                 )
                 print_decode = False
             # 3. encode by rm_tokenizer
@@ -139,8 +140,9 @@ class MegatronRewardModel(BasePPORewardModel):
 
         with torch.no_grad():
             output = self.forward_batch(data)
+            output = [x['logits'] for x in output]
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                logits = torch.cat([output], dim=0)
+                logits = torch.cat(output, dim=0)
             else:
                 logits = torch.empty(
                     (input_ids.shape[0], input_ids.shape[1]),
@@ -201,8 +203,8 @@ class MegatronRewardModel(BasePPORewardModel):
         )
 
         # split into micro-batches
-        if self.config is not None and "ppo_micro_batch_size_per_gpu" in self.config:
-            infer_batch_size = self.config.ppo_micro_batch_size_per_gpu
+        if self.config is not None and "micro_batch_size_per_gpu" in self.config:
+            infer_batch_size = self.config.micro_batch_size_per_gpu
         else:
             infer_batch_size = data.batch.batch_size[0]
 
@@ -212,7 +214,7 @@ class MegatronRewardModel(BasePPORewardModel):
         seq_len = batches[0]["input_ids"].shape[1]
 
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
+        compute_transformers_input_shapes(
             batches,
             meta_info={
                 "sequence_parallel": self.tf_config.sequence_parallel,
