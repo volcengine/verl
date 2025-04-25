@@ -655,7 +655,14 @@ class AsyncSGLangRollout(BaseRollout):
         
         if self._tp_rank == 0 and self._device_mesh_cpu["dp"].get_local_rank() == 0 and not is_validate:
             print(f"examine first request:\n{sorted_output_req_list[0].messages=}\n{self.tokenizer.decode(sorted_output_req_list[0].input_ids)=}")
-            print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{attention_mask[0]}\n{position_ids[0]=}\n{loss_mask[0]}")
+            attn_mask1_input_ids = []
+            loss_mask1_input_ids = []
+            for i in range(input_ids.shape[-1]):
+                if attention_mask[0][i] == 1:
+                    attn_mask1_input_ids.append(input_ids[0][i])
+                if loss_mask[0][i] == 1:
+                    loss_mask1_input_ids.append(input_ids[0][i])
+            print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(attn_mask1_input_ids)=}\n{self.tokenizer.decode(loss_mask1_input_ids)=}")
         # Construct the batch data
         batch = TensorDict(
             {

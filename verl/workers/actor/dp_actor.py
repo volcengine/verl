@@ -105,6 +105,11 @@ class DataParallelPPOActor(BasePPOActor):
                                                                                 self.ulysses_sequence_parallel_size)
 
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+                if torch.distributed.get_rank() == 0:
+                    if not hasattr(self, 'tokenizer'):
+                            from transformers import AutoTokenizer
+                            self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
+                    print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(input_ids_rmpad[0])=}\n{position_ids_rmpad[0]=}")
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(input_ids=input_ids_rmpad,
