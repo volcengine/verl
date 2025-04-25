@@ -36,19 +36,14 @@ from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron_utils import (
-    broadcast_from_megatron_pp,
-    broadcast_str_from_megatron_pp,
-    convert_megatron_model_to_transformers_model,
-    get_model,
-    unwrap_model,
-)
-from verl.utils.memory_buffer import (
-    build_memory_buffer,
-    build_memory_reference_from_module,
-    get_weight_buffer_meta_from_module,
-)
+    broadcast_from_megatron_pp, broadcast_str_from_megatron_pp,
+    convert_megatron_model_to_transformers_model, get_model, unwrap_model)
+from verl.utils.memory_buffer import (build_memory_buffer,
+                                      build_memory_reference_from_module,
+                                      get_weight_buffer_meta_from_module)
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_functional import allgather_dict_tensors
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
 
@@ -531,7 +526,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
             per_tensor_param = self.per_tensor_generator()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            _patch_vllm_qwen2_moe_model_weight_loader(model)
+            patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
@@ -594,32 +589,3 @@ def get_micro_data_parallel_world_size():
 
 def get_micro_data_parallel_rank():
     return torch.distributed.get_rank(group=get_micro_data_parallel_group())
-
-
-def _patch_vllm_qwen2_moe_model_weight_loader(model):
-    # this is a work around to load the weight of vllm qwen2 moe model
-    # it is from a bug from vllm 0.8.2
-    # all the weights are supposed to have a weight_loader, but the moe weights
-    # do not have a weight_loader, so we need to patch it
-    # (True, 'model.embed_tokens.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.bias')
-    # (True, 'model.layers.0.self_attn.o_proj.weight')
-    # (True, 'model.layers.0.mlp.gate.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.gate_up_proj.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.down_proj.weight')
-    # (False, 'model.layers.0.mlp.shared_expert_gate.weight')   use default
-    # (False, 'model.layers.0.input_layernorm.weight')          use default
-    # (False, 'model.layers.0.post_attention_layernorm.weight') use default
-    # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
-    # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
-    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-
-    if not isinstance(model, Qwen2MoeForCausalLM):
-        return
-    for layer in model.model.layers:
-        mlp = layer.mlp
-        param_dict = dict(mlp.named_parameters())
-        for name, param in param_dict.items():
-            if "w13_weight" in name or "w2_weight" in name:
-                param.weight_loader = mlp.experts.weight_loader
