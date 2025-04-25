@@ -91,7 +91,7 @@ Our investigation shows that ROCm may trigger an unexpected crash when attemptin
         enable_prefix_caching=True,
         trust_remote_code=trust_remote_code,
         # enable compilation config to bypass oom on rocm
-		# change depends on your GPU memory size
+	# change depends on your GPU memory size
         compilation_config={"cudagraph_capture_sizes": [1, 2, 4, 8, 16, 32, 64]},
         seed=config.get('seed', 0),
     )
