@@ -18,19 +18,16 @@ import os
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp.api import (FullStateDictConfig,
-                                        ShardedStateDictConfig, StateDictType)
-from torch.distributed.fsdp.fully_sharded_data_parallel import \
-    FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM
+from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
 
@@ -146,10 +143,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.inference_engine.sleep(level=1)
 
-        # self.module.to('cuda')
-        # if torch.distributed.get_rank() == 0:
-        #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
-
         self.module.train()
 
         # add empty cache after each compute
@@ -191,6 +184,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
         loaded_params = model.load_weights(
-            ((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items())
+            (
+                (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
+                for name, param in updated_params.items()
+            )
         )
-        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+        logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))

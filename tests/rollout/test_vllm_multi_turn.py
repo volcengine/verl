@@ -22,8 +22,8 @@ from openai.types.chat.chat_completion import ChatCompletion
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_async_workers import AsyncActorRolloutRefWorker, AsyncLLMManager
-from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
+from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
+from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 
 async def test_vllm_multi_turn():
@@ -32,6 +32,7 @@ async def test_vllm_multi_turn():
     model_name = "/".join(model_path.split("/")[-2:])
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
+    config.actor_rollout_ref.rollout.chat_scheduler = "verl.workers.rollout.async_server.ChatCompletionScheduler"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
 
@@ -47,6 +48,9 @@ async def test_vllm_multi_turn():
                 "NCCL_DEBUG": "WARN",
                 "VLLM_LOGGING_LEVEL": "WARN",
                 "VLLM_USE_V1": "1",
+                "no_proxy": "",
+                "http_proxy": "",
+                "https_proxy": "",
             }
         }
     )
@@ -82,18 +86,12 @@ async def test_vllm_multi_turn():
     actor_rollout_wg = all_wg["actor_rollout"]
     actor_rollout_wg.init_model()
 
-    # =========================== 2. Create AsyncLLMManager&ChatScheduler  ===========================
-    async_rollout_manager = AsyncLLMManager(
+    # =========================== 2. Create AsyncLLMServerManager&ChatScheduler  ===========================
+    async_rollout_manager = AsyncLLMServerManager(
         config=config.actor_rollout_ref,
         worker_group=actor_rollout_wg,
     )
-
-    async_chat_scheduler = ChatCompletionScheduler(
-        config=config.actor_rollout_ref.rollout,
-        model_path=config.actor_rollout_ref.model.path,
-        tokenizer=None,
-        server_addresses=async_rollout_manager.server_addresses,
-    )
+    async_chat_scheduler = async_rollout_manager.chat_scheduler
 
     # test sleep and wake_up
     await async_rollout_manager.sleep()

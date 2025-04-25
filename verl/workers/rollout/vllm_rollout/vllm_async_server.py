@@ -11,17 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
 import logging
-import os
-import socket
-from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
-import fastapi
 import ray
-import uvicorn
 from omegaconf import DictConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
@@ -34,19 +28,10 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
 
-from verl import DataProto
-from verl.single_controller.base.decorator import Dispatch, register
-from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils.fs import copy_to_local
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.workers.rollout.async_server import AsyncServerBase
 
 logger = logging.getLogger(__file__)
-
-
-def _get_free_port():
-    with socket.socket() as sock:
-        sock.bind(("", 0))
-        return sock.getsockname()[1]
 
 
 class ExternalRayDistributedExecutor(Executor):
@@ -126,12 +111,12 @@ class ExternalRayDistributedExecutor(Executor):
 
 
 @ray.remote(num_cpus=1)
-class AsyncLLMWorker:
+class AsyncvLLMServer(AsyncServerBase):
     """
-    AsyncLLMWorker is a wrapper for AsyncLLM, it uses ExternalRayDistributedExecutor to launch engines
+    AsyncvLLMServer is a wrapper for AsyncLLM, it uses ExternalRayDistributedExecutor to launch engines
     in hybrid rollout workers, i.e AsyncActorRolloutRefWorker.
 
-    It works as follows:
+    AsyncvLLMServer works as follows:
     1. Start FastAPI server first.
     2. Initialize AsyncLLM with ExternalRayDistributedExecutor.
     3. AsyncLLM spawn EngineCore in subprocess.
@@ -150,19 +135,15 @@ class AsyncLLMWorker:
             vllm_dp_rank: int, vllm data parallel rank.
             wg_prefix: str, worker group prefix, used to lookup actors.
         """
+        super().__init__()
+
         self.config = config
         self.vllm_dp_size = vllm_dp_size
         self.vllm_dp_rank = vllm_dp_rank
         self.wg_prefix = wg_prefix
         self.engine: AsyncLLM = None
 
-        # start FastAPI server
-        self.address = ray._private.services.get_node_ip_address()
-        self.port = None
-        self.server_ready = asyncio.Event()
-        asyncio.create_task(self._start_fastapi_server())
-
-    async def init_async_llm(self):
+    async def init_engine(self):
         """Init vLLM AsyncLLM engine."""
         config = self.config
         model_path = config.model.path
@@ -253,31 +234,6 @@ class AsyncLLMWorker:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
 
-    async def _start_fastapi_server(self):
-        @asynccontextmanager
-        async def lifespan(app: fastapi.FastAPI):
-            print("FastAPI startup")
-            self.server_ready.set()
-            yield
-
-            # There's no way to gracefully restart uvicorn server if port is already in use,
-            # so we exit the process directly and let AsyncLLMManager restart it.
-            print("FastAPI shutdown, maybe address already in use, exit process immediately.")
-            os._exit(-1)
-
-        app = fastapi.FastAPI(lifespan=lifespan)
-        app.router.add_api_route("/v1/chat/completions", self.chat_completion, methods=["POST"])
-
-        self.port = _get_free_port()
-        config = uvicorn.Config(app, host=["::", "0.0.0.0"], port=self.port, log_level="warning")
-        server = uvicorn.Server(config)
-        await server.serve()
-
-    async def get_server_address(self) -> Tuple[str, int]:
-        """Get FastAPI server address."""
-        await self.server_ready.wait()
-        return f"{self.address}:{self.port}"
-
     async def wake_up(self):
         await self.engine.wake_up()
 
@@ -285,99 +241,3 @@ class AsyncLLMWorker:
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
         await self.engine.sleep()
-
-
-class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    def _build_rollout(self, trust_remote_code=False):
-        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
-
-        # NOTE: rollout is not actually initialized here, it's deferred
-        # to be initialized by AsyncLLMWorker.
-
-        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
-        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
-
-        # used for sleep/wake_up
-        rollout.sharding_manager = rollout_sharding_manager
-
-        return rollout, rollout_sharding_manager
-
-    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def generate_sequences(self, prompts: DataProto):
-        raise NotImplementedError("AsyncActorRolloutRefWorker does not support generate_sequences")
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
-        """Called by ExternalRayDistributedExecutor collective_rpc."""
-        if self.vllm_tp_rank == 0 and method != "execute_model":
-            print(
-                f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] "
-                f"execute_method: {method if isinstance(method, str) else 'Callable'}"
-            )
-        return self.rollout.execute_method(method, *args, **kwargs)
-
-
-class AsyncLLMManager:
-    """AsyncLLMManager manage a group of vllm instances, i.e AsyncLLMWorker."""
-
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
-        """Initialize AsyncLLMManager.
-
-        Args:
-            config: DictConfig, actor_rollout_ref config.
-            worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
-        """
-        self.config = config
-        self.worker_group = worker_group
-
-        self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
-        self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
-
-        register_center = ray.get_actor(f"{self.worker_group.name_prefix}_register_center")
-        workers_info = ray.get(register_center.get_worker_info.remote())
-        assert len(workers_info) == self.worker_group.world_size
-
-        self.async_llm_workers = [None] * self.rollout_dp_size
-        self.server_addresses = [None] * self.rollout_dp_size
-
-        # Start all server instances, restart if address already in use.
-        unready_dp_ranks = set(range(self.rollout_dp_size))
-        while len(unready_dp_ranks) > 0:
-            workers = {
-                rollout_dp_rank: AsyncLLMWorker.options(
-                    # make sure AsyncLLMWorker colocates with its corresponding workers
-                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                        node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
-                        soft=False,
-                    ),
-                    name=f"async_llm_worker_{rollout_dp_rank}",
-                ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
-                for rollout_dp_rank in unready_dp_ranks
-            }
-
-            for rollout_dp_rank, worker in workers.items():
-                try:
-                    address = ray.get(worker.get_server_address.remote())
-                    self.server_addresses[rollout_dp_rank] = address
-                    self.async_llm_workers[rollout_dp_rank] = worker
-                    unready_dp_ranks.remove(rollout_dp_rank)
-                except Exception:
-                    ray.kill(worker)
-                    print(f"worker {rollout_dp_rank} failed, maybe address already in use, restarting...")
-
-        # All server instances are ready, init AsyncLLM engine.
-        ray.get([worker.init_async_llm.remote() for worker in self.async_llm_workers])
-
-    @property
-    def server_address(self):
-        """Ruturn FastAPI server addresses of all vllm instances."""
-        return self.server_addresses
-
-    async def wake_up(self):
-        """Wake up all vllm instances."""
-        await asyncio.gather(*[worker.wake_up.remote() for worker in self.async_llm_workers])
-
-    async def sleep(self):
-        """Sleep all vllm instances."""
-        await asyncio.gather(*[worker.sleep.remote() for worker in self.async_llm_workers])

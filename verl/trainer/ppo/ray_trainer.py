@@ -17,7 +17,6 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import json
-import importlib
 import os
 import uuid
 from collections import defaultdict
@@ -57,6 +56,7 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 WorkerType = Type[Worker]
 
@@ -635,7 +635,9 @@ class RayPPOTrainer:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 await self.async_rollout_manager.wake_up()
-                test_output_gen_batch_padded = await self.async_chat_scheduler.generate_sequences(test_gen_batch_padded)
+                test_output_gen_batch_padded = await self.async_rollout_manager.generate_sequences(
+                    test_gen_batch_padded
+                )
                 await self.async_rollout_manager.sleep()
 
             # unpad
@@ -779,21 +781,10 @@ class RayPPOTrainer:
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
-            from verl.workers.fsdp_async_workers import AsyncLLMManager
-
             self.async_rollout_mode = True
-            self.async_rollout_manager = AsyncLLMManager(
+            self.async_rollout_manager = AsyncLLMServerManager(
                 config=self.config.actor_rollout_ref,
                 worker_group=self.actor_rollout_wg,
-            )
-            module_path, class_name = self.config.actor_rollout_ref.rollout.chat_scheduler.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            scheduler_cls = getattr(module, class_name)
-            self.async_chat_scheduler = scheduler_cls(
-                config=self.config.actor_rollout_ref.rollout,
-                model_path=self.config.actor_rollout_ref.model.path,
-                tokenizer=self.tokenizer,
-                server_addresses=self.async_rollout_manager.server_addresses,
             )
 
     def _save_checkpoint(self):
@@ -992,7 +983,7 @@ class RayPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             await self.async_rollout_manager.wake_up()
-                            gen_batch_output = await self.async_chat_scheduler.generate_sequences(gen_batch)
+                            gen_batch_output = await self.async_rollout_manager.generate_sequences(gen_batch)
                             await self.async_rollout_manager.sleep()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
@@ -1148,10 +1139,12 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 # training metrics
-                metrics.update({
-                    'training/global_step': self.global_steps,
-                    'training/epoch': epoch,
-                })
+                metrics.update(
+                    {
+                        "training/global_step": self.global_steps,
+                        "training/epoch": epoch,
+                    }
+                )
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))

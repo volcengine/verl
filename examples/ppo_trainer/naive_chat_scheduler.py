@@ -18,10 +18,9 @@ import torch
 from omegaconf import DictConfig
 from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
-from transformers import PreTrainedTokenizer
 
 from verl.protocol import DataProto
-from verl.workers.rollout.chat_scheduler import ChatCompletionScheduler
+from verl.workers.rollout.async_server import ChatCompletionScheduler
 
 
 class NaiveChatCompletionScheduler(ChatCompletionScheduler):
@@ -34,11 +33,10 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         self,
         config: DictConfig,
         model_path: str,
-        tokenizer: PreTrainedTokenizer,
         server_addresses: List[str],
         max_cache_size: int = 10000,
     ):
-        super().__init__(config, model_path, tokenizer, server_addresses, max_cache_size)
+        super().__init__(config, model_path, server_addresses, max_cache_size)
 
     async def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         kwargs = dict(
