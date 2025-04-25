@@ -34,14 +34,13 @@ python3 -m verl.trainer.main_ppo \
     critic.model.use_remove_padding=True \
     critic.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     critic.model.enable_gradient_checkpointing=False \
-    critic.ppo_micro_batch_size_per_gpu=2 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_example' \
-    trainer.experiment_name='Qwen2.5-0.5B-Instruct_function_rm' \
+    trainer.experiment_name='Qwen2.5-0.5B-Instruct_critic' \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \

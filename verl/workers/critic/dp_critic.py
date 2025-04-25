@@ -198,7 +198,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         if self.config.use_dynamic_bsz:
             # relative to the dynamic bsz
             scaling_factor = (len(data) / self.config.ppo_mini_batch_size)
-        else:
+        elif self.config.ppo_micro_batch_size_per_gpu and not self.config.optim.bwd_hook:
             scaling_factor /= self.gradient_accumulation 
             
         loss = vf_loss * scaling_factor
@@ -253,7 +253,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                 else:
                     if has_multi_modal_inputs:
                         mini_batch = data.select(select_keys, non_tensor_select_keys)
-                    data = self.compute_loss_and_backward(mini_batch)
+                    data = self._compute_loss_and_backward(mini_batch)
                     append_to_dict(metrics, data)
                 if not self.config.optim.bwd_hook:
                     grad_norm = self._optimizer_step()

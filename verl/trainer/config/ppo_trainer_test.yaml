@@ -57,7 +57,7 @@ actor_rollout_ref:
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
-      bwd_hook: False
+      bwd_hook: True
     fsdp_config:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
@@ -142,7 +142,7 @@ critic:
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
-  forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
+  forward_micro_batch_size_per_gpu: ${actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu}
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
   ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
   forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
