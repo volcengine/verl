@@ -286,6 +286,7 @@ class SGLangRollout(BaseRollout):
         image_list = [input_data.get("image_data", None) for input_data in sglang_inputs]
 
         do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
         if not do_sample:
             kwargs = dict(
                 n=1,
@@ -301,6 +302,14 @@ class SGLangRollout(BaseRollout):
                 skip_special_tokens=True,
                 spaces_between_special_tokens=True,
             )
+        elif is_validate:
+            kwargs = dict(
+                top_k=self.config.val_kwargs.top_k,
+                top_p=self.config.val_kwargs.top_p,
+                temperature=self.config.val_kwargs.temperature,
+                n=1,  # if validate, already repeat in ray_trainer
+            )
+
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             print(f"{self.sampling_params=}")
@@ -312,24 +321,26 @@ class SGLangRollout(BaseRollout):
                 image_data=image_list,
             )
 
-        out = _post_process_outputs(self.tokenizer, output)
-
-        response = out[0].to(idx.device)
-        # log_probs = out[1].to(idx.device)
-
-        if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-        if self.sampling_params.get("n", 1) > 1 and do_sample:
-            idx = idx.repeat_interleave(self.config.n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
-            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
-            batch_size = batch_size * self.config.n
-            if "multi_modal_inputs" in non_tensor_batch.keys():
-                non_tensor_batch["multi_modal_inputs"] = np.repeat(
-                    non_tensor_batch["multi_modal_inputs"], self.config.n, axis=0
-                )
-        seq = torch.cat([idx, response], dim=-1)
+            out = _post_process_outputs(self.tokenizer, output)
+    
+            response = out[0].to(idx.device)
+            # log_probs = out[1].to(idx.device)
+    
+            if response.shape[1] < self.config.response_length:
+                response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+    
+            # utilize current sampling params
+            if self.sampling_params.get("n", 1) > 1 and do_sample:
+                idx = idx.repeat_interleave(self.sampling_params["n"], dim=0)
+                attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
+                position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
+                batch_size = batch_size * self.sampling_params["n"]
+                if "multi_modal_inputs" in non_tensor_batch.keys():
+                    non_tensor_batch["multi_modal_inputs"] = np.repeat(
+                        non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0
+                    )
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
