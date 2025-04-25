@@ -191,6 +191,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
                     'WG_BACKEND': 'torchrpc',
                     'LOCAL_WORLD_SIZE': str(local_world_size),
                     'LOCAL_RANK': str(local_rank),
+                    'CUDA_VISIBLE_DEVICES': str(local_rank)
                 }
 
                 if rank == 0:

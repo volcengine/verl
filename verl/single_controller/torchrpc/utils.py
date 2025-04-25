@@ -2,14 +2,12 @@ import os
 from multiprocessing import Process, Queue
 import torch.distributed.rpc as rpc
 import multiprocessing as mp
-import torch
+import threading
 
 def _local_actor_runner(cls, args, kwargs, env_vars, input_queue, output_queue):
     if env_vars is not None:
         for k, v in env_vars.items():
             os.environ[k] = v
-    if "LOCAL_RANK" in os.environ:
-        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     inst = cls(*args, **kwargs)
     while True:
         cmd = input_queue.get()
@@ -20,21 +18,26 @@ def _local_actor_runner(cls, args, kwargs, env_vars, input_queue, output_queue):
         result = method(*args, **kwargs)
         output_queue.put(result)
 
+cuda_available_devices_lock = threading.Lock()
+
 class RemoteActor:
     def __init__(self, cls, args, kwargs, env_vars):
         ctx = mp.get_context('spawn')
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
-        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue))
-        self.process.start()
+        with cuda_available_devices_lock:
+            original_cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+            if 'CUDA_VISIBLE_DEVICES' in env_vars:
+                os.environ['CUDA_VISIBLE_DEVICES'] = env_vars['CUDA_VISIBLE_DEVICES']
+            self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue))
+            self.process.start()
+            if original_cuda_visible_devices is not None:
+                os.environ['CUDA_VISIBLE_DEVICES'] = original_cuda_visible_devices
 
     def run_method(self, method_name, args, kwargs):
         self.input_queue.put((method_name, args, kwargs))
         return self.output_queue.get()
-    
-    def __del__(self):
-        self.input_queue.put(None)
-        self.process.join()
+
 
 remote_actors = None
 
@@ -50,6 +53,7 @@ def stop_remote_actors():
     global remote_actors
     if remote_actors:
         for actor in remote_actors:
+            actor.process.terminate()
             del actor
         remote_actors = None
 

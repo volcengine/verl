@@ -24,7 +24,7 @@ from verl.single_controller.torchrpc import (
     TorchRPCClassWithInitArgs,
     TorchRPCWorkerGroup,
     create_colocated_worker_cls,
-    rref_to_here
+    torchrpc_remote,
 )
 
 
@@ -48,38 +48,31 @@ class Critic(Worker):
         data.batch["a"] -= self.config["b"]
         return data
 
-
+@torchrpc_remote
 def test_colocated_workers():
-    # MASTER_ADDR, MASTER_PORT, TORCHRPC_RANK, TORCHRPC_WORLD_SIZE must be set first
-    # Then run this code on every node
-    rank = int(os.environ.get('TORCHRPC_RANK'))
-    world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-    rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size)
-    if rank == 0:
-        data = DataProto.from_dict({"a": torch.zeros(10)})
-        # create separate workers on the same resource pool
-        actor_cls = TorchRPCClassWithInitArgs(cls=Actor)
-        critic_cls = TorchRPCClassWithInitArgs(cls=Critic, config={"b": 10})
-        resource_pool = TorchRPCResourcePool(process_on_nodes=[2])
+    data = DataProto.from_dict({"a": torch.zeros(10)})
+    # create separate workers on the same resource pool
+    actor_cls = TorchRPCClassWithInitArgs(cls=Actor)
+    critic_cls = TorchRPCClassWithInitArgs(cls=Critic, config={"b": 10})
+    resource_pool = TorchRPCResourcePool(process_on_nodes=[2])
 
-        actor_wg = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=actor_cls)
-        critic_wg = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=critic_cls)
+    actor_wg = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=actor_cls)
+    critic_wg = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=critic_cls)
 
-        expected_actor_output = actor_wg.add(data)
-        expected_critic_output = critic_wg.sub(data)
+    expected_actor_output = actor_wg.add(data)
+    expected_critic_output = critic_wg.sub(data)
 
-        # create colocated workers
-        cls_dict = {"actor": actor_cls, "critic": critic_cls}
-        cls_with_init = create_colocated_worker_cls(cls_dict)
-        wg_dict = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=cls_with_init)
+    # create colocated workers
+    cls_dict = {"actor": actor_cls, "critic": critic_cls}
+    cls_with_init = create_colocated_worker_cls(cls_dict)
+    wg_dict = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=cls_with_init)
 
 
 
-        actor_output = wg_dict.actor_add(data)
-        critic_output = wg_dict.critic_sub(data)
-        torch.testing.assert_close(expected_actor_output.batch, actor_output.batch, atol=0, rtol=0)
-        torch.testing.assert_close(expected_critic_output.batch, critic_output.batch, atol=0, rtol=0)
-    rpc.shutdown()
+    actor_output = wg_dict.actor_add(data)
+    critic_output = wg_dict.critic_sub(data)
+    torch.testing.assert_close(expected_actor_output.batch, actor_output.batch, atol=0, rtol=0)
+    torch.testing.assert_close(expected_critic_output.batch, critic_output.batch, atol=0, rtol=0)
 
 if __name__ == "__main__":
     test_colocated_workers()

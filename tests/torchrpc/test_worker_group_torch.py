@@ -112,4 +112,3 @@ def test_all_gather_torch_v2():
 
 if __name__ == "__main__":
     test_all_gather_torch()
-    print("FINISHED")
