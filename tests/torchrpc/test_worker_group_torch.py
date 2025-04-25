@@ -31,17 +31,16 @@ class TestAllGatherActor(Worker):
         self.size = size
 
     def init(self):
-        os.environ["NCCL_DEBUG"]="WARN"
-        os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["LOCAL_RANK"]
-        print(
-            os.environ["WORLD_SIZE"],
-            os.environ["RANK"],
-            os.environ["LOCAL_WORLD_SIZE"],
-            os.environ["LOCAL_RANK"],
-            os.environ["MASTER_ADDR"],
-            os.environ["MASTER_PORT"],
-            os.environ["CUDA_VISIBLE_DEVICES"],
-        )
+        # print(
+        #     os.environ.get("WORLD_SIZE", "not set"),
+        #     os.environ.get("RANK", "not set"),
+        #     os.environ.get("LOCAL_WORLD_SIZE", "not set"),
+        #     os.environ.get("LOCAL_RANK", "not set"),
+        #     os.environ.get("MASTER_ADDR", "not set"),
+        #     os.environ.get("MASTER_PORT", "not set"),
+        #     os.environ.get("CUDA_VISIBLE_DEVICES", "not set"),
+        #     torch.cuda.current_device()
+        # )
         torch.distributed.init_process_group()
         self.tensor = torch.zeros(size=(self.size,), dtype=torch.int64, device="cuda")
         self.tensor += self.rank
@@ -52,10 +51,9 @@ class TestAllGatherActor(Worker):
             size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
         )
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
-        return output
+        return output.to("cpu")
 
 
-@ray.remote
 class TestAllGatherActorV2(Worker):
     def __init__(self, size) -> None:
         super().__init__()
@@ -71,17 +69,17 @@ class TestAllGatherActorV2(Worker):
             size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
         )
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
-        return output
+        return output.to("cpu")
 
 @torchrpc_remote
 def test_all_gather_torch():
     """
     In this test, we instantiate 4 GPUs in a group and test the all_gather
     """
-    resource_pool = TorchRPCResourcePool([1, 1], use_gpu=True)
+    resource_pool = TorchRPCResourcePool([2, 2], use_gpu=True)
     class_with_args = TorchRPCClassWithInitArgs(cls=TestAllGatherActor, size=2)
 
-    worker_group = TorchRPCWorkerGroup(resource_pool, class_with_args, name_prefix="worker_group_torch")
+    worker_group = TorchRPCWorkerGroup(resource_pool, class_with_args)
 
     worker_group.execute_all_sync("init")
     output = worker_group.execute_all_sync("all_gather")
@@ -91,20 +89,17 @@ def test_all_gather_torch():
     output = output[0].cpu()
     print(output)
     assert torch.all(output == torch.tensor([0, 0, 1, 1, 2, 2, 3, 3], dtype=torch.int64))
-    rpc.shutdown()
 
-
+@torchrpc_remote
 def test_all_gather_torch_v2():
     """
     In this test, we instantiate 4 GPUs in a group and test the all_gather
     """
-    ray.init()
-
     # create 4 workers, each hold a GPU
-    resource_pool = RayResourcePool([4], use_gpu=True)
-    class_with_args = RayClassWithInitArgs(cls=TestAllGatherActorV2, size=2)
+    resource_pool = TorchRPCResourcePool([2, 2], use_gpu=True)
+    class_with_args = TorchRPCClassWithInitArgs(cls=TestAllGatherActorV2, size=2)
 
-    worker_group = RayWorkerGroup(resource_pool, class_with_args, name_prefix="worker_group_torch")
+    worker_group = TorchRPCWorkerGroup(resource_pool, class_with_args)
 
     output = worker_group.execute_all_sync("all_gather")
     for i in range(1, len(output)):
@@ -114,8 +109,7 @@ def test_all_gather_torch_v2():
     print(output)
     assert torch.all(output == torch.tensor([0, 0, 1, 1, 2, 2, 3, 3], dtype=torch.int64))
 
-    ray.shutdown()
-
 
 if __name__ == "__main__":
     test_all_gather_torch()
+    print("FINISHED")

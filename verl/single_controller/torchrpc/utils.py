@@ -2,11 +2,14 @@ import os
 from multiprocessing import Process, Queue
 import torch.distributed.rpc as rpc
 import multiprocessing as mp
+import torch
 
 def _local_actor_runner(cls, args, kwargs, env_vars, input_queue, output_queue):
     if env_vars is not None:
         for k, v in env_vars.items():
             os.environ[k] = v
+    if "LOCAL_RANK" in os.environ:
+        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     inst = cls(*args, **kwargs)
     while True:
         cmd = input_queue.get()
