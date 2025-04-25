@@ -614,29 +614,29 @@ class AsyncSGLangRollout(BaseRollout):
             #     reward_scores[tool_name].append(score)
 
         prompt_ids = pad_sequence(prompt_ids, batch_first=True, padding_value=self.pad_token_id)
-        if prompt_ids.shape[1] < self.config.prompt_length:
-            prompt_ids = pad_sequence_to_length(prompt_ids, self.config.prompt_length, self.pad_token_id, left_pad=True)
-        response_ids = pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
-        if response_ids.shape[1] < self.config.response_length:
-            response_ids = pad_sequence_to_length(response_ids, self.config.response_length, self.pad_token_id)
-        prompt_attention_mask = pad_sequence(prompt_attention_mask, batch_first=True, padding_value=0)
-        if prompt_attention_mask.shape[1] < self.config.prompt_length:
-            prompt_attention_mask = pad_sequence_to_length(prompt_attention_mask, self.config.prompt_length, 0, left_pad=True)
-        response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
-        if response_attention_mask.shape[1] < self.config.response_length:
-            response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
-        prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0)
-        if prompt_position_ids.shape[1] < self.config.prompt_length:
-            prompt_position_ids = pad_sequence_to_length(prompt_position_ids, self.config.prompt_length, 0, left_pad=True)
-        response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
-        if response_position_ids.shape[1] < self.config.response_length:
-            response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
-        prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0)
-        if prompt_loss_mask.shape[1] < self.config.prompt_length:
-            prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
-        response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
-        if response_loss_mask.shape[1] < self.config.response_length:
-            response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
+        # if prompt_ids.shape[1] < self.config.prompt_length:
+        prompt_ids = pad_sequence_to_length(prompt_ids, self.config.prompt_length, self.pad_token_id, left_pad=True)
+        # response_ids = pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
+        # if response_ids.shape[1] < self.config.response_length:
+        response_ids = pad_sequence_to_length(response_ids, self.config.response_length, self.pad_token_id)
+        # prompt_attention_mask = pad_sequence(prompt_attention_mask, batch_first=True, padding_value=0)
+        # if prompt_attention_mask.shape[1] < self.config.prompt_length:
+        prompt_attention_mask = pad_sequence_to_length(prompt_attention_mask, self.config.prompt_length, 0, left_pad=True)
+        # response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
+        # if response_attention_mask.shape[1] < self.config.response_length:
+        response_attention_mask = pad_sequence_to_length(response_attention_mask, self.config.response_length, 0)
+        # prompt_position_ids = pad_sequence(prompt_position_ids, batch_first=True, padding_value=0)
+        # if prompt_position_ids.shape[1] < self.config.prompt_length:
+        prompt_position_ids = pad_sequence_to_length(prompt_position_ids, self.config.prompt_length, 0, left_pad=True)
+        # response_position_ids = pad_sequence(response_position_ids, batch_first=True, padding_value=0)
+        # if response_position_ids.shape[1] < self.config.response_length:
+        response_position_ids = pad_sequence_to_length(response_position_ids, self.config.response_length, 0)
+        # prompt_loss_mask = pad_sequence(prompt_loss_mask, batch_first=True, padding_value=0)
+        # if prompt_loss_mask.shape[1] < self.config.prompt_length:
+        prompt_loss_mask = pad_sequence_to_length(prompt_loss_mask, self.config.prompt_length, 0, left_pad=True)
+        # response_loss_mask = pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
+        # if response_loss_mask.shape[1] < self.config.response_length:
+        response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
         # reward_scores = {tool_name: torch.tensor(scores) for tool_name, scores in reward_scores.items()}
         # print(f"{reward_scores=}")
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
