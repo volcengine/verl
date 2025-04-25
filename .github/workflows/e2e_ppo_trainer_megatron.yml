@@ -95,6 +95,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test]
+          pip3 install nvidia-cudnn-cu12==9.8.0.87
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
