@@ -418,7 +418,9 @@ class DataProto:
             DataProto: A new DataProto containing only the selected indices
         """
         if isinstance(idxs, list):
-            idxs = torch.tensor(idxs, dtype=torch.int32)
+            idxs = torch.tensor(idxs)
+            if idxs.dtype != torch.bool:
+                idxs = idxs.type(torch.int32)
 
         if isinstance(idxs, np.ndarray):
             idxs_np = idxs
@@ -427,11 +429,12 @@ class DataProto:
             idxs_torch = idxs
             idxs_np = idxs.detach().cpu().numpy()
 
+        batch_size = idxs_np.sum() if idxs_np.dtype == bool else idxs_np.shape[0]
+
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities
             selected_batch = TensorDict(
-                source={key: tensor[idxs_torch] for key, tensor in self.batch.items()},
-                batch_size=(idxs_torch.shape[0],),
+                source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,)
             )
         else:
             selected_batch = None
