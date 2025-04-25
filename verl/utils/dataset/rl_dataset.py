@@ -75,7 +75,6 @@ class RLHFDataset(Dataset):
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
-        # self.chat_template_key = config.get("chat_template_key", "chat_template")
 
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.truncation = config.get("truncation", "error")
@@ -83,9 +82,6 @@ class RLHFDataset(Dataset):
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
-
-        no_template = "{{ bos_token }}{{ messages }}"
-        self.tokenizer.chat_template = no_template
 
         # whether to store the dataset in state_dict()
         # default not store
