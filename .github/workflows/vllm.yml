@@ -87,5 +87,5 @@ jobs:
           rm -rf "${OUTPUT_PATH}"
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
-          pip3 install --upgrade vllm==0.8.3
+          pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
           python3 tests/rollout/test_vllm_multi_turn.py

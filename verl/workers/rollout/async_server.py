@@ -234,7 +234,7 @@ class AsyncLLMServerManager:
         workers_info = ray.get(register_center.get_worker_info.remote())
         assert len(workers_info) == self.worker_group.world_size
 
-        self.async_llm_workers = [None] * self.rollout_dp_size
+        self.async_llm_servers = [None] * self.rollout_dp_size
         self.server_addresses = [None] * self.rollout_dp_size
 
         server_class = async_server_class(
@@ -260,14 +260,14 @@ class AsyncLLMServerManager:
                 try:
                     address = ray.get(worker.get_server_address.remote())
                     self.server_addresses[rollout_dp_rank] = address
-                    self.async_llm_workers[rollout_dp_rank] = worker
+                    self.async_llm_servers[rollout_dp_rank] = worker
                     unready_dp_ranks.remove(rollout_dp_rank)
                 except Exception:
                     ray.kill(worker)
                     print(f"worker {rollout_dp_rank} failed, maybe address already in use, restarting...")
 
         # All server instances are ready, init AsyncLLM engine.
-        ray.get([worker.init_engine.remote() for worker in self.async_llm_workers])
+        ray.get([worker.init_engine.remote() for worker in self.async_llm_servers])
 
         # Init user provided chat scheduler.
         self.chat_scheduler = self._init_chat_scheduler()
@@ -284,11 +284,11 @@ class AsyncLLMServerManager:
 
     async def wake_up(self):
         """Wake up all vllm instances."""
-        await asyncio.gather(*[worker.wake_up.remote() for worker in self.async_llm_workers])
+        await asyncio.gather(*[worker.wake_up.remote() for worker in self.async_llm_servers])
 
     async def sleep(self):
         """Sleep all vllm instances."""
-        await asyncio.gather(*[worker.sleep.remote() for worker in self.async_llm_workers])
+        await asyncio.gather(*[worker.sleep.remote() for worker in self.async_llm_servers])
 
     async def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
         """Generate sequences via chat scheduler."""
