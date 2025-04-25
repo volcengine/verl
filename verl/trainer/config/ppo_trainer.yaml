@@ -182,8 +182,6 @@ reward_model:
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
-  num_examine: 0
-  val_num_examine: 5
 
 custom_reward_function:
   path: null
