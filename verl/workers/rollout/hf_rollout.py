@@ -13,8 +13,9 @@
 # limitations under the License.
 """
 Rollout with huggingface models.
-TODO: refactor this class. Currently, it will hang when using FSDP HybridShard. We should actually create a single GPU model.
-Then, get full state_dict and bind the state_dict to the single GPU model. Then, use the single GPU model to perform generation.
+TODO: refactor this class. Currently, it will hang when using FSDP HybridShard. We should actually create a single
+GPU model. Then, get full state_dict and bind the state_dict to the single GPU model. Then, use the single GPU model
+to perform generation.
 """
 
 import contextlib
@@ -50,7 +51,47 @@ class HFRollout(BaseRollout):
 
     @torch.no_grad()
     def _generate_minibatch(self, prompts: DataProto) -> DataProto:
+        # make sampling args can be overriden by inputs
+        do_sample = prompts.meta_info.get("do_sample", self.config.do_sample)
+        is_validate = prompts.meta_info.get("validate", False)
+
+        temperature = prompts.meta_info.get("temperature", self.config.temperature)
+        response_length = prompts.meta_info.get("response_length", self.config.response_length)
+        top_p = prompts.meta_info.get("top_p", self.config.get("top_p", 1.0))
+        top_k = max(0, prompts.meta_info.get("top_k", self.config.get("top_k", 0)))  # to be compatible with vllm
+
+        if not do_sample:
+            # do_sample==False -> greedy decoding
+            kwargs = {
+                "do_sample": False,
+                "num_beams": 1,
+            }
+        elif is_validate:
+            # do validate and do sample -> use val_kwargs
+            kwargs = {
+                "do_sample": True,
+                "num_beams": 1,
+                "top_k": max(0, self.config.val_kwargs.top_k),  # to be compatible with vllm
+                "top_p": self.config.val_kwargs.top_p,
+                "temperature": self.config.val_kwargs.temperature,
+                "num_return_sequences": 1,  # if validate, already repeat in ray_trainer
+            }
+        else:
+            # do_sample -> use rollout config
+            kwargs = {
+                "do_sample": True,
+                "num_beams": 1,
+                "top_p": top_p,
+                "top_k": top_k,
+                "temperature": temperature,
+                "num_return_sequences": self.config.n,
+            }
+
+        # make config according to generate mode
+        generation_config = GenerationConfig(**kwargs)
+
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
+        prompt_length = idx.size(1)
         attention_mask = prompts.batch["attention_mask"]  # left-padded attention_mask
         position_ids = prompts.batch["position_ids"]
 
@@ -58,25 +99,8 @@ class HFRollout(BaseRollout):
         eos_token_id = prompts.meta_info["eos_token_id"]
         pad_token_id = prompts.meta_info["pad_token_id"]
 
-        batch_size = idx.size(0)
-        prompt_length = idx.size(1)
-
         self.module.eval()
         param_ctx = contextlib.nullcontext()
-
-        # make sampling args can be overriden by inputs
-        do_sample = prompts.meta_info.get("do_sample", self.config.do_sample)
-        response_length = prompts.meta_info.get("response_length", self.config.response_length)
-        top_p = prompts.meta_info.get("top_p", self.config.get("top_p", 1.0))
-        top_k = prompts.meta_info.get("top_k", self.config.get("top_k", 0))
-
-        if top_k is None:
-            top_k = 0
-        top_k = max(0, top_k)  # to be compatible with vllm
-
-        temperature = prompts.meta_info.get("temperature", self.config.temperature)
-
-        generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
 
         if isinstance(self.module, FSDP):
             # recurse need to set to False according to https://github.com/pytorch/pytorch/issues/100069
@@ -87,17 +111,17 @@ class HFRollout(BaseRollout):
                 attention_mask=attention_mask,
                 do_sample=do_sample,
                 max_new_tokens=response_length,
-                # max_length=max_length,
                 eos_token_id=eos_token_id,
                 pad_token_id=pad_token_id,
                 generation_config=generation_config,
-                # renormalize_logits=True,
                 output_scores=False,  # this is potentially very large
                 return_dict_in_generate=True,
                 use_cache=True,
             )
+
         # TODO: filter out the seq with no answers like ds-chat
         seq = output.sequences
+        generated_batch_size = seq.size(0)  # bs * num_return_sequences
 
         # huggingface generate will stop generating when all the batch reaches [EOS].
         # We have to pad to response_length
@@ -105,18 +129,23 @@ class HFRollout(BaseRollout):
         delta_length = sequence_length - seq.shape[1]
 
         if delta_length > 0:
-            delta_tokens = torch.ones(size=(batch_size, delta_length), device=seq.device, dtype=seq.dtype)
+            delta_tokens = torch.ones(size=(generated_batch_size, delta_length), device=seq.device, dtype=seq.dtype)
             delta_tokens = pad_token_id * delta_tokens
             seq = torch.cat((seq, delta_tokens), dim=1)
-
         assert seq.shape[1] == sequence_length
 
-        prompt = seq[:, :prompt_length]  # (bs, prompt_length)
-        response = seq[:, prompt_length:]  # (bs, response_length)
+        # make necessary reputations if num_return_sequences > 1
+        num_return_sequences = kwargs.get("num_return_sequences", 1)
+        if num_return_sequences > 1:
+            position_ids = position_ids.repeat_interleave(num_return_sequences, dim=0)
+            attention_mask = attention_mask.repeat_interleave(num_return_sequences, dim=0)
+
+        prompt = seq[:, :prompt_length]  # (generated_batch_size, prompt_length)
+        response = seq[:, prompt_length:]  # (generated_batch_size, response_length)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        delta_position_id = delta_position_id.unsqueeze(0).repeat(generated_batch_size, 1)
 
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
@@ -134,7 +163,7 @@ class HFRollout(BaseRollout):
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
-            batch_size=batch_size,
+            batch_size=generated_batch_size,
         )
 
         # empty cache before compute old_log_prob
