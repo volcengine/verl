@@ -40,7 +40,11 @@ def get_model_config(model):
 
 
 def get_model(
-    model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, use_distributed_optimizer=True
+    model_provider_func,
+    model_type=ModelType.encoder_or_decoder,
+    wrap_with_ddp=True,
+    use_distributed_optimizer=True,
+    transformer_config=None,
 ):
     """Build the model."""
     # Build model.
@@ -107,8 +111,9 @@ def get_model(
         )
 
     # GPU allocation.
-    for model_module in model:
-        model_module.cuda(torch.cuda.current_device())
+    if transformer_config is None or (not transformer_config.use_cpu_initialization):
+        for model_module in model:
+            model_module.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])

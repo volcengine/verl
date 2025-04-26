@@ -33,6 +33,7 @@ def _init_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf_model_path", type=str, required=True, help="The path for the huggingface model")
     parser.add_argument("--output_path", type=str, required=True, help="The path for the output mcore model")
+    parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use cpu initialization")
     parser.add_argument("--test", action="store_true", help="Whether to test the conversion")
     args = parser.parse_args()
     return args
@@ -57,19 +58,25 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
     num_attention_heads = hf_config.num_attention_heads
     hidden_dim = hf_config.hidden_size
     head_dim = hidden_dim // num_attention_heads
+    num_key_value_heads = hf_config.num_key_value_heads
+    kv_channels = hidden_dim // num_key_value_heads
+    if head_dim != num_key_value_heads:
+        print("[WARNING] Converting GQA model")
     with torch.no_grad():
         model.embedding.word_embeddings.weight.copy_(hf_model.model.embed_tokens.weight)
         for layer, hf_layer in zip(model.decoder.layers, hf_model.model.layers):
             layer.self_attention.linear_qkv.layer_norm_weight.copy_(hf_layer.input_layernorm.weight)
 
-            q = hf_layer.self_attn.q_proj.weight.view([num_attention_heads, -1, head_dim, hidden_dim])
-            k = hf_layer.self_attn.k_proj.weight.view([num_attention_heads, -1, head_dim, hidden_dim])
-            v = hf_layer.self_attn.v_proj.weight.view([num_attention_heads, -1, head_dim, hidden_dim])
+            q = hf_layer.self_attn.q_proj.weight.view(
+                [num_key_value_heads, kv_channels * num_attention_heads // num_key_value_heads, -1]
+            )
+            k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, kv_channels, -1])
+            v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, kv_channels, -1])
             qkv = torch.cat([q, k, v], dim=1).view(-1, hidden_dim).contiguous()
 
-            q_bias = hf_layer.self_attn.q_proj.bias.view([num_attention_heads, -1])
-            k_bias = hf_layer.self_attn.k_proj.bias.view([num_attention_heads, -1])
-            v_bias = hf_layer.self_attn.v_proj.bias.view([num_attention_heads, -1])
+            q_bias = hf_layer.self_attn.q_proj.bias.view([num_key_value_heads, -1])
+            k_bias = hf_layer.self_attn.k_proj.bias.view([num_key_value_heads, -1])
+            v_bias = hf_layer.self_attn.v_proj.bias.view([num_key_value_heads, -1])
             qkv_bias = torch.cat([q_bias, k_bias, v_bias], dim=1).view(-1).contiguous()
 
             layer.self_attention.linear_qkv.weight.copy_(qkv)
@@ -96,7 +103,7 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
         model.output_layer.weight.copy_(hf_model.lm_head.weight)
 
 
-def convert_hf_to_mcore(hf_model_path, output_path, test=False):
+def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False, test=False):
     os.makedirs(output_path, exist_ok=True)
     if len(os.listdir(output_path)) > 0 and not test:
         print(f"Output path {output_path} is not empty, skipping conversion")
@@ -118,11 +125,12 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
 
     # init hf config
     hf_config = AutoConfig.from_pretrained(hf_model_path)
-    print(hf_config)
+    print(hf_config, flush=True)
 
     cfg = Config()
     cfg.model.path = hf_model_path
     tfconfig = hf_to_mcore_config(hf_config, torch.bfloat16)
+    tfconfig.use_cpu_initialization = use_cpu_initialization
     tie_word_embeddings = getattr(hf_config, "tie_word_embeddings", False)
 
     # init megatron model
@@ -140,7 +148,10 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         return parallel_model
 
     model = get_model(
-        model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=False
+        model_provider_func=megatron_model_provider,
+        model_type=ModelType.encoder_or_decoder,
+        wrap_with_ddp=False,
+        transformer_config=tfconfig,
     )
 
     with warnings.catch_warnings():
@@ -174,7 +185,10 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         ########### test ###########
         # load model
         model_test = get_model(
-            model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True
+            model_provider_func=megatron_model_provider,
+            model_type=ModelType.encoder_or_decoder,
+            wrap_with_ddp=True,
+            transformer_config=tfconfig,
         )
         ssd2 = model_test[0].module.sharded_state_dict()
         dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
@@ -238,4 +252,4 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
 
 if __name__ == "__main__":
     args = _init_args()
-    convert_hf_to_mcore(args.hf_model_path, args.output_path, args.test)
+    convert_hf_to_mcore(args.hf_model_path, args.output_path, args.use_cpu_initialization, args.test)
