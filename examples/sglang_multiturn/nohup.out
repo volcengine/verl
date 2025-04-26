@@ -1,0 +1,126 @@
++ export HYDRA_FULL_ERROR=1
++ HYDRA_FULL_ERROR=1
++ ulimit -n 65535
++++ dirname run_qwen2.5-3b_gsm8k_multiturn_4xgpu.sh
+++ cd .
+++ pwd
++ SCRIPT_DIR=/root/verl/examples/sglang_multiturn
++ CONFIG_PATH=/root/verl/examples/sglang_multiturn/config
++ python3 -m verl.trainer.main_ppo --config-path=/root/verl/examples/sglang_multiturn/config --config-name=gsm8k_multiturn_grpo algorithm.adv_estimator=grpo data.train_batch_size=256 data.max_prompt_length=1024 data.max_response_length=1024 data.filter_overlong_prompts=True data.truncation=error data.return_raw_chat=True actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct actor_rollout_ref.actor.optim.lr=1e-6 actor_rollout_ref.model.use_remove_padding=True actor_rollout_ref.actor.ppo_mini_batch_size=256 actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=40 actor_rollout_ref.actor.use_kl_loss=True actor_rollout_ref.actor.kl_loss_coef=0.001 actor_rollout_ref.actor.kl_loss_type=low_var_kl actor_rollout_ref.actor.entropy_coeff=0 actor_rollout_ref.model.enable_gradient_checkpointing=True actor_rollout_ref.actor.fsdp_config.param_offload=False actor_rollout_ref.actor.fsdp_config.optimizer_offload=False actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=40 actor_rollout_ref.rollout.tensor_model_parallel_size=2 actor_rollout_ref.rollout.name=sglang_async actor_rollout_ref.rollout.gpu_memory_utilization=0.5 actor_rollout_ref.rollout.n=16 actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=40 actor_rollout_ref.ref.fsdp_config.param_offload=True algorithm.use_kl_in_reward=False trainer.critic_warmup=0 'trainer.logger=[console,wandb]' trainer.project_name=gsm8k_async_rl trainer.experiment_name=qwen2.5-3b_function_rm-gsm8k-async-sgl-multi-w-tool-verify-n16-4cards trainer.n_gpus_per_node=4 trainer.nnodes=1 trainer.save_freq=-1 trainer.test_freq=20 trainer.total_epochs=15 actor_rollout_ref.actor.ppo_max_token_len_per_gpu=8192 actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=8192 actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=8192 critic.ppo_max_token_len_per_gpu=8192 critic.forward_max_token_len_per_gpu=8192
+/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py:216: UserWarning: provider=hydra.searchpath in main, path=verl/trainer/config is not available.
+  warnings.warn(
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/verl/trainer/main_ppo.py", line 212, in <module>
+    main()
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 105, in run
+    cfg = self.compose_config(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 594, in compose_config
+    cfg = self.config_loader.load_configuration(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py", line 142, in load_configuration
+    return self._load_configuration_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py", line 253, in _load_configuration_impl
+    defaults_list = create_defaults_list(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 745, in create_defaults_list
+    defaults, tree = _create_defaults_list(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 715, in _create_defaults_list
+    defaults_tree = _create_defaults_tree(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 356, in _create_defaults_tree
+    ret = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 457, in _create_defaults_tree_impl
+    return _expand_virtual_root(repo, root, overrides, skip_missing)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 280, in _expand_virtual_root
+    subtree = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 573, in _create_defaults_tree_impl
+    add_child(children, new_root)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 520, in add_child
+    subtree_ = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 488, in _create_defaults_tree_impl
+    config_not_found_error(repo=repo, tree=root)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 799, in config_not_found_error
+    raise MissingConfigException(
+hydra.errors.MissingConfigException: In 'gsm8k_multiturn_grpo': Could not load 'ppo_trainer'.
+
+Config search path:
+	provider=hydra, path=pkg://hydra.conf
+	provider=main, path=file:///root/verl/examples/sglang_multiturn/config
+	provider=hydra.searchpath in main, path=file://verl/trainer/config
+	provider=schema, path=structured://
++ export HYDRA_FULL_ERROR=1
++ HYDRA_FULL_ERROR=1
++ ulimit -n 65535
++++ dirname run_qwen2.5-3b_gsm8k_multiturn_4xgpu.sh
+++ cd .
+++ pwd
++ SCRIPT_DIR=/root/verl/examples/sglang_multiturn
++ CONFIG_PATH=/root/verl/examples/sglang_multiturn/config
++ python3 -m verl.trainer.main_ppo --config-path=/root/verl/examples/sglang_multiturn/config --config-name=gsm8k_multiturn_grpo algorithm.adv_estimator=grpo data.train_batch_size=256 data.max_prompt_length=1024 data.max_response_length=1024 data.filter_overlong_prompts=True data.truncation=error data.return_raw_chat=True actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct actor_rollout_ref.actor.optim.lr=1e-6 actor_rollout_ref.model.use_remove_padding=True actor_rollout_ref.actor.ppo_mini_batch_size=256 actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=40 actor_rollout_ref.actor.use_kl_loss=True actor_rollout_ref.actor.kl_loss_coef=0.001 actor_rollout_ref.actor.kl_loss_type=low_var_kl actor_rollout_ref.actor.entropy_coeff=0 actor_rollout_ref.model.enable_gradient_checkpointing=True actor_rollout_ref.actor.fsdp_config.param_offload=False actor_rollout_ref.actor.fsdp_config.optimizer_offload=False actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=40 actor_rollout_ref.rollout.tensor_model_parallel_size=2 actor_rollout_ref.rollout.name=sglang_async actor_rollout_ref.rollout.gpu_memory_utilization=0.5 actor_rollout_ref.rollout.n=16 actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=40 actor_rollout_ref.ref.fsdp_config.param_offload=True algorithm.use_kl_in_reward=False trainer.critic_warmup=0 'trainer.logger=[console,wandb]' trainer.project_name=gsm8k_async_rl trainer.experiment_name=qwen2.5-3b_function_rm-gsm8k-async-sgl-multi-w-tool-verify-n16-4cards trainer.n_gpus_per_node=4 trainer.nnodes=1 trainer.save_freq=-1 trainer.test_freq=20 trainer.total_epochs=15 actor_rollout_ref.actor.ppo_max_token_len_per_gpu=8192 actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=8192 actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=8192 critic.ppo_max_token_len_per_gpu=8192 critic.forward_max_token_len_per_gpu=8192
+/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py:216: UserWarning: provider=hydra.searchpath in main, path=verl/trainer/config is not available.
+  warnings.warn(
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/verl/trainer/main_ppo.py", line 212, in <module>
+    main()
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 105, in run
+    cfg = self.compose_config(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 594, in compose_config
+    cfg = self.config_loader.load_configuration(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py", line 142, in load_configuration
+    return self._load_configuration_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/config_loader_impl.py", line 253, in _load_configuration_impl
+    defaults_list = create_defaults_list(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 745, in create_defaults_list
+    defaults, tree = _create_defaults_list(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 715, in _create_defaults_list
+    defaults_tree = _create_defaults_tree(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 356, in _create_defaults_tree
+    ret = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 457, in _create_defaults_tree_impl
+    return _expand_virtual_root(repo, root, overrides, skip_missing)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 280, in _expand_virtual_root
+    subtree = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 573, in _create_defaults_tree_impl
+    add_child(children, new_root)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 520, in add_child
+    subtree_ = _create_defaults_tree_impl(
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 488, in _create_defaults_tree_impl
+    config_not_found_error(repo=repo, tree=root)
+  File "/root/.python/veRL-multiturn-rollout/lib/python3.10/site-packages/hydra/_internal/defaults_list.py", line 799, in config_not_found_error
+    raise MissingConfigException(
+hydra.errors.MissingConfigException: In 'gsm8k_multiturn_grpo': Could not load 'ppo_trainer'.
+
+Config search path:
+	provider=hydra, path=pkg://hydra.conf
+	provider=main, path=file:///root/verl/examples/sglang_multiturn/config
+	provider=hydra.searchpath in main, path=file://verl/trainer/config
+	provider=schema, path=structured://

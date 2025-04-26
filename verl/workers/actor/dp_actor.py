@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -130,10 +131,6 @@ class DataParallelPPOActor(BasePPOActor):
                                                             gather_dim=0,
                                                             unpad_dim=0,
                                                             padding_size=pad_size)
-                log_probs_rmpad = log_probs
-                if torch.distributed.get_rank() == 0 and False:
-                    print(f"{log_probs_rmpad.shape=}")
-                    print(f"{entropy_rmpad.shape=}")
                 # pad back to (bsz, seqlen)
                 full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
                                          indices=indices,
@@ -146,39 +143,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # only return response part:
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
-                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
-
-                if torch.distributed.get_rank() == 0 and False:
-                    if not hasattr(self, 'tokenizer'):
-                            from transformers import AutoTokenizer
-                            self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
-                    print(f"{position_ids_rmpad.shape=}")
-                    input_ids0_len = (input_ids[0] != self.tokenizer.pad_token_id).sum().item()
-                    attn_mask1_log_probs = []
-                    attn_mask1_entropy = []
-                    _log_probs = full_log_probs.squeeze(-1)
-                    _entropy = full_entropy.squeeze(-1)
-                    for i, mask in enumerate(attention_mask[0]):
-                        if mask == 1:
-                            attn_mask1_log_probs.append(_log_probs[0][i].item())
-                            attn_mask1_entropy.append(_entropy[0][i].item())
-                    
-                    print(
-                        f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n"
-                        f"{self.tokenizer.decode(input_ids_rmpad[0][:input_ids0_len])=}\n"
-                        f"{position_ids_rmpad[0][:input_ids0_len]=}\n"
-                        f"{full_entropy.squeeze(-1).shape=}, {len(attn_mask1_entropy)=}\n"
-                        f"{attn_mask1_entropy=}\n"
-                        f"{entropy_rmpad[:input_ids0_len]=}\n"
-                        f"{full_log_probs.squeeze(-1).shape=}, {len(attn_mask1_log_probs)=}\n"
-                        f"{attn_mask1_log_probs=}\n"
-                        f"{log_probs_rmpad[:input_ids0_len]=}\n"
-                    )
-                    assert attn_mask1_log_probs == log_probs_rmpad[:input_ids0_len].tolist(), "log_probs and log_probs_rmpad should be the same"
-                    assert attn_mask1_entropy == entropy_rmpad[:input_ids0_len].tolist(), "entropy and entropy_rmpad should be the same"
-                    
-                    
-
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)  
+                               
             else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,
                                            attention_mask=attention_mask,
@@ -270,31 +236,6 @@ class DataParallelPPOActor(BasePPOActor):
     def update_policy(self, data: DataProto):
         # make sure we are in training mode
         self.actor_module.train()
-        torch.autograd.set_detect_anomaly(False)
-        original_model = self.actor_module.module
-        handles = []
-        def hook_fn(module, grad_input, grad_output, name):
-            prefix = f"Rank {torch.distributed.get_rank()} - " if torch.distributed.is_initialized() else ""
-            if any(g is not None and not torch.isfinite(g).all() for g in grad_input):
-                print(f"{prefix}WARN: NaN grad_input detected in {name} (grad_input)")
-            if any(g is not None and not torch.isfinite(g).all() for g in grad_output):
-                print(f"{prefix}WARN: NaN grad_output detected in {name} (grad_output)")
-        if hasattr(original_model, 'model') and hasattr(original_model.model, 'layers'):
-            for i, layer in enumerate(original_model.model.layers):
-                norm1_name = f'layer_{i}_rms_norm_1'
-                norm2_name = f'layer_{i}_rms_norm_2'
-                # 假设 RMSNorm 的属性名是 input_layernorm 和 post_attention_layernorm
-                if hasattr(layer, 'input_layernorm') and isinstance(layer.input_layernorm, torch.nn.Module):
-                    handles.append(layer.input_layernorm.register_full_backward_hook(lambda m, gi, go, name=norm1_name: hook_fn(m, gi, go, name))) # 使用默认参数捕获 name
-                if hasattr(layer, 'post_attention_layernorm') and isinstance(layer.post_attention_layernorm, torch.nn.Module):
-                    handles.append(layer.post_attention_layernorm.register_full_backward_hook(lambda m, gi, go, name=norm2_name: hook_fn(m, gi, go, name))) # 使用默认参数捕获 name
-        else:
-            print("WARN: Could not find model layers structure to attach hooks. Please adjust the path.")
-        
-        print("check param data when entering update_policy")
-        for name, param in self.actor_module.named_parameters():
-            if not torch.isfinite(param.data).all():
-                print(f"param {name} data is not finite: {param.data.shape=}, {param.data.isinf().sum()=}, {param.data.isnan().sum()=}")
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
         multi_turn = data.meta_info['multi_turn']
@@ -344,32 +285,13 @@ class DataParallelPPOActor(BasePPOActor):
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
-                    assert torch.isfinite(attention_mask).all(), f"attention_mask is not finite: {attention_mask.isnan().sum()=}, {attention_mask.isinf().sum()=}"
                     if multi_turn:
                         response_mask = data["loss_mask"][:, -response_length:]
-                        assert data["loss_mask"][:, :-response_length].sum() == 0, "loss_mask should be 0 for the prompt part"
                     else:
                         response_mask = attention_mask[:, -response_length:]
-                    # print if response_mask match response_ids correctly
-                    response_ids = data['input_ids'][:, -response_length:]
-                    if torch.distributed.get_rank() == 0 and False:
-                        if not hasattr(self, 'tokenizer'):
-                            from transformers import AutoTokenizer
-                            self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
-                        print(f"input_ids[0]: {self.tokenizer.decode(data['input_ids'][0])}")
-                        print(f"response_ids[0]: {self.tokenizer.decode(response_ids[0])}")
-                        for i, (id, mask) in enumerate(zip(response_ids[0], response_mask[0])):
-                            # if id == self.tokenizer.eos_token_id or id == self.tokenizer.pad_token_id:
-                            if id == self.tokenizer.pad_token_id:
-                                assert mask == 0, f"mask should be 0 for the eos or pad token at {i}"
-                                continue
-                            print(f"{i}: id: {self.tokenizer.decode(id)}, mask: {mask}")
 
-                    assert torch.isfinite(response_mask).all(), f"response_mask is not finite: {response_mask.isnan().sum()=}, {response_mask.isinf().sum()=}"
                     old_log_prob = data['old_log_probs']
-                    assert torch.isfinite(old_log_prob).all(), f"old_log_prob is not finite: {old_log_prob.isnan().sum()=}, {old_log_prob.isinf().sum()=}"
                     advantages = data['advantages']
-                    assert torch.isfinite(advantages).all(), f"advantages is not finite: {advantages.isnan().sum()=}, {advantages.isinf().sum()=}"
 
                     clip_ratio = self.config.clip_ratio
                     entropy_coeff = self.config.entropy_coeff
@@ -377,7 +299,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
-                    assert torch.isfinite(log_prob).all(), f"log_prob is not finite: {log_prob.isnan().sum()=}, {log_prob.isinf().sum()=}"
 
                     pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = core_algos.compute_policy_loss(
                         old_log_prob=old_log_prob,
@@ -385,15 +306,10 @@ class DataParallelPPOActor(BasePPOActor):
                         advantages=advantages,
                         eos_mask=response_mask,
                         cliprange=clip_ratio,
-                        clip_ratio_c=clip_ratio_c)
-                    assert torch.isfinite(pg_loss).all(), f"pg_loss is not finite: {pg_loss.isnan().sum()=}, {pg_loss.isinf().sum()=}"
-                    assert torch.isfinite(ppo_kl).all(), f"ppo_kl is not finite: {ppo_kl.isnan().sum()=}, {ppo_kl.isinf().sum()=}"
-                    # compute entropy loss from entropy
+                        clip_ratio_c=clip_ratio_c)                    # compute entropy loss from entropy
                     entropy_loss = verl_F.masked_mean(entropy, response_mask)
-                    assert torch.isfinite(entropy_loss).all(), f"entropy_loss is not finite: {entropy_loss.isnan().sum()=}, {entropy_loss.isinf().sum()=}"
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
-                    assert torch.isfinite(policy_loss).all(), f"policy_loss is not finite: {policy_loss.isnan().sum()=}, {policy_loss.isinf().sum()=}"
 
                     if self.config.use_kl_loss:
                         ref_log_prob = data['ref_log_prob']
@@ -402,7 +318,6 @@ class DataParallelPPOActor(BasePPOActor):
                                                     ref_logprob=ref_log_prob,
                                                     kl_penalty=self.config.kl_loss_type)
                         kl_loss = masked_mean(kld, response_mask)
-                        assert torch.isfinite(kl_loss).all(), f"kl_loss is not finite: {kl_loss.isnan().sum()=}, {kl_loss.isinf().sum()=}"
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics['actor/kl_loss'] = kl_loss.detach().item()
@@ -413,14 +328,8 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                     else:
                         loss = policy_loss / self.gradient_accumulation
-                    assert torch.isfinite(loss).all(), f"loss is not finite: {loss.isnan().sum()=}, {loss.isinf().sum()=}"
                     loss.backward()
-                    # check which param cause grad norm nan
-                    print("check grad when entering update_policy")
-                    for name, param in self.actor_module.named_parameters():
-                        if not torch.isfinite(param.grad).all():
-                            print(f"param {name} grad is not finite: {param.grad.isinf().sum()=}, {param.grad.isnan().sum()=}")
-
+                    
                     data = {
                         'actor/entropy_loss': entropy_loss.detach().item(),
                         'actor/pg_loss': pg_loss.detach().item(),
@@ -434,7 +343,4 @@ class DataParallelPPOActor(BasePPOActor):
                 data = {'actor/grad_norm': grad_norm.detach().item()}
             append_to_dict(metrics, data)
         self.actor_optimizer.zero_grad()
-        torch.autograd.set_detect_anomaly(False)
-        for h in handles:
-            h.remove()
         return metrics
