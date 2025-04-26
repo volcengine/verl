@@ -105,14 +105,7 @@ class DataParallelPPOActor(BasePPOActor):
                                                                                 self.ulysses_sequence_parallel_size)
 
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-                if torch.distributed.get_rank() == 0:
-                    if not hasattr(self, 'tokenizer'):
-                            from transformers import AutoTokenizer
-                            self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
-                    print(f"{position_ids_rmpad.shape=}")
-                    input_ids0_len = (input_ids[0] != self.tokenizer.pad_token_id).sum().item()
-                    print(f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n{self.tokenizer.decode(input_ids_rmpad[0][:input_ids0_len])=}\n{position_ids_rmpad[0][:input_ids0_len]=}")
-
+                
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(input_ids=input_ids_rmpad,
                                            attention_mask=None,
@@ -137,6 +130,10 @@ class DataParallelPPOActor(BasePPOActor):
                                                             gather_dim=0,
                                                             unpad_dim=0,
                                                             padding_size=pad_size)
+                log_probs_rmpad = log_probs
+                if torch.distributed.get_rank() == 0:
+                    print(f"{log_probs_rmpad.shape=}")
+                    print(f"{entropy_rmpad.shape=}")
                 # pad back to (bsz, seqlen)
                 full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1),
                                          indices=indices,
@@ -150,6 +147,37 @@ class DataParallelPPOActor(BasePPOActor):
                 # only return response part:
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
+
+                if torch.distributed.get_rank() == 0:
+                    if not hasattr(self, 'tokenizer'):
+                            from transformers import AutoTokenizer
+                            self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")
+                    print(f"{position_ids_rmpad.shape=}")
+                    input_ids0_len = (input_ids[0] != self.tokenizer.pad_token_id).sum().item()
+                    attn_mask1_log_probs = []
+                    attn_mask1_entropy = []
+                    _log_probs = full_log_probs.squeeze(-1)
+                    _entropy = full_entropy.squeeze(-1)
+                    for i, mask in enumerate(attention_mask[0]):
+                        if mask == 1:
+                            attn_mask1_log_probs.append(_log_probs[0][i].item())
+                            attn_mask1_entropy.append(_entropy[0][i].item())
+                    
+                    print(
+                        f"examine first sample: {self.tokenizer.decode(input_ids[0])=}\n"
+                        f"{self.tokenizer.decode(input_ids_rmpad[0][:input_ids0_len])=}\n"
+                        f"{position_ids_rmpad[0][:input_ids0_len]=}\n"
+                        f"{full_entropy.squeeze(-1).shape=}, {len(attn_mask1_entropy)=}\n"
+                        f"{attn_mask1_entropy=}\n"
+                        f"{entropy_rmpad[:input_ids0_len]=}\n"
+                        f"{full_log_probs.squeeze(-1).shape=}, {len(attn_mask1_log_probs)=}\n"
+                        f"{attn_mask1_log_probs=}\n"
+                        f"{log_probs_rmpad[:input_ids0_len]=}\n"
+                    )
+                    assert attn_mask1_log_probs == log_probs_rmpad[:input_ids0_len].tolist(), "log_probs and log_probs_rmpad should be the same"
+                    assert attn_mask1_entropy == entropy_rmpad[:input_ids0_len].tolist(), "entropy and entropy_rmpad should be the same"
+                    
+                    
 
             else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,
