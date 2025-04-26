@@ -289,7 +289,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with _timer("testing", timing_raw):
-                            val_metrics: dict = self._validate()
+                            val_metrics: dict = await self._validate()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)

@@ -501,7 +501,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                         and self.global_steps % self.config.trainer.test_freq == 0
                     ):
                         with _timer("testing", timing_raw):
-                            val_metrics: dict = self._validate()
+                            val_metrics: dict = await self._validate()
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0:
