@@ -1,4 +1,4 @@
-# Copyright 2023-2024 SGLang Team
+# Copyright 2023-2024 SGLang Team and ModelBest Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -35,7 +35,6 @@ from verl.workers.tool.base_tool import BaseTool
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length, pad_2d_list_to_length
 from verl.utils.model import compute_position_id_with_mask
 from verl.third_party.sglang import parallel_state as sglang_ps
-from verl.workers.rollout.sglang_rollout.verl_engine_with_async import VerlEngineWithAsync
 from verl.workers.rollout.data_model import Message, AsyncRolloutRequest, AsyncRolloutRequestStateEnum, FinishReasonTypeEnum
 from verl.workers.tool.data_model import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from sglang.srt.sampling.sampling_params import SamplingParams
