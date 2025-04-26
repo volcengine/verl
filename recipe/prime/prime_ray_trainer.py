@@ -354,7 +354,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
+            val_metrics = await self._validate()
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
@@ -501,7 +501,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                         and self.global_steps % self.config.trainer.test_freq == 0
                     ):
                         with _timer("testing", timing_raw):
-                            val_metrics: dict = self._validate()
+                            val_metrics: dict = await self._validate()
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0:
@@ -520,7 +520,7 @@ class RayPRIMETrainer(RayPPOTrainer):
                 if self.global_steps >= self.total_training_steps:
                     # perform validation after training
                     if self.val_reward_fn is not None:
-                        val_metrics = self._validate()
+                        val_metrics = await self._validate()
                         pprint(f"Final validation metrics: {val_metrics}")
                         logger.log(data=val_metrics, step=self.global_steps)
                     if (
