@@ -165,6 +165,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     if "Qwen2MoeForCausalLM" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config)
     else:
+        assert not use_cpu_initialization, "use_cpu_initialization is only supported for MoE model"
         from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
 
         load_state_dict_to_megatron_gptmodel(
