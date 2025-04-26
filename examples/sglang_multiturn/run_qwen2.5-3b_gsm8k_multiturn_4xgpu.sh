@@ -1,11 +1,12 @@
 # run on 4xH100
+# make sure your current working directory is the root of the project
 
 set -x
 export HYDRA_FULL_ERROR=1
 ulimit -n 65535
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_PATH="$SCRIPT_DIR/config"
+PROJECT_DIR="$(pwd)"
+CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
@@ -51,4 +52,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=8192 \
     critic.ppo_max_token_len_per_gpu=8192 \
     critic.forward_max_token_len_per_gpu=8192 \
+    data.train_files=$HOME/data/gsm8k/train.parquet \
+    data.val_files=$HOME/data/gsm8k/test.parquet \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \
     $@
