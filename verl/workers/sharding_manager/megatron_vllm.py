@@ -423,15 +423,20 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             q_lst = []
             k_lst = []
             v_lst = []
-            assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
-            num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
+            num_attention_heads = model_config.num_attention_heads
+            num_key_value_heads = model_config.num_key_value_heads
+            if "vision_model" in name:
+                num_attention_heads = unwrap_model(self.actor_module[0]).vision_model.config.num_attention_heads
+                num_key_value_heads = unwrap_model(self.actor_module[0]).vision_model.config.num_query_groups
+            assert num_attention_heads % num_key_value_heads == 0
+            num_q_per_kv = num_attention_heads // num_key_value_heads
             assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, (
                 f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
             )
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
             for infer_param in infer_params:
-                num_query_groups_per_partition = model_config.num_key_value_heads // self.train_tp_size
+                num_query_groups_per_partition = num_key_value_heads // self.train_tp_size
                 for chunk in infer_param.chunk(num_query_groups_per_partition):
                     split_size = [
                         kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
