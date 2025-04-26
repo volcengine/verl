@@ -17,7 +17,7 @@
 import os
 import warnings
 from typing import Any, Dict
-
+import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -241,33 +241,150 @@ def mcore_model_parallel_config(
     )
 
 
-def offload_megatron_param_and_grad(module_list: nn.ModuleList, offload_grad=False, hybrid_engine=None):
-    if hybrid_engine is not None:
-        pp_rank = mpu.get_pipeline_model_parallel_rank()
-        for buffer in hybrid_engine.memory_buffers[pp_rank].values():
-            buffer.data = buffer.data.to("cpu", non_blocking=True)
-        build_memory_reference_from_module(module_list, hybrid_engine.memory_buffers[pp_rank], maintain_weight=True)
-    else:
-        for module in module_list:
-            for _, param in module.named_parameters():
+@torch.no_grad()
+def offload_megatron_model_to_cpu(models):
+    """
+    In megatron, the model and optimizer storage are:
+    - bf16 parameter data chunked in model parallel group
+    - fp32 grad chunked in model parallel group
+    - fp32 main_parameter chunked in model and dp group
+    - fp32 optimizer state chunked in model and dp group
+    """
+    for model_chunk in models:
+        if isinstance(model_chunk, DDP):
+            for buffer in model_chunk.buffers:
+                # offload parameters
+                if buffer.param_data.storage().size() > 0:
+                    buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
+                    buffer.param_data_size = buffer.param_data.storage().size()
+                    buffer.param_data.storage().resize_(0)
+
+                assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
+
+                if buffer.grad_data.storage().size() > 0:
+                    # if the grad_data size is already zero, we assume that it is already offloaded
+                    buffer.grad_data_size = buffer.grad_data.storage().size()
+                    buffer.grad_data.storage().resize_(0)
+        else:
+            # we need this for ref module
+            for _, param in model_chunk.named_parameters():
                 param.data = param.data.to("cpu", non_blocking=True)
-                if offload_grad and param.grad is not None:
+                if param.grad is not None:
                     param.grad = param.grad.to("cpu", non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 
-def load_megatron_param_and_grad(module_list: nn.ModuleList, device_id, load_grad=False, hybrid_engine=None):
-    if hybrid_engine is not None:
-        pp_rank = mpu.get_pipeline_model_parallel_rank()
-        for buffer in hybrid_engine.memory_buffers[pp_rank].values():
-            buffer.data = buffer.data.to(device_id, non_blocking=True)
-        build_memory_reference_from_module(module_list, hybrid_engine.memory_buffers[pp_rank], maintain_weight=True)
-    else:
-        for module in module_list:
-            for _, param in module.named_parameters():
+@torch.no_grad()
+def load_megatron_model_to_gpu(models, load_grad=True):
+    for model_chunk in models:
+        if isinstance(model_chunk, DDP):
+            for buffer in model_chunk.buffers:
+                # sometimes, we don't want to load grad for pure inference
+                if load_grad:
+                    buffer.grad_data.storage().resize_(buffer.grad_data_size)
+                    buffer.grad_data.zero_()
+
+                if buffer.param_data.storage().size() == 0:
+                    buffer.param_data.storage().resize_(buffer.param_data_size)
+                    # copy data from cpu to cuda
+                    buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
+        else:
+            # we need this for ref module
+            device_id = torch.cuda.current_device()
+            for _, param in model_chunk.named_parameters():
                 param.data = param.data.to(device_id, non_blocking=True)
-                if load_grad and param.grad is not None:
+                if param.grad is not None:
                     param.grad = param.grad.to(device_id, non_blocking=True)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+@torch.no_grad()
+def offload_megatron_copy_params(optimizers):
+    """
+    Offload optimizer parameters to CPU
+    
+    Args:
+        optimizers: The optimizer containing parameter groups to offload
+    """
+    def offload_tensor_to_cpu(tensor):
+        if tensor is None:
+            return
+        tensor.data = tensor.data.to('cpu', non_blocking=True)
+
+    def offload_group_to_cpu(group):
+        if group is None:
+            return
+            
+        if isinstance(group, list):
+            for param_group in group:
+                if isinstance(param_group, list):
+                    for param in param_group:
+                        offload_tensor_to_cpu(param)
+                else:
+                    offload_tensor_to_cpu(param_group)
+        else:
+            offload_tensor_to_cpu(group)
+
+    # Offload all parameter groups to CPU
+
+    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
+        offload_group_to_cpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+
+
+@torch.no_grad()
+def load_megatron_copy_params(optimizers):
+    """
+    Load optimizer parameters back to GPU
+    
+    Args:
+        optimizers: The optimizer containing parameter groups to load
+    """
+    def load_tensor_to_gpu(tensor):
+        if tensor is None:
+            return
+        device_id = torch.cuda.current_device()
+        tensor.data = tensor.data.to(device_id, non_blocking=True)
+
+    def load_group_to_gpu(group):
+        if group is None:
+            return
+            
+        if isinstance(group, list):
+            for param_group in group:
+                if isinstance(param_group, list):
+                    for param in param_group:
+                        load_tensor_to_gpu(param)
+                else:
+                    load_tensor_to_gpu(param_group)
+        else:
+            load_tensor_to_gpu(group)
+
+    # Load all parameter groups to GPU
+
+    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
+        load_group_to_gpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+
+
+@torch.no_grad()
+def offload_megatron_optimizer(optimizers):
+    offload_megatron_copy_params(optimizers)
+    opt_state_dict_values = optimizers.optimizer.state.values()
+    for v in opt_state_dict_values:
+        v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
+        v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+@torch.no_grad()
+def load_megatron_optimizer(optimizers):
+    load_megatron_copy_params(optimizers)
+    opt_state_dict_values = optimizers.optimizer.state.values()
+    for v in opt_state_dict_values:
+        v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
+        v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+    gc.collect()
     torch.cuda.empty_cache()
 
 
