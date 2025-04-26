@@ -57,7 +57,7 @@ jobs:
       - name: Running Huggingface to Megatron dist_ckpt CPU converter (Qwen/Qwen2.5-0.5B)
         run: |
           ray stop --force
-          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/Qwen/Qwen2.5-0.5B --use_cpu_initialization
+          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/cpu/Qwen/Qwen2.5-0.5B --use_cpu_initialization
       - name: Running Huggingface to Megatron dist_ckpt converter (deepseek-ai/deepseek-coder-1.3b-instruct)
         run: |
           ray stop --force
@@ -65,7 +65,10 @@ jobs:
       - name: Running Huggingface to Megatron dist_ckpt CPU converter (deepseek-ai/deepseek-coder-1.3b-instruct)
         run: |
           ray stop --force
-          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct --output_path checkpoints/deepseek-ai/deepseek-coder-1.3b-instruct --use_cpu_initialization
+          python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/deepseek-ai/deepseek-coder-1.3b-instruct --output_path checkpoints/cpu/deepseek-ai/deepseek-coder-1.3b-instruct --use_cpu_initialization
+      - name: Clean up
+        run: |
+          rm -rf checkpoints
   checkpoint_converter_large_moe_models:
     runs-on: [L20x8]
     timeout-minutes: 30 # Increase this timeout value as needed
@@ -93,3 +96,6 @@ jobs:
         run: |
           ray stop --force
           python scripts/converter_hf_to_mcore.py --hf_model_path=${HOME}/models/Qwen/Qwen1.5-MoE-A2.7B-Chat --output_path checkpoints/Qwen/Qwen1.5-MoE-A2.7B-Chat --use_cpu_initialization
+      - name: clean up
+        run: |
+          rm -rf checkpoints

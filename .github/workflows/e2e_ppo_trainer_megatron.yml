@@ -76,6 +76,9 @@ jobs:
         run: |
           ray stop --force
           ADV_ESTIMATOR=grpo bash tests/e2e/run_ppo_trainer_megatron.sh
+      - name: clean up
+        run: |
+          rm -rf checkpoints
   e2e_ppo_trainer_megatron-deepseek:
     runs-on: [L20x8]
     timeout-minutes: 30 # Increase this timeout value as needed
@@ -114,3 +117,6 @@ jobs:
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
           python scripts/model_merger.py --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+      - name: clean up
+        run: |
+          rm -rf checkpoints
