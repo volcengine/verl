@@ -447,7 +447,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             v = torch.cat(v_lst, dim=0)
             infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
-        elif self.layer_name_mapping.get("gate_proj_layer_name") in name:
+        elif self.layer_name_mapping.get("gate_proj_layer_name") in name and "layer_norm" not in name and "vision_model.projection" not in name:
             # if the tensor is gate and proj
             gate_lst = []
             up_lst = []
@@ -517,8 +517,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __enter__(self):
-        self.inference_engine.wake_up()
-        return
         if vllm_version in (
             "0.5.4",
             "0.6.3",

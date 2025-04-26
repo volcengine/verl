@@ -280,7 +280,6 @@ class MegatronPPOActor(BasePPOActor):
             data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group()
         )
         # split into micro-batches
-        data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
 
         if data.meta_info.get("micro_batch_size", None) is not None:
             batch_size = data.meta_info["micro_batch_size"]
@@ -312,7 +311,7 @@ class MegatronPPOActor(BasePPOActor):
 
             responses = data["responses"]
             response_length = responses.size(1)
-            attention_mask = data["attention_mask"]
+            attention_mask = data["attention_mask"].to(bool)
             response_mask = attention_mask[:, -response_length:]
             loss_agg_mode = self.config.loss_agg_mode
 
@@ -379,7 +378,7 @@ class MegatronPPOActor(BasePPOActor):
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
             input_ids = batch["input_ids"]
-            attention_mask = batch["attention_mask"]
+            attention_mask = batch["attention_mask"].to(bool)
             position_ids = batch["position_ids"]
 
             multi_modal_inputs = {}
@@ -434,6 +433,11 @@ class MegatronPPOActor(BasePPOActor):
                 forward_only=forward_only,
             )
         # loss_reduces contains the stats returned from loss_func
+
+        if self.has_multi_modal_inputs:
+            data.batch.pop("multi_modal_inputs")
+            data.batch.pop("multi_modal_inputs_idx")
+            data.non_tensor_batch.pop("multi_modal_inputs")
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)

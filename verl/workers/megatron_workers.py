@@ -225,7 +225,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             # we will reorganize their weight format when resharding from actor to rollout.
             layer_name_mapping = {
                 "qkv_layer_name": "self_attention.linear_qkv.",
-                "gate_proj_layer_name": "linear_fc1.weight",
+                "gate_proj_layer_name": "linear_fc1.",
             }
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
