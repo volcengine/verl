@@ -131,7 +131,7 @@ class DataParallelPPOActor(BasePPOActor):
                                                             unpad_dim=0,
                                                             padding_size=pad_size)
                 log_probs_rmpad = log_probs
-                if torch.distributed.get_rank() == 0:
+                if torch.distributed.get_rank() == 0 and False:
                     print(f"{log_probs_rmpad.shape=}")
                     print(f"{entropy_rmpad.shape=}")
                 # pad back to (bsz, seqlen)
@@ -148,7 +148,7 @@ class DataParallelPPOActor(BasePPOActor):
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1:-1]  # (bsz, response_length)
 
-                if torch.distributed.get_rank() == 0:
+                if torch.distributed.get_rank() == 0 and False:
                     if not hasattr(self, 'tokenizer'):
                             from transformers import AutoTokenizer
                             self.tokenizer = AutoTokenizer.from_pretrained("/user/longxiang1/models/Qwen/Qwen2.5-3B-Instruct")

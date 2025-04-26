@@ -89,7 +89,7 @@ class AsyncRolloutRequest(BaseModel):
         content: str, 
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
         format: Literal["chatml"] = "chatml",
-        alreadyover_long: bool = False,
+        already_over_long: bool = False,
     ) -> None:
         """Currently, we only support chatml format."""
         msg = Message(role="assistant", content=content, tool_calls=tool_calls)
@@ -120,7 +120,7 @@ class AsyncRolloutRequest(BaseModel):
             else:
                 max_len = max(len(prefix_token_ids), len(suffix_token_ids))
                 raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}")
-            if not alreadyover_long:
+            if not already_over_long:
                 append_token_ids += suffix_token_ids
                 _loss_mask += [1] * len(suffix_token_ids)
             self.input_ids += append_token_ids

@@ -402,7 +402,7 @@ class RayPPOTrainer(object):
 
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
-        need_tools_kwargs = self.config.actor_rollout_ref.rollout.tool_kwargs.tools_config_file is not None
+        need_tools_kwargs = self.config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          processor=self.processor,
@@ -904,7 +904,8 @@ class RayPPOTrainer(object):
                             batch, kl_metrics = apply_kl_penalty(batch,
                                                                  kl_ctrl=self.kl_ctrl_in_reward,
                                                                  kl_penalty=self.config.algorithm.kl_penalty,
-                                                                 multi_turn=self.config.actor_rollout_ref.rollout.get('multi_turn', False))
+                                                                 multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
+                                                                )
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
@@ -915,7 +916,8 @@ class RayPPOTrainer(object):
                                                   gamma=self.config.algorithm.gamma,
                                                   lam=self.config.algorithm.lam,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n,
-                                                  multi_turn=self.config.actor_rollout_ref.rollout.get('multi_turn', False))
+                                                  multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
+                                                  )
 
                     # update critic
                     if self.use_critic:
@@ -928,7 +930,7 @@ class RayPPOTrainer(object):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
-                            batch.meta_info['multi_turn'] = self.config.actor_rollout_ref.rollout.get('multi_turn', False)
+                            batch.meta_info['multi_turn'] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)

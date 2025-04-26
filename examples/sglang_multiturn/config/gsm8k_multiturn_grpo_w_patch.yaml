@@ -18,7 +18,7 @@ actor_rollout_ref:
   hybrid_engine: True
   rollout:
     name: sglang_async
-    multi_turn: True
-    max_turns: 5
-    tool_kwargs:
-      tools_config_file: "examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml"
+    multi_turn:
+      enable: True
+      max_turns: 5
+      tool_config_path: "examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml"

@@ -77,6 +77,7 @@ if __name__ == '__main__':
                     'index': idx,
                     'answer': answer_raw,
                     "question": question_raw,
+                    "need_tools_kwargs": True,
                     "tools_kwargs": {
                         "calc_gsm8k_reward": {
                             "create_kwargs": {

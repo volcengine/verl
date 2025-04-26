@@ -138,7 +138,7 @@ class AsyncSGLangRollout(BaseRollout):
         self.config = config
         
         tool_list = None
-        if config.get("tool_kwargs") and config.tool_kwargs.get("tools_config_file", None) is not None:
+        if config.multi_turn.tool_config_path is not None:
             from omegaconf import OmegaConf
             def initialize_tools(tools_config) -> List:
                 import sys
@@ -173,7 +173,7 @@ class AsyncSGLangRollout(BaseRollout):
                 
                 return tool_list
  
-            tools_config_file = config.tool_kwargs.tools_config_file
+            tools_config_file = config.multi_turn.tool_config_path
             tools_config = OmegaConf.load(tools_config_file)
             tool_list = initialize_tools(tools_config)           
 
@@ -218,8 +218,8 @@ class AsyncSGLangRollout(BaseRollout):
         assert (model_hf_config.max_position_embeddings >= self.config.max_model_len), \
             "model context length should be greater than total sequence length"
         # currently max_turns stand for max number of tool calls
-        if self.config.get("max_turns", None) is None:
-            self.config.max_turns = self.config.max_model_len // 3
+        if self.config.multi_turn.max_turns is None:
+            self.config.multi_turn.max_turns = self.config.max_model_len // 3
 
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
@@ -430,7 +430,7 @@ class AsyncSGLangRollout(BaseRollout):
         output = None
         
         current_turns = 0
-        while current_turns < self.config.max_turns:
+        while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 if _req.tools is not None:
                     tool_creation_coroutines = []
@@ -451,7 +451,7 @@ class AsyncSGLangRollout(BaseRollout):
                         ) for tool_call in parsed_tool_calls
                     ])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
-                        _req.add_tool_response_message(self.tokenizer, resp)
+                        _req.add_tool_response_message(self.tokenizer, resp, format=self.config.multi_turn.format)
                         if len(_req.input_ids) >= self.config.max_model_len:
                             break
                     if len(_req.input_ids) >= self.config.max_model_len:
@@ -499,7 +499,7 @@ class AsyncSGLangRollout(BaseRollout):
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.tokenizer, content, alreadyover_long=True)
+                    _req.add_assistant_message(self.tokenizer, content, already_over_long=True, format=self.config.multi_turn.format)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -525,17 +525,17 @@ class AsyncSGLangRollout(BaseRollout):
                             ) for tool_call in tool_calls
                         ]
                         if len(parsed_tool_calls) > 0:
-                            _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
+                            _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls, format=self.config.multi_turn.format)
                         else:
-                            _req.add_assistant_message(self.tokenizer, content)
+                            _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
-                        _req.add_assistant_message(self.tokenizer, content)
+                        _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
                         break
 
-        if current_turns >= self.config.max_turns:
+        if current_turns >= self.config.multi_turn.max_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
         # Calculate the reward for each tool
         async def calc_reward_and_release_fn(name: str, tool: BaseTool):
@@ -653,7 +653,7 @@ class AsyncSGLangRollout(BaseRollout):
         # print(f"{reward_scores_tensor=}")
         # print(f"{prompt_ids.shape=}, {response_ids.shape=}, {input_ids.shape=}, {attention_mask.shape=}, {position_ids.shape=}, {loss_mask.shape=}, {len(reward_scores)=}, {len(sorted_output_req_list)=}, {len(messages)=}")
         
-        if self._tp_rank == 0 and self._device_mesh_cpu["dp"].get_local_rank() == 0 and not is_validate:
+        if self._tp_rank == 0 and self._device_mesh_cpu["dp"].get_local_rank() == 0 and not is_validate and False:
             print(f"examine first request:\n{sorted_output_req_list[0].messages=}\n{self.tokenizer.decode(sorted_output_req_list[0].input_ids)=}")
             attn_mask1_input_ids = []
             loss_mask1_input_ids = []
