@@ -201,6 +201,7 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         activation_func_fp8_input_store=False,
         num_moe_experts=None,
         rotary_interleaved=False,
+        attention_backend=AttnBackend.flash,
         window_size=None,
         normalization="RMSNorm",
         qk_layernorm=False,
