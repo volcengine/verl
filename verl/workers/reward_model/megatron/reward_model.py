@@ -140,7 +140,6 @@ class MegatronRewardModel(BasePPORewardModel):
 
         with torch.no_grad():
             output = self.forward_batch(data)
-            output = [x['logits'] for x in output]
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
                 logits = torch.cat(output, dim=0)
             else:
@@ -225,7 +224,7 @@ class MegatronRewardModel(BasePPORewardModel):
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output):
-            return 1.0, {"logits": output}
+            return 1.0, output
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
