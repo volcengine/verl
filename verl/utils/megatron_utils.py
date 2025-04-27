@@ -14,12 +14,12 @@
 # limitations under the License.
 """Pretrain utilities."""
 
+import gc
 import os
 import warnings
 from typing import Any, Dict
-import gc
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
@@ -31,7 +31,6 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
-from verl.utils.memory_buffer import build_memory_reference_from_module
 from verl.utils.torch_dtypes import PrecisionType
 
 
@@ -299,23 +298,25 @@ def load_megatron_model_to_gpu(models, load_grad=True):
     gc.collect()
     torch.cuda.empty_cache()
 
+
 @torch.no_grad()
 def offload_megatron_copy_params(optimizers):
     """
     Offload optimizer parameters to CPU
-    
+
     Args:
         optimizers: The optimizer containing parameter groups to offload
     """
+
     def offload_tensor_to_cpu(tensor):
         if tensor is None:
             return
-        tensor.data = tensor.data.to('cpu', non_blocking=True)
+        tensor.data = tensor.data.to("cpu", non_blocking=True)
 
     def offload_group_to_cpu(group):
         if group is None:
             return
-            
+
         if isinstance(group, list):
             for param_group in group:
                 if isinstance(param_group, list):
@@ -328,18 +329,19 @@ def offload_megatron_copy_params(optimizers):
 
     # Offload all parameter groups to CPU
 
-    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
-        offload_group_to_cpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
+        offload_group_to_cpu(optimizers.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def load_megatron_copy_params(optimizers):
     """
     Load optimizer parameters back to GPU
-    
+
     Args:
         optimizers: The optimizer containing parameter groups to load
     """
+
     def load_tensor_to_gpu(tensor):
         if tensor is None:
             return
@@ -349,7 +351,7 @@ def load_megatron_copy_params(optimizers):
     def load_group_to_gpu(group):
         if group is None:
             return
-            
+
         if isinstance(group, list):
             for param_group in group:
                 if isinstance(param_group, list):
@@ -362,8 +364,8 @@ def load_megatron_copy_params(optimizers):
 
     # Load all parameter groups to GPU
 
-    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
-        load_group_to_gpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
+        load_group_to_gpu(optimizers.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
@@ -371,8 +373,8 @@ def offload_megatron_optimizer(optimizers):
     offload_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+        v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+        v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -382,8 +384,8 @@ def load_megatron_optimizer(optimizers):
     load_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+        v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+        v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 

@@ -144,11 +144,6 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
         # TODO: offload FSDP model weights
-        # self.module.cpu()
-        # torch.cuda.empty_cache()
-        # if torch.distributed.get_rank() == 0:
-        # print(f'after model to cpu in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
-
         # important: need to manually set the random states of each tp to be identical.
         if self.device_mesh is not None:
             self.torch_random_states = torch.cuda.get_rng_state()
@@ -159,10 +154,7 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
         if self._tp_rank == 0:
             self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
-        # self.module.to('cuda')
-        # if torch.distributed.get_rank() == 0:
-        #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
-
+        
         self.module.train()
 
         # add empty cache after each compute

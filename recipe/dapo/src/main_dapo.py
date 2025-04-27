@@ -76,7 +76,6 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
-
     async def run(self, config):
         # print initial config
         from pprint import pprint

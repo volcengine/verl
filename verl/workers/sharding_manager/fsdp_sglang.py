@@ -96,7 +96,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
-        load_format = None if self.full_params else "dtensor"
         self.inference_engine.resume_memory_occupation()
 
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)

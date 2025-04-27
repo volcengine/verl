@@ -18,7 +18,7 @@ import os
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
@@ -47,10 +47,9 @@ from verl.workers.rollout.data_model import (
     FinishReasonTypeEnum,
     Message,
 )
+from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs
 from verl.workers.tool.base_tool import BaseTool
 from verl.workers.tool.data_model import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
-from verl.workers.rollout.sglang_rollout.sglang_rollout import _pre_process_inputs, _post_process_outputs
-
 
 if TYPE_CHECKING:
     from torch import nn
@@ -95,7 +94,7 @@ class AsyncSGLangRollout(BaseRollout):
         if config.multi_turn.tool_config_path is not None:
             from omegaconf import OmegaConf
 
-            def initialize_tools(tools_config) -> List:
+            def initialize_tools(tools_config) -> list:
                 import importlib.util
                 import sys
 
@@ -169,7 +168,8 @@ class AsyncSGLangRollout(BaseRollout):
         if not self.config.get("max_model_len", None):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
         assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, (
-            f"max_model_len should be greater than total sequence length (prompt_length + response_length): {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"
+            f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
+            {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
         )
         assert model_hf_config.max_position_embeddings >= self.config.max_model_len, (
             "model context length should be greater than total sequence length"
@@ -338,7 +338,9 @@ class AsyncSGLangRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(
+            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+        )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -536,16 +538,27 @@ class AsyncSGLangRollout(BaseRollout):
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
             assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
-                f"Request {req.request_id} has different length of {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"
+                f"""Request {req.request_id} has different length of 
+                {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
             )
-            assert len(req.input_ids) <= self.config.max_model_len, (
-                f"Request {req.request_id} has input_ids length {len(req.input_ids)} greater than max_model_len {self.config.max_model_len},\n{self.tokenizer.decode(req.input_ids)=},\n{self.tokenizer.decode(req.prompt_ids)=},\n{self.tokenizer.decode(req.response_ids)=},\n{req.messages=},\n{req.max_model_len=}"
-            )
+            error_message_lines = [
+                f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
+                    greater than max_model_len {self.config.max_model_len}""",
+                f"Decoded input_ids: {self.tokenizer.decode(req.input_ids)}",
+                f"Decoded prompt_ids: {self.tokenizer.decode(req.prompt_ids)}",
+                f"Decoded response_ids: {self.tokenizer.decode(req.response_ids)}",
+                f"Messages: {req.messages}",
+                f"Max model length: {req.max_model_len}"
+            ]
+            error_message = "\n".join(error_message_lines)
+            assert len(req.input_ids) <= self.config.max_model_len, error_message
+            
             prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int))
             response_ids.append(torch.tensor(req.response_ids, dtype=torch.int))
             if len(req.response_ids) > self.config.response_length:
                 print(
-                    f"{req.request_id=} has response_ids length {len(req.response_ids)} greater than max_response_len {self.config.response_length},\n{req=}"
+                    f"""{req.request_id=} has response_ids length {len(req.response_ids)} 
+                    greater than max_response_len {self.config.response_length},\n{req=}"""
                 )
             prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int))
             response_attention_mask.append(torch.tensor(req.response_attention_mask, dtype=torch.int))
@@ -609,7 +622,7 @@ class AsyncSGLangRollout(BaseRollout):
             batch=batch, non_tensor_batch={"messages": np.array(messages), "reward_scores": np.array(reward_scores)}
         )
 
-    def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> List[AsyncRolloutRequest]:
+    def _preprocess_prompt_to_async_rollout_requests(self, prompts: DataProto, n: int) -> list[AsyncRolloutRequest]:
         assert "raw_prompt" in prompts.non_tensor_batch, (
             "need data.return_raw_chat=True, due to no official way do parse_messages"
         )
@@ -636,7 +649,8 @@ class AsyncSGLangRollout(BaseRollout):
                     _position_ids = compute_position_id_with_mask(input_data["attention_mask"][0]).tolist()
                     if len(_input_ids) > self.config.prompt_length:
                         logger.warning(
-                            f"Prompt {data_idx} has length {len(_input_ids)} greater than max_prompt_len {self.config.prompt_length}"
+                            "Prompt {} has length {} greater than max_prompt_len {}", 
+                            data_idx, len(_input_ids), self.config.prompt_length
                         )
                         _input_ids = _input_ids[: self.config.prompt_length]
                         _attention_mask = _attention_mask[: self.config.prompt_length]
@@ -674,9 +688,13 @@ class AsyncSGLangRollout(BaseRollout):
                         self.config.max_model_len, self.config.prompt_length + self.config.response_length
                     ),
                 )
-                assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
-                    f"Request {req.request_id} has different length of {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=},\n{self.pad_token_id=},\n{req.input_ids=},\n{req.attention_mask=},\n{req.position_ids=},\n{req.loss_mask=}"
+                
+                error_message = (
+                    f"Request {req.request_id} has mismatched lengths: "
+                    f"input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, "
+                    f"position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
                 )
-                req_list.append(req)
+                assert len(req.input_ids) == len(req.attention_mask) \
+                    == len(req.position_ids) == len(req.loss_mask), error_message
 
         return req_list

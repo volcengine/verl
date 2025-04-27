@@ -322,14 +322,14 @@ class SGLangRollout(BaseRollout):
             )
 
             out = _post_process_outputs(self.tokenizer, output)
-    
+
             response = out[0].to(idx.device)
             # log_probs = out[1].to(idx.device)
-    
+
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
                 # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-    
+
             # utilize current sampling params
             if self.sampling_params.get("n", 1) > 1 and do_sample:
                 idx = idx.repeat_interleave(self.sampling_params["n"], dim=0)

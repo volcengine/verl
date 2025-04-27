@@ -135,7 +135,9 @@ class AsyncRolloutRequest(BaseModel):
             else:
                 max_len = max(len(prefix_token_ids), len(suffix_token_ids))
                 raise ValueError(
-                    f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}"
+                    f"""Unsupported end of message format: 
+                    {tokenizer.decode(self.input_ids[-max_len:])},
+                    {tokenizer.decode(self.input_ids)=}, {self.messages=}"""
                 )
             if not already_over_long:
                 append_token_ids += suffix_token_ids
@@ -150,8 +152,10 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
-            f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+        assert len(self.input_ids) == len(self.attention_mask) \
+            == len(self.position_ids) == len(self.loss_mask), (
+            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
         )
 
     def add_tool_response_message(
@@ -185,8 +189,10 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
-            f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+        assert len(self.input_ids) == len(self.attention_mask) \
+            == len(self.position_ids) == len(self.loss_mask), (
+            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
         )
 
     def finalize(
@@ -206,7 +212,8 @@ class AsyncRolloutRequest(BaseModel):
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(tokenizer)
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
-            f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
         )
 
     def truncate_output_ids(self, tokenizer: PreTrainedTokenizer) -> None:
