@@ -214,6 +214,8 @@ class Qwen2_5VLModel(MegatronModule):
             output (torch.Tensor): Loss of shape [b, s] if labels are provided, otherwise logits of shape [b, s, vocab_size].
         """
         video_start_index = 0
+        vision_grid_thw = None
+        vision_data = None
         if image_grid_thw is not None:
             image_mask = (input_ids == self.image_token_id)
             vision_grid_thw = image_grid_thw
@@ -232,7 +234,7 @@ class Qwen2_5VLModel(MegatronModule):
 
         if self.pre_process:
             vision_embeds = None
-            if vision_grid_thw.shape[0] > 0:
+            if vision_grid_thw is not None and vision_grid_thw.shape[0] > 0:
                 vision_embeds = self.vision_model(
                     vision_data=vision_data,  # If None, vision model should use intermediate outputs (EPP > 1)
                     grid_thw=vision_grid_thw,  # should provided in each EPP stage
@@ -306,7 +308,11 @@ class Qwen2_5VLModel(MegatronModule):
                                       image_grid_thw=image_grid_thw,
                                       video_grid_thw=video_grid_thw,
                                       attention_mask=attention_mask)
-
+        if self.config.sequence_parallel and packed_seq_params is None:
+            from megatron.core import parallel_state as mpu
+            tp_world_size = mpu.get_tensor_model_parallel_world_size()
+            tp_rank = mpu.get_tensor_model_parallel_rank()
+            combined_embeddings = combined_embeddings.chunk(tp_world_size)[tp_rank]
         output = self.language_model(
             input_ids=None,
             position_ids=position_ids,  # None in encoder
