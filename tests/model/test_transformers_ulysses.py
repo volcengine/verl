@@ -32,7 +32,7 @@ from verl.utils.ulysses import (
     set_ulysses_sequence_parallel_group,
     ulysses_pad_and_slice_inputs,
 )
-from verl.workers.sharding_manager import FSDPUlyssesShardingManager
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 # TODO(sgm): add more models for test
 # we only need one scale for each model
@@ -99,7 +99,7 @@ def _hf_casual_fwd(config, sp_size, dp_size):
 
     batch_size = 1
     seqlen = 128
-    response_length = 127
+    # response_length = 127
 
     # patch before load
     with torch.device("cuda"):
@@ -178,7 +178,7 @@ def _hf_casual_fwd_bwd(config, sp_size, dp_size):
 
     batch_size = 1
     seqlen = 128
-    response_length = 127
+    # response_length = 127
 
     # patch before load
     with torch.device("cuda"):

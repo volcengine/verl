@@ -45,7 +45,6 @@ from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.sharding_manager import FSDPVLLMShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -352,7 +351,7 @@ class vLLMAsyncRollout:
     def __init__(self, *args, **kwargs):
         # Engine is deferred to be initialized in init_worker
         self.inference_engine: WorkerWrapperBase = None
-        self.sharding_manager: FSDPVLLMShardingManager = None
+        self.sharding_manager = None
         self.is_sleep = False
 
     def init_worker(self, all_kwargs: List[Dict[str, Any]]):
