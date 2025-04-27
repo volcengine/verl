@@ -38,18 +38,18 @@ from transformers import PreTrainedTokenizer
 
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
+from verl.tools.base_tool import BaseTool
+from verl.tools.schemas import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.data_model import (
+from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
     AsyncRolloutRequestStateEnum,
     FinishReasonTypeEnum,
     Message,
 )
 from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs
-from verl.workers.tool.base_tool import BaseTool
-from verl.workers.tool.data_model import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 
 if TYPE_CHECKING:
     from torch import nn
@@ -98,7 +98,7 @@ class AsyncSGLangRollout(BaseRollout):
                 import importlib.util
                 import sys
 
-                from verl.workers.tool.data_model import OpenAIFunctionToolSchema
+                from verl.tools.schemas import OpenAIFunctionToolSchema
 
                 tool_list = []
 

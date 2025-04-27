@@ -13,15 +13,17 @@
 
 import json
 import logging
+import os
 from typing import Optional, Tuple
 from uuid import uuid4
 
 from verl.utils.reward_score import gsm8k
 
 from .base_tool import BaseTool
-from .data_model import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema
 
 logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class Gsm8kTool(BaseTool):

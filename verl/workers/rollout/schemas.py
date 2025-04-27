@@ -20,8 +20,8 @@ import torch
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizer
 
+from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
 from verl.utils.model import compute_position_id_with_mask
-from verl.workers.tool.data_model import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
 
 
 class FinishReasonTypeEnum(str, Enum):

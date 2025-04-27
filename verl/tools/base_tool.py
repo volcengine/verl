@@ -13,7 +13,7 @@
 from typing import Optional, Tuple
 from uuid import uuid4
 
-from .data_model import OpenAIFunctionToolSchema
+from .schemas import OpenAIFunctionToolSchema
 
 
 class BaseTool:

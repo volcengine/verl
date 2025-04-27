@@ -1,5 +1,5 @@
 tools:
-  - class_name: "verl.workers.tool.gsm8k_tool.Gsm8kTool"
+  - class_name: "verl.tools.gsm8k_tool.Gsm8kTool"
     config: {}
     tool_schema:
       type: "function"
