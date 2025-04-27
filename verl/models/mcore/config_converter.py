@@ -144,6 +144,7 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
     from .qwen2_5_vl.model import Qwen2VLTransformerConfig
 
     config = Qwen2VLTransformerConfig(
+        activation_func=F.silu,
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),

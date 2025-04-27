@@ -162,25 +162,70 @@ def init_mcore_model_qwen2_5_vl(
 
     transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=True)
 
+    from verl.models.mcore.qwen2_vl.layer_specs import (
+        get_gpt_layer_with_transformer_engine_spec,
+        get_qwen2vl_vision_model_spec,
+        get_mlp_module_spec
+    )
+    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(False)
+    vision_model_spec = get_qwen2vl_vision_model_spec()
+    vision_projector_spec = get_mlp_module_spec(add_norm=False).submodules
+    SEQ_LEN = 1
+    SPATIAL_MERGE_SIZE = 2
+    QK_LAYERNORM = False
+    PADDED_VOCAB_SIZE = 151936
+    MAX_POSITION_EMBEDDINGS = 128000
+    POSITION_EMBEDDING_TYPE = 'rope'
+    ROTARY_PERCENT = 1.0
+    ROTARY_BASE = 1000000
+    FP16_LM_CROSS_ENTROPY = False
     qwen25_vl_model = Qwen2_5VLModel(
-        vision_transformer_config=vision_config,
-        drop_vision_class_token=False,  # NOTE: no class token to drop?
-        vision_projection_config=vision_projector_config,
-        vision_projection_type="mlp",
-        allow_missing_vision_projection_checkpoint=False,  # TODO: may parameterized
         language_transformer_config=tfconfig,
         language_transformer_layer_spec=transformer_layer_spec,
-        language_vocab_size=hf_config.vocab_size,
-        language_max_sequence_length=hf_config.max_position_embeddings,
-        language_position_embedding_type="mrope",
-        language_rotary_percent=1.0,
-        language_rotary_base=hf_config.rope_theta,
-        language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+        language_vocab_size=PADDED_VOCAB_SIZE,
+        language_max_sequence_length=MAX_POSITION_EMBEDDINGS,
+
+        vision_transformer_config=vision_config,
+        vision_transformer_layer_spec=vision_model_spec,
+        drop_vision_class_token=False, # NOTE: no class token to drop?
+
+        vision_projection_config=vision_projector_config,
+        vision_projection_layer_spec=vision_projector_spec, 
+        vision_projection_type='mlp',
+        allow_missing_vision_projection_checkpoint= False, # TODO: may parameterized
+
+        language_position_embedding_type=POSITION_EMBEDDING_TYPE,
+        language_rotary_percent=ROTARY_PERCENT,
+        language_rotary_base=ROTARY_BASE,
+        
         pre_process=pre_process,
         post_process=post_process,
         add_decoder=True,
         add_encoder=True,
+
+        fp16_lm_cross_entropy=FP16_LM_CROSS_ENTROPY,
+        parallel_output=True,
+        language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
     )
+    # qwen25_vl_model = Qwen2_5VLModel(
+    #     vision_transformer_config=vision_config,
+    #     drop_vision_class_token=False,  # NOTE: no class token to drop?
+    #     vision_projection_config=vision_projector_config,
+    #     vision_projection_type="mlp",
+    #     allow_missing_vision_projection_checkpoint=False,  # TODO: may parameterized
+    #     language_transformer_config=tfconfig,
+    #     language_transformer_layer_spec=transformer_layer_spec,
+    #     language_vocab_size=hf_config.vocab_size,
+    #     language_max_sequence_length=hf_config.max_position_embeddings,
+    #     language_position_embedding_type="mrope",
+    #     language_rotary_percent=1.0,
+    #     language_rotary_base=hf_config.rope_theta,
+    #     language_share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+    #     pre_process=pre_process,
+    #     post_process=post_process,
+    #     add_decoder=True,
+    #     add_encoder=True,
+    # )
 
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
