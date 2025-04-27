@@ -4,6 +4,9 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
@@ -20,7 +23,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
@@ -38,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-            fetch-depth: 0
+          fetch-depth: 0
       - name: Install the current repository
         run: |
           pip install -e .[test]
@@ -51,7 +54,7 @@ jobs:
           pytest -s -x tests/verl/utils/dataset/test_rl_dataset.py
           pytest -s -x tests/verl/utils/dataset/test_sft_dataset.py
           pytest -s -x tests/verl/utils/test_import_utils.py
-#          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
+      #          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
       - name: Running ray test using cupy (move it to L20 when dockerfile ready)
         run: |
           cd tests/ray
