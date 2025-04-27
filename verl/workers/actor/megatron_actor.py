@@ -38,12 +38,12 @@ from torch import nn
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.debug.profile import Profiler
 from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.debug.profile import Profiler
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
@@ -116,19 +116,17 @@ class MegatronPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.prof = Profiler(self.config.profile)
-        self.optimizer_step_args = OmegaConf.create(
-            {
-                "skip_grad": None,
-                "overlap_dp_param_comm": False,
-                "overlap_dp_grad_comm": False,
-                "gradient_accumulation_steps": 1,
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "DDP_impl": "local",
-                "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
-                "reduce_grads_use_alltoall": False,
-            }
-        )
+        self.optimizer_step_args = OmegaConf.create({
+            'skip_grad': None,
+            'overlap_dp_param_comm': False,
+            'overlap_dp_grad_comm': False,
+            'gradient_accumulation_steps': 1,
+            'sequence_parallel': self.tf_config.sequence_parallel,
+            'DDP_impl': 'local',
+            'layernorm_allreduce_bucket_threshold': 0,
+            'pipeline_model_parallel_split_rank': None,
+            'reduce_grads_use_alltoall': False
+        })
 
         config = get_model_config(self.actor_module[0])
         print(config)

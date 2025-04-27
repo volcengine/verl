@@ -69,10 +69,11 @@ class RLHFDataset(Dataset):
             data_files = [data_files]
 
         self.data_files = copy.deepcopy(data_files)
-        self.original_data_files = copy.deepcopy(data_files) # use for resume
+        self.original_data_files = copy.deepcopy(data_files)  # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
+
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
@@ -81,6 +82,7 @@ class RLHFDataset(Dataset):
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
         self.chat_template_func = config.get("chat_template_func", None)
