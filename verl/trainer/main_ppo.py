@@ -83,7 +83,7 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
-    async def run(self, config):
+    def run(self, config):
         # print initial config
         from pprint import pprint
 
@@ -182,7 +182,7 @@ class TaskRunner:
             val_reward_fn=val_reward_fn,
         )
         trainer.init_workers()
-        await trainer.fit()
+        trainer.fit()
 
 
 if __name__ == "__main__":
