@@ -65,18 +65,11 @@ class RLHFDataset(Dataset):
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
     ):
-        """Dataset for RLHF training.
-
-        Args:
-            data_files (Union[str, List[str]]): Parquet files for RLHF training.
-            tokenizer (PreTrainedTokenizer): Tokenizer for RLHF training.
-            config (DictConfig): Configuration object containing dataset settings.
-            processor (Optional[ProcessorMixin], optional): Processor for RLHF training. Defaults to None.
-        """
         if not isinstance(data_files, (List, ListConfig)):
             data_files = [data_files]
+
         self.data_files = copy.deepcopy(data_files)
-        self.original_data_files = copy.deepcopy(data_files)
+        self.original_data_files = copy.deepcopy(data_files) # use for resume
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config

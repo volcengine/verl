@@ -35,10 +35,10 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
 
 class GPUMemoryLogger(DecoratorLoggerBase):
     """_summary_
-
+    
     Usage:
         For example, in actor function, we initialize a GPUMemoryLogger
-
+        
         ```
         from verl.utils.debug.performance import GPUMemoryLogger
         @GPUMemoryLogger(role="actor")
@@ -46,22 +46,21 @@ class GPUMemoryLogger(DecoratorLoggerBase):
             # do something
             return
         ```
-
+    
     """
-
+    
     def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, log_only_rank_0: bool = True):
         if dist.is_initialized() and dist.get_world_size() > 1:
             rank = dist.get_rank()
         else:
             rank = 0
         super().__init__(role, logger, level, rank, log_only_rank_0)
-
+    
     def __call__(self, decorated_function: callable):
         def f(*args, **kwargs):
             return self.log(decorated_function, *args, **kwargs)
-
         return f
-
+    
     def log(self, func, *args, **kwargs):
         memory_allocated = torch.cuda.memory_allocated() / 1024**3
         memory_reserved = torch.cuda.memory_reserved() / 1024**3
@@ -69,8 +68,6 @@ class GPUMemoryLogger(DecoratorLoggerBase):
         message = f"Before {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
         self.logging_function(message)
         output = func(*args, **kwargs)
-        message = (
-            f"After {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
-        )
+        message = f"After {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
         self.logging_function(message)
         return output
