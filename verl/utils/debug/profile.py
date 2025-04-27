@@ -14,7 +14,7 @@
 
 import torch
 import torch.distributed
-
+import os
 
 class Profiler():
 
@@ -25,23 +25,33 @@ class Profiler():
         self.saved = False
         self.prof = None
         self.rank = torch.distributed.get_rank()
+        # we need to validate the config before using the profiler
+        self._validate()
         if config.use_profile and self.rank in self.config.profile_ranks:
             print(f"[Profiler] Profiler init for rank {self.rank}")
 
-            self.prof = torch.profiler.profile(activities=[
-                torch.profiler.ProfilerActivity.CPU,
-                torch.profiler.ProfilerActivity.CUDA,
-            ],
-                                               schedule=torch.profiler.schedule(
-                                                   wait=max(self.config.step_start - 1, 0),
-                                                   warmup=1 if self.config.step_start > 0 else 0,
-                                                   active=self.config.step_end - self.config.step_start,
-                                                   repeat=1),
-                                               record_shapes=True,
-                                               with_stack=True)
+            self.prof = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                schedule=torch.profiler.schedule(
+                    wait=max(self.config.step_start - 1, 0),
+                    warmup=1 if self.config.step_start > 0 else 0,
+                    active=self.config.step_end - self.config.step_start,
+                    repeat=1),
+                record_shapes=True,
+                with_stack=True
+            )
 
     def _validate(self):
-        pass
+        if self.config.use_profile:
+            if self.config.profile_ranks is None:
+                print(f"[WARNING] Profile ranks is not set, default to rank 0")
+                self.config.profile_ranks = [0]
+            assert self.config.step_start >= 0, f"[ERROR] Profile step start must be greater than 0"
+            assert self.config.step_end >= 0, f"[ERROR] Profile step end must be greater than 0"
+            assert self.config.step_start < self.config.step_end, f"[ERROR] Profile step start must be less than step end"
 
     def check(self):
         return self.prof is not None and not self.skip_prof
@@ -62,11 +72,13 @@ class Profiler():
 
     def save(self):
         if self.prof is not None and not self.saved:
-            self.saved = True
+            if not os.path.exists(self.config.save_path):
+                os.makedirs(self.config.save_path)
             save_file_name = f"/prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
             print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
             self.prof.export_chrome_trace(self.config.save_path + save_file_name)
             self.skip_prof = True
+            self.saved = True
 
     def stop_and_save(self):
         if self.check():
