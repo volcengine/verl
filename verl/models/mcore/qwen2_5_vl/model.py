@@ -279,13 +279,19 @@ class Qwen2_5VLModel(MegatronModule):
                     # video_input_mask=video_input_mask,
                     # image_embeds=image_embeds,
                     # video_embeds=video_embeds,
-                )  # [text_seq_len, b, h_language]
+                ).contiguous()  # [text_seq_len, b, h_language]
+
                 if image_embeds is not None:
-                    image_mask = (input_ids == self.image_token_id)
-                    combined_embeddings[image_mask.T] = image_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
+                    image_mask = (input_ids == self.image_token_id).T.contiguous()
+                    if image_mask.sum() > 0:
+                        combined_embeddings = combined_embeddings.clone()
+                        combined_embeddings[image_mask] = image_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
                 if video_embeds is not None:
-                    video_mask = (input_ids == self.video_token_id)
-                    combined_embeddings[video_mask.T] = video_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
+                    video_mask = (input_ids == self.video_token_id).T.contiguous()
+                    if video_mask.sum() > 0:
+                        combined_embeddings = combined_embeddings.clone()
+                        combined_embeddings[video_mask] = video_embeds.to(dtype=combined_embeddings.dtype,device=combined_embeddings.device)
+                combined_embeddings = combined_embeddings.contiguous()
             else:
                 combined_embeddings = self.language_model.embedding(
                     input_ids=input_ids,
@@ -302,10 +308,6 @@ class Qwen2_5VLModel(MegatronModule):
                                       video_grid_thw=video_grid_thw,
                                       attention_mask=attention_mask)
 
-        # if torch.distributed.get_rank()!=0:
-        #     __import__('remote_pdb').RemotePdb('127.0.0.1', 4444+torch.distributed.get_rank()).set_trace()   
-        # else:
-        #     __import__('ipdb').set_trace()
         output = self.language_model(
             input_ids=None,
             position_ids=position_ids,  # None in encoder
