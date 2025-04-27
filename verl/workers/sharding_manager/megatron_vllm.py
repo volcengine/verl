@@ -82,8 +82,7 @@ Consider using the `MegatronPPOActor` class directly as a replacement."
         for cur_pp_rank in rank_list:
             print(
                 "create pp model",
-                f"torch allocated {torch.cuda.memory_allocated() / 1e9:.4f} GB, "
-                f"reserved {torch.cuda.memory_reserved() / 1e9:.4f} GB",
+                f"torch allocated {torch.cuda.memory_allocated() / 1e9:.4f} GB, reserved {torch.cuda.memory_reserved() / 1e9:.4f} GB",
             )
             # since the last initialized rank is the current pp rank, after init, the pp rank is still correct
             mpu.set_pipeline_model_parallel_rank(cur_pp_rank)
@@ -94,9 +93,7 @@ Consider using the `MegatronPPOActor` class directly as a replacement."
                 self.pp_models[cur_pp_rank] = models
             else:
                 # for regular model, we wrapped it with DDP
-                models = get_model(
-                    model_provider, wrap_with_ddp=True, use_distributed_optimizer=use_distributed_optimizer
-                )
+                models = get_model(model_provider, wrap_with_ddp=True, use_distributed_optimizer=use_distributed_optimizer)
                 assert len(models) == self._model_chunk_size, f"{len(models)} != {self._model_chunk_size}"
                 self._this_rank_models = nn.ModuleList(models)
                 self.pp_models[cur_pp_rank] = nn.ModuleList(unwrap_model(models, (torchDDP, LocalDDP)))
@@ -120,9 +117,7 @@ Consider using the `MegatronPPOActor` class directly as a replacement."
             # 2. `_this_rank_models[0]` is a instance of `DistributedDataParallel` and `use_distributed_optimizer=True`
             # 3. Only bfloat16 data type is used in parameters
             source = self._this_rank_models[0].buffers[0].param_data
-            self.memory_buffers[pp_rank] = {
-                torch.bfloat16: MemoryBuffer(source.numel(), source.numel(), torch.bfloat16, source)
-            }
+            self.memory_buffers[pp_rank] = {torch.bfloat16: MemoryBuffer(source.numel(), source.numel(), torch.bfloat16, source)}
         else:
             model = self.pp_models[pp_rank]
             weight_buffer_meta = get_weight_buffer_meta_from_module(model)
@@ -348,9 +343,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
         obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-        torch.distributed.all_gather_object(
-            object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group()
-        )
+        torch.distributed.all_gather_object(object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group())
         layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
         gen_func = tensor_generator()
@@ -362,9 +355,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(
-                    name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers
-                )
+                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers)
             else:
                 cur_tensor, cur_name = None, None
 
@@ -383,12 +374,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     infer_params = [broad_pp_tensor]
                 else:
                     infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
-                    torch.distributed.all_gather(
-                        infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
-                    )
-                infer_params = self.default_tp_concat_fn(
-                    cur_name, broad_pp_tensor, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split
-                )
+                    torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
+                infer_params = self.default_tp_concat_fn(cur_name, broad_pp_tensor, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split)
             else:
                 infer_params = broad_pp_tensor
 
@@ -427,9 +414,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             v_lst = []
             assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
             num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
-            assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, (
-                f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
-            )
+            assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
             split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
             for infer_param in infer_params:
@@ -497,9 +482,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 else:
                     infer_params = [torch.empty_like(param) for _ in range(all_gather_group_size)]
                     torch.distributed.all_gather(infer_params, param, group=all_gather_group)
-                infer_params = self.default_tp_concat_fn(
-                    name, param, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split
-                )
+                infer_params = self.default_tp_concat_fn(name, param, infer_params, self.model_config, convert_qkv_gate_up_by_simple_split)
             else:
                 infer_params = param
             if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
