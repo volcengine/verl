@@ -143,7 +143,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 extra_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
 
                 print(f"[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}")
-                print(f"[rank-{self.rank}]: Saving checkpoint to {os.path.abspath(model_path)}")
+                print(f"[rank-{self.rank}]: Saving optim to {os.path.abspath(optim_path)}")
                 print(f"[rank-{self.rank}]: Saving extra_state to {os.path.abspath(extra_path)}")
                 torch.save(model_state_dict, model_path)
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
