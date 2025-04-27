@@ -49,9 +49,7 @@ class ResourcePool:
         return self._store
 
     def local_world_size_list(self) -> List[int]:
-        nested_local_world_size_list = [
-            [local_world_size for _ in range(local_world_size)] for local_world_size in self._store
-        ]
+        nested_local_world_size_list = [[local_world_size for _ in range(local_world_size)] for local_world_size in self._store]
         return [item for row in nested_local_world_size_list for item in row]
 
     def local_rank_list(self) -> List[int]:
@@ -86,7 +84,7 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
     while True:
         for worker in workers:
             if not is_alive(worker):
-                logging.warning(f"worker {worker} is not alive" + " sending signal to main thread")
+                logging.warning(f"worker {worker} is not alive sending signal to main thread")
                 signal.raise_signal(signal.SIGABRT)
         time.sleep(gap_time)
 
@@ -126,9 +124,7 @@ class WorkerGroup:
         # before starting checking worker aliveness, make sure all workers are already alive
         self._block_until_all_workers_alive()
 
-        self._checker_thread = threading.Thread(
-            target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds)
-        )
+        self._checker_thread = threading.Thread(target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds))
         self._checker_thread.start()
 
     @property
@@ -198,5 +194,5 @@ class WorkerGroup:
 
                 try:
                     setattr(self, method_name, func)
-                except Exception:
-                    raise ValueError(f"Fail to set method_name {method_name}")
+                except Exception as e:
+                    raise ValueError(f"Fail to set method_name {method_name}") from e

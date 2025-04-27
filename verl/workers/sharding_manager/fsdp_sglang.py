@@ -67,9 +67,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params:
-            FSDP.set_state_dict_type(
-                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
-            )
+            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
         else:
             FSDP.set_state_dict_type(
                 self.module,
@@ -96,7 +94,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
-        load_format = None if self.full_params else "dtensor"
         self.inference_engine.resume_memory_occupation()
 
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
