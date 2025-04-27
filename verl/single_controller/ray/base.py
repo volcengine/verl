@@ -17,6 +17,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
+from copy import deepcopy
 
 import ray
 from ray.experimental.state.api import get_actor
@@ -25,7 +26,7 @@ from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
-from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
+from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch, register
 
 __all__ = ["Worker"]
 
@@ -215,8 +216,10 @@ class RayWorkerGroup(WorkerGroup):
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self._ray_wait_register_center_timeout = ray_wait_register_center_timeout
+        self.fused_worker_used = ray_cls_with_init.fused_worker_used
+        self.sub_cls_name = ""
 
-        if worker_names is not None:
+        if worker_names is not None and (not self.fused_worker_used):
             assert self._is_init_with_detached_workers
             self._worker_names = worker_names
 
@@ -229,6 +232,9 @@ class RayWorkerGroup(WorkerGroup):
 
         if ray_cls_with_init is not None:
             self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
+
+        self.wg_dict = None
+        self.method_names = []
 
     def _is_worker_alive(self, worker: ray.actor.ActorHandle):
         worker_state_dict = get_actor(worker._actor_id.hex())
@@ -348,6 +354,8 @@ class RayWorkerGroup(WorkerGroup):
         spawn to a dictionary of worker groups, each with a subset of method with prefix.
 
         """
+        if self.fused_worker_used:
+            return self.spawn_fused(prefix_set)
 
         def _rebind_actor_methods(worker_group, actor_name):
             """
@@ -373,12 +381,35 @@ class RayWorkerGroup(WorkerGroup):
             new_worker_group_dict[prefix] = new_worker_group
         return new_worker_group_dict
 
+    def spawn_fused(self, prefix_set):
+        wg_dict = dict()
+        for key in prefix_set:
+            new_wg = deepcopy(self)
+            new_wg._bind_worker_method(self.ray_cls_with_init.cls.raw_cls_dict[key], func_generator)
+            new_wg.sub_cls_name = key
+            wg_dict[key] = new_wg
+        return wg_dict
+    
+    def fuse(self, prefix_set):
+        if self.wg_dict is None:
+            self.wg_dict = self.spawn(prefix_set)
+        for role_name, role_wg in self.wg_dict.items():
+            setattr(self, role_name, role_wg)
+        self.method_names = self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
+    
+    def _execute_remote_single_worker(self, worker, method_name: str, *args, **kwargs):
+        if self.fused_worker_used and method_name not in self.method_names:
+            remote_call = getattr(worker, self.fused_worker_execute_fn_name)
+            return remote_call.remote(f"{self.sub_cls_name}_fwmn_{method_name}", *args, **kwargs)
+        # fused worker not used
+        remote_call = getattr(worker, method_name)
+        return remote_call.remote(*args, **kwargs)
+
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
         return ray.get(self.execute_rank_zero_async(method_name, *args, **kwargs))
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
-        remote_call = getattr(self._workers[0], method_name)
-        return remote_call.remote(*args, **kwargs)
+        return self._execute_remote_single_worker(self._workers[0], method_name, *args, **kwargs)
 
     def execute_rank_zero(self, method_name: str, *args, **kwargs):
         return self.execute_rank_zero_async(method_name, *args, **kwargs)
@@ -402,11 +433,12 @@ class RayWorkerGroup(WorkerGroup):
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    remote_call = getattr(self._workers[i], method_name)
-                    result.append(remote_call.remote(*sliced_args, **sliced_kwargs))
+                    result.append(
+                        self._execute_remote_single_worker(self._workers[i], method_name, *sliced_args,
+                                                           **sliced_kwargs))
                 return result
 
-        return [getattr(worker, method_name).remote(*args, **kwargs) for worker in self._workers]
+        return [self._execute_remote_single_worker(worker, method_name, *args, **kwargs) for worker in self._workers]
 
     @property
     def master_address(self):
@@ -431,6 +463,7 @@ with code written in separate ray.Actors.
 """
 
 
+# deprecated, switching to FusedWorker
 def _bind_workers_method_to_parent(cls, key, user_defined_cls):
     """
     Binds the methods of each worker to the WorkerDict.
@@ -492,6 +525,7 @@ def _determine_fsdp_megatron_base_class(mros: List):
     raise ValueError(f"Cannot determine base class for {mros}")
 
 
+# deprecated, switching to FusedWorker
 def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     """
     This function should return a class instance that delegates the calls to every
@@ -534,3 +568,68 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     remote_cls = ray.remote(WorkerDict)
     remote_cls = RayClassWithInitArgs(cls=remote_cls)
     return remote_cls
+
+
+FusedWorkerCLSName = "FusedWorker"
+
+
+def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs]):
+    """
+    This function should return a class instance that delegates the calls to every 
+    cls in cls_dict
+    """
+    raw_cls_dict = {cls_name: _unwrap_ray_remote(cia.cls) for cls_name, cia in class_dict.items()}
+    init_args_dict = {cls_name: cia.args for cls_name, cia in class_dict.items()}
+    init_kwargs_dict = {cls_name: cia.kwargs for cls_name, cia in class_dict.items()}
+    cls_names = list(class_dict.keys())
+
+    class_name_renamed = "_".join([FusedWorkerCLSName] + cls_names)
+
+    class FusedWorker(Worker):
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.cls_names = cls_names
+            self.raw_cls_dict = raw_cls_dict
+            self.init_args_dict = init_args_dict
+            self.init_kwargs_dict = init_kwargs_dict
+
+            for cls_name, udc, ud_args, ud_kwargs in zip(self.cls_names, self.raw_cls_dict.values(),
+                                                         self.init_args_dict.values(), self.init_kwargs_dict.values()):
+                with patch.dict(os.environ, {'DISABLE_WORKER_INIT': '1'}):
+                    setattr(udc, "_get_ray_actor_cls_name", lambda x, name_renamed=class_name_renamed: name_renamed)
+                    setattr(udc, "_get_ray_method_prefix", lambda x, name_prefixed=cls_name: f"{name_prefixed}_")
+                    # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker
+                    self.fused_worker_dict[cls_name] = udc(*ud_args, **ud_kwargs)
+                    setattr(self, cls_name, self.fused_worker_dict[cls_name])
+
+            # injecting fused_worker to each sub worker so they can be aware of existence of each other
+            for _, worker in self.fused_worker_dict.items():
+                setattr(worker, Worker.fused_worker_attr_name, self.fused_worker_dict)
+
+        def _fuw_execute(self, method_name: str, *args, **kwargs):
+            # for fused_worker, method_name is in a form of "{cls_name}_fwmn_{method_name}"
+            # where fwmn stands "fused worker method name"
+            names = method_name.split("_fwmn_")
+            cls_name = names[0]
+            method_name = names[1]
+
+            assert cls_name in self.fused_worker_dict, f"calling {cls_name}'s {method_name}, but {cls_name} not in fused_worker_dict"
+            udc_method = getattr(self.fused_worker_dict[cls_name], method_name)
+            return udc_method(*args, **kwargs)
+
+    renamed_fused_worker_cls = type(class_name_renamed, (FusedWorker,), {})
+    setattr(renamed_fused_worker_cls, "is_fused_worker", True)
+    setattr(renamed_fused_worker_cls, "raw_cls_dict", raw_cls_dict)
+
+    return renamed_fused_worker_cls
+
+
+def create_colocated_worker_cls_fused(class_dict: dict[str, RayClassWithInitArgs]):
+    raw_colocated_worker_cls = create_colocated_worker_raw_cls(class_dict)
+
+    remote_cls = ray.remote(raw_colocated_worker_cls)
+    cia = RayClassWithInitArgs(cls=remote_cls)
+    cia.fused_worker_used = True
+
+    return cia
