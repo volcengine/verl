@@ -702,4 +702,6 @@ class AsyncSGLangRollout(BaseRollout):
                     error_message
                 )
 
+                req_list.append(req)
+
         return req_list
