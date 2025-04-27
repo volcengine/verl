@@ -16,6 +16,7 @@ Contain small torch utilities
 """
 
 import math
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -175,6 +176,7 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
+    # total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
@@ -551,3 +553,16 @@ def get_wsd_schedule_with_warmup(
         return min_lr_ratio
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+@contextmanager
+def check_cuda_is_available():
+    """
+    Some modules must be imported after CUDA is initialized. Such as sglang's sharding manager.
+
+    This context manager checks if CUDA is available and raises an error if it is not.
+    """
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA must be initialized before importing this module.")
+
+    yield

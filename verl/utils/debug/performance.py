@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+from typing import Tuple
 
 import torch
 import torch.distributed as dist
@@ -20,12 +21,31 @@ import torch.distributed as dist
 from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 
 
+def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
+    """Get current memory usage."""
+    assert unit in ["GB", "MB", "KB"]
+    divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
+    mem_allocated = torch.cuda.memory_allocated()
+    mem_reserved = torch.cuda.memory_reserved()
+    # use torch.cuda.mem_get_info to profile device memory
+    # since vllm's sleep mode works below pytorch
+    # see https://github.com/vllm-project/vllm/pull/11743#issuecomment-2754338119
+    mem_free, mem_total = torch.cuda.mem_get_info()
+    mem_used = mem_total - mem_free
+    mem_allocated = f"{mem_allocated / divisor:.{precision}f}"
+    mem_reserved = f"{mem_reserved / divisor:.{precision}f}"
+    mem_used = f"{mem_used / divisor:.{precision}f}"
+    mem_total = f"{mem_total / divisor:.{precision}f}"
+    return mem_allocated, mem_reserved, mem_used, mem_total
+
+
 def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging.DEBUG, rank: int = 0):
     if (not dist.is_initialized()) or (rank is None) or (dist.get_rank() == rank):
-        memory_allocated = torch.cuda.memory_allocated() / 1024**3
-        memory_reserved = torch.cuda.memory_reserved() / 1024**3
-
-        message = f"{head}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
+        mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
+        message = (
+            f"{head}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
 
         if logger is None:
             print(message)
@@ -34,7 +54,7 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
 
 
 class GPUMemoryLogger(DecoratorLoggerBase):
-    """_summary_
+    """A decorator class to log GPU memory usage.
 
     Usage:
         For example, in actor function, we initialize a GPUMemoryLogger
@@ -63,12 +83,20 @@ class GPUMemoryLogger(DecoratorLoggerBase):
         return f
 
     def log(self, func, *args, **kwargs):
-        memory_allocated = torch.cuda.memory_allocated() / 1024**3
-        memory_reserved = torch.cuda.memory_reserved() / 1024**3
-
-        message = f"Before {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
+        name = func.__name__
+        mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
+        message = (
+            f"Before {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
         self.logging_function(message)
+
         output = func(*args, **kwargs)
-        message = f"After {func.__name__}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}"
+
+        mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
+        message = (
+            f"After {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, "
+            f"device memory used/total (GB): {mem_used}/{mem_total}"
+        )
         self.logging_function(message)
         return output
