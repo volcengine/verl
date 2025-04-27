@@ -27,13 +27,14 @@ import logging
 import re
 from contextlib import nullcontext
 
+import hydra
 import torch
 import torch.distributed
 from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim
-from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, DistributedSampler
@@ -44,6 +45,7 @@ import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
@@ -53,7 +55,7 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
-from verl.workers.sharding_manager import FSDPUlyssesShardingManager
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -295,7 +297,8 @@ class FSDPSFTTrainer:
 
         if self.device_mesh.get_rank() == 0:
             print(
-                f"Number of steps/epoch {self.steps_per_epoch}, number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}"
+                f"Number of steps/epoch {self.steps_per_epoch}, "
+                f"number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}"
             )
 
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
@@ -498,7 +501,8 @@ class FSDPSFTTrainer:
         self.total_training_steps = total_training_steps
         print(f"Total training steps: {self.total_training_steps}")
 
-        # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
+        # TODO (zhangchi.usc1992) add back checkpoint manager.
+        # Currently, it blocks when uploading to hdfs. So very slow.
 
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
@@ -545,13 +549,6 @@ class FSDPSFTTrainer:
 
             # save checkpoint
             self.save_checkpoint(step=global_step)
-
-
-import hydra
-from torch.distributed.device_mesh import init_device_mesh
-
-from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
-from verl.utils.distributed import initialize_global_process_group
 
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
