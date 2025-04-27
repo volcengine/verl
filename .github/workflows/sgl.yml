@@ -37,6 +37,7 @@ jobs:
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
       HF_HUB_ENABLE_HF_TRANSFER: 1
+      SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
     container:
       image: ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post3
       options: --gpus all --shm-size=10g
