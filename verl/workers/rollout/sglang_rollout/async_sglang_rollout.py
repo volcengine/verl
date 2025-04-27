@@ -32,7 +32,7 @@ from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server import Engine
-from sglang.srt.utils import broadcast_pyobj
+from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -42,7 +42,9 @@ from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import (
@@ -78,6 +80,7 @@ class AsyncSGLangRollout(BaseRollout):
         config: DictConfig,
         tokenizer,
         model_hf_config,
+        port=None,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -200,6 +203,21 @@ class AsyncSGLangRollout(BaseRollout):
         # initialize the inference engine
         monkey_patch_torch_reductions()
         nnodes = -(-tp_size // len(visible_devices))
+        if nnodes > 1:
+            ip = get_ip()
+            port = get_open_port() if port is None else port
+            [ip, port] = broadcast_pyobj(
+                [ip, port],
+                rank=self._tp_rank,
+                dist_group=device_mesh_cpu.get_group("tp"),
+                src=device_mesh_cpu["tp"].mesh[0].item(),
+                force_cpu_device=False,
+            )
+            dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
+        else:
+            dist_init_addr = None
+
+        load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
         self._device_mesh_cpu = device_mesh_cpu
         self._tp_rank = device_mesh_cpu["tp"].get_local_rank()
         self._tp_size = device_mesh_cpu["tp"].size()
@@ -219,6 +237,8 @@ class AsyncSGLangRollout(BaseRollout):
                 tp_size=self._tp_size,
                 node_rank=node_rank,
                 nnodes=nnodes,
+                load_format=load_format,
+                dist_init_addr=dist_init_addr,
             )
         else:
             self._engine = None
@@ -260,9 +280,11 @@ class AsyncSGLangRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             self.sampling_params[key] = value
 
+    @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # if self.config.free_cache_engine:
+
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -272,12 +294,48 @@ class AsyncSGLangRollout(BaseRollout):
         eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
-        idx_list = []
-        # parse idx from torch.Tensor to List[List[str]]
-        for i in range(batch_size):
-            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+
+        # Extract non-tensor data
+        non_tensor_batch = prompts.non_tensor_batch
+        if "raw_prompt_ids" not in non_tensor_batch:
+            non_tensor_batch["raw_prompt_ids"] = np.array(
+                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object
+            )
+
+        if "multi_modal_data" in non_tensor_batch:
+            sglang_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(
+                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")
+            ):
+                sglang_inputs.append(
+                    {
+                        "prompt_token_ids": raw_prompt_ids,
+                        "multi_modal_data": multi_modal_data,
+                        "image_data": multi_modal_data.get("image", None)
+                        if isinstance(multi_modal_data, dict)
+                        else None,
+                    }
+                )
+        else:
+            sglang_inputs = [
+                {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
+            ]
+
+        # Ensure token IDs are lists
+        for input_data in sglang_inputs:
+            if isinstance(input_data["prompt_token_ids"], np.ndarray):
+                input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
+            elif not isinstance(input_data["prompt_token_ids"], list):
+                raise TypeError(
+                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
+                )
+
+        # Extract token IDs and image data for SGLang Engine
+        idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
+        image_list = [input_data.get("image_data", None) for input_data in sglang_inputs]
 
         do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
         if not do_sample:
             kwargs = dict(
                 n=1,
@@ -293,6 +351,14 @@ class AsyncSGLangRollout(BaseRollout):
                 skip_special_tokens=True,
                 spaces_between_special_tokens=True,
             )
+        elif is_validate:
+            kwargs = dict(
+                top_k=self.config.val_kwargs.top_k,
+                top_p=self.config.val_kwargs.top_p,
+                temperature=self.config.val_kwargs.temperature,
+                n=1,  # if validate, already repeat in ray_trainer
+            )
+
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             print(f"{self.sampling_params=}")
@@ -304,6 +370,7 @@ class AsyncSGLangRollout(BaseRollout):
                         sampling_params=self.sampling_params,
                         return_logprob=True,
                         input_ids=idx_list,
+                        image_data=image_list,
                     )
                 )
             else:
@@ -315,20 +382,26 @@ class AsyncSGLangRollout(BaseRollout):
                 dist_group=self._device_mesh_cpu["tp"].get_group(),
                 src=self._device_mesh_cpu["tp"].mesh[0].item(),
             )
-        out = _post_process_outputs(self.tokenizer, output)
+            out = _post_process_outputs(self.tokenizer, output)
 
-        response = out[0].to(idx.device)
-        log_probs = out[1].to(idx.device)
+            response = out[0].to(idx.device)
+            # log_probs = out[1].to(idx.device)
 
-        if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-            log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-        if self.config.n > 1 and do_sample:
-            idx = idx.repeat_interleave(self.config.n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
-            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
-            batch_size = batch_size * self.config.n
-        seq = torch.cat([idx, response], dim=-1)
+            if response.shape[1] < self.config.response_length:
+                response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+
+            # utilize current sampling params
+            if self.sampling_params.get("n", 1) > 1 and do_sample:
+                idx = idx.repeat_interleave(self.sampling_params["n"], dim=0)
+                attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
+                position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
+                batch_size = batch_size * self.sampling_params["n"]
+                if "multi_modal_inputs" in non_tensor_batch.keys():
+                    non_tensor_batch["multi_modal_inputs"] = np.repeat(
+                        non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0
+                    )
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
@@ -351,6 +424,7 @@ class AsyncSGLangRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
+                # 'old_log_probs': log_probs, # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
