@@ -19,14 +19,17 @@ When working with FSDP:
 When working with Megatron:
 - Use Megatron weight loader
 - During training, only the current pp stage holds the parameters
-- Before inference, broadcast the parameters of the current pp rank to all other pp ranks (all pp ranks holds all the parameters)
+- Before inference, broadcast the parameters of the current pp rank
+  to all other pp ranks (all pp ranks holds all the parameters)
 - Bind the parameters to the inference engine
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import logging
+import os
 from contextlib import contextmanager
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
@@ -35,11 +38,17 @@ from omegaconf import DictConfig
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
+from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
 from verl.third_party.vllm import vllm_version
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.sharding_manager import FSDPVLLMShardingManager
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 # TODO
 # 1. support pp in vllm
@@ -50,7 +59,8 @@ from verl.workers.rollout.base import BaseRollout
 # NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
     # remove the left padding in the prompt token_id
-    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
+    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id
+    # is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
@@ -184,6 +194,7 @@ class vLLMRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
 
+    @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
@@ -331,3 +342,57 @@ class vLLMRollout(BaseRollout):
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+
+class vLLMAsyncRollout:
+    """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase,
+    which is engine in single worker process.
+    """
+
+    def __init__(self, *args, **kwargs):
+        # Engine is deferred to be initialized in init_worker
+        self.inference_engine: WorkerWrapperBase = None
+        self.sharding_manager: FSDPVLLMShardingManager = None
+        self.is_sleep = False
+
+    def init_worker(self, all_kwargs: List[Dict[str, Any]]):
+        """Initialize worker engine."""
+        all_kwargs[0]["rank"] = int(os.environ["RANK"])
+        all_kwargs[0]["local_rank"] = 0
+
+        self.vllm_config = all_kwargs[0]["vllm_config"]
+        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+        self.inference_engine.init_worker(all_kwargs)
+
+    def load_model(self, *args, **kwargs):
+        self.inference_engine.load_model(*args, **kwargs)
+
+        # inference engine is intialized now, update sharding manager
+        self.sharding_manager.inference_engine = self.inference_engine
+        self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
+
+    def sleep(self, *args, **kwargs):
+        """Offload model weights and discard kv cache."""
+        if self.is_sleep:
+            return
+        self.sharding_manager.__exit__(None, None, None)
+        self.is_sleep = True
+
+    def wake_up(self, *args, **kwargs):
+        """Load model weights and build kv cache."""
+        if not self.is_sleep:
+            return
+        self.sharding_manager.__enter__()  # pylint: disable=C2801
+        self.is_sleep = False
+
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        if method == "init_worker":
+            return self.init_worker(*args, **kwargs)
+        elif method == "load_model":
+            return self.load_model(*args, **kwargs)
+        elif method == "sleep":
+            return self.sleep(*args, **kwargs)
+        elif method == "wake_up":
+            return self.wake_up(*args, **kwargs)
+        else:
+            return self.inference_engine.execute_method(method, *args, **kwargs)

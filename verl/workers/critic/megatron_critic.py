@@ -15,6 +15,8 @@
 Implement a multiprocess PPOCritic
 """
 
+import logging
+import os
 from functools import partial
 from typing import Iterable
 
@@ -28,10 +30,14 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo import core_algos
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean, split_dict_tensor_into_batches
 from verl.workers.critic import BasePPOCritic
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class MegatronPPOCritic(BasePPOCritic):
@@ -80,6 +86,7 @@ class MegatronPPOCritic(BasePPOCritic):
             config.megatron.sequence_parallel = False
         self.config = config
 
+    @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
         responses = data.batch["responses"]
@@ -215,6 +222,7 @@ class MegatronPPOCritic(BasePPOCritic):
         # loss_reduces contains the stats returned from loss_func
         return losses_reduced
 
+    @GPUMemoryLogger("megatron critic", logger=logger)
     def update_critic(self, dataloader: Iterable[DataProto]):
         metrics = {}
 

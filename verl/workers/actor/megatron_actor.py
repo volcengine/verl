@@ -19,6 +19,8 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import logging
+import os
 from functools import partial
 from typing import Dict, Iterable
 
@@ -35,14 +37,19 @@ from torch import nn
 
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.debug.profile import Profiler
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class MegatronPPOActor(BasePPOActor):
@@ -108,20 +115,18 @@ class MegatronPPOActor(BasePPOActor):
         self.tf_config = tf_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
-
-        self.optimizer_step_args = OmegaConf.create(
-            {
-                "skip_grad": None,
-                "overlap_dp_param_comm": False,
-                "overlap_dp_grad_comm": False,
-                "gradient_accumulation_steps": 1,
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "DDP_impl": "local",
-                "layernorm_allreduce_bucket_threshold": 0,
-                "pipeline_model_parallel_split_rank": None,
-                "reduce_grads_use_alltoall": False,
-            }
-        )
+        self.prof = Profiler(self.config.profile)
+        self.optimizer_step_args = OmegaConf.create({
+            'skip_grad': None,
+            'overlap_dp_param_comm': False,
+            'overlap_dp_grad_comm': False,
+            'gradient_accumulation_steps': 1,
+            'sequence_parallel': self.tf_config.sequence_parallel,
+            'DDP_impl': 'local',
+            'layernorm_allreduce_bucket_threshold': 0,
+            'pipeline_model_parallel_split_rank': None,
+            'reduce_grads_use_alltoall': False
+        })
 
         config = get_model_config(self.actor_module[0])
         print(config)
@@ -137,6 +142,7 @@ class MegatronPPOActor(BasePPOActor):
             config.megatron.sequence_parallel = False
         self.config = config
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def compute_log_prob(self, data: DataProto, calculate_entropy=False) -> torch.Tensor:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
@@ -419,6 +425,7 @@ class MegatronPPOActor(BasePPOActor):
         # loss_reduces contains the stats returned from loss_func
         return losses_reduced
 
+    @GPUMemoryLogger(role="megatron actor", logger=logger)
     def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
         """Update the policy with an iterator of DataProto
 
@@ -432,6 +439,7 @@ class MegatronPPOActor(BasePPOActor):
 
         """
         metrics = {}
+        self.prof.start()
         for data in dataloader:
             # data = data.batch.to(self.actor_module.device)
             self.actor_optimizer.zero_grad()
@@ -453,8 +461,9 @@ class MegatronPPOActor(BasePPOActor):
                 pass
             else:
                 raise NotImplementedError
-
+            self.prof.step()
         # add empty cache after each compute
+        self.prof.stop_and_save()
+        self.prof.stop_trace()
         torch.cuda.empty_cache()
-
         return metrics

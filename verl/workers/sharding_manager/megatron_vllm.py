@@ -34,7 +34,7 @@ from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron_utils import (
     broadcast_from_megatron_pp,
     broadcast_str_from_megatron_pp,
@@ -49,11 +49,12 @@ from verl.utils.memory_buffer import (
 )
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_functional import allgather_dict_tensors
+from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class AllGatherPPModel:
@@ -515,6 +516,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 converted_names, converted_params = self.weight_converter.convert_param(name, infer_params)
             yield from zip(converted_names, converted_params)
 
+    @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __enter__(self):
         if vllm_version in (
             "0.5.4",
@@ -530,17 +532,16 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
             per_tensor_param = self.per_tensor_generator()
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-            _patch_vllm_qwen2_moe_model_weight_loader(model)
+            patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
-            log_gpu_memory_usage("After load_weights sharding manager memory", logger=logger)
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
+    @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before vllm offload in sharding manager", logger=logger)
         if vllm_version in (
             "0.5.4",
             "0.6.3",
@@ -550,10 +551,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
-        log_gpu_memory_usage("After vllm offload in sharding manager", logger=logger)
 
         torch.cuda.empty_cache()
 
+    @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
         # prompts are identical for each training tp. We select for each inference tp
         micro_dp_size = get_micro_data_parallel_world_size()
@@ -563,6 +564,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         return data
 
+    @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
         # MEGATRON_PP_AS_DP_PROTO will collect PP+CP+DP group
         # all gather batch among micro-dp groups
@@ -593,32 +595,3 @@ def get_micro_data_parallel_world_size():
 
 def get_micro_data_parallel_rank():
     return torch.distributed.get_rank(group=get_micro_data_parallel_group())
-
-
-def _patch_vllm_qwen2_moe_model_weight_loader(model):
-    # this is a work around to load the weight of vllm qwen2 moe model
-    # it is from a bug from vllm 0.8.2
-    # all the weights are supposed to have a weight_loader, but the moe weights
-    # do not have a weight_loader, so we need to patch it
-    # (True, 'model.embed_tokens.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.bias')
-    # (True, 'model.layers.0.self_attn.o_proj.weight')
-    # (True, 'model.layers.0.mlp.gate.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.gate_up_proj.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.down_proj.weight')
-    # (False, 'model.layers.0.mlp.shared_expert_gate.weight')   use default
-    # (False, 'model.layers.0.input_layernorm.weight')          use default
-    # (False, 'model.layers.0.post_attention_layernorm.weight') use default
-    # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
-    # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
-    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-
-    if not isinstance(model, Qwen2MoeForCausalLM):
-        return
-    for layer in model.model.layers:
-        mlp = layer.mlp
-        param_dict = dict(mlp.named_parameters())
-        for name, param in param_dict.items():
-            if "w13_weight" in name or "w2_weight" in name:
-                param.weight_loader = mlp.experts.weight_loader
