@@ -152,11 +152,10 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) \
-            == len(self.position_ids) == len(self.loss_mask), (
-            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+        assert (
+            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+        ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
-        )
 
     def add_tool_response_message(
         self, tokenizer: PreTrainedTokenizer, content: str, format: Literal["chatml"] = "chatml"
@@ -189,11 +188,10 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) \
-            == len(self.position_ids) == len(self.loss_mask), (
-            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+        assert (
+            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+        ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
-        )
 
     def finalize(
         self,
@@ -211,10 +209,10 @@ class AsyncRolloutRequest(BaseModel):
         else:
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(tokenizer)
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
-            f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+        assert (
+            len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask)
+        ), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
-        )
 
     def truncate_output_ids(self, tokenizer: PreTrainedTokenizer) -> None:
         self.input_ids = self.input_ids[: self.max_model_len]

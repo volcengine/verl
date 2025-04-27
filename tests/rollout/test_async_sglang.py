@@ -1,4 +1,4 @@
-''' usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang.py'''
+"""usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang.py"""
 
 import asyncio
 import os
@@ -21,6 +21,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
+
 
 # ====================== utils ======================
 def levenshtein(s1, s2):
@@ -144,8 +145,6 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
 
 # ====================== test_sglang_spmd ======================
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor):
-    # remove the left padding in the prompt token_id
-    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids

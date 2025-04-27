@@ -167,10 +167,10 @@ class AsyncSGLangRollout(BaseRollout):
 
         if not self.config.get("max_model_len", None):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
-        assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, (
-            f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
+        assert (
+            self.config.max_model_len >= self.config.prompt_length + self.config.response_length
+        ), f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
-        )
         assert model_hf_config.max_position_embeddings >= self.config.max_model_len, (
             "model context length should be greater than total sequence length"
         )
@@ -537,10 +537,10 @@ class AsyncSGLangRollout(BaseRollout):
         reward_scores = []
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
-            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
-                f"""Request {req.request_id} has different length of 
+            assert (
+                len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask)
+            ), f"""Request {req.request_id} has different length of 
                 {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
-            )
             error_message_lines = [
                 f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
                     greater than max_model_len {self.config.max_model_len}""",
@@ -548,11 +548,11 @@ class AsyncSGLangRollout(BaseRollout):
                 f"Decoded prompt_ids: {self.tokenizer.decode(req.prompt_ids)}",
                 f"Decoded response_ids: {self.tokenizer.decode(req.response_ids)}",
                 f"Messages: {req.messages}",
-                f"Max model length: {req.max_model_len}"
+                f"Max model length: {req.max_model_len}",
             ]
             error_message = "\n".join(error_message_lines)
             assert len(req.input_ids) <= self.config.max_model_len, error_message
-            
+
             prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int))
             response_ids.append(torch.tensor(req.response_ids, dtype=torch.int))
             if len(req.response_ids) > self.config.response_length:
@@ -649,8 +649,10 @@ class AsyncSGLangRollout(BaseRollout):
                     _position_ids = compute_position_id_with_mask(input_data["attention_mask"][0]).tolist()
                     if len(_input_ids) > self.config.prompt_length:
                         logger.warning(
-                            "Prompt {} has length {} greater than max_prompt_len {}", 
-                            data_idx, len(_input_ids), self.config.prompt_length
+                            "Prompt {} has length {} greater than max_prompt_len {}",
+                            data_idx,
+                            len(_input_ids),
+                            self.config.prompt_length,
                         )
                         _input_ids = _input_ids[: self.config.prompt_length]
                         _attention_mask = _attention_mask[: self.config.prompt_length]
@@ -688,13 +690,14 @@ class AsyncSGLangRollout(BaseRollout):
                         self.config.max_model_len, self.config.prompt_length + self.config.response_length
                     ),
                 )
-                
+
                 error_message = (
                     f"Request {req.request_id} has mismatched lengths: "
                     f"input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, "
                     f"position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
                 )
-                assert len(req.input_ids) == len(req.attention_mask) \
-                    == len(req.position_ids) == len(req.loss_mask), error_message
+                assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), (
+                    error_message
+                )
 
         return req_list

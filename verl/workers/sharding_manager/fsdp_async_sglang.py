@@ -154,7 +154,7 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
         if self._tp_rank == 0:
             self.inference_engine.release_memory_occupation()
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
-        
+
         self.module.train()
 
         # add empty cache after each compute
