@@ -12,7 +12,7 @@ peft
 pyarrow>=15.0.0
 pybind11
 pylatexenc
-pylint==3.3.6
+pre-commit
 ray[default]
 tensordict<=0.6.2
 torchdata

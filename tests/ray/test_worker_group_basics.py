@@ -15,12 +15,12 @@
 e2e test verl.single_controller.ray
 """
 
-import torch
 import ray
+import torch
 
-from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
+from verl.single_controller.base.decorator import Dispatch, Execute, collect_all_to_all, register
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.base.decorator import register, Dispatch, collect_all_to_all, Execute
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
@@ -60,7 +60,7 @@ class TestActor(Worker):
     def foo_all_to_all(self, x, y):
         return self._x + y + x
 
-    @register(dispatch_mode={'dispatch_fn': two_to_all_dispatch_fn, 'collect_fn': collect_all_to_all})
+    @register(dispatch_mode={"dispatch_fn": two_to_all_dispatch_fn, "collect_fn": collect_all_to_all})
     def foo_custom(self, x, y):
         return self._x + y + x
 
@@ -68,7 +68,9 @@ class TestActor(Worker):
 @ray.remote(num_gpus=0.1)
 def remote_call_wg(worker_names):
     class_with_args = RayClassWithInitArgs(cls=TestActor, x=2)
-    worker_group = RayWorkerGroup.from_detached(worker_names=worker_names, ray_cls_with_init=class_with_args)
+    worker_group = RayWorkerGroup.from_detached(
+        worker_names=worker_names, ray_cls_with_init=class_with_args, name_prefix=None
+    )
     print(worker_group.worker_names)
 
     output_ref = worker_group.foo_custom(x=[1, 2], y=[5, 6])
@@ -94,9 +96,9 @@ def test_basics():
     resource_pool = RayResourcePool([4], use_gpu=True)
     class_with_args = RayClassWithInitArgs(cls=TestActor, x=2)
 
-    worker_group = RayWorkerGroup(resource_pool=resource_pool,
-                                  ray_cls_with_init=class_with_args,
-                                  name_prefix="worker_group_basic")
+    worker_group = RayWorkerGroup(
+        resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic"
+    )
 
     print(worker_group.worker_names)
 
@@ -124,5 +126,5 @@ def test_basics():
     ray.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_basics()

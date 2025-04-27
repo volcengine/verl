@@ -25,31 +25,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import logging
+import os
 from typing import Optional
 
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import ShardingStrategy, ShardedStateDictConfig, StateDictType, FullStateDictConfig
+from sglang.srt.entrypoints.engine import Engine
+from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+from sglang.srt.utils import MultiprocessingSerializer
 from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.tensor import DTensor
 
 from verl import DataProto
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
-from verl.utils.debug import log_gpu_memory_usage
 from verl.protocol import all_gather_data_proto
-from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.entrypoints.verl_engine import VerlEngine
-from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-from sglang.srt.utils import MultiprocessingSerializer, broadcast_pyobj
+from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.torch_functional import broadcast_dict_tensor
+
 from .base import BaseShardingManager
-from verl.third_party.sglang import parallel_state as sglang_ps
+
 # from vllm.distributed import parallel_state as sglang_ps
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
+logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 
 def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
@@ -59,13 +59,14 @@ def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
 
 
 class FSDPAsyncSGLangShardingManager(BaseShardingManager):
-
-    def __init__(self,
-                 module: FSDP,
-                 inference_engine: Optional[Engine],
-                 model_config,
-                 full_params: bool = False,
-                 device_mesh: DeviceMesh = None):
+    def __init__(
+        self,
+        module: FSDP,
+        inference_engine: Optional[Engine],
+        model_config,
+        full_params: bool = False,
+        device_mesh: DeviceMesh = None,
+    ):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -76,19 +77,21 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params:
-            FSDP.set_state_dict_type(self.module,
-                                     state_dict_type=StateDictType.FULL_STATE_DICT,
-                                     state_dict_config=FullStateDictConfig())
+            FSDP.set_state_dict_type(
+                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
+            )
         else:
-            FSDP.set_state_dict_type(self.module,
-                                     state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                                     state_dict_config=ShardedStateDictConfig())
+            FSDP.set_state_dict_type(
+                self.module,
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(),
+            )
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
         # get a random rng states
         if self.device_mesh is not None:
-            gen_dp_rank = self.device_mesh['dp'].get_local_rank()
+            gen_dp_rank = self.device_mesh["dp"].get_local_rank()
             torch.cuda.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
             self.gen_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.torch_random_states)
@@ -97,11 +100,11 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
 
     def __enter__(self):
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
+        log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         params = self.module.state_dict()
-        log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
+        log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
-        load_format = None if self.full_params else 'dtensor'
+        load_format = None if self.full_params else "dtensor"
         if self._tp_rank == 0:
             self.inference_engine.resume_memory_occupation()
 
@@ -110,9 +113,7 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
-            serialized_tensor = MultiprocessingSerializer.serialize(
-                _preprocess_tensor_for_update_weights(tensor)
-            )
+            serialized_tensor = MultiprocessingSerializer.serialize(_preprocess_tensor_for_update_weights(tensor))
 
             if self._tp_rank == 0:
                 gathered_serialized_tensors = [None for _ in range(self._tp_size)]
@@ -121,8 +122,8 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
             dist.gather_object(
                 obj=serialized_tensor,
                 object_gather_list=gathered_serialized_tensors,
-                dst=self.device_mesh['infer_tp'].mesh.tolist()[0],
-                group=self.device_mesh['infer_tp'].get_group(),
+                dst=self.device_mesh["infer_tp"].mesh.tolist()[0],
+                group=self.device_mesh["infer_tp"].get_group(),
             )
 
             if self._tp_rank == 0:
@@ -136,11 +137,11 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
                     load_format=load_format,
                     flush_cache=tensor_index == len(named_tensors) - 1,
                 )
-        log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
+        log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
         torch.cuda.empty_cache()
-        log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
+        log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
 
         # TODO: offload FSDP model weights
         # self.module.cpu()
@@ -154,10 +155,10 @@ class FSDPAsyncSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.gen_random_states)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
+        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
         if self._tp_rank == 0:
             self.inference_engine.release_memory_occupation()
-        log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
+        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
         # self.module.to('cuda')
         # if torch.distributed.get_rank() == 0:
         #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')

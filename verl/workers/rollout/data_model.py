@@ -12,17 +12,19 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import List, Optional, Literal, Dict, Any
+from typing import Any, Dict, List, Literal, Optional
 
 import torch
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizer
-from verl.workers.tool.data_model import OpenAIFunctionToolSchema, OpenAIFunctionToolCall
+
 from verl.utils.model import compute_position_id_with_mask
+from verl.workers.tool.data_model import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
 
 
 class FinishReasonTypeEnum(str, Enum):
     """The enum for finish reason type."""
+
     LENGTH = "length"
     STOP = "stop"
     TOOL_CALL = "tool_calls"
@@ -47,6 +49,7 @@ class Message(BaseModel):
 
 class AsyncRolloutRequestStateEnum(str, Enum):
     """The enum for async rollout request state."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -56,6 +59,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
 
 class AsyncRolloutRequest(BaseModel):
     """The data model for async rollout."""
+
     batch_data_id: int = 0
     rollout_offset: int = 0
     request_id: str
@@ -89,17 +93,17 @@ class AsyncRolloutRequest(BaseModel):
     }
 
     def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> str:
-        return tokenizer.apply_chat_template( # type: ignore
-            conversation=[msg.model_dump() for msg in self.messages], 
-            tools=[tool.model_dump() for tool in self.tools] if self.tools else None, 
-            add_generation_prompt=True, 
-            tokenize=False
+        return tokenizer.apply_chat_template(  # type: ignore
+            conversation=[msg.model_dump() for msg in self.messages],
+            tools=[tool.model_dump() for tool in self.tools] if self.tools else None,
+            add_generation_prompt=True,
+            tokenize=False,
         )
 
     def add_assistant_message(
-        self, 
-        tokenizer: PreTrainedTokenizer, 
-        content: str, 
+        self,
+        tokenizer: PreTrainedTokenizer,
+        content: str,
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
         format: Literal["chatml"] = "chatml",
         already_over_long: bool = False,
@@ -109,9 +113,7 @@ class AsyncRolloutRequest(BaseModel):
         self.messages.append(msg)
         if tool_calls is not None:
             content_with_tool_calls: str = tokenizer.apply_chat_template(  # type: ignore
-                conversation=[msg.model_dump()], 
-                add_generation_prompt=False, 
-                tokenize=False
+                conversation=[msg.model_dump()], add_generation_prompt=False, tokenize=False
             )
         else:
             content_with_tool_calls = content
@@ -124,15 +126,17 @@ class AsyncRolloutRequest(BaseModel):
             if tool_calls is not None:
                 content = content_with_tool_calls.split(f"{prefix_msg}")[-1].split(f"{suffix_msg}")[0]
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)
-            if self.input_ids[-len(prefix_token_ids):] == prefix_token_ids:
+            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
                 append_token_ids = content_token_ids
                 _loss_mask = [1] * len(content_token_ids)
-            elif self.input_ids[-len(suffix_token_ids):] == suffix_token_ids:
+            elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
                 append_token_ids = prefix_token_ids + content_token_ids
                 _loss_mask = [0] * len(prefix_token_ids) + [1] * len(content_token_ids)
             else:
                 max_len = max(len(prefix_token_ids), len(suffix_token_ids))
-                raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}")
+                raise ValueError(
+                    f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}"
+                )
             if not already_over_long:
                 append_token_ids += suffix_token_ids
                 _loss_mask += [1] * len(suffix_token_ids)
@@ -146,14 +150,12 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), \
-                f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
-    
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
+            f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+        )
+
     def add_tool_response_message(
-        self, 
-        tokenizer: PreTrainedTokenizer, 
-        content: str, 
-        format: Literal["chatml"] = "chatml"
+        self, tokenizer: PreTrainedTokenizer, content: str, format: Literal["chatml"] = "chatml"
     ) -> None:
         """Currently, we only support chatml format."""
         msg = Message(role="tool", content=content)
@@ -165,12 +167,14 @@ class AsyncRolloutRequest(BaseModel):
             suffix_msg = self.format_config[format]["tool_suffix_msg"]
             suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)
-            if self.input_ids[-len(prefix_token_ids):] == prefix_token_ids:
+            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
                 append_token_ids = content_token_ids + suffix_token_ids
-            elif self.input_ids[-len(suffix_token_ids):] == suffix_token_ids:
+            elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
                 append_token_ids = prefix_token_ids + content_token_ids + suffix_token_ids
             else:
-                raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-len(prefix_token_ids):])}")
+                raise ValueError(
+                    f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-len(prefix_token_ids) :])}"
+                )
             self.input_ids += append_token_ids
             _attention_mask = [1] * len(append_token_ids)
             self.attention_mask += _attention_mask
@@ -181,18 +185,19 @@ class AsyncRolloutRequest(BaseModel):
             self.position_ids += _position_ids
         else:
             raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), \
-                f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
-    
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
+            f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+        )
+
     def finalize(
-        self, 
-        tokenizer: PreTrainedTokenizer, 
+        self,
+        tokenizer: PreTrainedTokenizer,
         reward_scores: Dict[str, float],
-        finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP, 
+        finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP,
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
-        self.response_ids = self.input_ids[len(self.prompt_ids):]
+        self.response_ids = self.input_ids[len(self.prompt_ids) :]
         if finish_reason_type == FinishReasonTypeEnum.STOP:
             pass
         elif finish_reason_type == FinishReasonTypeEnum.LENGTH:
@@ -200,15 +205,16 @@ class AsyncRolloutRequest(BaseModel):
         else:
             raise ValueError(f"Unsupported finalize finish reason type: {finish_reason_type}")
         self.truncate_output_ids(tokenizer)
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), \
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), (
             f"Request {self.request_id} has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"
+        )
 
     def truncate_output_ids(self, tokenizer: PreTrainedTokenizer) -> None:
-        self.input_ids = self.input_ids[:self.max_model_len]
-        self.attention_mask = self.attention_mask[:self.max_model_len]
-        self.position_ids = self.position_ids[:self.max_model_len]
-        self.loss_mask = self.loss_mask[:self.max_model_len]
-        self.response_ids = self.input_ids[len(self.prompt_ids):][:self.max_response_len]
-        self.response_attention_mask = self.attention_mask[len(self.prompt_attention_mask):][:self.max_response_len]
-        self.response_position_ids = self.position_ids[len(self.prompt_position_ids):][:self.max_response_len]
-        self.response_loss_mask = self.loss_mask[len(self.prompt_loss_mask):][:self.max_response_len]
+        self.input_ids = self.input_ids[: self.max_model_len]
+        self.attention_mask = self.attention_mask[: self.max_model_len]
+        self.position_ids = self.position_ids[: self.max_model_len]
+        self.loss_mask = self.loss_mask[: self.max_model_len]
+        self.response_ids = self.input_ids[len(self.prompt_ids) :][: self.max_response_len]
+        self.response_attention_mask = self.attention_mask[len(self.prompt_attention_mask) :][: self.max_response_len]
+        self.response_position_ids = self.position_ids[len(self.prompt_position_ids) :][: self.max_response_len]
+        self.response_loss_mask = self.loss_mask[len(self.prompt_loss_mask) :][: self.max_response_len]

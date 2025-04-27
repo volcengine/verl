@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
 import inspect
-import torch
 import os
-from transformers.utils import is_flash_attn_greater_or_equal
+from typing import Optional, Tuple
+
+import torch
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, \
-    get_ulysses_sequence_parallel_world_size, validate_ulysses_config
+from transformers.utils import is_flash_attn_greater_or_equal
+
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    validate_ulysses_config,
+)
 
 try:
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -88,10 +94,7 @@ def get_rope_index(
                     video_grid_thw[video_index][1],
                     video_grid_thw[video_index][2],
                 )
-                if second_per_grid_ts is not None:
-                    second_per_grid_t = second_per_grid_ts[video_index]
-                else:
-                    second_per_grid_t = 1.0
+                second_per_grid_t = second_per_grid_ts[video_index] if second_per_grid_ts is not None else 1.0
 
                 video_index += 1
                 remain_videos -= 1
@@ -132,17 +135,20 @@ def get_rope_index(
     return position_ids
 
 
-def prepare_fa2_from_position_ids(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-                                  position_ids: torch.Tensor):
+def prepare_fa2_from_position_ids(
+    query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor
+):
     query = query.view(-1, query.size(-2), query.size(-1))
     key = key.view(-1, key.size(-2), key.size(-1))
     value = value.view(-1, value.size(-2), value.size(-1))
     position_ids = position_ids.flatten()
     indices_q = torch.arange(position_ids.size(0), device=position_ids.device, dtype=torch.int32)
-    cu_seqlens = torch.cat((
-        indices_q[position_ids == 0],
-        torch.tensor(position_ids.size(), device=position_ids.device, dtype=torch.int32),
-    ))
+    cu_seqlens = torch.cat(
+        (
+            indices_q[position_ids == 0],
+            torch.tensor(position_ids.size(), device=position_ids.device, dtype=torch.int32),
+        )
+    )
     max_length = cu_seqlens.diff().max()  # use cu_seqlens to infer max_length for qwen2vl mrope
     return (query, key, value, indices_q, (cu_seqlens, cu_seqlens), (max_length, max_length))
 
@@ -163,14 +169,12 @@ def flash_attention_forward(
     """
     Patches flash attention forward to handle 3D position ids in mrope. (3, batch_size, seq_length)
     """
-    if not use_top_left_mask:
-        causal = is_causal
-    else:
-        causal = is_causal and query_length != 1
+    causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
-    use_sliding_windows = (_flash_supports_window_size and sliding_window is not None and
-                           key_states.shape[1] > sliding_window)
+    use_sliding_windows = (
+        _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
+    )
     flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
 
     if is_flash_attn_greater_or_equal("2.4.1"):
@@ -181,7 +185,8 @@ def flash_attention_forward(
     if position_ids is not None and query_length != 1 and not (torch.diff(position_ids[0], dim=-1) >= 0).all():
         batch_size = query_states.size(0)
         query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
-            query_states, key_states, value_states, position_ids[0])  # remove channel dimension
+            query_states, key_states, value_states, position_ids[0]
+        )  # remove channel dimension
         cu_seqlens_q, cu_seqlens_k = cu_seq_lens
         max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
         attn_output = flash_attn_varlen_func(
@@ -223,7 +228,7 @@ def ulysses_flash_attn_forward(
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
     **kwargs,
 ) -> Tuple[torch.Tensor, None, None]:
-    from transformers.models.qwen2_vl.modeling_qwen2_vl import repeat_kv, apply_multimodal_rotary_pos_emb
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import apply_multimodal_rotary_pos_emb, repeat_kv
 
     bsz, q_len, _ = hidden_states.size()  # q_len = seq_length / sp_size
     query_states = self.q_proj(hidden_states)  # (batch_size, seq_length / sp_size, num_heads * head_size)
@@ -255,8 +260,9 @@ def ulysses_flash_attn_forward(
     else:
         cos, sin = position_embeddings
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin,
-                                                               self.rope_scaling["mrope_section"])
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+    )
     dropout_rate = 0.0 if not self.training else self.attention_dropout
 
     # Reashape to the expected shape for Flash Attention
@@ -264,8 +270,11 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if (self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and
-            self.layer_idx >= self.config.max_window_layers):
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None
