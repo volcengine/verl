@@ -150,7 +150,6 @@ class FIREvLLMRollout(vLLMRollout):
                 )
 
             response = output[0].to(idx.device)  # (bs, response_length)
-            log_probs = output[1].to(idx.device)  # (bs, response_length)
         else:
             with self.update_sampling_params(**kwargs):
                 output_0 = self.inference_engine.generate(
@@ -193,9 +192,7 @@ class FIREvLLMRollout(vLLMRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(
-            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
-        )
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid

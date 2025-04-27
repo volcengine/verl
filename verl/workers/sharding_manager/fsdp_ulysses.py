@@ -56,7 +56,6 @@ class FSDPUlyssesShardingManager(BaseShardingManager):
         In Ulysses, we need to make sure the same data is used across a SP group
         """
         if self.device_mesh is not None:
-            sp_size = self.device_mesh["sp"].size()
             group = self.device_mesh["sp"].get_group()
 
             all_gather_data_proto(data=data, process_group=group)

@@ -68,9 +68,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params:
-            FSDP.set_state_dict_type(
-                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
-            )
+            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
         else:
             FSDP.set_state_dict_type(
                 self.module,

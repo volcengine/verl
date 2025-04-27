@@ -15,7 +15,7 @@ import os
 import random
 import shutil
 import tempfile
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -45,8 +45,10 @@ class BaseCheckpointManager:
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: list = ["model", "optimizer", "extra"],
+        checkpoint_contents: Optional[list] = None,
     ):
+        if checkpoint_contents is None:
+            checkpoint_contents = ["model", "optimizer", "extra"]
         self.previous_global_step = None
         self.previous_saved_paths = []
 
@@ -62,9 +64,7 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(
-        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None
-    ):
+    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
         raise NotImplementedError
 
     @staticmethod
