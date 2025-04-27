@@ -834,7 +834,7 @@ class RewardModelWorker(MegatronWorker):
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
         self.rm = MegatronRewardModel(
-            config=self.config,
+            config=self.config.reward_model,
             reward_model_module=reward_model_module,
             model_config=reward_model_config,
             hf_config=self.hf_config,
