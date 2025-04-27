@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import os
 from typing import Any, Dict
 
+import numpy as np
 import ray
 from omegaconf import OmegaConf
 from openai.types.chat.chat_completion import ChatCompletion
 
+from verl.protocol import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
@@ -27,13 +28,15 @@ from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 
-async def test_vllm_multi_turn():
+def test_vllm_multi_turn():
     config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
     model_path = "Qwen/Qwen2-7B-Instruct"
     model_name = "/".join(model_path.split("/")[-2:])
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.chat_scheduler = "verl.workers.rollout.async_server.ChatCompletionScheduler"
+    config.actor_rollout_ref.rollout.chat_scheduler = (
+        "examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler"
+    )
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
 
@@ -89,16 +92,17 @@ async def test_vllm_multi_turn():
     actor_rollout_wg = all_wg["actor_rollout"]
     actor_rollout_wg.init_model()
 
-    # =========================== 2. Create AsyncLLMServerManager&ChatScheduler  ===========================
+    # =========================== 2. Create AsyncLLMServerManager  ===========================
     async_rollout_manager = AsyncLLMServerManager(
         config=config.actor_rollout_ref,
         worker_group=actor_rollout_wg,
     )
-    async_chat_scheduler = async_rollout_manager.chat_scheduler
 
     # test sleep and wake_up
-    await async_rollout_manager.sleep()
-    await async_rollout_manager.wake_up()
+    async_rollout_manager.sleep()
+    async_rollout_manager.wake_up()
+
+    async_chat_scheduler = async_rollout_manager.chat_scheduler
 
     # =========================== 3. Multi turn rollout  ===========================
     async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
@@ -133,7 +137,7 @@ async def test_vllm_multi_turn():
     messages = [
         {"role": "user", "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."}
     ]
-    await async_chat_scheduler.submit_chat_completions(
+    async_rollout_manager.submit_chat_completions(
         callback=callback,
         callback_additional_info={"messages": messages, "round": 0},
         model=model_name,
@@ -146,6 +150,28 @@ async def test_vllm_multi_turn():
         else:
             assert message["role"] == "assistant"
 
+    # =========================== 4. Generate sequences  ===========================
+    raw_prompts = [
+        [
+            {
+                "role": "user",
+                "content": "Let's play a role playing game. Your name is Alice, your favorite color is blue.",
+            }
+        ],
+        [{"role": "user", "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."}],
+    ]
+    batch = DataProto(
+        non_tensor_batch={
+            "raw_prompt": np.array(raw_prompts),
+        },
+    )
+    result = async_rollout_manager.generate_sequences(prompts=batch)
+    seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
+    assert len(result) == 2
+    assert result.batch["input_ids"].size(1) == seq_len
+    assert result.batch["attention_mask"].size(1) == seq_len
+    assert result.batch["position_ids"].size(1) == seq_len
+
 
 if __name__ == "__main__":
-    asyncio.run(test_vllm_multi_turn())
+    test_vllm_multi_turn()
