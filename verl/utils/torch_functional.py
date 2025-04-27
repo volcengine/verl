@@ -15,6 +15,8 @@
 Contain small torch utilities
 """
 
+import math
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -22,6 +24,8 @@ import torch.distributed
 import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import nn
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LambdaLR
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -83,7 +87,7 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
     if logits.dtype in [torch.float32, torch.float64]:
         logits_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
         # loop to reduce peak mem consumption
-        logsumexp_values = torch.stack([torch.logsumexp(l, dim=-1) for l in logits])
+        logsumexp_values = torch.stack([torch.logsumexp(logit, dim=-1) for logit in logits])
         logprobs_labels = logits_labels - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
     else:
         # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
@@ -174,7 +178,7 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
-    total_params = 0
+    # total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
@@ -394,11 +398,6 @@ def post_process_logits(input_ids, logits, temperature, top_k, top_p):
 Optimizer related
 """
 
-import math
-
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR
-
 
 def get_cosine_schedule_with_warmup(
     optimizer: Optimizer,
@@ -570,3 +569,16 @@ def get_wsd_schedule_with_warmup(
         return min_lr_ratio
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+@contextmanager
+def check_cuda_is_available():
+    """
+    Some modules must be imported after CUDA is initialized. Such as sglang's sharding manager.
+
+    This context manager checks if CUDA is available and raises an error if it is not.
+    """
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA must be initialized before importing this module.")
+
+    yield
