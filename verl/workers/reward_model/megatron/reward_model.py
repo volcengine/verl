@@ -50,7 +50,7 @@ class MegatronRewardModel(BasePPORewardModel):
 
         print(f"MegatronRewardModel.config: {self.config}")
 
-        if self.config.param_offload:
+        if self.config.megatron.param_offload:
             self.offload_params_to_cpu()
 
     def re_encode_by_rm_tokenizer(self, data: DataProto) -> DataProto:
@@ -126,7 +126,7 @@ class MegatronRewardModel(BasePPORewardModel):
 
     @torch.no_grad()
     def compute_reward(self, data: DataProto) -> DataProto:
-        if self.config.param_offload:
+        if self.config.megatron.param_offload:
             self.load_params_to_cuda()
 
         if self.use_different_tokenizer:
@@ -180,7 +180,7 @@ class MegatronRewardModel(BasePPORewardModel):
         token_level_rewards = token_level_rewards * eos_mask
         token_level_rewards = token_level_rewards[:, -response_length:]
 
-        if self.config.param_offload:
+        if self.config.megatron.param_offload:
             self.offload_params_to_cpu()
         else:
             # add empty cache after each compute
