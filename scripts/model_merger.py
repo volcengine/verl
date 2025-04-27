@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from safetensors.torch import load_file
 from torch.distributed._tensor import Placement, Shard
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq, AutoTokenizer
 
 try:
     # for torch 2.5+
@@ -198,6 +198,8 @@ def convert_fsdp_checkpoints_to_hfmodels():
 
     print(f"Saving model to {hf_path}")
     model.save_pretrained(hf_path, state_dict=state_dict)
+    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_path)
+    tokenizer.save_pretrained(hf_path)
     del state_dict
     del model
     if args.hf_upload_path:

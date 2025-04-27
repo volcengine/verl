@@ -18,6 +18,8 @@ Metrics related to the PPO trainer.
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable, Dict, List
+from itertools import islice, zip_longest
+import re
 
 import numpy as np
 import torch
@@ -47,7 +49,7 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     )
 
 
-def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
+def compute_data_metrics(batch: DataProto, use_critic: bool = True, tokenizer=None) -> Dict[str, Any]:
     # TODO: add response length
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
@@ -65,6 +67,31 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     response_info = _compute_response_info(batch)
     prompt_length = response_info["prompt_length"]
     response_length = response_info["response_length"]
+
+    repeat_values = []
+    reflection_counts = []
+    if tokenizer is not None:
+        # Process each response individually
+        for i in range(batch.batch['responses'].shape[0]):
+            try:
+                # Decode this specific response
+                response_text = tokenizer.decode(batch.batch['responses'][i], skip_special_tokens=True)
+
+                # Calculate repeatness for this single response
+                repeat_value = repeatness(response_text)
+                repeat_values.append(repeat_value)
+
+                # Calculate reflection pattern for this single response
+                reflection_dict = check_reflection_pattern(response_text)
+                reflection_counts.append(sum(reflection_dict.values()))
+            except Exception as e:
+                # Skip if there's an error processing this response
+                print(f"Error processing response: {e}")
+                continue
+
+    # Calculate average metrics if we have values
+    repeat = sum(repeat_values) / max(len(repeat_values), 1) if repeat_values else 0
+    reflection_count = sum(reflection_counts) / max(len(reflection_counts), 1) if reflection_counts else 0
 
     valid_adv = torch.masked_select(advantages, response_mask)
     valid_returns = torch.masked_select(returns, response_mask)
@@ -104,6 +131,11 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
             if use_critic
             else {}
         ),
+        # reflection
+        'train/repeatness':
+            repeat,
+        'train/reflection_count':
+            reflection_count,
         # response length
         "response_length/mean": torch.mean(response_length).detach().item(),
         "response_length/max": torch.max(response_length).detach().item(),
@@ -185,6 +217,66 @@ def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> flo
     maj_val = vote2vals[maj_vote][0]
 
     return maj_val
+
+
+def repeatness(s: str):
+    def ranks(l):
+        index = {v: i for i, v in enumerate(sorted(set(l)))}
+        return [index[v] for v in l]
+
+    def suffixArray(s):
+        line = ranks(s)
+        n, k, ans, sa = len(s), 1, line, [0] * len(s)
+        while k < n - 1:
+            line = ranks(list(zip_longest(line, islice(line, k, None), fillvalue=-1)))
+            ans, k = line, k << 1
+        for i, k in enumerate(ans):
+            sa[k] = i
+        return ans, sa
+
+    def lcp(arr, suffixArr, inv_suff):
+        n, ans, k = len(arr), [0] * len(arr), 0
+
+        for i in range(n):
+            if inv_suff[i] == n - 1:
+                k = 0
+                continue
+
+            j = suffixArr[inv_suff[i] + 1]
+            while i + k < n and j + k < n and arr[i + k] == arr[j + k]:
+                k += 1
+
+            ans[inv_suff[i]] = k
+            if k > 0:
+                k -= 1
+
+        return ans
+
+    arr = [ord(i) for i in s]
+    n = len(arr)
+    if n <= 1:
+        return 0
+    c, sa = suffixArray(arr)
+    cnt = sum(lcp(arr, sa, c))
+
+    return (cnt * 2 / (n * (n + 1))) > 0.2
+
+def check_reflection_pattern(response: str) -> dict[str, int]:
+    # TODO: may need to add more pattern
+    reflection_pattern_words = [
+        r"rethink",
+        r"recheck[,\s]",
+        r"retry",
+        r"try again",
+        r"alternatively,",
+        r"however",
+        r"let's correct it and verify the steps again",
+    ]
+    res = defaultdict(int)
+    for word in reflection_pattern_words:
+        # can only be followed by a comma or a space
+        res[word] = len(re.findall(word, response))
+    return res
 
 
 def process_validation_metrics(

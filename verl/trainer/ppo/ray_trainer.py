@@ -862,6 +862,14 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def _safe_generate_sequences(self, batch):
+        """Wrapper for generate_sequences that catches errors and skips the batch if it fails"""
+        try:
+            return self.actor_rollout_wg.generate_sequences(batch)
+        except Exception as e:
+            print(f"ERROR: Generation failed, skipping this batch: {str(e)}")
+            return None
+
     def fit(self):
         """
         The training loop of PPO.
@@ -925,7 +933,12 @@ class RayPPOTrainer:
                 with _timer("step", timing_raw):
                     # generate a batch
                     with _timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                        gen_batch_output = self._safe_generate_sequences(gen_batch)
+                        if gen_batch_output is None:
+                            print("WARNING: Generation failed, skipping to next batch")
+                            progress_bar.update(1)
+                            self.global_steps += 1
+                            continue
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):
@@ -1068,7 +1081,7 @@ class RayPPOTrainer:
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic, tokenizer=self.tokenizer))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
