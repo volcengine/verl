@@ -53,9 +53,7 @@ parser.add_argument(
 args = parser.parse_args()
 os.makedirs(args.target_dir, exist_ok=True)
 if args.test:
-    assert args.test_hf_dir is not None, (
-        "You must run verl save checkpoint first, with hf_model in checkpoint.contents, and provide the directory here"
-    )
+    assert args.test_hf_dir is not None, "You must run verl save checkpoint first, with hf_model in checkpoint.contents, and provide the directory here"
 
 
 def merge_by_placement(tensors: List[torch.Tensor], placement: Placement):
@@ -91,9 +89,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
             break
     assert world_size, "No model file with the proper format"
 
-    state_dict = torch.load(
-        os.path.join(local_dir, f"model_world_size_{world_size}_rank_{rank}.pt"), map_location="cpu", weights_only=False
-    )
+    state_dict = torch.load(os.path.join(local_dir, f"model_world_size_{world_size}_rank_{rank}.pt"), map_location="cpu", weights_only=False)
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
 
@@ -143,7 +139,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
         for model_state_dict in model_state_dict_lst:
             try:
                 tensor = model_state_dict.pop(key)
-            except:
+            except Exception:
                 print("-" * 30)
                 print(model_state_dict)
             if isinstance(tensor, DTensor):
@@ -229,12 +225,11 @@ def check_megatron_checkpoint_path(model_path):
 
 
 def convert_megatron_checkpoints_to_hfmodels():
-    from verl.utils.megatron_utils import get_hf_model_checkpoint_path, get_model_checkpoint_path
+    from verl.utils.megatron_utils import get_model_checkpoint_path
 
     local_path = args.local_dir
 
     model_ckpt_path = get_model_checkpoint_path(local_path)
-    hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
     sharded_dirs, tp_size, pp_size = check_megatron_checkpoint_path(model_ckpt_path)
     mp_size = len(sharded_dirs)
 

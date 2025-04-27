@@ -83,6 +83,8 @@ actor_rollout_ref:
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: vllm
+    mode: sync # sync: LLM, async: AsyncLLM
+    chat_scheduler: null # async chat scheduler, e.g examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -180,6 +182,7 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
 
 custom_reward_function:
   path: null
@@ -206,6 +209,8 @@ trainer:
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
   log_val_generations: 0
+  rollout_data_dir: null # directory for logging the rollout data, no dump if null
+  validation_data_dir: null # directory for logging the validation data, no dump if null
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1

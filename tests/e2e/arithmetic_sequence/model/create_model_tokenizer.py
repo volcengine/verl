@@ -25,7 +25,7 @@ from tests.e2e.envs.digit_completion import CharTokenizer
 tokenizer = CharTokenizer(
     characters=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ",", ":"],
     model_max_length=2048,
-    chat_template="{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% set role = message['role'] %}{{ message['content'] }}{% endfor %}{% if add_generation_prompt %}{{ sep_token }}{% endif %}",
+    chat_template="{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% set role = message['role'] %}{{ message['content'] }}{% endfor %}{% if add_generation_prompt %}{{ sep_token }}{% endif %}",  # noqa: E501
 )
 
 config = LlamaConfig(
@@ -55,8 +55,4 @@ load_tokenizer = AutoTokenizer.from_pretrained(tokenizer_folder)
 chat = [{"role": "user", "content": "1,0:2,3"}]
 
 load_tokenizer.padding_side = "left"
-print(
-    load_tokenizer.apply_chat_template(
-        chat, tokenize=True, add_generation_prompt=True, max_length=10, padding="max_length"
-    )
-)
+print(load_tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True, max_length=10, padding="max_length"))
