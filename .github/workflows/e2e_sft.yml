@@ -4,6 +4,9 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
@@ -23,14 +26,13 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
 
-
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
@@ -48,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-            fetch-depth: 0
+          fetch-depth: 0
       - name: Install the current repository
         run: |
           pip3 install peft
