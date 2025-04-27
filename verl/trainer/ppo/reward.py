@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import os
+from functools import partial
 
 import ray
 
 from verl import DataProto
+from verl.utils.reward_score import _default_compute_score
 
 
 def get_custom_reward_fn(config):
@@ -76,10 +78,19 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         raise NotImplementedError
 
     compute_score = get_custom_reward_fn(config)
+    final_compute_score = compute_score
+
+    if compute_score is None:
+        sandbox_url = config.reward_model.get("sandbox_fusion_url")
+        if sandbox_url:
+            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url)
+        else:
+            final_compute_score = _default_compute_score
+
     return reward_manager_cls(
         tokenizer=tokenizer,
         num_examine=num_examine,
-        compute_score=compute_score,
+        compute_score=final_compute_score,
         reward_fn_key=config.data.reward_fn_key,
         **reward_kwargs,
     )
