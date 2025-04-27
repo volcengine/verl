@@ -30,6 +30,3 @@ jobs:
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
           git add .pre-commit-config.yaml
       - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: "" # Overriding "--all-files"
-          # TODO: Remove this once all the files are fixed, i.e., `pre-commit run --all-files` passes
