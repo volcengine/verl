@@ -38,7 +38,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.torch_functional import broadcast_dict_tensor
+from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_available
 
 from .base import BaseShardingManager
 
@@ -49,6 +49,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPSGLangShardingManager(BaseShardingManager):
+    @check_cuda_is_available()
     def __init__(
         self,
         module: FSDP,
@@ -96,7 +97,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
         # Copy, not share memory
-        load_format = None if self.full_params else "dtensor"
+        # load_format = None if self.full_params else "dtensor"
         self.inference_engine.resume_memory_occupation()
 
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
@@ -120,7 +121,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # self.module.to('cuda')
         # if torch.distributed.get_rank() == 0:
-        #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
+        #     print(f'after actor module to cuda in sharding manager memory allocated:
+        # {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         self.module.train()
 
