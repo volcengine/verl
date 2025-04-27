@@ -635,7 +635,7 @@ class RayPPOTrainer:
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
             if "multi_modal_inputs" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.extend(["multi_modal_data", "multi_modal_inputs"])
-            if "raw_prompt" in test_batch.non_tensor_batch and self.async_rollout_mode:
+            if "raw_prompt" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("raw_prompt")
             if "tools_kwargs" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("tools_kwargs")
@@ -983,17 +983,14 @@ class RayPPOTrainer:
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
-                # print(f"batch_dict: {batch_dict}")
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                # print(f"DataProto.from_single_dict(batch_dict): {batch}")
 
                 # pop those keys for generation
-
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
                 if "multi_modal_inputs" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.extend(["multi_modal_data", "multi_modal_inputs"])
-                if "raw_prompt" in batch.non_tensor_batch and self.async_rollout_mode:
+                if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")

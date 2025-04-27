@@ -39,7 +39,7 @@ from transformers import PreTrainedTokenizer
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.data_model import (
     AsyncRolloutRequest,
@@ -49,47 +49,14 @@ from verl.workers.rollout.data_model import (
 )
 from verl.workers.tool.base_tool import BaseTool
 from verl.workers.tool.data_model import OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
-
-logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
+from verl.workers.rollout.sglang_rollout.sglang_rollout import _pre_process_inputs, _post_process_outputs
 
 
 if TYPE_CHECKING:
     from torch import nn
 
-
-# NOTE(sgm): add for verl. We can optimize it by making the dataloader yield List[int] without padding.
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
-    # remove the left padding in the prompt token_id
-    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
-    non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
-    token_ids = prompt_token_ids[non_pad_index:].tolist()
-    return token_ids
-
-
-# NOTE(linjunrong): adhoc
-def _post_process_outputs(tokenizer, output):
-    def _map_each_response(l):
-        log_probs = []
-        output_token_ids = []
-        for log_prob, token_ids, _ in l["meta_info"]["output_token_logprobs"]:
-            log_probs.append(log_prob)
-            output_token_ids.append(token_ids)
-        log_probs = torch.tensor(log_probs)
-        output_token_ids = torch.tensor(output_token_ids)
-        return output_token_ids, log_probs
-
-    out_map = map(lambda x: _map_each_response(x), output)
-    batched_output_token_ids = []
-    batched_logprobs = []
-    for output_token_ids, log_probs in out_map:
-        batched_output_token_ids.append(output_token_ids)
-        batched_logprobs.append(log_probs)
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    batched_output_token_ids = pad_sequence(batched_output_token_ids, batch_first=True, padding_value=pad_token_id)
-    if len(batched_logprobs) > 0:
-        batched_logprobs = pad_sequence(batched_logprobs, batch_first=True, padding_value=pad_token_id)
-    return batched_output_token_ids, batched_logprobs
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def get_tool_call_parser_type(tokenizer: PreTrainedTokenizer) -> str:
@@ -219,6 +186,7 @@ class AsyncSGLangRollout(BaseRollout):
             mesh_shape=(world_size // tp_size, tp_size, 1),
             mesh_dim_names=["dp", "tp", "pp"],
         )
+
         device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
         # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
 
@@ -370,7 +338,7 @@ class AsyncSGLangRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
