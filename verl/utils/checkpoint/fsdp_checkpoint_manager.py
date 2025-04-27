@@ -14,7 +14,7 @@
 
 import os
 import warnings
-from typing import Union
+from typing import Optional, Union
 
 import torch
 import torch.distributed
@@ -48,16 +48,16 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
-        checkpoint_contents: list = ["model", "optimizer", "extra"],
+        checkpoint_contents: Optional[list] = None,
         **kwargs,
     ):
+        if checkpoint_contents is None:
+            checkpoint_contents = ["model", "optimizer", "extra"]
         if processing_class is None:
             assert "tokenizer" in kwargs, "tokenizer or processor must be provided"
-            warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning)
+            warnings.warn("`tokenizer` is deprecated. use `processing_class` instead.", DeprecationWarning, stacklevel=2)
             processing_class = kwargs.pop("tokenizer")
-        assert (
-            "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents
-        ), f"FSDPCheckpointManager must include ['model', 'optimizer', 'extra'], got {checkpoint_contents}"
+        assert "model" in checkpoint_contents and "optimizer" in checkpoint_contents and "extra" in checkpoint_contents, f"FSDPCheckpointManager must include ['model', 'optimizer', 'extra'], got {checkpoint_contents}"
 
         super().__init__(
             model,
@@ -74,12 +74,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # every rank download its own checkpoint
         remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
         remote_optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
-        remote_extra_state_path = os.path.join(
-            local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt"
-        )
-        print(
-            f"[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}"
-        )
+        remote_extra_state_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
+        print(f"[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}")
         local_model_path = copy_to_local(remote_model_path)
         local_optim_path = copy_to_local(remote_optim_path)
         local_extra_state_path = copy_to_local(remote_extra_state_path)
@@ -94,9 +90,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 os.remove(local_optim_path) if is_non_local(local_optim_path) else None
                 os.remove(local_extra_state_path) if is_non_local(local_extra_state_path) else None
             except Exception as e:
-                print(
-                    f"[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored"
-                )
+                print(f"[rank-{self.rank}]: remove local resume ckpt file after loading failed, exception {e} will be ignored")
 
         lr_scheduler_state_dict = extra_state_dict["lr_scheduler"]
 
@@ -122,12 +116,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self.previous_global_step = global_step
 
         # remove previous local_path
-        if (
-            max_ckpt_to_keep
-            and isinstance(max_ckpt_to_keep, int)
-            and max_ckpt_to_keep > 0
-            and len(self.previous_saved_paths) >= max_ckpt_to_keep
-        ):
+        if max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0 and len(self.previous_saved_paths) >= max_ckpt_to_keep:
             keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]

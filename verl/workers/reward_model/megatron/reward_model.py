@@ -22,7 +22,7 @@ from megatron.core.pipeline_parallel import get_forward_backward_func
 from tensordict import TensorDict
 
 from verl import DataProto
-from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
+from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length, split_dict_tensor_into_batches
 from verl.workers.reward_model.base import BasePPORewardModel
 
@@ -62,7 +62,7 @@ class MegatronRewardModel(BasePPORewardModel):
         attention_mask = data.batch["attention_mask"]
         position_ids = data.batch["position_ids"]
         ori_values = {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids}
-        ori_bs, ori_seqlen = input_ids.size(0), input_ids.size(1)
+        _, ori_seqlen = input_ids.size(0), input_ids.size(1)
         input_ids_for_rm = []
         attention_mask_for_rm = []
         position_ids_for_rm = []
@@ -76,12 +76,7 @@ class MegatronRewardModel(BasePPORewardModel):
             # 2. decode by sft_tokenizer, remove sft system prompts
             decode_result = self.sft_tokenizer.decode(valid_id)
             # workaround
-            decode_with_rm_chat = (
-                decode_result.replace("<|user|>\n", "[INST] ")
-                .replace("</s>\n<|assistant|>\n", " [/INST]")
-                .replace("</s> \n<|assistant|>\n", " [/INST]")
-                + "</s>"
-            )
+            decode_with_rm_chat = decode_result.replace("<|user|>\n", "[INST] ").replace("</s>\n<|assistant|>\n", " [/INST]").replace("</s> \n<|assistant|>\n", " [/INST]") + "</s>"
             if print_decode and torch.distributed.get_rank() == 0:
                 # only print first decode result
                 print(
@@ -90,9 +85,7 @@ class MegatronRewardModel(BasePPORewardModel):
                 )
                 print_decode = False
             # 3. encode by rm_tokenizer
-            rm_input_ids = self.rm_tokenizer(decode_with_rm_chat, return_tensors="pt")["input_ids"][0].to(
-                input_ids.device
-            )
+            rm_input_ids = self.rm_tokenizer(decode_with_rm_chat, return_tensors="pt")["input_ids"][0].to(input_ids.device)
             # 4. generate attention_mask and position_ids
             rm_attention_mask = torch.ones_like(rm_input_ids, device=input_ids.device)
             cur_seqlen = rm_input_ids.shape[-1]
@@ -196,9 +189,7 @@ class MegatronRewardModel(BasePPORewardModel):
         # broadcast from last pp rank to all other pp ranks
         # TODO: actually, we just need to control the sampling order.
         data.batch = data.batch.contiguous()
-        broadcast_dict_tensor(
-            data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group()
-        )
+        broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
 
         # split into micro-batches
         if self.config is not None and "ppo_micro_batch_size_per_gpu" in self.config:
@@ -211,14 +202,6 @@ class MegatronRewardModel(BasePPORewardModel):
         n_micro_batch = len(batches)
         seq_len = batches[0]["input_ids"].shape[1]
 
-        # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "hidden_size": self.model_config.hidden_size,
-            },
-        )
         # compute input shapes for pp stages
         forward_backward_func = get_forward_backward_func()
 

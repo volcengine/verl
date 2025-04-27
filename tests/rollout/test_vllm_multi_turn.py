@@ -34,9 +34,7 @@ def test_vllm_multi_turn():
     model_name = "/".join(model_path.split("/")[-2:])
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.chat_scheduler = (
-        "examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler"
-    )
+    config.actor_rollout_ref.rollout.chat_scheduler = "examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler"
     config.actor_rollout_ref.rollout.prompt_length = 4096
     config.actor_rollout_ref.rollout.response_length = 4096
 
@@ -76,9 +74,7 @@ def test_vllm_multi_turn():
 
     # create actor and rollout
     resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
-    actor_rollout_cls = RayClassWithInitArgs(
-        cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout"
-    )
+    actor_rollout_cls = RayClassWithInitArgs(cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout")
     resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
     all_wg = {}
@@ -134,9 +130,7 @@ def test_vllm_multi_turn():
         else:
             print("Done!")
 
-    messages = [
-        {"role": "user", "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."}
-    ]
+    messages = [{"role": "user", "content": "Let's play a role playing game. Your name is Bob, your favorite color is red."}]
     async_rollout_manager.submit_chat_completions(
         callback=callback,
         callback_additional_info={"messages": messages, "round": 0},
