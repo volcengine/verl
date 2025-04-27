@@ -282,10 +282,7 @@ class FSDPSFTTrainer:
         self.total_steps = self.steps_per_epoch * self.config.trainer.total_epochs
 
         if self.device_mesh.get_rank() == 0:
-            print(
-                f"Number of steps/epoch {self.steps_per_epoch}, "
-                f"number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}"
-            )
+            print(f"Number of steps/epoch {self.steps_per_epoch}, number of epochs {self.config.trainer.total_epochs}, total number of steps {self.total_steps}")
 
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
 
