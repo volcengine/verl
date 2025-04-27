@@ -342,6 +342,7 @@ class Attention(MegatronModule, ABC):
         attention_bias=None,
         packed_seq_params=None,
         sequence_len_offset=None,
+        **kwargs,
     ):
         """
         Perform a forward pass through the attention module.
