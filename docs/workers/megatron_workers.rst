@@ -256,11 +256,11 @@ If you want to use the offload, you can add the following parameters
 for the actor and ref separately. 
 
 .. code:: python
+
    # For the actor
    actor_rollout_ref.actor.megatron.param_offload=True \
    actor_rollout_ref.actor.megatron.grad_offload=True \
    actor_rollout_ref.actor.megatron.optimizer_offload=True \
-
    # For the ref w/o grad and optimizer
    actor_rollout_ref.ref.megatron.param_offload=True \
 
@@ -279,7 +279,8 @@ Profiler
 
 The profiler is a tool that helps you understand the performance of your 
 model. It can be used to profile the time spent on different operations 
-and identify the bottlenecks.
+and identify the bottlenecks. You can get more information from 
+`torch.profiler <https://pytorch.org/docs/stable/profiler.html>`_.
 
 In verl, now the profiler is only support for the actor role In Megatron. You can set 
 the begin step and end step to profile. Notice, one step means one gradient update. And 
