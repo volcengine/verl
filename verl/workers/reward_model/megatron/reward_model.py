@@ -48,6 +48,8 @@ class MegatronRewardModel(BasePPORewardModel):
         self.rm_tokenizer = rm_tokenizer
         self.use_different_tokenizer = rm_tokenizer is not None
 
+        print(f"MegatronRewardModel.config: {self.config}")
+
         if self.config.param_offload:
             self.offload_params_to_cpu()
 
