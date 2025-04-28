@@ -22,8 +22,6 @@ import gc
 import torch
 from transformers import LlamaConfig, LlamaModel
 
-from verl.utils.memory_buffer import MemoryBufferModuleWrapper
-
 
 def test_memory_buffers():
     llama_config = LlamaConfig(
@@ -39,9 +37,6 @@ def test_memory_buffers():
     model_copy = LlamaModel(config=llama_config).cuda()
     model_copy.load_state_dict(model.state_dict())
 
-    model_named_params = dict(model.named_parameters())
-    model_copy_named_params = dict(model_copy.named_parameters())
-
     norm_factor = 1024**3
 
     t_before = torch.cuda.get_device_properties(0).total_memory / norm_factor
@@ -49,8 +44,6 @@ def test_memory_buffers():
     a_before = torch.cuda.memory_allocated(0) / norm_factor
 
     print(f"Before Total memory: {t_before} GB, reserved: {r_before} GB, allocated: {a_before} GB")
-
-    model_wrapper = MemoryBufferModuleWrapper(model)
 
     t = torch.cuda.get_device_properties(0).total_memory / norm_factor
     r = torch.cuda.memory_reserved(0) / norm_factor

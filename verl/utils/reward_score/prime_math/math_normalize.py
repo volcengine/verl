@@ -51,7 +51,7 @@ def normalize_answer(answer: Optional[str]) -> Optional[str]:
         if m is not None:
             answer = m.group("text").strip()
         return _strip_string(answer)
-    except:
+    except AssertionError:
         return answer
 
 
@@ -67,7 +67,7 @@ def _fix_fracs(string):
             else:
                 try:
                     assert len(substr) >= 2
-                except:
+                except AssertionError:
                     return string
                 a = substr[0]
                 b = substr[1]
@@ -98,7 +98,7 @@ def _fix_a_slash_b(string):
         assert string == "{}/{}".format(a, b)
         new_string = "\\frac{" + str(a) + "}{" + str(b) + "}"
         return new_string
-    except:
+    except AssertionError:
         return string
 
 

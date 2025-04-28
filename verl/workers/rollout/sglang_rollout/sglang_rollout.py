@@ -113,14 +113,10 @@ class SGLangRollout(BaseRollout):
         super().__init__()
         self.config = config
 
-        assert not (not config.enforce_eager and config.free_cache_engine), (
-            "disable CUDA graph (enforce_eager = False) if free cache engine"
-        )
+        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), (
-            "tensor parallel size should be less than or equal to the world size"
-        )
+        assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
 
         if kwargs.get("train_tp") is not None:
             # deployed with megatron
@@ -133,9 +129,7 @@ class SGLangRollout(BaseRollout):
                 num_tp_per_train_tp=num_tp_per_train_tp,
             )
 
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, (
-            "model context length should be greater than total sequence length"
-        )
+        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
 
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
@@ -152,9 +146,7 @@ class SGLangRollout(BaseRollout):
         # get tp_rank of this process in this tp group
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp")
-        )
+        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
         visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
@@ -249,37 +241,27 @@ class SGLangRollout(BaseRollout):
         # Extract non-tensor data
         non_tensor_batch = prompts.non_tensor_batch
         if "raw_prompt_ids" not in non_tensor_batch:
-            non_tensor_batch["raw_prompt_ids"] = np.array(
-                [_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object
-            )
+            non_tensor_batch["raw_prompt_ids"] = np.array([_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
 
         if "multi_modal_data" in non_tensor_batch:
             sglang_inputs = []
-            for raw_prompt_ids, multi_modal_data in zip(
-                non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")
-            ):
+            for raw_prompt_ids, multi_modal_data in zip(non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")):
                 sglang_inputs.append(
                     {
                         "prompt_token_ids": raw_prompt_ids,
                         "multi_modal_data": multi_modal_data,
-                        "image_data": multi_modal_data.get("image", None)
-                        if isinstance(multi_modal_data, dict)
-                        else None,
+                        "image_data": multi_modal_data.get("image", None) if isinstance(multi_modal_data, dict) else None,
                     }
                 )
         else:
-            sglang_inputs = [
-                {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
-            ]
+            sglang_inputs = [{"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")]
 
         # Ensure token IDs are lists
         for input_data in sglang_inputs:
             if isinstance(input_data["prompt_token_ids"], np.ndarray):
                 input_data["prompt_token_ids"] = input_data["prompt_token_ids"].tolist()
             elif not isinstance(input_data["prompt_token_ids"], list):
-                raise TypeError(
-                    f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}"
-                )
+                raise TypeError(f"prompt_token_ids must be a list or numpy array, got {type(input_data['prompt_token_ids'])}")
 
         # Extract token IDs and image data for SGLang Engine
         idx_list = [input_data["prompt_token_ids"] for input_data in sglang_inputs]
@@ -322,14 +304,14 @@ class SGLangRollout(BaseRollout):
             )
 
             out = _post_process_outputs(self.tokenizer, output)
-    
+
             response = out[0].to(idx.device)
             # log_probs = out[1].to(idx.device)
-    
+
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
                 # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-    
+
             # utilize current sampling params
             if self.sampling_params.get("n", 1) > 1 and do_sample:
                 idx = idx.repeat_interleave(self.sampling_params["n"], dim=0)
@@ -337,9 +319,7 @@ class SGLangRollout(BaseRollout):
                 position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
                 batch_size = batch_size * self.sampling_params["n"]
                 if "multi_modal_inputs" in non_tensor_batch.keys():
-                    non_tensor_batch["multi_modal_inputs"] = np.repeat(
-                        non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0
-                    )
+                    non_tensor_batch["multi_modal_inputs"] = np.repeat(non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0)
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -352,9 +332,7 @@ class SGLangRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(
-            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
-        )
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -371,11 +349,7 @@ class SGLangRollout(BaseRollout):
         )
 
         # free cache engine
-        if (
-            self.config.free_cache_engine
-            and self.inference_engine._engine is not None
-            and self.inference_engine._engine.tokenizer_manager is not None
-        ):
+        if self.config.free_cache_engine and self.inference_engine._engine is not None and self.inference_engine._engine.tokenizer_manager is not None:
             self.inference_engine._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

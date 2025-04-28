@@ -13,13 +13,11 @@
 # limitations under the License.
 
 import os
-
 import torch
 import torch.distributed
 
 
 class Profiler:
-
     def __init__(self, config):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
         self.config = config
@@ -41,9 +39,10 @@ class Profiler:
                     wait=max(self.config.step_start - 1, 0),
                     warmup=1 if self.config.step_start > 0 else 0,
                     active=self.config.step_end - self.config.step_start,
-                    repeat=1),
+                    repeat=1,
+                ),
                 record_shapes=True,
-                with_stack=True
+                with_stack=True,
             )
 
     def _validate(self):

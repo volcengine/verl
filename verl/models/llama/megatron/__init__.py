@@ -23,3 +23,12 @@ from .modeling_llama_megatron import (
     # original model with megatron
     ParallelLlamaModel,
 )
+
+__all__ = [
+    "ParallelLlamaForCausalLM",
+    "ParallelLlamaForCausalLMRmPad",
+    "ParallelLlamaForCausalLMRmPadPP",
+    "ParallelLlamaForValueRmPad",
+    "ParallelLlamaForValueRmPadPP",
+    "ParallelLlamaModel",
+]
