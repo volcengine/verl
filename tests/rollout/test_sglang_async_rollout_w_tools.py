@@ -48,7 +48,7 @@ def test_async_sglang_rollout_w_tool():
     max_response_length = 16
     dtype = "bfloat16"
     tensor_parallel_size = 2
-    local_model_path = "/user/longxiang1/models/Qwen/Qwen2.5-0.5B"
+    local_model_path = "Qwen/Qwen2.5-0.5B"
 
     tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
 
