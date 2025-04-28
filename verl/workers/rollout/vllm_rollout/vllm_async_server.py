@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -222,6 +223,28 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
+
+    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
+        """Direct chat completion without FastAPI.
+
+        Args:
+            request: ChatCompletionRequest, request object.
+
+        Returns:
+            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
+        """
+        generator = await self.openai_serving_chat.create_chat_completion(request)
+        if isinstance(generator, ErrorResponse):
+            data = generator.model_dump_json(exclude_unset=True)
+            yield generator.code, f"data: {data}\n\n"
+
+        if request.stream:
+            async for chunk in generator:
+                yield 200, chunk
+        else:
+            assert isinstance(generator, ChatCompletionResponse)
+            data = generator.model_dump_json(exclude_unset=True)
+            yield 200, f"data: {data}\n\n"
 
     async def wake_up(self):
         await self.engine.wake_up()
