@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.distributed
 import os
 
-class Profiler():
+import torch
+import torch.distributed
+
+
+class Profiler:
 
     def __init__(self, config):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
@@ -47,11 +49,11 @@ class Profiler():
     def _validate(self):
         if self.config.use_profile:
             if self.config.profile_ranks is None:
-                print(f"[WARNING] Profile ranks is not set, default to rank 0")
+                print("[WARNING] Profile ranks is not set, default to rank 0")
                 self.config.profile_ranks = [0]
-            assert self.config.step_start >= 0, f"[ERROR] Profile step start must be greater than 0"
-            assert self.config.step_end >= 0, f"[ERROR] Profile step end must be greater than 0"
-            assert self.config.step_start < self.config.step_end, f"[ERROR] Profile step start must be less than step end"
+            assert self.config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
+            assert self.config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
+            assert self.config.step_start < self.config.step_end, "[ERROR] Profile step start must be less than step end"
 
     def check(self):
         return self.prof is not None and not self.skip_prof

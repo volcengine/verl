@@ -25,14 +25,14 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
 import numpy as np
 import ray
 import torch
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
-from torch.utils.data import Dataset, RandomSampler, SequentialSampler
+from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -52,7 +52,6 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -276,6 +275,10 @@ class RayPPOTrainer:
         processor=None,
         reward_fn=None,
         val_reward_fn=None,
+        train_dataset: Optional[Dataset] = None,
+        val_dataset: Optional[Dataset] = None,
+        collate_fn = None,
+        train_sampler: Optional[Sampler] = None,
     ):
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -317,7 +320,7 @@ class RayPPOTrainer:
             raise NotImplementedError
 
         self._validate_config()
-        self._create_dataloader()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate_config(self):
         config = self.config
@@ -456,34 +459,21 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.utils.import_utils import load_extern_type
+        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
-        if "custom_cls" in self.config.data and self.config.data.custom_cls.get("path", None) is not None:
-            dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
-            if not issubclass(dataset_cls, Dataset):
-                raise TypeError(
-                    f"The custom dataset class '{self.config.data.custom_cls.name}' from "
-                    f"'{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-                )
-        else:
-            dataset_cls = RLHFDataset
+        if train_dataset is None:
+            train_dataset = create_rl_dataset(self.config.data, self.tokenizer, self.processor, self.config.data.train_files)
+        if val_dataset is None:
+            val_dataset = create_rl_dataset(self.config.data, self.tokenizer, self.processor, self.config.data.val_files)
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
-        self.train_dataset = dataset_cls(
-            data_files=self.config.data.train_files,
-            tokenizer=self.tokenizer,
-            processor=self.processor,
-            config=self.config.data,
-        )
-
-        # use sampler for better ckpt resume
-        if self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get("seed", 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
-        else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
+        if train_sampler is None:
+            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
+        if collate_fn is None:
+            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+            collate_fn = default_collate_fn
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
@@ -491,15 +481,9 @@ class RayPPOTrainer:
             num_workers=8,
             drop_last=True,
             collate_fn=collate_fn,
-            sampler=sampler,
+            sampler=train_sampler,
         )
 
-        self.val_dataset = dataset_cls(
-            data_files=self.config.data.val_files,
-            tokenizer=self.tokenizer,
-            processor=self.processor,
-            config=self.config.data,
-        )
         # consider the design of single controller with a large val dataset in multi-modal scenarios
         # may lead to oom issues
         val_batch_size = self.config.data.val_batch_size or len(self.val_dataset)
