@@ -53,9 +53,7 @@ class Profiler:
                 self.config.profile_ranks = [0]
             assert self.config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
             assert self.config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
-            assert self.config.step_start < self.config.step_end, (
-                "[ERROR] Profile step start must be less than step end"
-            )
+            assert self.config.step_start < self.config.step_end, "[ERROR] Profile step start must be less than step end"
 
     def check(self):
         return self.prof is not None and not self.skip_prof

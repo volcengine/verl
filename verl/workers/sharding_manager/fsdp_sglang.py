@@ -46,7 +46,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.torch_functional import broadcast_dict_tensor
+from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_available
 
 from .base import BaseShardingManager
 
@@ -63,6 +63,7 @@ def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
 
 
 class FSDPSGLangShardingManager(BaseShardingManager):
+    @check_cuda_is_available()
     def __init__(
         self,
         module: FSDP,
@@ -81,9 +82,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params:
-            FSDP.set_state_dict_type(
-                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
-            )
+            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
         else:
             FSDP.set_state_dict_type(
                 self.module,
@@ -128,6 +127,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
         self.release_memory()
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+
         self.module.train()
 
         # add empty cache after each compute

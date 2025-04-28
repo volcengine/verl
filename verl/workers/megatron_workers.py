@@ -169,13 +169,9 @@ class ActorRolloutRefWorker(MegatronWorker):
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
-                    load_mcore_dist_weights(
-                        actor_module, self.config.actor.megatron.dist_checkpointing_path, is_value_model=False
-                    )
+                    load_mcore_dist_weights(actor_module, self.config.actor.megatron.dist_checkpointing_path, is_value_model=False)
                 else:
-                    load_megatron_gptmodel_weights(
-                        self.config, self.hf_config, actor_module, params_dtype=self.dtype, is_value_model=False
-                    )
+                    load_megatron_gptmodel_weights(self.config, self.hf_config, actor_module, params_dtype=self.dtype, is_value_model=False)
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
@@ -194,13 +190,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print("load ref weight start")
                 if self.config.ref.megatron.use_dist_checkpointing:
-                    load_mcore_dist_weights(
-                        ref_module, self.config.ref.megatron.dist_checkpointing_path, is_value_model=False
-                    )
+                    load_mcore_dist_weights(ref_module, self.config.ref.megatron.dist_checkpointing_path, is_value_model=False)
                 else:
-                    load_megatron_gptmodel_weights(
-                        self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False
-                    )
+                    load_megatron_gptmodel_weights(self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False)
             log_gpu_memory_usage("After ref module init", logger=logger)
             return ref_module, self.hf_config
 
@@ -232,9 +224,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
-            assert self.world_size % infer_tp == 0, (
-                f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
-            )
+            assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
             rollout_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
@@ -293,12 +283,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
-            self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = (
-                self._build_model_optimizer(
-                    model_path=self.config.model.path,
-                    optim_config=optim_config,
-                    override_model_config=override_model_config,
-                )
+            self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
+                model_path=self.config.model.path,
+                optim_config=optim_config,
+                override_model_config=override_model_config,
             )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
@@ -319,9 +307,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
 
         if self._is_rollout:
-            self.rollout, self.sharding_manager = self._build_rollout(
-                trust_remote_code=self.config.model.get("trust_remote_code", False)
-            )
+            self.rollout, self.sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
@@ -407,12 +393,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After load actor params during generate_sequences", logger=logger)
         prompts.batch = prompts.batch.cuda()
         meta_info = {
-            "eos_token_id": self.generation_config.eos_token_id
-            if self.generation_config is not None
-            else self.tokenizer.eos_token_id,
-            "pad_token_id": self.generation_config.pad_token_id
-            if self.generation_config is not None
-            else self.tokenizer.pad_token_id,
+            "eos_token_id": self.generation_config.eos_token_id if self.generation_config is not None else self.tokenizer.eos_token_id,
+            "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
         with self.sharding_manager:
@@ -478,9 +460,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
-        self.checkpoint_mananager.load_checkpoint(
-            local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
-        )
+        self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
         if self._is_offload_optimizer:
@@ -494,9 +474,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
-        self.checkpoint_mananager.save_checkpoint(
-            local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
-        )
+        self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
@@ -583,13 +561,9 @@ class CriticWorker(MegatronWorker):
         if self.config.load_weight:
             t0 = time.time()
             if self.config.megatron.use_dist_checkpointing:
-                load_mcore_dist_weights(
-                    critic_module, self.config.megatron.dist_checkpointing_path, is_value_model=True
-                )
+                load_mcore_dist_weights(critic_module, self.config.megatron.dist_checkpointing_path, is_value_model=True)
             else:
-                load_megatron_gptmodel_weights(
-                    self.config, self.hf_config, critic_module, params_dtype=self.dtype, is_value_model=True
-                )
+                load_megatron_gptmodel_weights(self.config, self.hf_config, critic_module, params_dtype=self.dtype, is_value_model=True)
             t1 = time.time()
             if torch.distributed.get_rank() == 0:
                 print(f"critic load_weight time: {t1 - t0}")
@@ -617,12 +591,10 @@ class CriticWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = (
-            self._build_critic_model_optimizer(
-                model_path=self.config.model.path,
-                optim_config=self.config.optim,
-                override_model_config=override_model_config,
-            )
+        self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
+            model_path=self.config.model.path,
+            optim_config=self.config.optim,
+            override_model_config=override_model_config,
         )
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
@@ -695,9 +667,7 @@ class CriticWorker(MegatronWorker):
     def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
-        self.checkpoint_mananager.load_checkpoint(
-            local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
-        )
+        self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
         if self._is_offload_optimizer:
@@ -707,9 +677,7 @@ class CriticWorker(MegatronWorker):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
-        self.checkpoint_mananager.save_checkpoint(
-            local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_steps, max_ckpt_to_keep=max_ckpt_to_keep
-        )
+        self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_steps, max_ckpt_to_keep=max_ckpt_to_keep)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
 
@@ -790,9 +758,7 @@ class RewardModelWorker(MegatronWorker):
             if self.config.megatron.use_dist_checkpointing:
                 load_mcore_dist_weights(reward_model, self.config.megatron.dist_checkpointing_path, is_value_model=True)
             else:
-                load_megatron_gptmodel_weights(
-                    self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True
-                )
+                load_megatron_gptmodel_weights(self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True)
 
         # TODO: add more optimizer args into config
         torch.cuda.empty_cache()

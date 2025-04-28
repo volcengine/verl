@@ -39,7 +39,7 @@ from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.profile import Profiler
-from verl.utils.megatron.pipeline_parallel import compute_transformers_input_shapes, make_batch_generator
+from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
@@ -186,9 +186,7 @@ class MegatronPPOActor(BasePPOActor):
             response = batch["responses"]
             response_length = response.size(1)
             with torch.no_grad():
-                output = self.forward_backward_batch(
-                    data, forward_only=True, post_process_fn=compute_logprobs_fn, calculate_entropy=calculate_entropy
-                )
+                output = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn, calculate_entropy=calculate_entropy)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
                     if calculate_entropy:
@@ -197,9 +195,7 @@ class MegatronPPOActor(BasePPOActor):
                         log_probs = torch.cat([o["log_probs"] for o in output], dim=0)  # (bs, seq_size)
                     log_probs = log_probs.to(torch.float32)
                 else:
-                    log_probs = torch.empty(
-                        size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
-                    )
+                    log_probs = torch.empty(size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device)
 
                 # broadcast across pp ranks
                 torch.distributed.broadcast(
@@ -214,9 +210,7 @@ class MegatronPPOActor(BasePPOActor):
                         entropys = torch.cat([o[1] for o in output], dim=0)
                         entropys = entropys.to(torch.float32)
                     else:
-                        entropys = torch.empty(
-                            size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device
-                        )
+                        entropys = torch.empty(size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device)
                     # broadcast across pp ranks
                     torch.distributed.broadcast(
                         tensor=entropys,
@@ -263,9 +257,7 @@ class MegatronPPOActor(BasePPOActor):
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
 
-    def forward_backward_batch(
-        self, data: DataProto, forward_only=False, post_process_fn=None, calculate_entropy=False
-    ):
+    def forward_backward_batch(self, data: DataProto, forward_only=False, post_process_fn=None, calculate_entropy=False):
         """
         We assume:
         - The model takes input: (input_ids, attention_mask, position_ids). No rmpad for the input
@@ -273,9 +265,7 @@ class MegatronPPOActor(BasePPOActor):
         """
         # broadcast from last pp rank to all other pp ranks
         # TODO: actually, we just need to control the sampling order.
-        broadcast_dict_tensor(
-            data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group()
-        )
+        broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
 
@@ -285,13 +275,6 @@ class MegatronPPOActor(BasePPOActor):
             batch_size = self.config.ppo_micro_batch_size_per_gpu
         batches = split_dict_tensor_into_batches(data.batch, batch_size=batch_size)
         # compute input shapes for pp stages
-        input_shapes = compute_transformers_input_shapes(
-            batches,
-            meta_info={
-                "sequence_parallel": self.tf_config.sequence_parallel,
-                "hidden_size": self.model_config.hidden_size,
-            },
-        )
         n_micro_batch = len(batches)
         seq_len = batches[0]["input_ids"].shape[1]
 
@@ -385,9 +368,7 @@ class MegatronPPOActor(BasePPOActor):
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = forward_fn(
-                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel
-            )
+            output = forward_fn(model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel)
             if forward_only:
                 meta_info = None
             else:
