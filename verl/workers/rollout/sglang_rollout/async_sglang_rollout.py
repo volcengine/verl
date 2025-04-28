@@ -27,11 +27,11 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
+from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.function_call_parser import FunctionCallParser
 from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
