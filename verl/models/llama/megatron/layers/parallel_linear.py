@@ -13,7 +13,7 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/linear.py
 
-
+import torch
 from megatron.core import tensor_parallel
 
 
@@ -77,9 +77,6 @@ class MergedColumnParallelLinear(tensor_parallel.ColumnParallelLinear):
             skip_bias_add=skip_bias_add,
             **kwargs,
         )
-
-
-import torch
 
 
 class LinearForLastLayer(torch.nn.Linear):

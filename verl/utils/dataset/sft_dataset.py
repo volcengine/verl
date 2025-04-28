@@ -92,7 +92,7 @@ class SFTDataset(Dataset):
             # type(x[0]): numpy.ndarray
             # type(x[0][0]): dict
             try:
-                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)
+                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)  # noqa: B023
             except Exception:
                 print(f"self.prompts={self.prompts}")
                 raise
@@ -100,7 +100,7 @@ class SFTDataset(Dataset):
         self.responses = self.dataframe[self.response_key]
         for key in self.response_dict_keys:
             try:
-                self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)
+                self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)  # noqa: B023
             except Exception:
                 print(f"self.responses={self.responses}")
                 raise
@@ -140,10 +140,7 @@ class SFTDataset(Dataset):
         # padding to max length
         sequence_length = input_ids.shape[0]
         if sequence_length < self.max_length:
-            padded_input_ids = (
-                torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype)
-                * self.tokenizer.pad_token_id
-            )
+            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,), dtype=input_ids.dtype) * self.tokenizer.pad_token_id
             padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
 
             input_ids = torch.cat((input_ids, padded_input_ids))

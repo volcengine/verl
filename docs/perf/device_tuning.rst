@@ -80,14 +80,26 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
 32B
 ~~~
 
-.. table::
-   :widths: auto
-
-   ====== ====== ====== ======== ====== ====== ======
-   tag    model  task   resource train  infer  link
-   ====== ====== ====== ======== ====== ====== ======
-   \      \      \        \      \      \
-   ====== ====== ====== ======== ====== ====== ======
+.. list-table::
+    :widths: auto
+    :header-rows: 1
+    
+    * - Tag
+      - Model
+      - Task
+      - Resource
+      - Train
+      - Infer
+      - Link
+      - Contributor
+    * - MIN
+      - Qwen2-32B
+      - GRPO
+      - 8*H20
+      - megatron
+      - vllm0.8.2
+      - `qwen2-32b_grpo_8_h20_megatron_vllm <https://github.com/volcengine/verl/tree/main/examples/tuning/32b/qwen2_32B_grpo_8_h20_megatron_vllm.sh>`_
+      - `Xiangyongan <xiangyongan@bytedance.com>`_
 
 70B
 ~~~

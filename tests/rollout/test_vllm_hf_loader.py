@@ -102,9 +102,7 @@ def test_vllm_with_hf():
     temperature = 0
     top_p = 1
 
-    kwargs = dict(
-        n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True
-    )
+    kwargs = dict(n=1, temperature=temperature, top_p=top_p, max_tokens=max_response_length, logprobs=1, ignore_eos=True)
 
     if vllm_version in (
         "0.5.4",
