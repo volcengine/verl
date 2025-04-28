@@ -45,6 +45,7 @@ def run_prime(config, compute_score=None):
         # this is for local ray cluster
         ray.init(
             runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}},
+            num_cpus=config.ray_init.num_cpus,
         )
 
     ray.get(main_task.remote(config, compute_score))

@@ -21,14 +21,13 @@ from transformers import PreTrainedModel
 from vllm.config import (
     CacheConfig,
     DeviceConfig,
-    LoadConfig,
     LoRAConfig,
-    ModelConfig,
     MultiModalConfig,
     ParallelConfig,
     SchedulerConfig,
 )
 from vllm.distributed.communication_op import tensor_model_parallel_all_gather
+from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.model_loader import BaseModelLoader
 from vllm.model_executor.model_loader.loader import _initialize_model
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
@@ -109,11 +108,7 @@ def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:
         update_dtensor_weight_loader()
         return DummyModelLoader(load_config)
 
-    raise ValueError(
-        "load format not supported in verl: {}, only support {} and {}".format(
-            load_config.load_format, LoadFormat.MEGATRON, LoadFormat.HF
-        )
-    )
+    raise ValueError("load format not supported in verl: {}, only support {} and {}".format(load_config.load_format, LoadFormat.MEGATRON, LoadFormat.HF))
 
 
 class DummyModelLoader(BaseModelLoader):
@@ -136,9 +131,7 @@ class DummyModelLoader(BaseModelLoader):
         cache_config: CacheConfig,
     ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype), torch.device(device_config.device):
-            model = _initialize_model(
-                model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
-            )
+            model = _initialize_model(model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config)
             # NOTE(woosuk): For accurate performance evaluation, we assign
             # random values to the weights.
             # initialize_dummy_weights(model)
@@ -175,15 +168,11 @@ class MegatronLoader(BaseModelLoader):
     ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(
-                    model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
-                )
+                model = _initialize_model(model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config)
 
             # TODO(sgm): This is a hack, we need to register the load_weight() func for each model in vllm
             if isinstance(actor_model, nn.Module):
-                load_megatron_weights(
-                    actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model
-                )
+                load_megatron_weights(actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model)
             else:
                 load_megatron_weights(actor_weights=actor_model, vllm_model=model)
 
@@ -230,9 +219,7 @@ class HFLoader(BaseModelLoader):
         with set_default_torch_dtype(model_config.dtype):
             # with torch.device(device_config.device):
             # NOTE(sgm): init the model in cpu
-            model = _initialize_model(
-                model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
-            )
+            model = _initialize_model(model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config)
             model.load_weights(self._get_weights_iterator(actor_model))
             for _, module in model.named_modules():
                 quant_method = getattr(module, "quant_method", None)
@@ -277,15 +264,11 @@ class DTensorLoader(BaseModelLoader):
     ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(
-                    model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config
-                )
+                model = _initialize_model(model_config, self.load_config, lora_config, multimodal_config, cache_config, scheduler_config)
 
             # TODO(sgm): This is a hack, we need to register the load_weight() func for each model in vllm
             if isinstance(actor_model, nn.Module):
-                load_dtensor_weights(
-                    actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model
-                )
+                load_dtensor_weights(actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model)
             else:
                 load_dtensor_weights(actor_weights=actor_model, vllm_model=model)
 
@@ -306,9 +289,7 @@ class DTensorLoader(BaseModelLoader):
 # as they use ray, the _get_logits result will only need to return to the driver node,
 # therefore gather is enough. However, we use SPMD instead of a central scheduler,
 # all_gather is required (aligned with v0.2.6)
-def _get_logits(
-    self, hidden_states: torch.Tensor, embedding: torch.Tensor, embedding_bias: Optional[torch.Tensor]
-) -> torch.Tensor:
+def _get_logits(self, hidden_states: torch.Tensor, embedding: torch.Tensor, embedding_bias: Optional[torch.Tensor]) -> torch.Tensor:
     # Get the logits for the next tokens.
     logits = torch.matmul(hidden_states, embedding.t())
     if embedding_bias is not None:
@@ -318,9 +299,6 @@ def _get_logits(
     if logits is not None:
         logits = logits[:, : self.org_vocab_size]
     return logits
-
-
-from vllm.model_executor.layers.logits_processor import LogitsProcessor
 
 
 def logitsprocessor_init(

@@ -33,6 +33,7 @@ verl is fast with:
    start/install
    start/quickstart
    start/multinode
+   start/ray_debug_tutorial
 
 .. toctree::
    :maxdepth: 4
@@ -117,18 +118,6 @@ Contributions from the community are welcome! Please check out our `project road
 
 Code Linting and Formatting
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. warning::
-   We are `immigrating to ``ruff`` as the linter and formatter and ``pre-commit`` as the managing tool <https://github.com/volcengine/verl/pull/1010>`_.
-
-   If your branch is based on a previous commit using ``yapf`` and ``pylint``, simply merging might trigger overwhelming linting errors, while **you are only expected to resolve ones in the files related to your PR**.
-   
-   To resolve this issue, please try the following workaround to only include the files you **really changed** in the PR:
-   
-   1. In your branch, fix linting and format with ``ruff``: ``ruff check --fix && ruff-format``
-   2. Squash into a new single commit: ``git reset --soft $(git merge-base main HEAD) && git add -A && git commit -m "feat: ..."``
-   3. Merge with the latest main: ``git merge origin/main``
-   4. Force push to your branch: ``git push --force``
 
 We use pre-commit to help improve code quality. To initialize pre-commit, run:
 
