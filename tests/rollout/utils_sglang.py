@@ -52,12 +52,12 @@ def initialize_global_process_group(timeout_second=36000, spmd=False):
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     torch.cuda.set_device(local_rank)
-        
+
     CUDA_VISIBLE_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not CUDA_VISIBLE_DEVICES:
         if spmd:
             # CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(tensor_parallel_size))
-            CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(world_size))
+            CUDA_VISIBLE_DEVICES = ",".join(str(i) for i in range(world_size))
         else:
             CUDA_VISIBLE_DEVICES = str(local_rank)
         os.environ["CUDA_VISIBLE_DEVICES"] = CUDA_VISIBLE_DEVICES
@@ -83,9 +83,7 @@ def prepare_inputs(tokenizer, prompts, max_prompt_length):
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     input_ids = pad_sequence_to_length(tokenized["input_ids"], max_prompt_length, pad_token_id, left_pad=True)
-    attention_mask = pad_sequence_to_length(
-        tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True
-    )
+    attention_mask = pad_sequence_to_length(tokenized["attention_mask"], max_prompt_length, pad_token_id=0, left_pad=True)
     position_ids = compute_position_id_with_mask(attention_mask)
     position_ids = pad_sequence_to_length(position_ids, max_prompt_length, pad_token_id=0, left_pad=True)
     return input_ids, attention_mask, position_ids
@@ -140,10 +138,10 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "multi_turn": {
                 "max_turns": 4,
                 "enable": True,
-                "tool_config_path": None, 
+                "tool_config_path": None,
                 "format": "chatml",
             },
-            "max_model_len":None,
+            "max_model_len": None,
             **sampling_params,
         }
     )
