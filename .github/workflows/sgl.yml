@@ -52,12 +52,12 @@ jobs:
       - name: Test the latest SGLang
         run: |
           cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_spmd.py
+          torchrun --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_spmd.py
       - name: Test the latest SGLang async
         run: |
           cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_async_spmd.py
+          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_spmd.py
       - name: Test the latest SGLang Rollout async with tool
         run: |
           cd tests/rollout
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_async_rollout_w_tools.py
+          torchrun --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_async_rollout_w_tools.py
