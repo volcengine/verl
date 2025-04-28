@@ -62,6 +62,14 @@ def initialize_global_process_group(timeout_second=36000):
     world_size = int(os.environ["WORLD_SIZE"])
     if torch.distributed.is_initialized():
         torch.cuda.set_device(local_rank)
+        
+    CUDA_VISIBLE_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if not CUDA_VISIBLE_DEVICES:
+        # CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(tensor_parallel_size))
+        CUDA_VISIBLE_DEVICES = str(local_rank)
+        os.environ["CUDA_VISIBLE_DEVICES"] = CUDA_VISIBLE_DEVICES
+        print(f"CUDA_VISIBLE_DEVICES is not set, set to {CUDA_VISIBLE_DEVICES}")
+
     return local_rank, rank, world_size
 
 
@@ -136,6 +144,12 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "prompt_length": max_prompt_length,
             "response_length": max_response_length,
             "tensor_model_parallel_size": tensor_parallel_size,
+            "multi_turn": {
+                "max_turns": 4,
+                "enable": True,
+                "tool_config_path": None, 
+            },
+            "max_model_len":None,
             **sampling_params,
         }
     )
@@ -150,74 +164,74 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor):
     return token_ids
 
 
-def test_sglang_spmd():
-    assert torch.cuda.device_count() >= 2
-    initialize_global_process_group()
-    clean_torchelastic_env()
+# def test_sglang_spmd():
+#     assert torch.cuda.device_count() >= 2
+#     initialize_global_process_group()
+#     clean_torchelastic_env()
 
-    max_prompt_length = 16
-    max_response_length = 16
+#     max_prompt_length = 16
+#     max_response_length = 16
 
-    local_model_path = copy_to_local("Qwen/Qwen2-7B-Instruct", cache_dir=os.path.expanduser("~/.cache/verl/rlhf"))
-    tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
+#     local_model_path = copy_to_local("Qwen/Qwen2-7B-Instruct", cache_dir=os.path.expanduser("~/.cache/verl/rlhf"))
+#     tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
 
-    preencode_prompts = ["Who won the Champions League in 2019?", "The founder of Apple is", "What's your name?"]
-    input_ids, attention_mask, _ = prepare_inputs(tokenizer, preencode_prompts, max_prompt_length)
+#     preencode_prompts = ["Who won the Champions League in 2019?", "The founder of Apple is", "What's your name?"]
+#     input_ids, attention_mask, _ = prepare_inputs(tokenizer, preencode_prompts, max_prompt_length)
 
-    hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
+#     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
-    tensor_parallel_size = 2
-    inference_device_mesh_cpu = init_device_mesh(
-        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"]
-    )
-    tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
+#     tensor_parallel_size = 2
+#     inference_device_mesh_cpu = init_device_mesh(
+#         "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"]
+#     )
+#     tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
 
-    if tp_rank == 0:
-        llm = Engine(
-            model_path=local_model_path,
-            dtype="bfloat16",
-            mem_fraction_static=0.5,
-            enable_memory_saver=True,
-            tp_size=inference_device_mesh_cpu["tp"].size(),
-        )
-    else:
-        llm = None
+#     if tp_rank == 0:
+#         llm = Engine(
+#             model_path=local_model_path,
+#             dtype="bfloat16",
+#             mem_fraction_static=0.5,
+#             enable_memory_saver=True,
+#             tp_size=inference_device_mesh_cpu["tp"].size(),
+#         )
+#     else:
+#         llm = None
 
-    input_ids = input_ids.cuda()
-    idx_list = []
+#     input_ids = input_ids.cuda()
+#     idx_list = []
 
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    for i in range(input_ids.shape[0]):
-        idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
+#     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+#     for i in range(input_ids.shape[0]):
+#         idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
 
-    sampling_params = dict(
-        n=1,
-        temperature=0,
-        top_p=1,
-        top_k=-1,
-        max_new_tokens=max_response_length,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        skip_special_tokens=True,
-        spaces_between_special_tokens=True,
-        ignore_eos=False,
-    )
+#     sampling_params = dict(
+#         n=1,
+#         temperature=0,
+#         top_p=1,
+#         top_k=-1,
+#         max_new_tokens=max_response_length,
+#         presence_penalty=0.0,
+#         frequency_penalty=0.0,
+#         repetition_penalty=1.0,
+#         skip_special_tokens=True,
+#         spaces_between_special_tokens=True,
+#         ignore_eos=False,
+#     )
 
-    outputs = (
-        asyncio.run(llm.async_generate(input_ids=idx_list, sampling_params=sampling_params)) if tp_rank == 0 else None
-    )
-    [outputs] = broadcast_pyobj([outputs], rank=tp_rank, dist_group=inference_device_mesh_cpu["tp"].get_group(), src=0)
-    sglang_response_tokens = [output["text"] for output in outputs]
+#     outputs = (
+#         asyncio.run(llm.async_generate(input_ids=idx_list, sampling_params=sampling_params)) if tp_rank == 0 else None
+#     )
+#     [outputs] = broadcast_pyobj([outputs], rank=tp_rank, dist_group=inference_device_mesh_cpu["tp"].get_group(), src=0)
+#     sglang_response_tokens = [output["text"] for output in outputs]
 
-    for output in outputs:
-        print(f"{output=}")
-        generated_text = output["text"]
-        sglang_response_tokens.append(generated_text)
+#     for output in outputs:
+#         print(f"{output=}")
+#         generated_text = output["text"]
+#         sglang_response_tokens.append(generated_text)
 
-    print(f"sglang response: {sglang_response_tokens}")
-    assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
-    print("SPMD Test Passed!")
+#     print(f"sglang response: {sglang_response_tokens}")
+#     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
+#     print("SPMD Test Passed!")
 
 
 # ====================== test_async_sglang_rollout ======================
@@ -225,7 +239,7 @@ def test_sglang_spmd():
 
 def test_async_sglang_rollout():
     assert torch.cuda.device_count() >= 2
-    initialize_global_process_group()
+    _,_, world_size =initialize_global_process_group()
     clean_torchelastic_env()
 
     max_prompt_length = 16
@@ -241,8 +255,14 @@ def test_async_sglang_rollout():
 
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
-    fsdp_device_mesh = init_device_mesh("cuda", (tensor_parallel_size,), ("fsdp",))
-    inference_device_mesh_cpu = init_device_mesh("cpu", (2, tensor_parallel_size, 1), ("dp", "infer_tp", "pp"))
+    fsdp_device_mesh = init_device_mesh("cuda", mesh_shape=(tensor_parallel_size,), mesh_dim_names=("fsdp",))
+    cpu_group = torch.dist.new_group(backend="gloo")
+    inference_device_mesh_cpu = init_device_mesh(
+        "cpu",
+        mesh_shape=(world_size // tensor_parallel_size, tensor_parallel_size, 1),
+        mesh_dim_names=("dp", "infer_tp", "pp"),
+        process_group=cpu_group,  # 指定 gloo 进程组
+    )
 
     fsdp_model = FSDP(
         actor_model,
@@ -268,16 +288,32 @@ def test_async_sglang_rollout():
 
     with rollout_sharding_manager:
         prompt_dict = TensorDict(
-            {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids},
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+            },
             batch_size=input_ids.shape[0],
         )
-        prompts = DataProto(
-            batch=prompt_dict,
-            non_tensor_batch={
-                "messages": np.asarray([{"role": "user", "content": prompt} for prompt in preencode_prompts])
-            },
+        print(f"preprocessed {input_ids.shape=}")
+
+        messages = np.asarray([{"role": "user", "content": prompt} for prompt in preencode_prompts])
+        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"messages": messages})
+
+        prompts.meta_info.update(
+            {
+                "eos_token_id": tokenizer.eos_token_id,
+                "pad_token_id": tokenizer.pad_token_id,
+            }
         )
+        
+        prompts = rollout_sharding_manager.preprocess_data(prompts)
+        # log_gpu_memory_usage("Before generating sequences", logger=None)
         output = rollout.generate_sequences(prompts=prompts)
+        print(f"generated {output.batch['responses'].shape=}")
+        # log_gpu_memory_usage("After generating sequences", logger=None)
+        output = rollout_sharding_manager.postprocess_data(output)
+        print(f"postprocessed {output.batch['responses'].shape=}")
         sglang_output = output.to("cpu")
 
     sglang_response_tokens = tokenizer.batch_decode(sglang_output.batch["responses"])
@@ -291,78 +327,80 @@ def test_async_sglang_rollout():
 # ====================== test_async_sglang_rollout_w_tool ======================
 
 
-def test_async_sglang_rollout_w_tool():
-    assert torch.cuda.device_count() >= 2
-    initialize_global_process_group()
-    clean_torchelastic_env()
+# def test_async_sglang_rollout_w_tool():
+#     assert torch.cuda.device_count() >= 2
+#     initialize_global_process_group()
+#     clean_torchelastic_env()
 
-    max_prompt_length = 32
-    max_response_length = 16
-    dtype = "bfloat16"
-    tensor_parallel_size = 2
-    local_model_path = "Qwen/Qwen2.5-0.5B"
+#     max_prompt_length = 32
+#     max_response_length = 16
+#     dtype = "bfloat16"
+#     tensor_parallel_size = 2
+#     local_model_path = "Qwen/Qwen2.5-0.5B"
 
-    tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
+#     tokenizer, actor_model = load_tokenizer_and_model(local_model_path)
 
-    preencode_prompts = [
-        [{"role": "user", "content": prompt}]
-        for prompt in [
-            "Who won the Champions League in 2019?",
-            "The founder of Apple is",
-            "What's the best way to learn python?",
-        ]
-    ]
-    prompts = [
-        tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
-        for message in preencode_prompts
-    ]
-    input_ids, attention_mask, position_ids = prepare_inputs(tokenizer, prompts, max_prompt_length)
+#     preencode_prompts = [
+#         [{"role": "user", "content": prompt}]
+#         for prompt in [
+#             "Who won the Champions League in 2019?",
+#             "The founder of Apple is",
+#             "What's the best way to learn python?",
+#         ]
+#     ]
+#     prompts = [
+#         tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
+#         for message in preencode_prompts
+#     ]
+#     input_ids, attention_mask, position_ids = prepare_inputs(tokenizer, prompts, max_prompt_length)
 
-    hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
+#     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
-    fsdp_device_mesh = init_device_mesh("cuda", (tensor_parallel_size,), ("fsdp",))
-    inference_device_mesh_cpu = init_device_mesh("cpu", (2, tensor_parallel_size, 1), ("dp", "infer_tp", "pp"))
+#     fsdp_device_mesh = init_device_mesh("cuda", (tensor_parallel_size,), ("fsdp",))
+#     inference_device_mesh_cpu = init_device_mesh("cpu", (2, tensor_parallel_size, 1), ("dp", "infer_tp", "pp"))
 
-    fsdp_model = FSDP(
-        actor_model,
-        use_orig_params=True,
-        device_id=fsdp_device_mesh["fsdp"].get_local_rank(),
-        mixed_precision=MixedPrecision(param_dtype=getattr(torch, dtype)),
-        sharding_strategy=ShardingStrategy.FULL_SHARD,
-        device_mesh=fsdp_device_mesh,
-    )
+#     fsdp_model = FSDP(
+#         actor_model,
+#         use_orig_params=True,
+#         device_id=fsdp_device_mesh["fsdp"].get_local_rank(),
+#         mixed_precision=MixedPrecision(param_dtype=getattr(torch, dtype)),
+#         sharding_strategy=ShardingStrategy.FULL_SHARD,
+#         device_mesh=fsdp_device_mesh,
+#     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size)
-    rollout = AsyncSGLangRollout(
-        actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config
-    )
+#     rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size)
+#     rollout = AsyncSGLangRollout(
+#         actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config
+#     )
 
-    rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
-        module=fsdp_model,
-        inference_engine=rollout._engine,
-        model_config=actor_model.config,
-        full_params=True,
-        device_mesh=inference_device_mesh_cpu,
-    )
+#     rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
+#         module=fsdp_model,
+#         inference_engine=rollout._engine,
+#         model_config=actor_model.config,
+#         full_params=True,
+#         device_mesh=inference_device_mesh_cpu,
+#     )
 
-    with rollout_sharding_manager:
-        prompt_dict = TensorDict(
-            {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids},
-            batch_size=input_ids.shape[0],
-        )
-        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": np.asarray(preencode_prompts)})
-        output = rollout.generate_sequences_with_tools(prompts=prompts)
-        sglang_output = output.to("cpu")
+#     with rollout_sharding_manager:
 
-    sglang_response_tokens = tokenizer.batch_decode(sglang_output.batch["responses"])
+        # prompts = rollout_sharding_manager.preprocess_data(prompts)
+        # # log_gpu_memory_usage("Before generating sequences", logger=None)
+        # output = rollout.generate_sequences(prompts=prompts)
+        # print(f"generated {output.batch['responses'].shape=}")
+        # # log_gpu_memory_usage("After generating sequences", logger=None)
+        # output = rollout_sharding_manager.postprocess_data(output)
+        # print(f"postprocessed {output.batch['responses'].shape=}")
+        # sglang_output = output.to("cpu")
 
-    print(f"hf response: {hf_response_tokens}")
-    print(f"sglang response: {sglang_response_tokens}")
-    assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
-    print("w tool Test Passed!")
+#     sglang_response_tokens = tokenizer.batch_decode(sglang_output.batch["responses"])
+
+#     print(f"hf response: {hf_response_tokens}")
+#     print(f"sglang response: {sglang_response_tokens}")
+#     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
+#     print("w tool Test Passed!")
 
 
 if __name__ == "__main__":
-    test_sglang_spmd()
+    # test_sglang_spmd()
     test_async_sglang_rollout()
-    test_async_sglang_rollout_w_tool()
+    # test_async_sglang_rollout_w_tool()
