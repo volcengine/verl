@@ -117,9 +117,7 @@ def init_mcore_model_llama4(
     value=False,
     **extra_kwargs,
 ):
-    return init_mcore_model_dense(
-        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
-    )
+    return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs)
 
 
 def init_mcore_model_dpskv3(
@@ -131,9 +129,7 @@ def init_mcore_model_dpskv3(
     value=False,
     **extra_kwargs,
 ):
-    return init_mcore_model_dense(
-        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
-    )
+    return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs)
 
 
 def init_mcore_model_qwen2_5_vl(

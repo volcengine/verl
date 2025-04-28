@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import json
-import re
 import traceback
 
 from .utils import check_correctness as apps_check_correctness

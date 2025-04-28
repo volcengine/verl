@@ -243,7 +243,6 @@ def gather_outpus_and_unpad(
     group: Optional[dist.ProcessGroup] = None,
 ):
     group = get_ulysses_sequence_parallel_group() if group is None else group
-    sp_size = get_ulysses_sequence_parallel_world_size()
     if group is None:
         return x
     x = Gather.apply(group, x, gather_dim, grad_scaler)
@@ -255,9 +254,7 @@ def gather_outpus_and_unpad(
     return x
 
 
-def ulysses_pad_and_slice_inputs(
-    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
-):
+def ulysses_pad_and_slice_inputs(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1):
     """
     Pad and slice input_ids to be divisible by sp_size
     Pad position_ids to be divisible by sp_size.
@@ -296,6 +293,4 @@ def ulysses_pad_and_slice_inputs(
 
 def validate_ulysses_config(num_heads, ulysses_sequence_size):
     if ulysses_sequence_size > 1:
-        assert num_heads % ulysses_sequence_size == 0, (
-            f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
-        )
+        assert num_heads % ulysses_sequence_size == 0, f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"

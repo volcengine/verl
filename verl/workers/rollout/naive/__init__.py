@@ -13,3 +13,5 @@
 # limitations under the License.
 
 from .naive_rollout import NaiveRollout
+
+__all__ = ["NaiveRollout"]
