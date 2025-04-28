@@ -426,7 +426,7 @@ class ActorRolloutRefWorker(Worker):
 
         elif rollout_name == "sglang_async":
             from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
-            from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
+            from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
             rollout = AsyncSGLangRollout(
