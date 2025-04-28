@@ -975,7 +975,7 @@ class RayPPOTrainer:
 
         return log_dict
 
-    async def fit(self):
+    def fit(self):
         """
         The training loop of PPO.
         The driver process only need to call the compute functions of the worker group through RPC
