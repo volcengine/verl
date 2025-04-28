@@ -19,7 +19,7 @@ import os
 
 import hydra
 import ray
-
+from functools import partial
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
@@ -53,10 +53,7 @@ def get_custom_reward_fn(config):
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
 
-    def wrapped_fn(*args, **kwargs):
-        return raw_fn(*args, **kwargs, **reward_kwargs)
-
-    return wrapped_fn
+    return partial(raw_fn, **reward_kwargs)
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
