@@ -17,12 +17,11 @@ usage: torchrun --standalone --nnodes=1 \
     --nproc_per_node=2 $(which pytest) \
     -s test_sglang_async_spmd.py
 """
-import os
+
 import asyncio
 
 import torch
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.utils import broadcast_pyobj
 from torch.distributed.device_mesh import init_device_mesh
 from utils_sglang import (
     are_lists_similar,
@@ -92,7 +91,7 @@ def test_sglang_spmd():
 
         loop = asyncio.get_event_loop()
         outputs = loop.run_until_complete(llm.async_generate(input_ids=idx_list, sampling_params=sampling_params))
-        
+
         sglang_response_tokens = [output["text"] for output in outputs]
 
         print(f"sglang response: {sglang_response_tokens}")
