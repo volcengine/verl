@@ -33,7 +33,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecis
 from torch.distributed.optim import _apply_optimizer_in_backward
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
-# from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, DistributedSampler
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
@@ -121,8 +120,6 @@ class FSDPSFTTrainer(object):
         self._build_dataloader()
         # build model
         self._build_model_optimizer()
-
-        # self._build_lr_scheduler()
 
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
