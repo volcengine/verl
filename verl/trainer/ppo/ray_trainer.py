@@ -266,7 +266,7 @@ class RayPPOTrainer:
         val_reward_fn=None,
         train_dataset: Optional[Dataset] = None,
         val_dataset: Optional[Dataset] = None,
-        collate_fn = None,
+        collate_fn=None,
         train_sampler: Optional[Sampler] = None,
     ):
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
@@ -423,25 +423,17 @@ class RayPPOTrainer:
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
-<<<<<<< HEAD
         if train_dataset is None:
             train_dataset = create_rl_dataset(self.config.data, self.tokenizer, self.processor, self.config.data.train_files)
         if val_dataset is None:
             val_dataset = create_rl_dataset(self.config.data, self.tokenizer, self.processor, self.config.data.val_files)
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
-=======
-        if "custom_cls" in self.config.data and self.config.data.custom_cls.get("path", None) is not None:
-            dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
-            if not issubclass(dataset_cls, Dataset):
-                raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from '{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset")
-        else:
-            dataset_cls = RLHFDataset
->>>>>>> upstream/main
 
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         if collate_fn is None:
             from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+
             collate_fn = default_collate_fn
 
         self.train_dataloader = StatefulDataLoader(

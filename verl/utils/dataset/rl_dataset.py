@@ -30,7 +30,7 @@ from verl.utils.model import compute_position_id_with_mask
 
 
 def collate_fn(data_list: list[dict]) -> dict:
-    """Collate a batch of data. """
+    """Collate a batch of data."""
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 

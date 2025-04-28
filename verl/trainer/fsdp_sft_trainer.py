@@ -82,8 +82,7 @@ def convert_to_regular_types(obj):
 
 
 class FSDPSFTTrainer:
-    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh,
-                 tokenizer, train_dataset: Dataset, val_dataset: Dataset):
+    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh, tokenizer, train_dataset: Dataset, val_dataset: Dataset):
         self.config = config
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
@@ -516,10 +515,10 @@ def main(config):
     train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 
-    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh,
-                             tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
+    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
+
 
 def create_sft_dataset(data_paths, data_config, tokenizer):
     """Create a dataset."""
@@ -537,9 +536,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = SFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(
-        parquet_files=data_paths, tokenizer=tokenizer, config=data_config
-    )
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
     return dataset
 
 

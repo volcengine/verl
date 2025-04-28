@@ -206,10 +206,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
 
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
         if not issubclass(dataset_cls, Dataset):
-            raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from "
-                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-            )
+            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
     else:
         dataset_cls = RLHFDataset
 
@@ -221,6 +218,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     )
 
     return dataset
+
 
 def create_rl_sampler(data_config, dataset):
     """Create a sampler for the dataset.
@@ -244,6 +242,7 @@ def create_rl_sampler(data_config, dataset):
         sampler = SequentialSampler(data_source=dataset)
 
     return sampler
+
 
 if __name__ == "__main__":
     main()
