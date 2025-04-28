@@ -42,6 +42,17 @@ def init_config() -> DictConfig:
 
 
 def test_vllm_multi_turn(config):
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
     # =========================== 1. Init rollout manager ===========================
     model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
     worker_groups, async_rollout_manager = init_async_rollout_manager(config)
@@ -122,6 +133,17 @@ def test_vllm_multi_turn(config):
 
 
 async def test_vllm_streaming_response(config):
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
     model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
     worker_groups, async_rollout_manager = init_async_rollout_manager(config)
     async_llm_server = async_rollout_manager.async_llm_servers[0]

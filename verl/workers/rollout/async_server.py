@@ -218,15 +218,17 @@ class ChatCompletionScheduler:
 class AsyncLLMServerManager:
     """AsyncLLMServerManager manage a group of vllm instances, i.e AsyncvLLMServer."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, *, scheduler_kwargs: Dict[str, Any] = None):
         """Initialize AsyncLLMServerManager.
 
         Args:
             config: DictConfig, actor_rollout_ref config.
             worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
+            scheduler_kwargs: Dict[str, Any], kwargs for chat scheduler.
         """
         self.config = config
         self.worker_group = worker_group
+        self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs else {}
 
         self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
@@ -289,6 +291,7 @@ class AsyncLLMServerManager:
             config=self.config.rollout,
             model_path=self.config.model.path,
             server_addresses=self.server_addresses,
+            **self.scheduler_kwargs,
         )
 
         self.chat_scheduler_ready.set()

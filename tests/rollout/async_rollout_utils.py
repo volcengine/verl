@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import ray
 from omegaconf import DictConfig
@@ -24,22 +24,11 @@ from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 
-def init_async_rollout_manager(config: DictConfig) -> Tuple[Dict[str, RayWorkerGroup], AsyncLLMServerManager]:
+def init_async_rollout_manager(config: DictConfig, scheduler_kwargs: Dict[str, Any] = None) -> Tuple[Dict[str, RayWorkerGroup], AsyncLLMServerManager]:
     # make openai client happy
     os.environ["no_proxy"] = ""
     os.environ["http_proxy"] = ""
     os.environ["https_proxy"] = ""
-
-    ray.init(
-        runtime_env={
-            "env_vars": {
-                "TOKENIZERS_PARALLELISM": "true",
-                "NCCL_DEBUG": "WARN",
-                "VLLM_LOGGING_LEVEL": "WARN",
-                "VLLM_USE_V1": "1",
-            }
-        }
-    )
 
     # =========================== 1. Create hybrid ActorRollout workers ===========================
     role_worker_mapping = {
@@ -76,6 +65,7 @@ def init_async_rollout_manager(config: DictConfig) -> Tuple[Dict[str, RayWorkerG
     async_rollout_manager = AsyncLLMServerManager(
         config=config.actor_rollout_ref,
         worker_group=actor_rollout_wg,
+        scheduler_kwargs=scheduler_kwargs,
     )
 
     return all_wg, async_rollout_manager
