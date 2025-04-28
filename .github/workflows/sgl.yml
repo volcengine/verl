@@ -61,4 +61,4 @@ jobs:
       - name: Test the latest SGLang Rollout async with tool
         run: |
           cd tests/rollout
-          torchrun --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_async_rollout_w_tools.py
+          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_tools.py
