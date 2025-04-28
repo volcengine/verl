@@ -54,9 +54,7 @@ def update_model_config(module_config, override_config_kwargs):
 def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
     if override_config_kwargs is None:
         override_config_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
-        f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
-    )
+    assert isinstance(override_config_kwargs, Dict), f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
     module_config = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
     update_model_config(module_config, override_config_kwargs)
 
@@ -94,12 +92,8 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
         override_config_kwargs = {}
     if automodel_kwargs is None:
         automodel_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), (
-        f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
-    )
-    module_config = get_huggingface_actor_config(
-        model_name, override_config_kwargs, trust_remote_code=automodel_kwargs.get("trust_remote_code", False)
-    )
+    assert isinstance(override_config_kwargs, Dict), f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
+    module_config = get_huggingface_actor_config(model_name, override_config_kwargs, trust_remote_code=automodel_kwargs.get("trust_remote_code", False))
     module: nn.Module = AutoModelForCausalLM.from_config(module_config, **automodel_kwargs)
     return module
 
@@ -114,15 +108,11 @@ def create_huggingface_critic(model_name: str, override_config_kwargs=None, auto
     Returns:
 
     """
-    critic_module: nn.Module = create_huggingface_actor(
-        model_name, override_config_kwargs=override_config_kwargs, automodel_kwargs=automodel_kwargs
-    )
+    critic_module: nn.Module = create_huggingface_actor(model_name, override_config_kwargs=override_config_kwargs, automodel_kwargs=automodel_kwargs)
     if automodel_kwargs is None:
         automodel_kwargs = {}
     torch_dtype = automodel_kwargs.get("torch_dtype", torch.float32)
-    critic_module.lm_head = nn.Sequential(
-        nn.Linear(critic_module.config.hidden_size, 1, dtype=torch_dtype), LambdaLayer(fn=squeeze)
-    )
+    critic_module.lm_head = nn.Sequential(nn.Linear(critic_module.config.hidden_size, 1, dtype=torch_dtype), LambdaLayer(fn=squeeze))
     return critic_module
 
 
@@ -253,15 +243,11 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name="layers"):
         vpp_size = len(params[pp_rank])
         for vpp_rank in range(vpp_size):
             for name, param in params[pp_rank][vpp_rank].items():
-                normalized_name = normalize_model_name(
-                    name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers, layer_name=layer_name
-                )
+                normalized_name = normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_hidden_layers, layer_name=layer_name)
                 yield normalized_name, param
 
 
-def get_parallel_model_from_config(
-    config, megatron_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False
-):
+def get_parallel_model_from_config(config, megatron_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False):
     from megatron.core import ModelParallelConfig
 
     assert isinstance(megatron_config, ModelParallelConfig)
@@ -284,10 +270,7 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
         print("after load model cls")
         if model_cls is not None:
             return model_cls
-    raise ValueError(
-        f"Model architectures {architectures} are not supported for now. "
-        f"Supported architectures: {ModelRegistry.get_supported_archs()}"
-    )
+    raise ValueError(f"Model architectures {architectures} are not supported for now. Supported architectures: {ModelRegistry.get_supported_archs()}")
 
 
 def _load_hf_model(config, model_config, is_value_model, local_cache_path):
@@ -326,9 +309,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
             )  # use score head instead of lm_head
             state_dict = model.state_dict()
             state_dict["lm_head.weight"] = state_dict["score.weight"]
-            state_dict["model.embed_tokens.weight"] = state_dict["model.embed_tokens.weight"][
-                :32000
-            ]  # workaround, 32001 -> 32000
+            state_dict["model.embed_tokens.weight"] = state_dict["model.embed_tokens.weight"][:32000]  # workaround, 32001 -> 32000
             is_value_model = True
         else:
             model = AutoModelForCausalLM.from_pretrained(
@@ -342,13 +323,9 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
     return architectures, model, state_dict, is_value_model
 
 
-def load_megatron_model_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
-):
+def load_megatron_model_weights(config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"):
     """Load weights for verl customized model."""
-    architectures, model, state_dict, is_value_model = _load_hf_model(
-        config, model_config, is_value_model, local_cache_path
-    )
+    architectures, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)
 
     from verl.models.weight_loader_registry import get_weight_loader
 
@@ -367,9 +344,7 @@ def load_megatron_model_weights(
     return model.config
 
 
-def load_megatron_gptmodel_weights(
-    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
-):
+def load_megatron_gptmodel_weights(config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"):
     """Load weights for mcore GPT model."""
     _, model, state_dict, is_value_model = _load_hf_model(config, model_config, is_value_model, local_cache_path)
 
@@ -436,9 +411,7 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
     return
 
 
-def get_parallel_gptmodel_from_config(
-    tfconfig, hf_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False
-):
+def get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process=None, post_process=None, share_embeddings_and_output_weights=False, value=False):
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
     from megatron.core.models.gpt.gpt_model import GPTModel
 
@@ -465,7 +438,5 @@ def get_parallel_gptmodel_from_config(
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
-        parallel_model.output_layer = LinearForLastLayer(
-            input_size=tfconfig.hidden_size, output_size=1, config=tfconfig
-        )
+        parallel_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
     return parallel_model

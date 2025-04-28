@@ -22,7 +22,7 @@ Data
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
      shuffle: True
-     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
+     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'`
      truncation: error
      image_key: images
      custom_cls:
@@ -55,7 +55,7 @@ Data
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
 - ``data.filter_overlong_prompts``: Default don't filter. You can filter for small-scale dataset. 
   For large-scale dataset, filtering overlong prompts could be timeconsuming. 
-  You should disable this and set ``truncation='left``
+  You should disable this and set ``truncation='left'``
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
@@ -290,7 +290,7 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 
 - ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
   - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - Positive integer, e.g., ``32 `` means 32 GB.
+  - Positive integer, e.g., ``32`` means 32 GB.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.

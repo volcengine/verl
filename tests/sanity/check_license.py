@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from argparse import ArgumentParser
+from pathlib import Path
 
 license_head_bytedance = "Copyright 2024 Bytedance Ltd. and/or its affiliates"
 license_head_bytedance_25 = "Copyright 2025 Bytedance Ltd. and/or its affiliates"
@@ -19,8 +21,6 @@ license_head_prime = "Copyright 2024 PRIME team and/or its affiliates"
 license_head_individual = "Copyright 2025 Individual Contributor:"
 license_headers = [license_head_bytedance, license_head_bytedance_25, license_head_prime, license_head_individual]
 
-from argparse import ArgumentParser
-from pathlib import Path
 
 if __name__ == "__main__":
     parser = ArgumentParser()

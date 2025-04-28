@@ -52,8 +52,7 @@ While **Megatron** current checkpoint structure is:
     │   │   │   │   └── model_states.pt
     │   │   │   └── mp_rank_xx_xxx
     │   │   ├── optim
-    │   │   │   ├── distrib_optim_pp{x}_tp{y}.pt
-    │   │   │   └── distrib_optim_pp{x}_tp{y}.pt
+    │   │   │   └── distrib_optim_pp{a}_tp{b}_cp{c}_dp{d}.pt
     │   │   └── rng_states
     │   └── critic
     │   │   ├── huggingface

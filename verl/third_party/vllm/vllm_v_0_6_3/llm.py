@@ -136,10 +136,7 @@ class LLM(LLM):
         )
         tokenizer_cls = (PreTrainedTokenizer, PreTrainedTokenizerFast, HybridEngineBaseTokenizer)
         if not isinstance(tokenizer, tokenizer_cls):
-            raise ValueError(
-                f"Unexpected tokenizer type: {type(tokenizer)}. Must be"
-                "one of the following: PreTrainedTokenizer, PreTrainedTokenizerFast, verl.workers.rollout.HybridEngineBaseTokenizer"
-            )
+            raise ValueError(f"Unexpected tokenizer type: {type(tokenizer)}. Must beone of the following: PreTrainedTokenizer, PreTrainedTokenizerFast, verl.workers.rollout.HybridEngineBaseTokenizer")
         self.llm_engine = LLMEngine.from_engine_args(model, tokenizer, engine_args)  # TODO: check usagecontext
         self.request_counter = Counter()
 
@@ -187,11 +184,7 @@ class LLM(LLM):
                         logprob.append(logprobs_dict[id].logprob)
                     logprobs.append(torch.tensor(logprob))
 
-        pad_token_id = (
-            self.llm_engine.tokenizer.pad_token_id
-            if self.llm_engine.tokenizer.pad_token_id is not None
-            else self.llm_engine.tokenizer.eos_token_id
-        )
+        pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
         output_token_ids = pad_sequence(output_token_ids, batch_first=True, padding_value=pad_token_id)
         if len(logprobs) > 0:
             logprobs = pad_sequence(logprobs, batch_first=True, padding_value=pad_token_id)

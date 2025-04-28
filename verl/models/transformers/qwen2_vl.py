@@ -135,9 +135,7 @@ def get_rope_index(
     return position_ids
 
 
-def prepare_fa2_from_position_ids(
-    query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor
-):
+def prepare_fa2_from_position_ids(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, position_ids: torch.Tensor):
     query = query.view(-1, query.size(-2), query.size(-1))
     key = key.view(-1, key.size(-2), key.size(-1))
     value = value.view(-1, value.size(-2), value.size(-1))
@@ -172,9 +170,7 @@ def flash_attention_forward(
     causal = is_causal if not use_top_left_mask else is_causal and query_length != 1
 
     # Assuming 4D tensors, key_states.shape[1] is the key/value sequence length (source length).
-    use_sliding_windows = (
-        _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
-    )
+    use_sliding_windows = _flash_supports_window_size and sliding_window is not None and key_states.shape[1] > sliding_window
     flash_kwargs = {"window_size": (sliding_window, sliding_window)} if use_sliding_windows else {}
 
     if is_flash_attn_greater_or_equal("2.4.1"):
@@ -184,9 +180,7 @@ def flash_attention_forward(
 
     if position_ids is not None and query_length != 1 and not (torch.diff(position_ids[0], dim=-1) >= 0).all():
         batch_size = query_states.size(0)
-        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(
-            query_states, key_states, value_states, position_ids[0]
-        )  # remove channel dimension
+        query_states, key_states, value_states, _, cu_seq_lens, max_seq_lens = prepare_fa2_from_position_ids(query_states, key_states, value_states, position_ids[0])  # remove channel dimension
         cu_seqlens_q, cu_seqlens_k = cu_seq_lens
         max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
         attn_output = flash_attn_varlen_func(
@@ -260,9 +254,7 @@ def ulysses_flash_attn_forward(
     else:
         cos, sin = position_embeddings
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb(
-        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
-    )
+    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin, self.rope_scaling["mrope_section"])
     dropout_rate = 0.0 if not self.training else self.attention_dropout
 
     # Reashape to the expected shape for Flash Attention
@@ -270,11 +262,7 @@ def ulysses_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if (
-        self.config.use_sliding_window
-        and getattr(self.config, "sliding_window", None) is not None
-        and self.layer_idx >= self.config.max_window_layers
-    ):
+    if self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and self.layer_idx >= self.config.max_window_layers:
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None

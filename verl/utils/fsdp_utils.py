@@ -68,9 +68,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
         return None
 
     default_transformer_cls_names_to_wrap = getattr(module, "_no_split_modules", None)
-    fsdp_transformer_layer_cls_to_wrap = config.get(
-        "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
-    )
+    fsdp_transformer_layer_cls_to_wrap = config.get("transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap)
     min_num_params = config.get("min_num_params", 0)
     auto_wrap_policy = None
 
@@ -82,11 +80,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     if is_lora:
 
         def lambda_policy_fn(module):
-            return bool(
-                len(list(module.named_children())) == 0
-                and getattr(module, "weight", None) is not None
-                and module.weight.requires_grad
-            )
+            return bool(len(list(module.named_children())) == 0 and getattr(module, "weight", None) is not None and module.weight.requires_grad)
 
         lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
         policies.append(lambda_policy)
@@ -125,11 +119,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
         if handle._offload_params:
             continue
         flat_param = handle.flat_param
-        assert (
-            flat_param.data.data_ptr() == flat_param._local_shard.data_ptr()
-            and id(flat_param.data) != id(flat_param._local_shard)
-            and flat_param.data.size() == flat_param._local_shard.size()
-        )
+        assert flat_param.data.data_ptr() == flat_param._local_shard.data_ptr() and id(flat_param.data) != id(flat_param._local_shard) and flat_param.data.size() == flat_param._local_shard.size()
         handle.flat_param_to(torch.device("cpu"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
@@ -280,9 +270,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
     """
 
     state2fqn = {}
-    for name, state in itertools.chain(
-        module.named_parameters(remove_duplicate=False), module.named_buffers(remove_duplicate=False)
-    ):
+    for name, state in itertools.chain(module.named_parameters(remove_duplicate=False), module.named_buffers(remove_duplicate=False)):
         state2fqn.setdefault(state, []).append(name)
     # remove standalone parameters and buffers
     shared = {s for s, names in state2fqn.items() if len(names) > 1}
@@ -319,10 +307,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
             # non-persistent buffers will not be saved in state dict, we can safely skip it
             if (not is_param) and fqn not in shard_states:
                 if state.is_meta:
-                    raise RuntimeError(
-                        f"find a non-persistent buffer ({fqn}) initiated with device meta. "
-                        "Such buffer is not saved in checkpoint and user should guarantee to init in CPU / GPU device."
-                    )
+                    raise RuntimeError(f"find a non-persistent buffer ({fqn}) initiated with device meta. Such buffer is not saved in checkpoint and user should guarantee to init in CPU / GPU device.")
                 continue
             # for shared parameter, we get it from the first time it is created
             if state in shared:

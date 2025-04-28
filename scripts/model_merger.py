@@ -22,7 +22,13 @@ import numpy as np
 import torch
 from safetensors.torch import load_file
 from torch.distributed._tensor import Placement, Shard
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForTokenClassification,
+    AutoModelForVision2Seq,
+    GenerationConfig,
+)
 
 try:
     # for torch 2.5+
@@ -39,7 +45,10 @@ parser.add_argument(
     "--local_dir",
     type=str,
     required=True,
-    help="The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, commonly be `config.default_local_dir/global_step_\{global_step\}`.",
+    help=(
+        "The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, "
+        "commonly be `config.default_local_dir/global_step_\{global_step\}`."
+    ),
 )
 parser.add_argument("--target_dir", required=False, default="tmp", type=str, help="The path for the target model")
 parser.add_argument("--hf_upload_path", default=False, type=str, help="The path of the huggingface repo to upload")
@@ -53,9 +62,7 @@ parser.add_argument(
 args = parser.parse_args()
 os.makedirs(args.target_dir, exist_ok=True)
 if args.test:
-    assert args.test_hf_dir is not None, (
-        "You must run verl save checkpoint first, with hf_model in checkpoint.contents, and provide the directory here"
-    )
+    assert args.test_hf_dir is not None, "You must run verl save checkpoint first, with hf_model in checkpoint.contents, and provide the directory here"
 
 
 def merge_by_placement(tensors: List[torch.Tensor], placement: Placement):
@@ -78,6 +85,25 @@ def upload_model_to_huggingface(hf_path):
     api.upload_folder(folder_path=hf_path, repo_id=args.hf_upload_path, repo_type="model")
 
 
+def patch_model_generation_config(model, hf_model_path):
+    """
+    The generation_config created from model config may be different to the pretrained model,
+    this may lead to error when generating: https://github.com/volcengine/verl/issues/1246
+
+    This function patch the generation_config created from model config to the pretrained model.
+    """
+    if model.can_generate():
+        try:
+            model.generation_config = GenerationConfig.from_pretrained(args.hf_model_path)
+        except OSError:
+            print(
+                f"Warning: Generation config file not found in {args.hf_model_path}, "
+                "using a generation config created from the model config."
+            )
+            pass
+    return model
+
+
 def convert_fsdp_checkpoints_to_hfmodels():
     local_dir = args.local_dir
 
@@ -91,9 +117,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
             break
     assert world_size, "No model file with the proper format"
 
-    state_dict = torch.load(
-        os.path.join(local_dir, f"model_world_size_{world_size}_rank_{rank}.pt"), map_location="cpu", weights_only=False
-    )
+    state_dict = torch.load(os.path.join(local_dir, f"model_world_size_{world_size}_rank_{rank}.pt"), map_location="cpu", weights_only=False)
     pivot_key = sorted(list(state_dict.keys()))[0]
     weight = state_dict[pivot_key]
 
@@ -143,7 +167,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
         for model_state_dict in model_state_dict_lst:
             try:
                 tensor = model_state_dict.pop(key)
-            except:
+            except Exception:
                 print("-" * 30)
                 print(model_state_dict)
             if isinstance(tensor, DTensor):
@@ -195,6 +219,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device="cpu")
+    model = patch_model_generation_config(model, args.hf_model_path)
 
     print(f"Saving model to {hf_path}")
     model.save_pretrained(hf_path, state_dict=state_dict)
@@ -229,12 +254,11 @@ def check_megatron_checkpoint_path(model_path):
 
 
 def convert_megatron_checkpoints_to_hfmodels():
-    from verl.utils.megatron_utils import get_hf_model_checkpoint_path, get_model_checkpoint_path
+    from verl.utils.megatron_utils import get_model_checkpoint_path
 
     local_path = args.local_dir
 
     model_ckpt_path = get_model_checkpoint_path(local_path)
-    hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
     sharded_dirs, tp_size, pp_size = check_megatron_checkpoint_path(model_ckpt_path)
     mp_size = len(sharded_dirs)
 
@@ -400,6 +424,7 @@ def convert_megatron_checkpoints_to_hfmodels():
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device="cpu")
+    model = patch_model_generation_config(model, args.hf_model_path)
 
     print(f"Saving model to {hf_path}")
     model.save_pretrained(hf_path, state_dict=state_dict)
