@@ -112,7 +112,7 @@ def test_fsdp_state_dict(
 
         torch.testing.assert_close(original_state_dict[key], collected_state_dict[key], atol=1e-4, rtol=1e-4)
 
-    print("FSDP checks passed: The collected state dict matches the hf model saved by FSDPCheckpointManager.")
+    print("FSDP checks passed: The merged state_dict matches the hf model saved by FSDPCheckpointManager.")
     return True
 
 
