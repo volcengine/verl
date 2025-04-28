@@ -17,7 +17,7 @@ usage: torchrun --standalone --nnodes=1 \
     --nproc_per_node=2 $(which pytest) \
     -s test_sglang_async_spmd.py
 """
-
+import os
 import asyncio
 
 import torch
@@ -68,38 +68,33 @@ def test_sglang_spmd():
             enable_memory_saver=True,
             tp_size=inference_device_mesh_cpu["tp"].size(),
         )
-    else:
-        llm = None
 
-    input_ids = input_ids.cuda()
-    idx_list = []
+        input_ids = input_ids.cuda()
+        idx_list = []
 
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    for i in range(input_ids.shape[0]):
-        idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
+        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        for i in range(input_ids.shape[0]):
+            idx_list.append(_pre_process_inputs(pad_token_id, input_ids[i]))
 
-    sampling_params = dict(
-        n=1,
-        temperature=0,
-        top_p=1,
-        top_k=-1,
-        max_new_tokens=max_response_length,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        skip_special_tokens=True,
-        spaces_between_special_tokens=True,
-        ignore_eos=False,
-    )
+        sampling_params = dict(
+            n=1,
+            temperature=0,
+            top_p=1,
+            top_k=-1,
+            max_new_tokens=max_response_length,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            repetition_penalty=1.0,
+            skip_special_tokens=True,
+            spaces_between_special_tokens=True,
+            ignore_eos=False,
+        )
 
-    if tp_rank == 0:
         loop = asyncio.get_event_loop()
         outputs = loop.run_until_complete(llm.async_generate(input_ids=idx_list, sampling_params=sampling_params))
-    else:
-        outputs = None
-    [outputs] = broadcast_pyobj([outputs], rank=tp_rank, dist_group=inference_device_mesh_cpu["tp"].get_group(), src=0)
-    sglang_response_tokens = [output["text"] for output in outputs]
+        
+        sglang_response_tokens = [output["text"] for output in outputs]
 
-    print(f"sglang response: {sglang_response_tokens}")
-    assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
-    print("SPMD Test Passed!")
+        print(f"sglang response: {sglang_response_tokens}")
+        assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
+        print("SPMD Test Passed!")
