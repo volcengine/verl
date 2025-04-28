@@ -176,7 +176,6 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
-    # total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
