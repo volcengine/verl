@@ -24,9 +24,7 @@ from vllm.utils import LRUCache
 class TokenizerGroup:
     """A group of tokenizers that can be used for LoRA adapters."""
 
-    def __init__(
-        self, tokenizer: PreTrainedTokenizer, enable_lora: bool, max_num_seqs: int, max_input_length: Optional[int]
-    ):
+    def __init__(self, tokenizer: PreTrainedTokenizer, enable_lora: bool, max_num_seqs: int, max_input_length: Optional[int]):
         self.enable_lora = enable_lora
         self.max_input_length = max_input_length
         self.tokenizer = tokenizer
@@ -40,15 +38,11 @@ class TokenizerGroup:
         """Get the maximum input length for the LoRA request."""
         return self.max_input_length
 
-    def encode(
-        self, prompt: str, request_id: Optional[str] = None, lora_request: Optional[LoRARequest] = None
-    ) -> List[int]:
+    def encode(self, prompt: str, request_id: Optional[str] = None, lora_request: Optional[LoRARequest] = None) -> List[int]:
         tokenizer = self.get_lora_tokenizer(lora_request)
         return tokenizer.encode(prompt)
 
-    async def encode_async(
-        self, prompt: str, request_id: Optional[str] = None, lora_request: Optional[LoRARequest] = None
-    ) -> List[int]:
+    async def encode_async(self, prompt: str, request_id: Optional[str] = None, lora_request: Optional[LoRARequest] = None) -> List[int]:
         tokenizer = await self.get_lora_tokenizer_async(lora_request)
         return tokenizer.encode(prompt)
 

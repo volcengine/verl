@@ -86,9 +86,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
 
-    assert isinstance(worker_group, MegatronWorkerGroup), (
-        f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
-    )
+    assert isinstance(worker_group, MegatronWorkerGroup), f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
 
     all_args = []
     for arg in args:
@@ -146,7 +144,7 @@ def _concat_data_proto_or_future(output: List):
 
     # make sure all the elements in output has the same type
     for o in output:
-        assert type(o) == type(output[0])
+        assert type(o) is type(output[0])
 
     o = output[0]
 
@@ -307,7 +305,7 @@ def dispatch_dp_compute_data_proto_with_func(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
-    assert type(args[0]) == FunctionType  # NOTE: The first one args is a function!
+    assert isinstance(args[0], FunctionType)  # NOTE: The first one args is a function!
 
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args[1:], **kwargs)
     splitted_args_with_func = [[args[0]] * worker_group.world_size] + splitted_args
@@ -384,9 +382,7 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, (Dispatch, Dict)), (
-        f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
-    )
+    assert isinstance(dispatch_mode, (Dispatch, Dict)), f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
     if isinstance(dispatch_mode, Dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
