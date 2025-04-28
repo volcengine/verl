@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import torch
+import numpy as np
 
 def compute_length_penalty(sequence_lengths, alpha=0.0, min_length=0, max_length=None):
     """
     Compute length penalty for sequence generation.
     
     Args:
-        sequence_lengths: Tensor of shape [batch_size] containing sequence lengths
+        sequence_lengths: Tensor or numpy array of shape [batch_size] containing sequence lengths
         alpha: Float controlling the strength and direction of the penalty:
                - alpha > 0: Favor longer sequences
                - alpha < 0: Favor shorter sequences
@@ -28,24 +29,41 @@ def compute_length_penalty(sequence_lengths, alpha=0.0, min_length=0, max_length
         max_length: Maximum sequence length (sequences longer than this get max penalty)
     
     Returns:
-        Tensor of shape [batch_size] containing length penalties to be applied to rewards
+        Tensor or numpy array of shape [batch_size] containing length penalties
     """
     if alpha == 0.0:
-        return torch.ones_like(sequence_lengths, dtype=torch.float32)
+        if isinstance(sequence_lengths, torch.Tensor):
+            return torch.ones_like(sequence_lengths, dtype=torch.float32)
+        else:
+            return np.ones_like(sequence_lengths, dtype=np.float32)
     
-    effective_lengths = sequence_lengths.clone().float()
+    effective_lengths = sequence_lengths.copy() if isinstance(sequence_lengths, np.ndarray) else sequence_lengths.clone()
+    
+    if isinstance(effective_lengths, np.ndarray):
+        effective_lengths = effective_lengths.astype(np.float32)
+    else:
+        effective_lengths = effective_lengths.float()
     
     if min_length > 0:
-        effective_lengths = torch.maximum(effective_lengths - min_length, 
-                                         torch.zeros_like(effective_lengths))
+        if isinstance(effective_lengths, np.ndarray):
+            effective_lengths = np.maximum(effective_lengths - min_length, np.zeros_like(effective_lengths))
+        else:
+            effective_lengths = torch.maximum(effective_lengths - min_length, 
+                                             torch.zeros_like(effective_lengths))
     
     if max_length is not None:
-        effective_lengths = torch.minimum(effective_lengths, 
-                                         torch.ones_like(effective_lengths) * (max_length - min_length))
+        if isinstance(effective_lengths, np.ndarray):
+            effective_lengths = np.minimum(effective_lengths, np.ones_like(effective_lengths) * (max_length - min_length))
+        else:
+            effective_lengths = torch.minimum(effective_lengths, 
+                                            torch.ones_like(effective_lengths) * (max_length - min_length))
     
     # Calculate penalty using the standard formula: ((5 + length)/6)^alpha
-    # This is similar to the formula used in Google Neural Machine Translation (GNMT) paper
-    penalty = ((5.0 + effective_lengths) / 6.0) ** alpha
+    # This is similar to the formula used in Google Neural Machine Translation paper [https://arxiv.org/pdf/1609.08144]
+    if isinstance(effective_lengths, np.ndarray):
+        penalty = ((5.0 + effective_lengths) / 6.0) ** alpha
+    else:
+        penalty = ((5.0 + effective_lengths) / 6.0) ** alpha
     
     return penalty
 
@@ -54,12 +72,43 @@ def apply_length_penalty(rewards, sequence_lengths, **kwargs):
     Apply length penalty to rewards.
     
     Args:
-        rewards: Tensor of shape [batch_size] containing the original rewards
-        sequence_lengths: Tensor of shape [batch_size] containing sequence lengths
+        rewards: List, Tensor or numpy array of shape [batch_size] containing the original rewards
+        sequence_lengths: List, Tensor or numpy array of shape [batch_size] containing sequence lengths
         **kwargs: Parameters for compute_length_penalty
     
     Returns:
-        Tensor of shape [batch_size] with length-penalized rewards
+        List, Tensor or numpy array of shape [batch_size] with length-penalized rewards
     """
-    length_penalties = compute_length_penalty(sequence_lengths, **kwargs)
-    return rewards * length_penalties
+    import numpy as np
+    import torch
+    
+    is_tensor = isinstance(rewards, torch.Tensor)
+    is_list = isinstance(rewards, list)
+    
+    if is_list:
+        rewards_np = np.array(rewards)
+    elif is_tensor:
+        rewards_np = rewards.cpu().numpy()
+    else:
+        rewards_np = rewards
+        
+    if isinstance(sequence_lengths, torch.Tensor):
+        sequence_lengths_np = sequence_lengths.cpu().numpy()
+    elif isinstance(sequence_lengths, list):
+        sequence_lengths_np = np.array(sequence_lengths)
+    else:
+        sequence_lengths_np = sequence_lengths
+    
+    length_penalties = compute_length_penalty(sequence_lengths_np, **kwargs)
+    
+    penalized_rewards_np = rewards_np * length_penalties
+    
+    if is_tensor:
+        device = rewards.device
+        penalized_rewards = torch.tensor(penalized_rewards_np, dtype=rewards.dtype, device=device)
+    elif is_list:
+        penalized_rewards = penalized_rewards_np.tolist()
+    else:
+        penalized_rewards = penalized_rewards_np
+    
+    return penalized_rewards

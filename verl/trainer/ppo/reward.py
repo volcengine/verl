@@ -112,32 +112,48 @@ def compute_reward(data: DataProto, reward_fn):
     # Apply length penalty if configured and if sequence lengths are available
     if hasattr(reward_fn, "length_penalty_config") and reward_fn.length_penalty_config.get("enabled", False):
         sequence_lengths = None
-        if "response_lengths" in data:
-            sequence_lengths = data["response_lengths"]
-        elif "attention_mask" in data and "prompt_lengths" in data:
-            # Calculate response length by subtracting prompt length from total length
-            total_lengths = torch.sum(data["attention_mask"], dim=1)
-            prompt_lengths = data["prompt_lengths"]
-            sequence_lengths = total_lengths - prompt_lengths
+        if "response_lengths" in data.batch:
+            sequence_lengths = data.batch["response_lengths"]
+        elif "attention_mask" in data.batch and "prompts" in data.batch:
+            prompt_len = data.batch["prompts"].shape[-1]
+            attention_mask = data.batch["attention_mask"]
+            total_lengths = torch.sum(attention_mask, dim=1)
+            sequence_lengths = total_lengths - prompt_len
         
         if sequence_lengths is not None:
-            # Apply length penalty
             alpha = reward_fn.length_penalty_config.get("alpha", 0.0)
             min_length = reward_fn.length_penalty_config.get("min_length", 0)
             max_length = reward_fn.length_penalty_config.get("max_length", None)
             
-            reward_tensor = apply_length_penalty(
-                reward_tensor, 
+            orig_rewards = reward_tensor.sum(-1)  
+
+            print(f"Applying length penalty with alpha={alpha}, min_length={min_length}, max_length={max_length}")
+            print(f"Mean sequence length: {sequence_lengths.float().mean().item():.1f}")
+            print(f"Original rewards mean: {orig_rewards.mean().item():.4f}")
+
+            penalized_rewards = apply_length_penalty(
+                orig_rewards,  
                 sequence_lengths,
                 alpha=alpha,
                 min_length=min_length,
                 max_length=max_length
             )
-            
-            # Add length penalty info to extra_infos if returning dict
+
+            print(f"Penalized rewards mean: {penalized_rewards.mean().item():.4f}")
+            print(f"Penalty ratio: {(penalized_rewards / (orig_rewards + 1e-8)).mean().item():.4f}")
+
+            # Compute scaling factor for each sequence
+            scaling_factors = penalized_rewards / (orig_rewards + 1e-8)  # Add small epsilon to avoid division by zero
+
+            # Apply scaling factors to token-level rewards
+            reward_tensor = reward_tensor * scaling_factors.unsqueeze(-1) 
+
             if reward_extra_infos_dict is not None:
                 reward_extra_infos_dict["length_penalty_applied"] = True
                 reward_extra_infos_dict["length_penalty_alpha"] = alpha
+                reward_extra_infos_dict["original_rewards_mean"] = orig_rewards.mean().item()
+                reward_extra_infos_dict["penalized_rewards_mean"] = penalized_rewards.mean().item()
+                reward_extra_infos_dict["penalty_ratio"] = (penalized_rewards / (orig_rewards + 1e-8)).mean().item()
 
     return reward_tensor, reward_extra_infos_dict
 
