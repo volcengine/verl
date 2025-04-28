@@ -216,7 +216,9 @@ class RayWorkerGroup(WorkerGroup):
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self._ray_wait_register_center_timeout = ray_wait_register_center_timeout
+        # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
         self.fused_worker_used = ray_cls_with_init.fused_worker_used
+        # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
         self.sub_cls_name = ""
 
         if worker_names is not None and (not self.fused_worker_used):
@@ -575,14 +577,28 @@ FusedWorkerCLSName = "FusedWorker"
 
 def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs]):
     """
-    This function should return a class instance that delegates the calls to every 
-    cls in cls_dict
+    This function returns a FusedWorker class.
+
+    `FusedWorker.{class_name}` -> FusedClass
+        Use `class_name` as a param to directly access the underlying class.
+    
+    `FusedWorker._fuw_execute("{class_name}_fwmn_{method_name}", *args, **kwargs)`
+        First param must be "{class_name}_fwmn_{method_name}" in order to access `method_name`
+        of underlying class `{class_name}`.
+
+    `FusedWorker.fused_worker_dict` -> {"class_name": FusedClass}
+        Stores all underlying classes.
+
+    `FusedClass.fused_worker_dict` -> {"class_name": FusedClass}
+        The same as `FusedWorker.fused_worker_dict`, enables underlying class to access other
+        underlying classes.
     """
     raw_cls_dict = {cls_name: _unwrap_ray_remote(cia.cls) for cls_name, cia in class_dict.items()}
     init_args_dict = {cls_name: cia.args for cls_name, cia in class_dict.items()}
     init_kwargs_dict = {cls_name: cia.kwargs for cls_name, cia in class_dict.items()}
     cls_names = list(class_dict.keys())
 
+    # FusedWorker_Actor_Critic
     class_name_renamed = "_".join([FusedWorkerCLSName] + cls_names)
 
     class FusedWorker(Worker):
@@ -626,6 +642,19 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
 
 
 def create_colocated_worker_cls_fused(class_dict: dict[str, RayClassWithInitArgs]):
+    """
+    This function returns a RayClassWithInitArgs instance of FusedWorker, which is an replacement
+    of `create_colocated_worker_cls`. WorkerGroup constructed using this class will be a colocated
+    WorkerGroup, which will be referenced as `ColocateWorkerGroup` below.
+
+    `ColocateWorkerGroup.spawn(prefix_set)`
+        returns a dict of WorkerGroup {"class_name": WorkerGroup}, WorkerGroup in this dict will
+        have methods of underlying class `class_name` attached.
+
+    `ColocateWorkerGroup.fuse(prefix_set)`
+        After executing this function, `ColocateWorkerGroup.{class_name}` will return WorkerGroup
+        with methods of underlying class `class_name` attached.
+    """
     raw_colocated_worker_cls = create_colocated_worker_raw_cls(class_dict)
 
     remote_cls = ray.remote(raw_colocated_worker_cls)
