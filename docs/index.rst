@@ -126,7 +126,7 @@ We use pre-commit to help improve code quality. To initialize pre-commit, run:
    pip install pre-commit
    pre-commit install
 
-You can also manually run pre-commit by:
+To resolve CI errors locally, you can also manually run pre-commit by:
 
 .. code-block:: bash
 

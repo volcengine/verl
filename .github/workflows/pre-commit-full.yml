@@ -1,20 +1,18 @@
-# c.f. https://github.com/pre-commit/action?tab=readme-ov-file#using-this-action
-name: pre-commit
+name: pre-commit-full
 
-# No need to avoid / cancel lightweight pre-commit jobs
+# Run weekly on Sunday at 00:00 UTC
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - v0.*
+  schedule:
+    - cron: "0 0 * * 0"
+  # Allow manual triggering
+  workflow_dispatch:
 
 # Declare permissions just read content.
 permissions:
   contents: read
 
 jobs:
-  pre-commit:
+  pre-commit-full:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,5 +28,3 @@ jobs:
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
           git add .pre-commit-config.yaml
       - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: "" # Overriding default "--all-files"
