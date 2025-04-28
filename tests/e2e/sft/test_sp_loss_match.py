@@ -104,9 +104,9 @@ def create_trainer(config):
     ulysses_device_mesh = init_device_mesh(device_type="cuda", mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
 
     # build tokenizer and datasets first
+    from verl.trainer.fsdp_sft_trainer import create_sft_dataset
     from verl.utils import hf_tokenizer
     from verl.utils.fs import copy_to_local
-    from verl.trainer.fsdp_sft_trainer import create_sft_dataset
 
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
