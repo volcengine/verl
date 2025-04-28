@@ -52,8 +52,7 @@ While **Megatron** current checkpoint structure is:
     │   │   │   │   └── model_states.pt
     │   │   │   └── mp_rank_xx_xxx
     │   │   ├── optim
-    │   │   │   ├── distrib_optim_pp{x}_tp{y}.pt
-    │   │   │   └── distrib_optim_pp{x}_tp{y}.pt
+    │   │   │   └── distrib_optim_pp{a}_tp{b}_cp{c}_dp{d}.pt
     │   │   └── rng_states
     │   └── critic
     │   │   ├── huggingface
@@ -84,10 +83,11 @@ So example use of Megatron model merger is:
 
 .. code:: bash
 
-    python3 scripts/model_merger.py --backend megatron \
-        --is-value-model \
-        --hf_model_path Qwen/Qwen2-7B \
-        --local_dir checkpoints/verl_megatron_gsm8k_examples/deepseek_megatron_checkpoint_saveload/global_step_1/actor/model
+    python scripts/model_merger.py \
+        --backend megatron \
+        --tie-word-embedding \
+        --hf_model_path Qwen/Qwen2.5-0.5B \
+        --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor
 
 Megatron Merger details
 -----------------------

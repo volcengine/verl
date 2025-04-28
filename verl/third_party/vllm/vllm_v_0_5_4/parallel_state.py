@@ -4,18 +4,20 @@
 # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 """Model and data parallel groups."""
+
 import os
-import torch
-import torch.distributed
 from typing import Optional
 
+import torch
+import torch.distributed
 import vllm.distributed.parallel_state as ps
-from vllm.distributed.parallel_state import get_pp_group, get_world_group, init_distributed_environment, init_model_parallel_group
-
-import vllm.envs as envs
+from vllm.distributed.parallel_state import (
+    get_pp_group,
+    get_world_group,
+    init_distributed_environment,
+    init_model_parallel_group,
+)
 from vllm.logger import init_logger
-
-from torch.distributed.device_mesh import init_device_mesh
 
 logger = init_logger(__name__)
 """
@@ -59,8 +61,10 @@ def initialize_parallel_state(
     init_distributed_environment(world_size, rank, distributed_init_method, local_rank, backend)
     if torch.distributed.get_world_size() > 1:
         # NOTE: build a sepearate inference group with infer tp & micro dp
-        initialize_model_parallel_for_vllm(tensor_model_parallel_size=tensor_model_parallel_size,
-                                           num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp)
+        initialize_model_parallel_for_vllm(
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp,
+        )
     else:
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
 
@@ -80,28 +84,23 @@ def ensure_model_parallel_initialized(
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
         return
 
-    assert (get_tensor_model_parallel_world_size() == tensor_model_parallel_size), (
-        "tensor parallel group already initialized, but of unexpected size: "
-        f"{get_tensor_model_parallel_world_size()=} vs. "
-        f"{tensor_model_parallel_size=}")
+    assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, f"tensor parallel group already initialized, but of unexpected size: {get_tensor_model_parallel_world_size()=} vs. {tensor_model_parallel_size=}"
     pp_world_size = get_pp_group().world_size
-    assert (pp_world_size == pipeline_model_parallel_size), (
-        "pipeline parallel group already initialized, but of unexpected size: "
-        f"{pp_world_size=} vs. "
-        f"{pipeline_model_parallel_size=}")
+    assert pp_world_size == pipeline_model_parallel_size, f"pipeline parallel group already initialized, but of unexpected size: {pp_world_size=} vs. {pipeline_model_parallel_size=}"
 
 
 # TODO(sgm): deviate from the v0.5.4, not pp now
 def model_parallel_is_initialized():
     """Check if tensor and pipeline parallel groups are initialized."""
-    return (ps._TP is not None)
+    return ps._TP is not None
     # and _PIPELINE_MODEL_PARALLEL_GROUP is not None)
 
 
-def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
-                                       num_tensor_model_parallel_groups_per_train_tp: int = 1,
-                                       pipeline_model_parallel_size: int = 1) -> None:
-    from torch.distributed import new_group
+def initialize_model_parallel_for_vllm(
+    tensor_model_parallel_size: int,
+    num_tensor_model_parallel_groups_per_train_tp: int = 1,
+    pipeline_model_parallel_size: int = 1,
+) -> None:
     # Get world size and rank. Ensure some consistencies.
     assert torch.distributed.is_initialized()
 
@@ -111,13 +110,11 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
     # assert num_tensor_model_parallel_groups_per_train_tp > 1 and different_tp_group
 
     # Build the tensor model-parallel groups.
-    assert ps._TP is None, ("tensor model parallel group is already initialized")
+    assert ps._TP is None, "tensor model parallel group is already initialized"
 
     global _TP
 
     world_size: int = torch.distributed.get_world_size()
-
-    rank = torch.distributed.get_rank()
 
     backend = torch.distributed.get_backend()
 
@@ -126,7 +123,7 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
     if num_tensor_model_parallel_groups_per_train_tp == 1:
         # if tensor_model_parallel_size == train_tensor_parallel_size:
         # using the same tp group as Megatron/vllm
-        assert _TP is None, ("tensor model parallel group is already initialized")
+        assert _TP is None, "tensor model parallel group is already initialized"
         group_ranks = []
         for i in range(num_tensor_model_parallel_groups):
             ranks = range(i * tensor_model_parallel_size, (i + 1) * tensor_model_parallel_size)
@@ -136,7 +133,8 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
             local_rank=get_world_group().local_rank,
             backend=backend,
             use_custom_allreduce=False,  # TODO: check why True is not work in Ray trainer
-            use_message_queue_broadcaster=True)
+            use_message_queue_broadcaster=True,
+        )
         ps._TP = _TP
         # _MICRO_DATA_PARALLEL_GROUP is move to hybrid engine
     else:
@@ -148,7 +146,7 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
         # train_tp = train_tensor_parallel_size
         train_tp = num_tensor_model_parallel_groups_per_train_tp * tensor_model_parallel_size
         # num_tensor_model_parallel_groups_per_train_tp = train_tp // tensor_model_parallel_size
-        assert _TP is None, ("tensor model parallel group is already initialized")
+        assert _TP is None, "tensor model parallel group is already initialized"
         group_ranks = []
         for i in range(num_tensor_model_parallel_groups // num_tensor_model_parallel_groups_per_train_tp):
             start = train_tp * i
@@ -163,7 +161,8 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
             local_rank=get_world_group().local_rank,
             backend=backend,
             use_custom_allreduce=False,  # TODO: check why True is not work in Ray trainer
-            use_message_queue_broadcaster=True)
+            use_message_queue_broadcaster=True,
+        )
         ps._TP = _TP
 
     # Build the pipeline model-parallel groups.
@@ -176,9 +175,9 @@ def initialize_model_parallel_for_vllm(tensor_model_parallel_size: int,
 
     # TODO: init using device mesh (not support hybrid engine now)
     # Build the pipeline model-parallel groups.
-    num_pipeline_model_parallel_groups: int = (world_size // pipeline_model_parallel_size)
+    num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     global _PP
-    assert _PP is None, ("pipeline model parallel group is already initialized")
+    assert _PP is None, "pipeline model parallel group is already initialized"
     group_ranks = []
     for i in range(num_pipeline_model_parallel_groups):
         ranks = list(range(i, world_size, num_pipeline_model_parallel_groups))
@@ -196,7 +195,7 @@ def initialize_model_parallel(
     """
     NOTE: This method is a hack from the open-sourced version without
     asertion of world_size = tp * pp
-    
+
     Initialize model parallel groups.
 
     Arguments:
@@ -232,10 +231,9 @@ def initialize_model_parallel(
     #         f"tensor_model_parallel_size ({tensor_model_parallel_size}) x "
     #         f"pipeline_model_parallel_size ({pipeline_model_parallel_size})")
 
-    num_tensor_model_parallel_groups: int = (world_size // tensor_model_parallel_size)
-    rank = torch.distributed.get_rank()
+    num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
     global _TP
-    assert _TP is None, ("tensor model parallel group is already initialized")
+    assert _TP is None, "tensor model parallel group is already initialized"
     group_ranks = []
     for i in range(num_tensor_model_parallel_groups):
         ranks = list(range(i * tensor_model_parallel_size, (i + 1) * tensor_model_parallel_size))
@@ -247,14 +245,15 @@ def initialize_model_parallel(
         get_world_group().local_rank,
         backend,
         use_custom_allreduce=False,  # TODO: check why True is not work in Ray trainer
-        use_message_queue_broadcaster=True)
+        use_message_queue_broadcaster=True,
+    )
     ps._TP = _TP
 
     # TODO: init using device mesh (not support hybrid engine now)
     # Build the pipeline model-parallel groups.
-    num_pipeline_model_parallel_groups: int = (world_size // pipeline_model_parallel_size)
+    num_pipeline_model_parallel_groups: int = world_size // pipeline_model_parallel_size
     global _PP
-    assert _PP is None, ("pipeline model parallel group is already initialized")
+    assert _PP is None, "pipeline model parallel group is already initialized"
     group_ranks = []
     for i in range(num_pipeline_model_parallel_groups):
         ranks = list(range(i, world_size, num_pipeline_model_parallel_groups))
@@ -270,7 +269,7 @@ Device mesh utilities
 
 
 def get_device_mesh():
-    assert _DEVICE_MESH is not None, ("device mesh is not initialized")
+    assert _DEVICE_MESH is not None, "device mesh is not initialized"
     return _DEVICE_MESH
 
 
@@ -281,7 +280,7 @@ Tensor model parallel utilities
 
 def get_tensor_model_parallel_group():
     """Get the tensor model parallel group the caller rank belongs to."""
-    assert _TP is not None, ("tensor model parallel group is not initialized")
+    assert _TP is not None, "tensor model parallel group is not initialized"
     return _TP.device_group
 
 
