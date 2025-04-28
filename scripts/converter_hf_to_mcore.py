@@ -97,7 +97,7 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config,
 
 @torch.no_grad()
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
-    warnings.warn("MPT model is not supported yet")
+    warnings.warn("MTP model is not supported yet")
     def safe_copy(
         src_tensor: torch.Tensor, 
         dst_tensor: torch.Tensor,
