@@ -1,26 +1,29 @@
-"""usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang_rollout_w_tools.py"""
+"""
+usage: torchrun --standalone --nnodes=1 \
+    --nproc_per_node=2 $(which pytest) \
+    -s test_async_sglang_rollout_w_tools.py
+"""
 
-from verl import DataProto
-from utils_sglang import(
-    are_lists_similar,
-    initialize_global_process_group,
-    load_tokenizer_and_model,
-    prepare_inputs,
-    generate_hf_output,
-    get_rollout_config,
-    clean_torchelastic_env,
-)
-
-import torch
 import numpy as np
 import torch
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
+from utils_sglang import (
+    are_lists_similar,
+    clean_torchelastic_env,
+    generate_hf_output,
+    get_rollout_config,
+    initialize_global_process_group,
+    load_tokenizer_and_model,
+    prepare_inputs,
+)
 
+from verl import DataProto
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
+
 
 def test_async_sglang_rollout_w_tool():
     assert torch.cuda.device_count() >= 2
@@ -52,7 +55,11 @@ def test_async_sglang_rollout_w_tool():
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
     fsdp_device_mesh = init_device_mesh("cuda", mesh_shape=(tensor_parallel_size,), mesh_dim_names=("fsdp",))
-    inference_device_mesh_cpu = init_device_mesh("cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=("dp", "infer_tp", "pp"))
+    inference_device_mesh_cpu = init_device_mesh(
+        "cpu", 
+        mesh_shape=(1, tensor_parallel_size, 1), 
+        mesh_dim_names=("dp", "infer_tp", "pp")
+    )
 
     fsdp_model = FSDP(
         actor_model,

@@ -1,24 +1,26 @@
-"""usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang_rollout_wo_tools.py"""
+"""
+usage: torchrun --standalone --nnodes=1 \
+    --nproc_per_node=2 $(which pytest) \
+    -s test_async_sglang_rollout_wo_tools.py
+"""
 
-from verl import DataProto
-from utils_sglang import(
-    are_lists_similar,
-    initialize_global_process_group,
-    load_tokenizer_and_model,
-    prepare_inputs,
-    generate_hf_output,
-    get_rollout_config,
-    clean_torchelastic_env,
-)
-
-import torch
 import numpy as np
 import torch
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
+from utils_sglang import (
+    are_lists_similar,
+    clean_torchelastic_env,
+    generate_hf_output,
+    get_rollout_config,
+    initialize_global_process_group,
+    load_tokenizer_and_model,
+    prepare_inputs,
+)
 
+from verl import DataProto
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
 

@@ -1,26 +1,14 @@
 """usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang.py"""
 
-import asyncio
 import os
 from datetime import timedelta
 
-import numpy as np
 import torch
 from omegaconf import OmegaConf
-from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.utils import broadcast_pyobj
-from tensordict import TensorDict
-from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
-from verl.protocol import DataProto
-from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import pad_sequence_to_length
-from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
-from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
 
 
 # ====================== utils ======================
