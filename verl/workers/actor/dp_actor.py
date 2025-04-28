@@ -335,7 +335,6 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy_coeff_delta = self.config.get("entropy_coeff_delta", None)
                     if use_adaptive_entropy_adjustment:
                         assert target_entropy is not None, f"target_entropy must be provided if {use_adaptive_entropy_adjustment=}, but got None."
-                        assert entropy_coeff != 0, f"entropy_coeff must be not 0 if {use_adaptive_entropy_adjustment=}, but got 0."
                         assert entropy_coeff_delta is not None, f"entropy_coeff_delta must be provided if {use_adaptive_entropy_adjustment=}, but got None."
                     # all return: (bsz, response_length)
                     calculate_entropy = False
