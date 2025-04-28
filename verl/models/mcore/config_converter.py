@@ -150,10 +150,11 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
     mla_rope_config = {
         "beta_fast": 32,
         "beta_slow": 1,
-        "factor": 40,
+        "factor": 1,
         "mscale": 1.0,
         "mscale_all_dim": 1.0,
         "original_max_position_embeddings": 4096,
+        "type": "rope",
     }
     if "rope_scaling" in hf_config and hf_config.rope_scaling is not None:
         mla_rope_config.update(hf_config.rope_scaling)
@@ -177,7 +178,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         # attention_backend=AttnBackend.flash,
-        attention_backend=AttnBackend.unfused,
+        attention_backend=AttnBackend.fused,
         bf16=dtype is torch.bfloat16,
         layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,
@@ -218,6 +219,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         v_head_dim=hf_config.v_head_dim,
         rotary_base=hf_config.rope_theta,
         rotary_scaling_factor=mla_rope_config["factor"],
+        rope_type=mla_rope_config["type"],
         mscale=mla_rope_config["mscale"],
         mscale_all_dim=mla_rope_config["mscale_all_dim"],
         max_position_embeddings=mla_rope_config["original_max_position_embeddings"],
