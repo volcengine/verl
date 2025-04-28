@@ -359,6 +359,7 @@ class AsyncSGLangRollout(BaseRollout):
                 rank=self._tp_rank,
                 dist_group=self._device_mesh_cpu["tp"].get_group(),
                 src=self._device_mesh_cpu["tp"].mesh[0].item(),
+                force_cpu_device=False,
             )
             out = _post_process_outputs(self.tokenizer, output)
 
@@ -571,6 +572,7 @@ class AsyncSGLangRollout(BaseRollout):
             rank=self._tp_rank,
             dist_group=self._device_mesh_cpu["tp"].get_group(),
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
         )
         # Construct the batch data
         prompt_ids, response_ids = [], []
