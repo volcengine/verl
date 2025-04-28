@@ -479,6 +479,7 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_contents=self.config.actor.checkpoint.contents,
+                local_model_path=self.config.model.path,
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
