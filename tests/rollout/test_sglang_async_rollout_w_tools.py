@@ -36,7 +36,7 @@ from utils_sglang import (
 
 from verl import DataProto
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
-from verl.workers.sharding_manager.fsdp_async_sglang import FSDPAsyncSGLangShardingManager
+from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
 
 def test_async_sglang_rollout_w_tool():
@@ -70,9 +70,7 @@ def test_async_sglang_rollout_w_tool():
 
     fsdp_device_mesh = init_device_mesh("cuda", mesh_shape=(tensor_parallel_size,), mesh_dim_names=("fsdp",))
     inference_device_mesh_cpu = init_device_mesh(
-        "cpu", 
-        mesh_shape=(1, tensor_parallel_size, 1), 
-        mesh_dim_names=("dp", "infer_tp", "pp")
+        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=("dp", "infer_tp", "pp")
     )
 
     fsdp_model = FSDP(
@@ -117,7 +115,7 @@ def test_async_sglang_rollout_w_tool():
                 "pad_token_id": tokenizer.pad_token_id,
             }
         )
-        
+
         prompts = rollout_sharding_manager.preprocess_data(prompts)
         # log_gpu_memory_usage("Before generating sequences", logger=None)
         output = rollout.generate_sequences_with_tools(prompts=prompts)
@@ -133,6 +131,7 @@ def test_async_sglang_rollout_w_tool():
     print(f"sglang response: {sglang_response_tokens}")
     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
     print("SGLang w tool Test Passed!")
-    
+
+
 if __name__ == "__main__":
     test_async_sglang_rollout_w_tool()
