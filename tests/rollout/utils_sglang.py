@@ -1,5 +1,3 @@
-"""usage: torchrun --standalone --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_async_sglang.py"""
-
 import os
 from datetime import timedelta
 
@@ -41,20 +39,27 @@ def are_lists_similar(a, b):
     return percentage_difference <= 10
 
 
-def initialize_global_process_group(timeout_second=36000):
+def initialize_global_process_group(timeout_second=36000, spmd=False):
     import torch.distributed
 
-    torch.distributed.init_process_group(timeout=timedelta(seconds=timeout_second))
+    if not torch.distributed.is_initialized():  # Check if already initialized
+        print("Initializing process group...")
+        torch.distributed.init_process_group(timeout=timedelta(seconds=timeout_second))
+    else:
+        print("Process group already initialized.")
+
     local_rank = int(os.environ["LOCAL_RANK"])
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    if torch.distributed.is_initialized():
-        torch.cuda.set_device(local_rank)
+    torch.cuda.set_device(local_rank)
         
     CUDA_VISIBLE_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not CUDA_VISIBLE_DEVICES:
-        # CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(tensor_parallel_size))
-        CUDA_VISIBLE_DEVICES = str(local_rank)
+        if spmd:
+            # CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(tensor_parallel_size))
+            CUDA_VISIBLE_DEVICES = ','.join(str(i) for i in range(world_size))
+        else:
+            CUDA_VISIBLE_DEVICES = str(local_rank)
         os.environ["CUDA_VISIBLE_DEVICES"] = CUDA_VISIBLE_DEVICES
         print(f"CUDA_VISIBLE_DEVICES is not set, set to {CUDA_VISIBLE_DEVICES}")
 
