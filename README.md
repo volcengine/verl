@@ -94,11 +94,12 @@ verl is fast with:
 - Scales up to 70B models and hundreds of GPUs.
 - Experiment tracking with wandb, swanlab, mlflow and tensorboard.
 
-## Upcoming Features
+## Upcoming Features and Changes
 - Roadmap https://github.com/volcengine/verl/issues/710 
 - DeepSeek 671b optimizations with Megatron v0.11 https://github.com/volcengine/verl/issues/708 
 - Multi-turn rollout optimizations https://github.com/volcengine/verl/pull/1037 https://github.com/volcengine/verl/pull/1138
-- Environment interactions https://github.com/volcengine/verl/issues/1172 
+- Environment interactions https://github.com/volcengine/verl/issues/1172
+- List of breaking changes since v0.3 https://github.com/volcengine/verl/discussions/943
 
 ## Getting Started
 
