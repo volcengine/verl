@@ -66,7 +66,7 @@ def test_async_sglang_rollout_w_tool():
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
     fsdp_device_mesh = init_device_mesh("cuda", mesh_shape=(tensor_parallel_size,), mesh_dim_names=("fsdp",))
-    inference_device_mesh_cpu = init_device_mesh("cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=("dp", "infer_tp", "pp"))
+    inference_device_mesh_cpu = init_device_mesh("cuda", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=("dp", "infer_tp", "pp"))
 
     fsdp_model = FSDP(
         actor_model,
@@ -109,13 +109,7 @@ def test_async_sglang_rollout_w_tool():
             }
         )
 
-        prompts = rollout_sharding_manager.preprocess_data(prompts)
-        # log_gpu_memory_usage("Before generating sequences", logger=None)
         output = rollout.generate_sequences_with_tools(prompts=prompts)
-        print(f"generated {output.batch['responses'].shape=}")
-        # log_gpu_memory_usage("After generating sequences", logger=None)
-        output = rollout_sharding_manager.postprocess_data(output)
-        print(f"postprocessed {output.batch['responses'].shape=}")
         sglang_output = output.to("cpu")
 
     sglang_response_tokens = tokenizer.batch_decode(sglang_output.batch["responses"])
