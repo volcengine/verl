@@ -68,11 +68,13 @@ actor_rollout_ref:
       param_offload: False
       optimizer_offload: False
       offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   ref:
     strategy: fsdp
     fsdp_config:
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -149,6 +151,7 @@ critic:
       param_offload: False
       optimizer_offload: False
       offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -181,6 +184,7 @@ reward_model:
       wrap_policy:
         min_num_params: 0
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null # set a number

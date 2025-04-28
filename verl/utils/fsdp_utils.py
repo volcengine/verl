@@ -378,17 +378,6 @@ def get_fsdp_state_ctx(model, state_type, state_cfg, optim_cfg):
         return nullcontext()
 
 
-def fsdp2_sharding_strategy(device_mesh):
-    sharding_strategy = False # zero1,2
-    if device_mesh.ndim == 1:
-        sharding_strategy = True # zero3
-    elif device_mesh.ndim == 2:
-        sharding_strategy = torch.cuda.device_count() # hsdp
-    else:
-        raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
-    return sharding_strategy
-
-
 def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None):
     """ 
     Loads the full state dict (could be only on rank 0) into the sharded model. This is done by broadcasting the

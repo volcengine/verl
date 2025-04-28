@@ -50,7 +50,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from verl.utils.fsdp_utils import CPUOffloadPolicy, MixedPrecisionPolicy, fsdp_version, apply_fsdp2, \
-    fsdp2_load_full_state_dict, fsdp2_sharding_strategy
+    fsdp2_load_full_state_dict
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -292,7 +292,7 @@ class ActorRolloutRefWorker(Worker):
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
                 "offload_policy": cpu_offload,
-                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
+                "reshard_after_forward": fsdp_config.reshard_after_forward,
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
@@ -862,7 +862,7 @@ class CriticWorker(Worker):
                 "mesh": fsdp_mesh,
                 "mp_policy": mp_policy,
                 "offload_policy": offload_policy,
-                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
+                "reshard_after_forward": fsdp_config.reshard_after_forward,
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
@@ -1116,7 +1116,7 @@ class RewardModelWorker(Worker):
             fsdp_kwargs = {
                 "mesh": fsdp_mesh,
                 "offload_policy": cpu_offload,
-                "reshard_after_forward": fsdp2_sharding_strategy(fsdp_mesh),
+                "reshard_after_forward": config.model.fsdp_config.reshard_after_forward,
             }            
             full_state = reward_module.state_dict()
             apply_fsdp2(reward_module, fsdp_kwargs, config.model.fsdp_config)
