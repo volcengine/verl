@@ -22,7 +22,13 @@ import numpy as np
 import torch
 from safetensors.torch import load_file
 from torch.distributed._tensor import Placement, Shard
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForTokenClassification, AutoModelForVision2Seq
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForTokenClassification,
+    AutoModelForVision2Seq,
+    GenerationConfig,
+)
 
 try:
     # for torch 2.5+
@@ -39,7 +45,10 @@ parser.add_argument(
     "--local_dir",
     type=str,
     required=True,
-    help="The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, commonly be `config.default_local_dir/global_step_\{global_step\}`.",
+    help=(
+        "The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, "
+        "commonly be `config.default_local_dir/global_step_\{global_step\}`."
+    ),
 )
 parser.add_argument("--target_dir", required=False, default="tmp", type=str, help="The path for the target model")
 parser.add_argument("--hf_upload_path", default=False, type=str, help="The path of the huggingface repo to upload")
@@ -74,6 +83,25 @@ def upload_model_to_huggingface(hf_path):
     api = HfApi()
     api.create_repo(repo_id=args.hf_upload_path, private=False, exist_ok=True)
     api.upload_folder(folder_path=hf_path, repo_id=args.hf_upload_path, repo_type="model")
+
+
+def patch_model_generation_config(model, hf_model_path):
+    """
+    The generation_config created from model config may be different to the pretrained model,
+    this may lead to error when generating: https://github.com/volcengine/verl/issues/1246
+
+    This function patch the generation_config created from model config to the pretrained model.
+    """
+    if model.can_generate():
+        try:
+            model.generation_config = GenerationConfig.from_pretrained(args.hf_model_path)
+        except OSError:
+            print(
+                f"Warning: Generation config file not found in {args.hf_model_path}, "
+                "using a generation config created from the model config."
+            )
+            pass
+    return model
 
 
 def convert_fsdp_checkpoints_to_hfmodels():
@@ -191,6 +219,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device="cpu")
+    model = patch_model_generation_config(model, args.hf_model_path)
 
     print(f"Saving model to {hf_path}")
     model.save_pretrained(hf_path, state_dict=state_dict)
@@ -395,6 +424,7 @@ def convert_megatron_checkpoints_to_hfmodels():
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device="cpu")
+    model = patch_model_generation_config(model, args.hf_model_path)
 
     print(f"Saving model to {hf_path}")
     model.save_pretrained(hf_path, state_dict=state_dict)
