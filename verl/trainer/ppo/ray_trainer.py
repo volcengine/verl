@@ -183,9 +183,7 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(
-    data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True
-):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True):
     # Back-compatible with trainers that do not compute response mask in fit
     if "response_mask" not in data.batch:
         data.batch["response_mask"] = compute_response_mask(data)
@@ -207,9 +205,7 @@ def compute_advantage(
         if multi_turn:
             # If multi-turn, replace the mask with the relevant part of loss_mask
             response_length = grpo_calculation_mask.size(1)  # Get length from the initial response mask
-            grpo_calculation_mask = data.batch["loss_mask"][
-                :, -response_length:
-            ]  # This mask is the one intended for GRPO
+            grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]  # This mask is the one intended for GRPO
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
@@ -434,12 +430,8 @@ class RayPPOTrainer:
 
         # check multi_turn with tool config
         if config.actor_rollout_ref.rollout.multi_turn.enable:
-            assert config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None, (
-                "tool_config_path must be set when enabling multi_turn with tool, due to no role-playing support"
-            )
-            assert config.algorithm.adv_estimator in [AdvantageEstimator.GRPO], (
-                "only GRPO is tested for multi-turn with tool"
-            )
+            assert config.actor_rollout_ref.rollout.multi_turn.tool_config_path is not None, "tool_config_path must be set when enabling multi_turn with tool, due to no role-playing support"
+            assert config.algorithm.adv_estimator in [AdvantageEstimator.GRPO], "only GRPO is tested for multi-turn with tool"
 
         print("[validate_config] All configuration checks passed successfully!")
 
@@ -455,10 +447,7 @@ class RayPPOTrainer:
             try:
                 dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
                 if not issubclass(dataset_cls, Dataset):
-                    raise TypeError(
-                        f"The custom dataset class '{self.config.data.custom_cls.name}' from "
-                        f"'{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-                    )
+                    raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from '{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset")
                 print(f"Using custom dataset class: {dataset_cls.__name__}")
             except Exception as e:
                 print(f"Error loading custom dataset class: {e}")

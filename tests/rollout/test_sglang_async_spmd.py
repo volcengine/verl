@@ -17,8 +17,12 @@ usage: torchrun --standalone --nnodes=1 \
     --nproc_per_node=2 $(which pytest) \
     -s test_sglang_async_spmd.py
 """
+
 import asyncio
+
 import torch
+from sglang.srt.entrypoints.engine import Engine
+from sglang.srt.utils import broadcast_pyobj
 from torch.distributed.device_mesh import init_device_mesh
 from utils_sglang import (
     are_lists_similar,
@@ -28,8 +32,7 @@ from utils_sglang import (
     load_tokenizer_and_model,
     prepare_inputs,
 )
-from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.utils import broadcast_pyobj
+
 
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor):
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
@@ -54,9 +57,7 @@ def test_sglang_spmd():
     hf_response_tokens = generate_hf_output(actor_model, input_ids, attention_mask, tokenizer, max_response_length)
 
     tensor_parallel_size = 2
-    inference_device_mesh_cpu = init_device_mesh(
-        "cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"]
-    )
+    inference_device_mesh_cpu = init_device_mesh("cpu", mesh_shape=(1, tensor_parallel_size, 1), mesh_dim_names=["dp", "tp", "pp"])
     tp_rank = inference_device_mesh_cpu["tp"].get_local_rank()
 
     if tp_rank == 0:
