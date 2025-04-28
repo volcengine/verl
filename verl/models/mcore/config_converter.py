@@ -17,7 +17,7 @@
 
 import torch
 import torch.nn.functional as F
-from megatron.core.transformer import TransformerConfig, MLATransformerConfig
+from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from megatron.core.transformer.enums import AttnBackend
 from transformers import PretrainedConfig
 
@@ -27,10 +27,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
     from megatron.core import parallel_state as mpu
 
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -58,7 +55,6 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
-        attention_backend=AttnBackend.flash,
         bf16=dtype is torch.bfloat16,
     )
 
@@ -68,10 +64,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
 def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     from megatron.core import parallel_state as mpu
 
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -90,11 +83,9 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
         attention_backend=AttnBackend.flash,
-        # attention_backend=AttnBackend.fused,
         bf16=dtype is torch.bfloat16,
         layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,
-
         # parallel config
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
@@ -103,7 +94,6 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         overlap_p2p_comm=overlap_p2p_comm,
         batch_p2p_comm=batch_p2p_comm,
         sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
-
         # moe specific
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_token_dispatcher_type="alltoall",
@@ -118,18 +108,15 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         # moe_permute_fusion=True, # need TE 2.1+
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
-
         # # mcore 0.12 moe
         # moe_router_dtype="fp64",
         # disable_bf16_reduced_precision_matmul=True,
-
         # other
         # deallocate_pipeline_outputs=True,
         # gradient_accumulation_fusion=True,
         persist_layer_norm=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
-        
         # qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
@@ -141,10 +128,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
     # DeepseekV3ForCausalLM
     from megatron.core import parallel_state as mpu
 
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
 
     mla_rope_config = {
@@ -183,7 +167,6 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,
         qk_layernorm=True,
-
         # parallel config
         tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
@@ -192,7 +175,6 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         overlap_p2p_comm=overlap_p2p_comm,
         batch_p2p_comm=batch_p2p_comm,
         sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
-
         # moe specific
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_token_dispatcher_type="alltoall",
@@ -210,7 +192,6 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         moe_router_pre_softmax=True,
         moe_router_topk_scaling_factor=hf_config.routed_scaling_factor,
         moe_layer_freq=moe_layer_freq,
-
         # MLA
         q_lora_rank=hf_config.q_lora_rank,
         kv_lora_rank=hf_config.kv_lora_rank,
@@ -225,11 +206,9 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -
         max_position_embeddings=mla_rope_config["original_max_position_embeddings"],
         beta_fast=mla_rope_config["beta_fast"],
         beta_slow=mla_rope_config["beta_slow"],
-
         # mcore 0.12 moe
         # moe_router_dtype="fp64",
         # disable_bf16_reduced_precision_matmul=True,
-
         # other
         # deallocate_pipeline_outputs=True,
         # gradient_accumulation_fusion=True,

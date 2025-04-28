@@ -27,10 +27,9 @@ requires-python = ">=3.8"
 # tool.ruff - Linting configuration
 # -------------------------------
 [tool.ruff]
-# Optional: ignore specific rules
-line-length = 120
-
-# Enable import sorting
+# Note: While the formatter will attempt to format lines such that they remain within the line-length,
+# it isn't a hard upper bound, and formatted lines may exceed the line-length.
+line-length = 300 # TODO: Reduce this to a more reasonable value
 
 [tool.ruff.lint]
 isort = {known-first-party = ["verl"]}
@@ -44,8 +43,6 @@ select = [
     "UP",
     # flake8-bugbear
     "B",
-    # flake8-simplify
-    "SIM",
     # isort
     "I",
     "G",
@@ -61,9 +58,8 @@ ignore = [
     "UP032",
     # Can remove once 3.10+ is the minimum Python version
     "UP007",
-    "F401","F811","F841","E501","E402","E741","B028","E722","B005","E712","B018","B904",
-    "B023","B006","B006","B026","B020","G004","SIM116","SIM115","SIM102","E721","SIM113",
-    "G003","SIM108","SIM118",
+    # `.log()` statement uses f-string
+    "G004",
 ]
 
 # -------------------------------

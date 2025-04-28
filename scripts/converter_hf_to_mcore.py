@@ -53,7 +53,7 @@ class Config:
         self.model = ModelConfig()
 
 
-def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config,tfconfig):
+def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config, tfconfig):
     num_attention_heads = hf_config.num_attention_heads
     hidden_dim = hf_config.hidden_size
     head_dim = hidden_dim // num_attention_heads
@@ -86,20 +86,20 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config,
                 layer.mlp.experts.linear_fc2._parameters[f"weight{idx}"].copy_(hf_expert.down_proj.weight)
 
             layer.mlp.shared_experts.gate_weight.copy_(hf_layer.mlp.shared_expert_gate.weight)
-            shared_fc1_weight = torch.cat(
-                [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight]
-            )
+            shared_fc1_weight = torch.cat([hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight])
             layer.mlp.shared_experts.linear_fc1.weight.copy_(shared_fc1_weight)
             layer.mlp.shared_experts.linear_fc2.weight.copy_(hf_layer.mlp.shared_expert.down_proj.weight)
 
         model.decoder.final_layernorm.weight.copy_(hf_model.model.norm.weight)
         model.output_layer.weight.copy_(hf_model.lm_head.weight)
 
+
 @torch.no_grad()
 def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_config, tfconfig):
-    warnings.warn("MTP model is not supported yet")
+    warnings.warn("MTP model is not supported yet", stacklevel=2)
+
     def safe_copy(
-        src_tensor: torch.Tensor, 
+        src_tensor: torch.Tensor,
         dst_tensor: torch.Tensor,
         skip_dtype_assert: bool = False,
     ):
@@ -109,11 +109,12 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
         assert src_tensor.shape == dst_tensor.shape
         dst_tensor.data.copy_(src_tensor.data)
         return src_tensor.numel()
+
     model.embedding.word_embeddings.weight.copy_(hf_model.model.embed_tokens.weight)
     for layer_idx, (layer, hf_layer) in enumerate(zip(model.decoder.layers, hf_model.model.layers)):
         print(layer_idx)
         layer.input_layernorm.weight.copy_(hf_layer.input_layernorm.weight)
-        
+
         if hf_config.q_lora_rank is None:
             layer.self_attention.linear_q_proj.weight.copy_(hf_layer.self_attn.q_proj.weight)
         else:
@@ -125,23 +126,22 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
         layer.self_attention.linear_kv_up_proj.weight.copy_(hf_layer.self_attn.kv_b_proj.weight)
         layer.self_attention.linear_kv_up_proj.layer_norm_weight.copy_(hf_layer.self_attn.kv_a_layernorm.weight)
         layer.self_attention.linear_proj.weight.copy_(hf_layer.self_attn.o_proj.weight)
-        
-        if not hasattr(layer.mlp, 'router'):
+
+        if not hasattr(layer.mlp, "router"):
             layer.mlp.linear_fc1.layer_norm_weight.copy_(hf_layer.post_attention_layernorm.weight)
-            layer.mlp.linear_fc1.weight.copy_(
-                torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]))
+            layer.mlp.linear_fc1.weight.copy_(torch.cat([hf_layer.mlp.gate_proj.weight, hf_layer.mlp.up_proj.weight]))
             layer.mlp.linear_fc2.weight.copy_(hf_layer.mlp.down_proj.weight)
         else:
             layer.mlp.router.weight.copy_(hf_layer.mlp.gate.weight)
             # NOTE: the e_score_correction_bias in mcore model will be initialized with bfloat16 and \
             # recover to fp32 in the first forward. There is always a diff in the bias between two models (~0.3%)
             safe_copy(hf_layer.mlp.gate.e_score_correction_bias, layer.mlp.router.expert_bias, skip_dtype_assert=True)
-            if tfconfig.moe_grouped_gemm == True:
+            if tfconfig.moe_grouped_gemm:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
                     fc1_weight = torch.cat([hf_expert.gate_proj.weight, hf_expert.up_proj.weight])
-                    linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, 'weight' + str(i))
+                    linear_fc1_weighti = getattr(layer.mlp.experts.linear_fc1, "weight" + str(i))
                     linear_fc1_weighti.copy_(fc1_weight)
-                    linear_fc2_weighti = getattr(layer.mlp.experts.linear_fc2, 'weight' + str(i))
+                    linear_fc2_weighti = getattr(layer.mlp.experts.linear_fc2, "weight" + str(i))
                     linear_fc2_weighti.copy_(hf_expert.down_proj.weight)
             else:
                 for i, hf_expert in enumerate(hf_layer.mlp.experts):
@@ -150,8 +150,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
                     expert.linear_fc1.weight.copy_(fc1_weight)
                     expert.linear_fc2.weight.copy_(hf_expert.down_proj.weight)
             layer.pre_mlp_layernorm.weight.copy_(hf_layer.post_attention_layernorm.weight)
-            shared_fc1_weight = torch.cat(
-                [hf_layer.mlp.shared_experts.gate_proj.weight, hf_layer.mlp.shared_experts.up_proj.weight])
+            shared_fc1_weight = torch.cat([hf_layer.mlp.shared_experts.gate_proj.weight, hf_layer.mlp.shared_experts.up_proj.weight])
             layer.mlp.shared_experts.linear_fc1.weight.copy_(shared_fc1_weight)
             layer.mlp.shared_experts.linear_fc2.weight.copy_(hf_layer.mlp.shared_experts.down_proj.weight)
 
@@ -181,7 +180,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
     model_parallel_cuda_manual_seed(0)
 
     # init hf config
-    hf_config = AutoConfig.from_pretrained(hf_model_path,trust_remote_code=True)
+    hf_config = AutoConfig.from_pretrained(hf_model_path, trust_remote_code=True)
     print(hf_config)
 
     cfg = Config()
@@ -203,22 +202,20 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         )
         return parallel_model
 
-    model = get_model(
-        model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=False
-    )
+    model = get_model(model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=False)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
     # init hf model
-    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16,trust_remote_code=True)
+    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=True)
     ref_state_dict = hf_model.state_dict()
 
     # load hf state dict to megatron model
     if "DeepseekV3ForCausalLM" in hf_config.architectures:
         convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model[0].module, hf_config, tfconfig=tfconfig)
     elif "Qwen2MoeForCausalLM" in hf_config.architectures:
-        convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config,tfconfig)
+        convert_checkpoint_from_transformers_to_megatron(hf_model, model[0].module, hf_config, tfconfig)
     else:
         from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
 
@@ -239,9 +236,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
     if test:
         ########### test ###########
         # load model
-        model_test = get_model(
-            model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True
-        )
+        model_test = get_model(model_provider_func=megatron_model_provider, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True)
         ssd2 = model_test[0].module.sharded_state_dict()
         dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
 
@@ -268,9 +263,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, test=False):
         def megatron_value_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_gptmodel_from_config
 
-            parallel_model = get_parallel_gptmodel_from_config(
-                tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True
-            )
+            parallel_model = get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True)
             parallel_model.cuda()
             return parallel_model
 

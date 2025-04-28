@@ -16,7 +16,7 @@ Utilities to check if packages are available.
 We assume package availability won't change during runtime.
 """
 
-import importlib
+import importlib.util
 from functools import cache
 from typing import List, Optional
 
@@ -75,7 +75,7 @@ def load_extern_type(file_path: Optional[str], type_name: Optional[str]):
     try:
         spec.loader.exec_module(module)
     except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+        raise RuntimeError(f"Error loading module from '{file_path}'") from e
 
     if not hasattr(module, type_name):
         raise AttributeError(f"Custom type '{type_name}' not found in '{file_path}'.")

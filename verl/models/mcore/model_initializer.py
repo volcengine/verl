@@ -117,9 +117,7 @@ def init_mcore_model_llama4(
     value=False,
     **extra_kwargs,
 ):
-    return init_mcore_model_dense(
-        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
-    )
+    return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs)
 
 
 def init_mcore_model_dpskv3(
@@ -156,9 +154,10 @@ def init_mcore_model_dpskv3(
         for layer in model.decoder.layers:
             if hasattr(layer.mlp, "router"):
                 layer.mlp.router.weight.requires_grad = False
-    
+
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
+
         model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
     return model
 

@@ -139,8 +139,8 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
 
-class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
 
+class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
     def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         # mcore
         # 'decoder.layers.0.input_layernorm.weight'
@@ -176,7 +176,7 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
         assert len(params) == 1
         convert_names = []
         layer_number = name.split(".")[2]
-        name_after_layer = name.split(f'.{layer_number}.')[1]
+        name_after_layer = name.split(f".{layer_number}.")[1]
         convert_names.append(f"model.layers.{layer_number}.{name_map_after_layer[name_after_layer]}")
         return convert_names, params
 
@@ -225,7 +225,7 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
         }
         convert_names = []
         layer_number = name.split(".")[2]
-        name_after_layer = name.split(f'.{layer_number}.')[1]
+        name_after_layer = name.split(f".{layer_number}.")[1]
         if name_after_layer in name_map_after_layer:
             mapped_name = name_map_after_layer[name_after_layer]
             if isinstance(mapped_name, list):
@@ -249,7 +249,6 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
                 raise NotImplementedError(f"Unsupported parameter name: {name}")
 
         return convert_names, params
-
 
     def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         direct_name_mapping = {

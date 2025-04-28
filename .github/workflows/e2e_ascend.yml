@@ -6,9 +6,7 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "**/*.py"
-      - .github/workflows/e2e_ascend.yml
+      - v0.*
   pull_request:
     branches:
       - main
@@ -18,7 +16,7 @@ on:
 
 permissions:
   contents: read
-  
+
 jobs:
   test:
     name: verl Ascend test (self-host)

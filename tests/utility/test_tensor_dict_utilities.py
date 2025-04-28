@@ -29,9 +29,7 @@ def test_union_tensor_dict():
     data1 = TensorDict({"obs": obs, "act": torch.randn(100, 3)}, batch_size=[100])
     data2 = TensorDict({"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
 
-    data_with_copied_obs = TensorDict(
-        {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100]
-    )
+    data_with_copied_obs = TensorDict({"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
 
     data = union_tensor_dict(data1, data2)
     with pytest.raises(AssertionError):
@@ -283,9 +281,7 @@ def test_seqlen_balancing():
     input_ids = torch.randint(low=0, high=10, size=(20, 100))
     from verl.utils.model import create_random_mask
 
-    attention_mask = create_random_mask(
-        input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5
-    )
+    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
     micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
@@ -297,3 +293,67 @@ def test_seqlen_balancing():
     reverse_idx_map = torch.tensor(reverse_idx_map)
     new_batch = batch[reverse_idx_map]
     torch.testing.assert_close(new_batch, dataproto.batch)
+
+
+def test_dataproto_index():
+    data_len = 100
+    idx_num = 10
+
+    obs = torch.randn(data_len, 10)
+    labels = [random.choice(["abc", "cde"]) for _ in range(data_len)]
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels})
+    labels_np = np.array(labels)
+
+    idx_np_int = np.random.randint(0, data_len, size=(idx_num,))
+    result_np_int = data[idx_np_int]
+    assert result_np_int.batch.keys() == data.batch.keys()
+    assert result_np_int.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_np_int.batch["obs"].shape[0] == idx_num
+    assert result_np_int.non_tensor_batch["labels"].shape[0] == idx_num
+    assert np.array_equal(result_np_int.batch["obs"].cpu().numpy(), obs[idx_np_int].numpy())
+    assert np.array_equal(result_np_int.non_tensor_batch["labels"], labels_np[idx_np_int])
+
+    idx_torch_int = torch.randint(0, data_len, size=(idx_num,))
+    result_torch_int = data[idx_torch_int]
+    assert result_torch_int.batch.keys() == data.batch.keys()
+    assert result_torch_int.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_torch_int.batch["obs"].shape[0] == idx_num
+    assert result_torch_int.non_tensor_batch["labels"].shape[0] == idx_num
+    assert np.array_equal(result_torch_int.batch["obs"].cpu().numpy(), obs[idx_torch_int].cpu().numpy())
+    assert np.array_equal(result_torch_int.non_tensor_batch["labels"], labels_np[idx_torch_int.cpu().numpy()])
+
+    idx_list_int = [np.random.randint(0, data_len) for _ in range(idx_num)]
+    result_list_int = data[idx_list_int]
+    assert result_list_int.batch.keys() == data.batch.keys()
+    assert result_list_int.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_list_int.batch["obs"].shape[0] == idx_num
+    assert result_list_int.non_tensor_batch["labels"].shape[0] == idx_num
+    assert np.array_equal(result_list_int.batch["obs"].cpu().numpy(), obs[idx_list_int].cpu().numpy())
+    assert np.array_equal(result_list_int.non_tensor_batch["labels"], labels_np[idx_list_int])
+
+    idx_np_bool = np.random.randint(0, 2, size=(data_len,), dtype=bool)
+    result_np_bool = data[idx_np_bool]
+    assert result_np_bool.batch.keys() == data.batch.keys()
+    assert result_np_bool.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_np_bool.batch["obs"].shape[0] == idx_np_bool.sum()
+    assert result_np_bool.non_tensor_batch["labels"].shape[0] == idx_np_bool.sum()
+    assert np.array_equal(result_np_bool.batch["obs"].cpu().numpy(), obs[idx_np_bool].cpu().numpy())
+    assert np.array_equal(result_np_bool.non_tensor_batch["labels"], labels_np[idx_np_bool])
+
+    idx_torch_bool = torch.randint(0, 2, size=(data_len,), dtype=torch.bool)
+    result_torch_bool = data[idx_torch_bool]
+    assert result_torch_bool.batch.keys() == data.batch.keys()
+    assert result_torch_bool.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_torch_bool.batch["obs"].shape[0] == idx_torch_bool.sum().item()
+    assert result_torch_bool.non_tensor_batch["labels"].shape[0] == idx_torch_bool.sum().item()
+    assert np.array_equal(result_torch_bool.batch["obs"].cpu().numpy(), obs[idx_torch_bool].cpu().numpy())
+    assert np.array_equal(result_torch_bool.non_tensor_batch["labels"], labels_np[idx_torch_bool])
+
+    idx_list_bool = [np.random.randint(0, 2, dtype=bool) for _ in range(data_len)]
+    result_list_bool = data[idx_list_bool]
+    assert result_list_bool.batch.keys() == data.batch.keys()
+    assert result_list_bool.non_tensor_batch.keys() == data.non_tensor_batch.keys()
+    assert result_list_bool.batch["obs"].shape[0] == sum(idx_list_bool)
+    assert result_list_bool.non_tensor_batch["labels"].shape[0] == sum(idx_list_bool)
+    assert np.array_equal(result_list_bool.batch["obs"].cpu().numpy(), obs[idx_list_bool].cpu().numpy())
+    assert np.array_equal(result_list_bool.non_tensor_batch["labels"], labels_np[idx_list_bool])

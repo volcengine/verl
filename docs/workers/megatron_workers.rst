@@ -1,28 +1,76 @@
 Megatron-LM Backend
-=====================
+===================
 
 We support Megatron Backend by implementing various workers for actor,
 critic, reference, rollout and reward models. We also implement the
-``3DHybridEngine`` using Megatron-LM and vLLM in `megatron_vllm.py <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/megatron_vllm.py>`_.
+``3DHybridEngine`` using Megatron-LM and vLLM/SGLang in
+`megatron_vllm.py <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/megatron_vllm.py>`_
+and `megatron_sglang.py <https://github.com/volcengine/verl/blob/main/verl/workers/sharding_manager/megatron_sglang.py>`_.
 
 **Pros**
 
-- Support 3D parallelism and sequence parallelism for best scalablility
-  and throughput.
+- Support 5D parallelism (TP, EP, CP, DP, PP) and sequence parallelism
+  for best scalablility and throughput.
 - 3D HybridEngine can significantly reduce peak memory usage and reduce
   weight synchronize overhead between actor and rollout.
 
 **Cons**
 
-- Users should implement their own models for Megatron-LM
-- Users should implement the corresponding weight_loader to
+- Huggingface Models and Megatron checkpoints need tools for conversion.
 
-  - synchronize the model weight between actor (in Megatron) and rollout
-    (in vLLM).
-  - load weights from checkpoints to corresponding model in Megatron-LM
 
-Megatron Workers
-----------------
+Development Progress
+--------------------
+
+
+Note that [Deprecated] means that the feature is not supported in the latest
+version of verl.
+[To-Optimize] means that the feature is implemented but not optimized yet.
+[WIP] means that the feature is working in progress.
+[In-Release] means that the feature is ready and in review process,
+coming at any time.
+
+
++---------------+-----------------------------------------------------------+
+| [Deprecated]  | Megatron 3D Parallelism with custom models                |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron 0.11.0 ``GPTModel`` support                      |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron GRPO support                                     |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron with vLLM 0.8.2, with per-tensor weights loading |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron with Context Parallel                            |
++---------------+-----------------------------------------------------------+
+| [Done]        | Qwen2MoE model support                                    |
++---------------+-----------------------------------------------------------+
+| [To-Optimize] | Megatron dist Checkpoint                                  |
++---------------+-----------------------------------------------------------+
+| [To-Optimize] | Huggingface and Megatron Checkpoint Converter             |
++---------------+-----------------------------------------------------------+
+| [To-Optimize] | Efficient fused linear, entropy and cross entropy         |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron offload(param, grad, optimizer)                  |
++---------------+-----------------------------------------------------------+
+| [Done]        | Megatron Profiler                                         |
++---------------+-----------------------------------------------------------+
+| [In-Release]  | Megatron 0.12.0, TE 2.2 with vLLM 0.8.3 and Fused Attn    |
++---------------+-----------------------------------------------------------+
+| [WIP]         | Moonlight/DeepSeek-V3 model support                       |
++---------------+-----------------------------------------------------------+
+| [WIP]         | Expert Parallel support                                   |
++---------------+-----------------------------------------------------------+
+| [WIP]         | Megatron support dynamic batch size                       |
++---------------+-----------------------------------------------------------+
+| [To-Do]       | Performance tuning                                        |
++---------------+-----------------------------------------------------------+
+| [MileStone]   | Runnable with DeepSeek-V3 671B post-training              |
++---------------+-----------------------------------------------------------+
+
+
+
+Utils of Megatron Workers
+-------------------------
 
 MegatronWorker
 ^^^^^^^^^^^^^^
@@ -193,11 +241,56 @@ additional initialization for the Optimizer.
    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
    def compute_rm_score(self, data: DataProto):
 
-Context Parallel
-----------------
 
-Currently we can only use LLaMa and Qwen models implemented in verl, and context parallel is not supported by far.
+Utils of Train Optimization
+---------------------------
 
-We are working in progress to support Megatron implementation of GPTModel, with TransformerEngine support. So if the itegration goes well, we can support Ulysses, Ring and AllGather context parallel in the future.
+Offload
+^^^^^^^
+When resources are tight, the offload method can lower GPU memory 
+usage, helping training and inference frameworks work well under verl. 
+It moves parameters, gradients, and optimizers to CPU memory and only 
+loads them back to the GPU when needed.
 
-Now we support Megatron checkpointing save/load function with original models. Please check the :ref:`config-explain-page` page to see how to use the APIs.
+If you want to use the offload, you can add the following parameters 
+for the actor and ref separately. 
+
+.. code:: python
+
+   # For the actor
+   actor_rollout_ref.actor.megatron.param_offload=True \
+   actor_rollout_ref.actor.megatron.grad_offload=True \
+   actor_rollout_ref.actor.megatron.optimizer_offload=True \
+   # For the ref w/o grad and optimizer
+   actor_rollout_ref.ref.megatron.param_offload=True \
+
+
+For the critic, you can include these parameters.
+
+.. code:: python
+
+   # For the critic
+   critic.megatron.param_offload=True \
+   critic.megatron.grad_offload=True \
+   critic.megatron.optimizer_offload=True \
+
+Profiler
+^^^^^^^^
+
+The profiler is a tool that helps you understand the performance of your 
+model. It can be used to profile the time spent on different operations 
+and identify the bottlenecks. You can get more information from 
+`torch.profiler <https://pytorch.org/docs/stable/profiler.html>`_.
+
+In verl, now the profiler is only support for the actor role In Megatron. You can set 
+the begin step and end step to profile. Notice, one step means one gradient update. And 
+the profile result will be saved in the save_path. If you just want to profile in the 
+specific rank, you can set the profile_ranks, by default, it will be [0].
+
+.. code:: python
+
+   actor_rollout_ref.actor.profile.use_profiler=True \
+   actor_rollout_ref.actor.profile.profile_ranks=[0] \
+   actor_rollout_ref.actor.profile.begin_step=0 \
+   actor_rollout_ref.actor.profile.end_step=1 \
+   actor_rollout_ref.actor.profile.save_path="./profile"
