@@ -4,6 +4,9 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
@@ -18,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:

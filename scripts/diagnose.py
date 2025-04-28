@@ -52,7 +52,7 @@ def test_connection(name, url, timeout=10):
     urlinfo = urlparse(url)
     start = time.time()
     try:
-        ip = socket.gethostbyname(urlinfo.netloc)
+        socket.gethostbyname(urlinfo.netloc)
     except Exception as e:
         print("Error resolving DNS for {}: {}, {}".format(name, url, e))
         return
@@ -162,7 +162,7 @@ def check_network(args):
         else:
             import warnings
 
-            warnings.warn("Region {} do not need specific test, please refer to global sites.".format(r))
+            warnings.warn("Region {} do not need specific test, please refer to global sites.".format(r), stacklevel=2)
     for name, url in URLS.items():
         test_connection(name, url, args.timeout)
 

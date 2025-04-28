@@ -98,11 +98,13 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+   pip3 install torch torchvision
    pip3 install flash-attn --no-build-isolation
    git clone https://github.com/volcengine/verl.git
    cd verl
-   pip3 install -e .
+   # pick your choice of inference engine: vllm or sglang
+   # pip3 install -e .[vllm]
+   # pip3 install -e .[sglang]
 
 
 Megatron is optional. It's dependencies can be setup as below:

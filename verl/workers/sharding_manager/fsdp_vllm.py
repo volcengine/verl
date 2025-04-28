@@ -27,6 +27,7 @@ from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -36,6 +37,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class FSDPVLLMShardingManager(BaseShardingManager):
+    @check_cuda_is_available()
     def __init__(
         self,
         module: FSDP,
@@ -48,9 +50,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.module = module
         # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
-        self.model_runner = (
-            inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
-        )
+        self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
         self.model_config = model_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
@@ -58,9 +58,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # Full params
         self.full_params = full_params
         if full_params:
-            FSDP.set_state_dict_type(
-                self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig()
-            )
+            FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
         else:
             FSDP.set_state_dict_type(
                 self.module,
@@ -183,10 +181,5 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
-        loaded_params = model.load_weights(
-            (
-                (name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param)
-                for name, param in updated_params.items()
-            )
-        )
+        loaded_params = model.load_weights(((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items()))
         logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))
