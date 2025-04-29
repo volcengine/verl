@@ -17,11 +17,11 @@ from vllm.model_executor.models.deepseek_v2 import (DeepseekV2ForCausalLM,
                                                     DeepseekV3ForCausalLM)
 from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
 
-model_types = (Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM)
+model_types = [Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM]
 
 try:
     from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
-    model_types = model_types + (Qwen3MoeForCausalLM)
+    model_types.append(Qwen3MoeForCausalLM)
 except ImportError:
     pass
 
@@ -43,7 +43,7 @@ def patch_vllm_moe_model_weight_loader(model):
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
  
-    if not isinstance(model, model_types):
+    if not isinstance(model, tuple(model_types)):
         return
     for layer in model.model.layers:
         mlp = layer.mlp
