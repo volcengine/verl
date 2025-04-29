@@ -14,12 +14,12 @@
 # limitations under the License.
 """Pretrain utilities."""
 
+import gc
 import os
 import warnings
 from typing import Any, Dict
-import gc
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
@@ -31,7 +31,6 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
-from verl.utils.memory_buffer import build_memory_reference_from_module
 from verl.utils.torch_dtypes import PrecisionType
 
 
@@ -48,13 +47,8 @@ def get_model(
 ):
     """Build the model."""
     # Build model.
-    if (
-        mpu.get_pipeline_model_parallel_world_size() > 1
-        and mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-    ):
-        assert model_type != ModelType.encoder_and_decoder, (
-            "Interleaved schedule not supported for model with both encoder and decoder"
-        )
+    if mpu.get_pipeline_model_parallel_world_size() > 1 and mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
+        assert model_type != ModelType.encoder_and_decoder, "Interleaved schedule not supported for model with both encoder and decoder"
         model = []
         for i in range(mpu.get_virtual_pipeline_model_parallel_world_size()):
             mpu.set_virtual_pipeline_model_parallel_rank(i)
@@ -71,9 +65,7 @@ def get_model(
         add_decoder = True
         if model_type == ModelType.encoder_and_decoder:
             if mpu.get_pipeline_model_parallel_world_size() > 1:
-                assert mpu.get_pipeline_model_parallel_split_rank() is not None, (
-                    "Split rank needs to be specified for model with both encoder and decoder"
-                )
+                assert mpu.get_pipeline_model_parallel_split_rank() is not None, "Split rank needs to be specified for model with both encoder and decoder"
                 rank = mpu.get_pipeline_model_parallel_rank()
                 split_rank = mpu.get_pipeline_model_parallel_split_rank()
                 world_size = mpu.get_pipeline_model_parallel_world_size()
@@ -81,9 +73,7 @@ def get_model(
                 post_process = (rank == (split_rank - 1)) or (rank == (world_size - 1))
                 add_encoder = mpu.is_pipeline_stage_before_split()
                 add_decoder = mpu.is_pipeline_stage_after_split()
-            model = model_provider_func(
-                pre_process=pre_process, post_process=post_process, add_encoder=add_encoder, add_decoder=add_decoder
-            )
+            model = model_provider_func(pre_process=pre_process, post_process=post_process, add_encoder=add_encoder, add_decoder=add_decoder)
         else:
             model = model_provider_func(pre_process=pre_process, post_process=post_process)
         model.model_type = model_type
@@ -167,10 +157,7 @@ def convert_config(hf_config: PretrainedConfig, megatron_config) -> TransformerC
     dt = PrecisionType.to_dtype(megatron_config.params_dtype)
     print(f"pipeline_dtype=megatron_config {dt}")
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -227,8 +214,7 @@ def mcore_model_parallel_config(
     # WARNING: Code should not reach this point. This function is deprecated and will be removed.
     # Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.
     warnings.warn(
-        "Code should not reach this point. This function is deprecated and will be removed. "
-        "Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
+        "Code should not reach this point. This function is deprecated and will be removed. Please use hf_to_mcore_config_dense() from verl.models.mcore.config_converter instead.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -304,23 +290,25 @@ def load_megatron_model_to_gpu(models, load_grad=True):
     gc.collect()
     torch.cuda.empty_cache()
 
+
 @torch.no_grad()
 def offload_megatron_copy_params(optimizers):
     """
     Offload optimizer parameters to CPU
-    
+
     Args:
         optimizers: The optimizer containing parameter groups to offload
     """
+
     def offload_tensor_to_cpu(tensor):
         if tensor is None:
             return
-        tensor.data = tensor.data.to('cpu', non_blocking=True)
+        tensor.data = tensor.data.to("cpu", non_blocking=True)
 
     def offload_group_to_cpu(group):
         if group is None:
             return
-            
+
         if isinstance(group, list):
             for param_group in group:
                 if isinstance(param_group, list):
@@ -333,18 +321,19 @@ def offload_megatron_copy_params(optimizers):
 
     # Offload all parameter groups to CPU
 
-    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
-        offload_group_to_cpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
+        offload_group_to_cpu(optimizers.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def load_megatron_copy_params(optimizers):
     """
     Load optimizer parameters back to GPU
-    
+
     Args:
         optimizers: The optimizer containing parameter groups to load
     """
+
     def load_tensor_to_gpu(tensor):
         if tensor is None:
             return
@@ -354,7 +343,7 @@ def load_megatron_copy_params(optimizers):
     def load_group_to_gpu(group):
         if group is None:
             return
-            
+
         if isinstance(group, list):
             for param_group in group:
                 if isinstance(param_group, list):
@@ -367,8 +356,8 @@ def load_megatron_copy_params(optimizers):
 
     # Load all parameter groups to GPU
 
-    if hasattr(optimizers, 'shard_fp32_from_float16_groups'):
-        load_group_to_gpu(getattr(optimizers, 'shard_fp32_from_float16_groups'))
+    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
+        load_group_to_gpu(optimizers.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
@@ -376,8 +365,8 @@ def offload_megatron_optimizer(optimizers):
     offload_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+        v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+        v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -387,8 +376,8 @@ def load_megatron_optimizer(optimizers):
     load_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
-        v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+        v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+        v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -584,9 +573,7 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
     else:
         tensor_spec = None
     tensor_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-    torch.distributed.all_gather_object(
-        object_list=tensor_spec_output, obj=tensor_spec, group=mpu.get_pipeline_model_parallel_group()
-    )
+    torch.distributed.all_gather_object(object_list=tensor_spec_output, obj=tensor_spec, group=mpu.get_pipeline_model_parallel_group())
     # find the src rank
     target_tensor_spec = None
     src_rank = None
@@ -599,9 +586,7 @@ def broadcast_from_megatron_pp(tensor: torch.Tensor):
             src_rank = rank
     assert target_tensor_spec is not None
     if tensor is None:
-        tensor = torch.empty(
-            size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=torch.cuda.current_device()
-        )
+        tensor = torch.empty(size=target_tensor_spec[0], dtype=target_tensor_spec[1], device=torch.cuda.current_device())
         if target_tensor_spec[2] is not None:
             tensor.tensor_model_parallel = target_tensor_spec[2]
         if target_tensor_spec[3] is not None:
@@ -631,8 +616,6 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     obj_output = [None] * torch.distributed.get_world_size(group=mpu.get_pipeline_model_parallel_group())
     obj_output[0] = target_obj
-    torch.distributed.broadcast_object_list(
-        object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group()
-    )
+    torch.distributed.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
 
     return obj_output[0]

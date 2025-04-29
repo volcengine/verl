@@ -93,9 +93,7 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
                 layer.mlp.experts.linear_fc2._parameters[f"weight{idx}"].copy_(hf_expert.down_proj.weight)
 
             layer.mlp.shared_experts.gate_weight.copy_(hf_layer.mlp.shared_expert_gate.weight)
-            shared_fc1_weight = torch.cat(
-                [hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight]
-            )
+            shared_fc1_weight = torch.cat([hf_layer.mlp.shared_expert.gate_proj.weight, hf_layer.mlp.shared_expert.up_proj.weight])
             layer.mlp.shared_experts.linear_fc1.weight.copy_(shared_fc1_weight)
             layer.mlp.shared_experts.linear_fc2.weight.copy_(hf_layer.mlp.shared_expert.down_proj.weight)
 
@@ -217,9 +215,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         def megatron_value_model_provider(pre_process, post_process):
             from verl.utils.model import get_parallel_gptmodel_from_config
 
-            parallel_model = get_parallel_gptmodel_from_config(
-                tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True
-            )
+            parallel_model = get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True)
             parallel_model.cuda()
             return parallel_model
 
