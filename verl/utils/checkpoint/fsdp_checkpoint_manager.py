@@ -151,6 +151,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
 
+        if self.rank == 0:
+            self.processing_class.save_pretrained(local_path)
+
         # wait for everyone to dump to local
         torch.distributed.barrier()
 
