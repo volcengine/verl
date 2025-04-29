@@ -45,10 +45,7 @@ parser.add_argument(
     "--local_dir",
     type=str,
     required=True,
-    help=(
-        "The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, "
-        "commonly be `config.default_local_dir/global_step_\{global_step\}`."
-    ),
+    help=("The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, commonly be `config.default_local_dir/global_step_\{global_step\}`."),
 )
 parser.add_argument("--target_dir", required=False, default="tmp", type=str, help="The path for the target model")
 parser.add_argument("--hf_upload_path", default=False, type=str, help="The path of the huggingface repo to upload")
@@ -85,6 +82,40 @@ def upload_model_to_huggingface(hf_path):
     api.upload_folder(folder_path=hf_path, repo_id=args.hf_upload_path, repo_type="model")
 
 
+def test_fsdp_state_dict(
+    auto_model_class,
+    original_hf_model_path: str,
+    collected_state_dict: Dict[str, torch.Tensor],
+) -> bool:
+    # load original model using bf16 since we collected state_dict with bf16
+    original_model = auto_model_class.from_pretrained(original_hf_model_path, torch_dtype=torch.bfloat16)
+    original_state_dict = original_model.state_dict()
+    del original_model  # Free memory
+
+    original_keys = set(original_state_dict.keys())
+    collected_keys = set(collected_state_dict.keys())
+
+    missing_keys = original_keys - collected_keys
+    assert len(missing_keys) == 0, f"Missing keys in collected state dict: {list(sorted(missing_keys))}"
+
+    extra_keys = collected_keys - original_keys
+    assert len(extra_keys) == 0, f"Extra keys in collected state dict: {list(sorted(extra_keys))}"
+
+    for key in original_keys:
+        original_shape = original_state_dict[key].shape
+        collected_shape = collected_state_dict[key].shape
+        assert original_shape == collected_shape, f"Shape mismatch for key '{key}': original {original_shape} vs collected {collected_shape}"
+
+        original_dtype = original_state_dict[key].dtype
+        collected_dtype = collected_state_dict[key].dtype
+        assert original_dtype == collected_dtype, f"Dtype mismatch for key '{key}': original {original_dtype} vs collected {collected_dtype}"
+
+        torch.testing.assert_close(original_state_dict[key], collected_state_dict[key], atol=1e-4, rtol=1e-4)
+
+    print("FSDP checks passed: The merged state_dict matches the hf model saved by FSDPCheckpointManager.")
+    return True
+
+
 def patch_model_generation_config(model, hf_model_path):
     """
     The generation_config created from model config may be different to the pretrained model,
@@ -96,10 +127,7 @@ def patch_model_generation_config(model, hf_model_path):
         try:
             model.generation_config = GenerationConfig.from_pretrained(args.hf_model_path)
         except OSError:
-            print(
-                f"Warning: Generation config file not found in {args.hf_model_path}, "
-                "using a generation config created from the model config."
-            )
+            print(f"Warning: Generation config file not found in {args.hf_model_path}, using a generation config created from the model config.")
             pass
     return model
 
@@ -203,7 +231,6 @@ def convert_fsdp_checkpoints_to_hfmodels():
         else:
             state_dict[key] = torch.cat(state_dict[key], dim=0)
 
-    print("Writing to local disk")
     hf_path = os.path.join(local_dir, "huggingface") if args.target_dir is None else args.target_dir
     config = AutoConfig.from_pretrained(args.hf_model_path)
 
@@ -215,6 +242,10 @@ def convert_fsdp_checkpoints_to_hfmodels():
         auto_model = AutoModelForVision2Seq
     else:
         raise NotImplementedError(f"Unknown architecture {config['architectures']}")
+
+    if args.test:
+        print("Running compatibility test")
+        test_fsdp_state_dict(auto_model, args.hf_model_path, state_dict)
 
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
