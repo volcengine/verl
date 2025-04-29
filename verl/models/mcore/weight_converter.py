@@ -1,5 +1,6 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +21,6 @@ import torch
 from megatron.core.transformer import TransformerConfig
 from transformers import PretrainedConfig
 
-
 class McoreToHFWeightConverterBase:
     def __init__(self, hf_config: PretrainedConfig, mcore_config: TransformerConfig):
         self.hf_config = hf_config
@@ -28,7 +28,6 @@ class McoreToHFWeightConverterBase:
 
     def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
-
 
 class McoreToHFWeightConverterDense(McoreToHFWeightConverterBase):
     def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
@@ -135,6 +134,30 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
             expert_id = name.split("weight")[-1]
             convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.down_proj.weight")
             assert len(params) == 1
+        else:
+            raise NotImplementedError(f"Unsupported parameter name: {name}")
+        return convert_names, params
+
+class McoreToHFWeightConverterMixtral(McoreToHFWeightConverterDense):
+
+    def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        # decoder.layers.0.mlp.router.weight
+        # decoder.layers.0.mlp.experts.linear_fc1.weight0 - weight7
+        # decoder.layers.0.mlp.experts.linear_fc2.weight0 - weight7
+
+        layer_number = name.split(".")[2]
+        convert_names = []
+        if "pre_mlp_layernorm" in name:
+            convert_names.append(f"model.layers.{layer_number}.post_attention_layernorm.weight")
+        elif "mlp.router.weight" in name:
+            convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.gate.weight")
+        elif "mlp.experts.linear_fc1.weight" in name:  
+            expert_id = name.split("weight")[-1]
+            convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.experts.{expert_id}.w1.weight")
+            convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.experts.{expert_id}.w3.weight")
+        elif "mlp.experts.linear_fc2.weight" in name:
+            expert_id = name.split("weight")[-1]
+            convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.experts.{expert_id}.w2.weight")
         else:
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
