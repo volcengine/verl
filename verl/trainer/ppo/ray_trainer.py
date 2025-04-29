@@ -1019,6 +1019,17 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
+                    with _timer("reward", timing_raw):
+                        # compute reward model score
+                        if self.use_rm:
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        if self.config.reward_model.launch_reward_fn_async:
+                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                        else:
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+
                     # recompute old_log_probs
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1044,17 +1055,6 @@ class RayPPOTrainer:
                         with _timer("values", timing_raw):
                             values = self.critic_wg.compute_values(batch)
                             batch = batch.union(values)
-
-                    with _timer("reward", timing_raw):
-                        # compute reward model score
-                        if self.use_rm:
-                            reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            batch = batch.union(reward_tensor)
-
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-                        else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     with _timer("adv", timing_raw):
                         # we combine with rule-based rm

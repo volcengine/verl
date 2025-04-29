@@ -147,9 +147,10 @@ class MegatronRewardModel(BasePPORewardModel):
             else:
                 logits = torch.empty(
                     (input_ids.shape[0], input_ids.shape[1]),
-                    dtype=torch.bfloat16,  # TODO(sgm): check why is bfloat16
                     device=input_ids.device,
                 )
+            logits = logits.to(torch.float32)
+
             # broadcast across pp ranks
             torch.distributed.broadcast(
                 tensor=logits,
