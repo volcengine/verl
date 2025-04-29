@@ -32,8 +32,9 @@ def patch_vllm_moe_model_weight_loader(model):
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
     from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
     from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
 
-    if not isinstance(model, (Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM)):
+    if not isinstance(model, (Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM, Qwen3MoeForCausalLM)):
         return
     for layer in model.model.layers:
         mlp = layer.mlp
