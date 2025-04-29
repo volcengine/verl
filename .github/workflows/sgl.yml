@@ -37,6 +37,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
+      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
     container:
