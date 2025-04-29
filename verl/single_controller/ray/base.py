@@ -15,9 +15,9 @@
 import logging
 import os
 import time
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
-from copy import deepcopy
 
 import ray
 from ray.experimental.state.api import get_actor
@@ -26,7 +26,7 @@ from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
-from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch, register
+from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 
 __all__ = ["Worker"]
 
@@ -356,14 +356,14 @@ class RayWorkerGroup(WorkerGroup):
             new_wg.sub_cls_name = key
             wg_dict[key] = new_wg
         return wg_dict
-    
+
     def fuse(self, prefix_set):
         if self.wg_dict is None:
             self.wg_dict = self.spawn(prefix_set)
         for role_name, role_wg in self.wg_dict.items():
             setattr(self, role_name, role_wg)
         self.method_names = self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
-    
+
     def _execute_remote_single_worker(self, worker, method_name: str, *args, **kwargs):
         if self.fused_worker_used and method_name not in self.method_names:
             remote_call = getattr(worker, self.fused_worker_execute_fn_name)
@@ -400,9 +400,7 @@ class RayWorkerGroup(WorkerGroup):
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(
-                        self._execute_remote_single_worker(self._workers[i], method_name, *sliced_args,
-                                                           **sliced_kwargs))
+                    result.append(self._execute_remote_single_worker(self._workers[i], method_name, *sliced_args, **sliced_kwargs))
                 return result
 
         return [self._execute_remote_single_worker(worker, method_name, *args, **kwargs) for worker in self._workers]
@@ -540,7 +538,7 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
 
     `FusedWorker.{class_name}` -> FusedClass
         Use `class_name` as a param to directly access the underlying class.
-    
+
     `FusedWorker._fuw_execute("{class_name}_fwmn_{method_name}", *args, **kwargs)`
         First param must be "{class_name}_fwmn_{method_name}" in order to access `method_name`
         of underlying class `{class_name}`.
@@ -561,7 +559,6 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
     class_name_renamed = "_".join([FusedWorkerCLSName] + cls_names)
 
     class FusedWorker(Worker):
-
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.cls_names = cls_names
@@ -569,11 +566,10 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             self.init_args_dict = init_args_dict
             self.init_kwargs_dict = init_kwargs_dict
 
-            for cls_name, udc, ud_args, ud_kwargs in zip(self.cls_names, self.raw_cls_dict.values(),
-                                                         self.init_args_dict.values(), self.init_kwargs_dict.values()):
-                with patch.dict(os.environ, {'DISABLE_WORKER_INIT': '1'}):
-                    setattr(udc, "_get_ray_actor_cls_name", lambda x, name_renamed=class_name_renamed: name_renamed)
-                    setattr(udc, "_get_ray_method_prefix", lambda x, name_prefixed=cls_name: f"{name_prefixed}_")
+            for cls_name, udc, ud_args, ud_kwargs in zip(self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()):
+                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                    udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed
+                    udc._get_ray_method_prefix = lambda x, name_prefixed=cls_name: f"{name_prefixed}_"
                     # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker
                     self.fused_worker_dict[cls_name] = udc(*ud_args, **ud_kwargs)
                     setattr(self, cls_name, self.fused_worker_dict[cls_name])
@@ -594,8 +590,8 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             return udc_method(*args, **kwargs)
 
     renamed_fused_worker_cls = type(class_name_renamed, (FusedWorker,), {})
-    setattr(renamed_fused_worker_cls, "is_fused_worker", True)
-    setattr(renamed_fused_worker_cls, "raw_cls_dict", raw_cls_dict)
+    renamed_fused_worker_cls.is_fused_worker = True
+    renamed_fused_worker_cls.raw_cls_dict = raw_cls_dict
 
     return renamed_fused_worker_cls
 

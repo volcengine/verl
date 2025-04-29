@@ -15,14 +15,12 @@
 import ray
 
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
-from verl.single_controller.ray.base import (RayResourcePool, RayClassWithInitArgs, RayWorkerGroup,
-                                             create_colocated_worker_raw_cls)
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, create_colocated_worker_raw_cls
 
 
 @ray.remote
 class Actor(Worker):
-
     def __init__(self) -> None:
         super().__init__()
 
@@ -34,7 +32,6 @@ class Actor(Worker):
 
 @ray.remote
 class Critic(Worker):
-
     def __init__(self, val) -> None:
         super().__init__()
         self.val = val
@@ -47,13 +44,12 @@ class Critic(Worker):
 
 actor_cls = RayClassWithInitArgs(cls=Actor)
 critic_cls = RayClassWithInitArgs(cls=Critic, val=10)
-cls_dict = {'actor': actor_cls, 'critic': critic_cls}
+cls_dict = {"actor": actor_cls, "critic": critic_cls}
 FusedBaseClass = create_colocated_worker_raw_cls(cls_dict)
 
 
 @ray.remote
 class HybridWorker(FusedBaseClass):
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def foo(self, x):
         return self.critic.sub(self.actor.add(x))

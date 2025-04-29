@@ -45,10 +45,7 @@ parser.add_argument(
     "--local_dir",
     type=str,
     required=True,
-    help=(
-        "The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, "
-        "commonly be `config.default_local_dir/global_step_\{global_step\}`."
-    ),
+    help=("The path for your saved model. For megatron, point to the base dir of model, rng, optimizer checkpoints, commonly be `config.default_local_dir/global_step_\{global_step\}`."),
 )
 parser.add_argument("--target_dir", required=False, default="tmp", type=str, help="The path for the target model")
 parser.add_argument("--hf_upload_path", default=False, type=str, help="The path of the huggingface repo to upload")
@@ -96,10 +93,7 @@ def patch_model_generation_config(model, hf_model_path):
         try:
             model.generation_config = GenerationConfig.from_pretrained(args.hf_model_path)
         except OSError:
-            print(
-                f"Warning: Generation config file not found in {args.hf_model_path}, "
-                "using a generation config created from the model config."
-            )
+            print(f"Warning: Generation config file not found in {args.hf_model_path}, using a generation config created from the model config.")
             pass
     return model
 
