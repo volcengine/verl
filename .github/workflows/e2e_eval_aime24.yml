@@ -48,7 +48,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,math]
+          pip3 install --no-deps -e .[test,gpu,math]
+          pip3 install math-verify
       - name: Prepare aime24 dataset
         run: |
           ray stop --force
