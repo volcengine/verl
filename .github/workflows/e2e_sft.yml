@@ -54,7 +54,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install peft
-          pip3 install -e .[test,gpu]
+          pip3 install --no-deps -e .[test,gpu]
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
