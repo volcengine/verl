@@ -129,6 +129,10 @@ class ToolChatCompletionScheduler(NaiveChatCompletionScheduler):
             max_completion_tokens=self.config.response_length,
             temperature=self.config.temperature,
             top_p=self.config.top_p,
+            extra_body={
+                "include_stop_str_in_output": True,
+                "stop": ["</answer>", "</code>"],
+            },
         )
 
         do_sample = batch.meta_info.get("do_sample", True)
@@ -140,7 +144,7 @@ class ToolChatCompletionScheduler(NaiveChatCompletionScheduler):
         kwargs.update(sampling_params)
         print(f"[ToolChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
 
-        max_turns = 4
+        max_turns = 3
 
         async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
             batch_conversations, batch_index, turn = (
@@ -254,8 +258,8 @@ def test_vllm_tool_calling():
     config.actor_rollout_ref.model.path = "Qwen/Qwen2-7B-Instruct"
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.chat_scheduler = "tests.rollout.test_vllm_tool_calling.ToolChatCompletionScheduler"
-    config.actor_rollout_ref.rollout.prompt_length = 4096
-    config.actor_rollout_ref.rollout.response_length = 4096
+    config.actor_rollout_ref.rollout.prompt_length = 8192
+    config.actor_rollout_ref.rollout.response_length = 8192
 
     # Init sandbox and async rollout manager
     sandbox = Sandbox.options(num_cpus=1).remote()

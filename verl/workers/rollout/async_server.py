@@ -171,15 +171,16 @@ class ChatCompletionScheduler:
                 request_id = request_id[len("chatcmpl-") :]
                 extra_headers["x-request-id"] = request_id
 
-            address = self.request_id_to_address[request_id]
+            address = self.request_id_to_address.pop(request_id)
         else:
             address = self.weighted_addresses[0][1]
             self.weighted_addresses[0][0] += 1
             heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
 
-            request_id = uuid4().hex
-            self.request_id_to_address[request_id] = address
-            chat_complete_request["extra_headers"]["x-request-id"] = request_id
+        # use new request_id to avoid duplicate request_id problem
+        request_id = uuid4().hex
+        self.request_id_to_address[request_id] = address
+        chat_complete_request["extra_headers"]["x-request-id"] = request_id
 
         completions, exception = None, None
         try:
