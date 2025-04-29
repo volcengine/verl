@@ -94,7 +94,7 @@ actor_rollout_ref:
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
-      use_distributed_optimizer: True
+      use_distributed_optimizer: False
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: 1
@@ -209,7 +209,7 @@ reward_model:
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
     sequence_parallel: True
-    use_distributed_optimizer: True
+    use_distributed_optimizer: False
     use_dist_checkpointing: False
     dist_checkpointing_path: null
     seed: 1

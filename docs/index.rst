@@ -60,6 +60,7 @@ verl is fast with:
 
    examples/ppo_code_architecture
    examples/gsm8k_example
+   examples/multi_modal_example
 
 .. toctree:: 
    :maxdepth: 1
@@ -126,7 +127,7 @@ We use pre-commit to help improve code quality. To initialize pre-commit, run:
    pip install pre-commit
    pre-commit install
 
-You can also manually run pre-commit by:
+To resolve CI errors locally, you can also manually run pre-commit by:
 
 .. code-block:: bash
 

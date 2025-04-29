@@ -54,6 +54,8 @@ jobs:
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
           git add .pre-commit-config.yaml
       - uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: "" # Overriding default "--all-files"
 
   e2e_ppo_trainer_vllm:
     runs-on: [L20x8]
@@ -72,7 +74,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,vllm]
+          pip3 install --no-deps -e .[test,vllm]
       - name: Prepare GSM8K dataset
         run: |
           ray stop --force
