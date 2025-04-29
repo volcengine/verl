@@ -400,6 +400,33 @@ class ActorRolloutRefWorker(Worker):
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
+        elif rollout_name == "sglang_async":
+            from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+            from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
+
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
+            rollout = AsyncSGLangRollout(
+                actor_module=self.config.model.path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+            )
+            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)
+
+            if torch.distributed.get_world_size() == 1:
+                self.config.rollout.load_format = "dummy_hf"
+            rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
+                module=self.actor_module_fsdp,
+                inference_engine=rollout._engine,
+                model_config=self.actor_model_config,
+                full_params="hf" in self.config.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=None)
+
+        else:
+            raise NotImplementedError(f"Rollout name: {self.config.rollout.name} is not supported")
+
         return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -540,7 +567,18 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage("After entering rollout sharding manager", logger=logger)
 
             prompts = self.rollout_sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+
+            if self.config.rollout.name == "sglang_async":
+                from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+
+                if isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "_tool_schemas") and len(self.rollout._tool_schemas) > 0:
+                    output = self.rollout.generate_sequences_with_tools(prompts=prompts)
+                else:
+                    output = self.rollout.generate_sequences(prompts=prompts)
+            else:
+                output = self.rollout.generate_sequences(prompts=prompts)
+            log_gpu_memory_usage("After rollout generation", logger=logger)
+
             output = self.rollout_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
