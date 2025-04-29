@@ -96,9 +96,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
 
         return self._postprocess(batch, batch_conversations, kwargs["n"])
 
-    def _postprocess(
-        self, batch: DataProto, batch_conversations: List[List[List[Dict[str, str]]]], n: int
-    ) -> DataProto:
+    def _postprocess(self, batch: DataProto, batch_conversations: List[List[List[Dict[str, str]]]], n: int) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -107,10 +105,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
 
         # prompts: [prompt] from input dataset
-        prompts = [
-            self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False)
-            for prompt in batch.non_tensor_batch["raw_prompt"]
-        ]
+        prompts = [self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
 
         # flatten batch_conversations if n > 1
         assert len(batch_conversations) == len(prompts)
@@ -118,10 +113,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         assert len(batch_conversations) == len(prompts) * n
 
         # sequences: [prompt + response]
-        sequences = [
-            self.tokenizer.apply_chat_template(conversation, add_generation_prompt=False, tokenize=False)
-            for conversation in batch_conversations
-        ]
+        sequences = [self.tokenizer.apply_chat_template(conversation, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
 
         # responses: [response]
         # TODO: mask out tools calling tokens?
