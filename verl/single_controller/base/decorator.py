@@ -24,21 +24,20 @@ MAGIC_ATTR = "attrs_3141562937"
 
 
 class Dispatch(Enum):
-    RANK_ZERO = 0
-    ONE_TO_ALL = 1
-    ALL_TO_ALL = 2
-    MEGATRON_COMPUTE = 3
-    MEGATRON_PP_AS_DP = 4
-    MEGATRON_PP_ONLY = 5
-    MEGATRON_COMPUTE_PROTO = 6
-    MEGATRON_PP_AS_DP_PROTO = 7
-    DP_COMPUTE = 8
-    DP_COMPUTE_PROTO = 9
-    DP_COMPUTE_PROTO_WITH_FUNC = 10
-    DP_COMPUTE_METRIC = 11
+    ONE_TO_ALL = 0
+    ALL_TO_ALL = 1
+    MEGATRON_COMPUTE = 2
+    MEGATRON_PP_AS_DP = 3
+    MEGATRON_PP_ONLY = 4
+    MEGATRON_COMPUTE_PROTO = 5
+    MEGATRON_PP_AS_DP_PROTO = 6
+    DP_COMPUTE = 7
+    DP_COMPUTE_PROTO = 8
+    DP_COMPUTE_PROTO_WITH_FUNC = 9
+    DP_COMPUTE_METRIC = 10
 
     # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
-    DIRECT_ROLLOUT_METHOD = 12
+    DIRECT_ROLLOUT_METHOD = 11
 
 
 class Execute(Enum):
