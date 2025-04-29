@@ -62,7 +62,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
@@ -141,7 +141,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.3-flashinfer0.2.2-cxx11abi0
@@ -175,7 +175,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
@@ -204,7 +204,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
@@ -233,7 +233,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
@@ -262,7 +262,7 @@ jobs:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1"
-      HF_ENDPOINT: ${{ secrets.HF_ENDPOINT }}
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
