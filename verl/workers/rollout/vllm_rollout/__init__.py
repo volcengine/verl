@@ -11,14 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 from importlib.metadata import PackageNotFoundError, version
-
-###
-# [SUPPORT AMD:]
-import torch
-
-###
 
 
 def get_version(pkg):
@@ -34,7 +28,8 @@ package_version = get_version(package_name)
 ###
 # package_version = get_version(package_name)
 # [SUPPORT AMD:]
-if "AMD" in torch.cuda.get_device_name():
+# Do not call any torch.cuda* API here, or ray actor creation import class will fail.
+if "ROCM_PATH" in os.environ:
     import re
 
     package_version = version(package_name)
@@ -45,8 +40,8 @@ else:
 
 if package_version <= "0.6.3":
     vllm_mode = "customized"
-    from .fire_vllm_rollout import FIREvLLMRollout
-    from .vllm_rollout import vLLMRollout
+    from .fire_vllm_rollout import FIREvLLMRollout  # noqa: F401
+    from .vllm_rollout import vLLMRollout  # noqa: F401
 else:
     vllm_mode = "spmd"
-    from .vllm_rollout_spmd import vLLMRollout
+    from .vllm_rollout_spmd import vLLMAsyncRollout, vLLMRollout  # noqa: F401

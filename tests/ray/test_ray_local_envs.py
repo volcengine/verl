@@ -40,9 +40,7 @@ def test_basics():
     resource_pool = RayResourcePool([4], use_gpu=True)
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
-    worker_group = RayWorkerGroup(
-        resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic"
-    )
+    worker_group = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic")
 
     output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_WORLD_SIZE")
     assert output == ["4", "4", "4", "4"]

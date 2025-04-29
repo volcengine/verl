@@ -147,9 +147,7 @@ class EngineArgs:
         """Shared CLI arguments for vLLM engine."""
         # Model arguments
         # TODO(shengguangming): delete the unused args
-        parser.add_argument(
-            "--model", type=str, default="facebook/opt-125m", help="name or path of the huggingface model to use"
-        )
+        parser.add_argument("--model", type=str, default="facebook/opt-125m", help="name or path of the huggingface model to use")
         parser.add_argument(
             "--tokenizer",
             type=str,
@@ -160,26 +158,20 @@ class EngineArgs:
             "--revision",
             type=str,
             default=None,
-            help="the specific model version to use. It can be a branch "
-            "name, a tag name, or a commit id. If unspecified, will use "
-            "the default version.",
+            help="the specific model version to use. It can be a branch name, a tag name, or a commit id. If unspecified, will use the default version.",
         )
         parser.add_argument(
             "--tokenizer-revision",
             type=str,
             default=None,
-            help="the specific tokenizer version to use. It can be a branch "
-            "name, a tag name, or a commit id. If unspecified, will use "
-            "the default version.",
+            help="the specific tokenizer version to use. It can be a branch name, a tag name, or a commit id. If unspecified, will use the default version.",
         )
         parser.add_argument(
             "--tokenizer-mode",
             type=str,
             default=EngineArgs.tokenizer_mode,
             choices=["auto", "slow"],
-            help='tokenizer mode. "auto" will use the fast '
-            'tokenizer if available, and "slow" will '
-            "always use the slow tokenizer.",
+            help='tokenizer mode. "auto" will use the fast tokenizer if available, and "slow" will always use the slow tokenizer.',
         )
         parser.add_argument("--trust-remote-code", action="store_true", help="trust remote code from huggingface")
         parser.add_argument(
@@ -209,10 +201,7 @@ class EngineArgs:
             type=str,
             default=EngineArgs.dtype,
             choices=["auto", "half", "float16", "bfloat16", "float", "float32"],
-            help="data type for model weights and activations. "
-            'The "auto" option will use FP16 precision '
-            "for FP32 and FP16 models, and BF16 precision "
-            "for BF16 models.",
+            help='data type for model weights and activations. The "auto" option will use FP16 precision for FP32 and FP16 models, and BF16 precision for BF16 models.',
         )
         parser.add_argument(
             "--max-model-len",
@@ -241,14 +230,10 @@ class EngineArgs:
             help="number of tensor parallel replicas",
         )
         # KV cache arguments
-        parser.add_argument(
-            "--block-size", type=int, default=EngineArgs.block_size, choices=[8, 16, 32], help="token block size"
-        )
+        parser.add_argument("--block-size", type=int, default=EngineArgs.block_size, choices=[8, 16, 32], help="token block size")
         # TODO(woosuk): Support fine-grained seeds (e.g., seed per request).
         parser.add_argument("--seed", type=int, default=EngineArgs.seed, help="random seed")
-        parser.add_argument(
-            "--swap-space", type=int, default=EngineArgs.swap_space, help="CPU swap space size (GiB) per GPU"
-        )
+        parser.add_argument("--swap-space", type=int, default=EngineArgs.swap_space, help="CPU swap space size (GiB) per GPU")
         parser.add_argument(
             "--gpu-memory-utilization",
             type=float,
@@ -292,21 +277,11 @@ class EngineArgs:
     ) -> EngineConfig:
         # bitsandbytes quantization needs a specific model loader
         # so we make sure the quant method and the load format are consistent
-        if (
-            self.quantization == "bitsandbytes" or self.qlora_adapter_name_or_path is not None
-        ) and self.load_format != "bitsandbytes":
-            raise ValueError(
-                "BitsAndBytes quantization and QLoRA adapter only support "
-                f"'bitsandbytes' load format, but got {self.load_format}"
-            )
+        if (self.quantization == "bitsandbytes" or self.qlora_adapter_name_or_path is not None) and self.load_format != "bitsandbytes":
+            raise ValueError(f"BitsAndBytes quantization and QLoRA adapter only support 'bitsandbytes' load format, but got {self.load_format}")
 
-        if (
-            self.load_format == "bitsandbytes" or self.qlora_adapter_name_or_path is not None
-        ) and self.quantization != "bitsandbytes":
-            raise ValueError(
-                "BitsAndBytes load format and QLoRA adapter only support "
-                f"'bitsandbytes' quantization, but got {self.quantization}"
-            )
+        if (self.load_format == "bitsandbytes" or self.qlora_adapter_name_or_path is not None) and self.quantization != "bitsandbytes":
+            raise ValueError(f"BitsAndBytes load format and QLoRA adapter only support 'bitsandbytes' quantization, but got {self.quantization}")
 
         assert self.cpu_offload_gb >= 0, f"CPU offload space must be non-negative, but got {self.cpu_offload_gb}"
 
@@ -377,32 +352,15 @@ class EngineArgs:
                 use_sliding_window = model_config.get_sliding_window() is not None
                 use_spec_decode = self.speculative_model is not None
                 has_seqlen_agnostic_layers = model_config.contains_seqlen_agnostic_layers(parallel_config)
-                if (
-                    is_gpu
-                    and not use_sliding_window
-                    and not use_spec_decode
-                    and not self.enable_lora
-                    and not self.enable_prompt_adapter
-                    and not self.enable_prefix_caching
-                    and not has_seqlen_agnostic_layers
-                ):
+                if is_gpu and not use_sliding_window and not use_spec_decode and not self.enable_lora and not self.enable_prompt_adapter and not self.enable_prefix_caching and not has_seqlen_agnostic_layers:
                     self.enable_chunked_prefill = True
-                    logger.warning(
-                        "Chunked prefill is enabled by default for models with "
-                        "max_model_len > 32K. Currently, chunked prefill might "
-                        "not work with some features or models. If you "
-                        "encounter any issues, please disable chunked prefill "
-                        "by setting --enable-chunked-prefill=False."
-                    )
+                    logger.warning("Chunked prefill is enabled by default for models with max_model_len > 32K. Currently, chunked prefill might not work with some features or models. If you encounter any issues, please disable chunked prefill by setting --enable-chunked-prefill=False.")
             if self.enable_chunked_prefill is None:
                 self.enable_chunked_prefill = False
 
         if not self.enable_chunked_prefill and use_long_context:
             logger.warning(
-                "The model has a long context length (%s). This may cause OOM "
-                "errors during the initial memory profiling phase, or result "
-                "in low performance due to small KV cache space. Consider "
-                "setting --max-model-len to a smaller value.",
+                "The model has a long context length (%s). This may cause OOM errors during the initial memory profiling phase, or result in low performance due to small KV cache space. Consider setting --max-model-len to a smaller value.",
                 max_model_len,
             )
 
@@ -432,9 +390,7 @@ class EngineArgs:
             max_num_seqs=self.max_num_seqs,
             max_model_len=model_config.max_model_len,
             use_v2_block_manager=self.use_v2_block_manager,
-            num_lookahead_slots=(
-                self.num_lookahead_slots if speculative_config is None else speculative_config.num_lookahead_slots
-            ),
+            num_lookahead_slots=(self.num_lookahead_slots if speculative_config is None else speculative_config.num_lookahead_slots),
             delay_factor=self.scheduler_delay_factor,
             enable_chunked_prefill=self.enable_chunked_prefill,
             embedding_mode=model_config.embedding_mode,
@@ -466,27 +422,14 @@ class EngineArgs:
             ignore_patterns=self.ignore_patterns,
         )
 
-        prompt_adapter_config = (
-            PromptAdapterConfig(
-                max_prompt_adapters=self.max_prompt_adapters, max_prompt_adapter_token=self.max_prompt_adapter_token
-            )
-            if self.enable_prompt_adapter
-            else None
-        )
+        prompt_adapter_config = PromptAdapterConfig(max_prompt_adapters=self.max_prompt_adapters, max_prompt_adapter_token=self.max_prompt_adapter_token) if self.enable_prompt_adapter else None
 
         decoding_config = DecodingConfig(guided_decoding_backend=self.guided_decoding_backend)
 
         observability_config = ObservabilityConfig(otlp_traces_endpoint=self.otlp_traces_endpoint)
 
-        if (
-            model_config.get_sliding_window() is not None
-            and scheduler_config.chunked_prefill_enabled
-            and not scheduler_config.use_v2_block_manager
-        ):
-            raise ValueError(
-                "Chunked prefill is not supported with sliding window. "
-                "Set --disable-sliding-window to disable sliding window."
-            )
+        if model_config.get_sliding_window() is not None and scheduler_config.chunked_prefill_enabled and not scheduler_config.use_v2_block_manager:
+            raise ValueError("Chunked prefill is not supported with sliding window. Set --disable-sliding-window to disable sliding window.")
 
         return EngineConfig(
             model_config=model_config,

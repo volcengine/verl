@@ -19,6 +19,8 @@ import os
 import socket
 from dataclasses import dataclass
 
+import ray
+
 from .decorator import Dispatch, Execute, register
 
 
@@ -120,11 +122,14 @@ class Worker(WorkerHelper):
             if os.getenv("WG_BACKEND", None) == "ray":
                 from verl.single_controller.base.register_center.ray import create_worker_group_register_center
 
-                self.register_center = create_worker_group_register_center(
-                    name=register_center_name, info=rank_zero_info
-                )
+                self.register_center = create_worker_group_register_center(name=register_center_name, info=rank_zero_info)
 
             os.environ.update(rank_zero_info)
+        else:
+            self.register_center = ray.get_actor(register_center_name)
+
+        # set worker info for node affinity scheduling
+        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
         # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
@@ -198,9 +203,7 @@ class Worker(WorkerHelper):
             if val is not None:
                 # print(f"set {key} to {val}")
                 os.environ[key] = str(val)
-        os.environ["REDIS_STORE_SERVER_HOST"] = (
-            str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
-        )
+        os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
 
     def get_master_addr_port(self):
         return self._master_addr, self._master_port
