@@ -119,6 +119,9 @@ def test_async_sglang_rollout_w_tool():
     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
     print("SGLang w tool Test Passed!")
 
+    torch.distributed.barrier()
+    torch.distributed.destroy_process_group()
+
 
 if __name__ == "__main__":
     test_async_sglang_rollout_w_tool()

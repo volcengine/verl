@@ -22,6 +22,7 @@ import asyncio
 
 import torch
 from sglang.srt.entrypoints.engine import Engine
+from sglang.srt.utils import broadcast_pyobj
 from torch.distributed.device_mesh import init_device_mesh
 from utils_sglang import (
     are_lists_similar,
@@ -91,9 +92,22 @@ def test_sglang_spmd():
 
         loop = asyncio.get_event_loop()
         outputs = loop.run_until_complete(llm.async_generate(input_ids=idx_list, sampling_params=sampling_params))
+    else:
+        outputs = None
 
-        sglang_response_tokens = [output["text"] for output in outputs]
+    [outputs] = broadcast_pyobj(
+        [outputs],
+        rank=inference_device_mesh_cpu["tp"].get_local_rank(),
+        src=inference_device_mesh_cpu["tp"].mesh[0].item(),
+        dist_group=inference_device_mesh_cpu["tp"].get_group(),
+        force_cpu_device=False,
+    )
 
-        print(f"sglang response: {sglang_response_tokens}")
-        assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
-        print("SPMD Test Passed!")
+    sglang_response_tokens = [output["text"] for output in outputs]
+
+    print(f"sglang response: {sglang_response_tokens}")
+    assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
+    print("SPMD Test Passed!")
+
+    torch.distributed.barrier()
+    torch.distributed.destroy_process_group()

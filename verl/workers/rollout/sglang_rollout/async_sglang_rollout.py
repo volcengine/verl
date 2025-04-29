@@ -552,6 +552,7 @@ class AsyncSGLangRollout(BaseRollout):
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
+        tgt_device = prompts.batch["input_ids"].device
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
@@ -597,19 +598,19 @@ class AsyncSGLangRollout(BaseRollout):
             error_message = "\n".join(error_message_lines)
             assert len(req.input_ids) <= self.config.max_model_len, error_message
 
-            prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int))
-            response_ids.append(torch.tensor(req.response_ids, dtype=torch.int))
+            prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int, device=tgt_device))
+            response_ids.append(torch.tensor(req.response_ids, dtype=torch.int, device=tgt_device))
             if len(req.response_ids) > self.config.response_length:
                 print(
                     f"""{req.request_id=} has response_ids length {len(req.response_ids)} 
                     greater than max_response_len {self.config.response_length},\n{req=}"""
                 )
-            prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int))
-            response_attention_mask.append(torch.tensor(req.response_attention_mask, dtype=torch.int))
-            prompt_position_ids.append(torch.tensor(req.prompt_position_ids, dtype=torch.int))
-            response_position_ids.append(torch.tensor(req.response_position_ids, dtype=torch.int))
-            prompt_loss_mask.append(torch.tensor(req.prompt_loss_mask, dtype=torch.int))
-            response_loss_mask.append(torch.tensor(req.response_loss_mask, dtype=torch.int))
+            prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int, device=tgt_device))
+            response_attention_mask.append(torch.tensor(req.response_attention_mask, dtype=torch.int, device=tgt_device))
+            prompt_position_ids.append(torch.tensor(req.prompt_position_ids, dtype=torch.int, device=tgt_device))
+            response_position_ids.append(torch.tensor(req.response_position_ids, dtype=torch.int, device=tgt_device))
+            prompt_loss_mask.append(torch.tensor(req.prompt_loss_mask, dtype=torch.int, device=tgt_device))
+            response_loss_mask.append(torch.tensor(req.response_loss_mask, dtype=torch.int, device=tgt_device))
             messages.append({"messages": req.messages})
             reward_scores.append(req.reward_scores)
 
