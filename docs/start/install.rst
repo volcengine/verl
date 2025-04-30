@@ -42,7 +42,7 @@ For vLLM with Megatron or FSDP, please use ``whatcanyousee/verl:ngc-cu124-vllm0.
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` which is provided by SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -98,11 +98,13 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+   pip3 install torch torchvision
    pip3 install flash-attn --no-build-isolation
    git clone https://github.com/volcengine/verl.git
    cd verl
-   pip3 install -e .
+   # pick your choice of inference engine: vllm or sglang
+   # pip3 install -e .[vllm]
+   # pip3 install -e .[sglang]
 
 
 Megatron is optional. It's dependencies can be setup as below:
