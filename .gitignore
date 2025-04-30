@@ -1,3 +1,6 @@
+**/source_data
+**/input_data
+
 
 **/*.pt
 **/checkpoints

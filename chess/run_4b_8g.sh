@@ -1,8 +1,5 @@
 set -x
 
-# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
-# export VLLM_ATTENTION_BACKEND=XFORMERS
-
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
