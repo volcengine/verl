@@ -221,6 +221,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                 ns.append(n_resps)
 
                 # If there are multiple responses, we can compute the best/worst-of-N metrics
+                # If not, they are the same as the single response metrics
                 if n_resps > 1:
                     for n in ns:
                         if n == n_resps:
