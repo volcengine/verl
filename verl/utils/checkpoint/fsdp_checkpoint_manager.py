@@ -20,7 +20,7 @@ import torch
 import torch.distributed
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from transformers import PreTrainedTokenizer, ProcessorMixin
+from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
 
@@ -150,6 +150,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(extra_state_dict, extra_path)
 
         if self.rank == 0:
+            self.model._fsdp_wrapped_module.config.save_pretrained(local_path)
             self.processing_class.save_pretrained(local_path)
 
         # wait for everyone to dump to local
@@ -187,9 +188,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 save_model.to_empty(device="cpu")
 
                 if save_model.can_generate():
-                    # self.model._fsdp_wrapped_module is initialized using `from_pretrained`,
-                    # therefore self.model._fsdp_wrapped_module.generation_config should loaded from pretrained generation config.
-                    save_model.generation_config = self.model._fsdp_wrapped_module.generation_config
+                    try:
+                        save_model.generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+                    except OSError:
+                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in {model_config.name_or_path}, using a generation config created from the model config when saving hf_model.")
 
                 save_model.save_pretrained(hf_local_path, state_dict=state_dict)
                 self.processing_class.save_pretrained(hf_local_path)
