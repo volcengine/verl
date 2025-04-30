@@ -206,7 +206,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                     # assert not torch.any(torch.isnan(vpreds)).item()
 
                     state_mask = attention_mask[:, -response_length - 1 : -1]
-                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds, values=values, returns=returns, response_mask=state_mask, cliprange_value=self.config.cliprange_value)
+                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds, values=values, returns=returns, response_mask=state_mask, cliprange_value=self.config.cliprange_value, loss_agg_mode=self.config.loss_agg_mode)
 
                     if self.config.loss_agg_mode == "token-mean":
                         mini_batch_loss_token_nums = data.meta_info["mini_batch_loss_token_nums"]
