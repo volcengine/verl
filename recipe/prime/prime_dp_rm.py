@@ -236,9 +236,7 @@ class DataParallelPRIMERewardModel:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                 micro_data_chunks, _ = get_uniform_data_chunks(data=mini_data_chunk, max_token_len=max_token_len)
             else:
-                self.gradient_accumulation = self.config.mini_batch_size // self.config.micro_batch_size_per_gpu
-                num_micro_batches = len(mini_data_chunk) // self.config.micro_batch_size_per_gpu
-                micro_data_chunks = mini_data_chunk.chunk(num_micro_batches)
+                micro_data_chunks = mini_data_chunk.split(split_size=self.config.micro_batch_size_per_gpu)
 
             self.reward_optimizer.zero_grad()
 
@@ -293,7 +291,7 @@ class DataParallelPRIMERewardModel:
                     # relative to the dynamic bsz
                     loss = dpo_loss * (len(micro_data_chunk) / self.config.ppo_mini_batch_size)
                 else:
-                    loss = dpo_loss / self.gradient_accumulation
+                    loss = dpo_loss / len(micro_data_chunks)
 
                 loss.backward()
 
