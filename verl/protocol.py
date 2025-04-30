@@ -616,6 +616,11 @@ class DataProto:
 
         return output
 
+    def split(self, split_size: int) -> List["DataProto"]:
+        """Split the DataProto into a list of DataProto."""
+        num_splits = -(-len(self) // split_size)  # Ceiling
+        return self.chunk(chunks=num_splits)
+
     @staticmethod
     def concat(data: List["DataProto"]) -> "DataProto":
         """Concat a list of DataProto. The batch is concatenated among dim=0.
