@@ -500,8 +500,14 @@ class FSDPSFTTrainer:
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
-def main(config):
+from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
+import hydra
+
+from torch.distributed.device_mesh import init_device_mesh
+
+from verl.utils.distributed import initialize_global_process_group
+
+def run_sft(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
     device_mesh = init_device_mesh(device_type="cuda", mesh_shape=(world_size,), mesh_dim_names=("fsdp",))
@@ -518,6 +524,10 @@ def main(config):
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
+
+@hydra.main(config_path='config', config_name='sft_trainer', version_base=None)
+def main(config):
+    run_sft(config)
 
 
 def create_sft_dataset(data_paths, data_config, tokenizer):
