@@ -51,6 +51,12 @@ class McoreToHFWeightConverterDense(McoreToHFWeightConverterBase):
         elif "self_attention.linear_qkv.layer_norm_weight" in name:
             convert_names.append(f"model.layers.{layer_number}.input_layernorm.weight")
             assert len(params) == 1
+        elif "self_attention.q_layernorm.weight" in name:
+            convert_names.append(f"model.layers.{layer_number}.self_attn.q_norm.weight")
+            assert len(params) == 1
+        elif "self_attention.k_layernorm.weight" in name:
+            convert_names.append(f"model.layers.{layer_number}.self_attn.k_norm.weight")
+            assert len(params) == 1
         else:
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
@@ -125,6 +131,42 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
             assert len(params) == 2
         elif "shared_experts.linear_fc2.weight" in name:
             convert_names.append(f"model.layers.{layer_number}.mlp.shared_expert.down_proj.weight")
+            assert len(params) == 1
+        elif "mlp.experts.linear_fc1" in name:  # split gate_proj and up_proj
+            expert_id = name.split("weight")[-1]
+            convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.gate_proj.weight")
+            convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.up_proj.weight")
+            assert len(params) == 2
+        elif "mlp.experts.linear_fc2" in name:
+            expert_id = name.split("weight")[-1]
+            convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.down_proj.weight")
+            assert len(params) == 1
+        else:
+            raise NotImplementedError(f"Unsupported parameter name: {name}")
+        return convert_names, params
+
+
+class McoreToHFWeightConverterQwen3Moe(McoreToHFWeightConverterDense):
+    def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        # qwen3 moe no share expert
+
+        # 'decoder.layers.0.pre_mlp_layernorm.weight',
+        # 'decoder.layers.0.mlp.router.weight',
+        # moe1
+        # 'decoder.layers.0.mlp.experts.linear_fc1.weight0',
+        # 'decoder.layers.0.mlp.experts.linear_fc1.weight1',
+        # 'decoder.layers.0.mlp.experts.linear_fc1.weight2',
+        # 'decoder.layers.0.mlp.experts.linear_fc1.weight3',
+        # moe2
+        # 'decoder.layers.0.mlp.experts.linear_fc2.weight0',
+        # 'decoder.layers.0.mlp.experts.linear_fc2.weight1',
+        layer_number = name.split(".")[2]
+        convert_names = []
+        if "pre_mlp_layernorm" in name:
+            convert_names.append(f"model.layers.{layer_number}.post_attention_layernorm.weight")
+            assert len(params) == 1
+        elif "mlp.router.weight" in name:
+            convert_names.append(f"model.layers.{layer_number}.mlp.gate.weight")
             assert len(params) == 1
         elif "mlp.experts.linear_fc1" in name:  # split gate_proj and up_proj
             expert_id = name.split("weight")[-1]

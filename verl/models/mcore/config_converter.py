@@ -26,6 +26,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
     from megatron.core import parallel_state as mpu
 
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
+    qk_layernorm = True if "Qwen3ForCausalLM" in hf_config.architectures else False
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
@@ -33,6 +34,8 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         hidden_size=hf_config.hidden_size,
         num_attention_heads=hf_config.num_attention_heads,
         num_query_groups=hf_config.num_key_value_heads,
+        kv_channels=getattr(hf_config, "head_dim", None),
+        layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,
         activation_func=F.silu,
         normalization="RMSNorm",
@@ -55,6 +58,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
         bf16=dtype is torch.bfloat16,
+        qk_layernorm=qk_layernorm,
     )
 
     return transformer_config
@@ -70,6 +74,7 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         hidden_size=hf_config.hidden_size,
         num_attention_heads=hf_config.num_attention_heads,
         num_query_groups=hf_config.num_key_value_heads,
+        kv_channels=getattr(hf_config, "head_dim", None),
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         activation_func=F.silu,
@@ -98,11 +103,11 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         moe_router_bias_update_rate=0.001,
         moe_router_topk=hf_config.num_experts_per_tok,
         num_moe_experts=hf_config.num_experts,
-        moe_shared_expert_intermediate_size=hf_config.shared_expert_intermediate_size,
+        moe_shared_expert_intermediate_size=getattr(hf_config, "shared_expert_intermediate_size", None),
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
         moe_router_load_balancing_type="aux_loss",
-        moe_shared_expert_overlap=True,
+        moe_shared_expert_overlap=hasattr(hf_config, "shared_expert_intermediate_size"),
         # moe_permute_fusion=True, # need TE 2.1+
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
@@ -119,6 +124,19 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
     )
+    return transformer_config
+
+
+def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+    
+    transformer_config = hf_to_mcore_config_qwen2moe(hf_config, dtype)
+
+    # diff with qwen2moe: no share_expert and no qkv_bias
+    transformer_config.moe_shared_expert_intermediate_size = None
+    transformer_config.moe_shared_expert_overlap = False
+    transformer_config.add_qkv_bias = False
+    transformer_config.qk_layernorm = True
+    
     return transformer_config
 
 

@@ -24,6 +24,7 @@ from .config_converter import (
     hf_to_mcore_config_llama4,
     hf_to_mcore_config_qwen2_5_vl,
     hf_to_mcore_config_qwen2moe,
+    hf_to_mcore_config_qwen3moe,
 )
 from .model_forward import (
     gptmodel_forward_dense,
@@ -31,6 +32,7 @@ from .model_forward import (
     gptmodel_forward_llama4,
     gptmodel_forward_qwen2_5_vl,
     gptmodel_forward_qwen2_moe,
+    gptmodel_forward_qwen3_moe,
 )
 from .model_initializer import (
     init_mcore_model_dense,
@@ -38,8 +40,13 @@ from .model_initializer import (
     init_mcore_model_llama4,
     init_mcore_model_qwen2_5_vl,
     init_mcore_model_qwen2_moe,
+    init_mcore_model_qwen3_moe,
 )
-from .weight_converter import McoreToHFWeightConverterDense, McoreToHFWeightConverterQwen2Moe
+from .weight_converter import (
+    McoreToHFWeightConverterDense,
+    McoreToHFWeightConverterQwen2Moe,
+    McoreToHFWeightConverterQwen3Moe,
+)
 
 
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
@@ -47,6 +54,8 @@ def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> Trans
         "LlamaForCausalLM": hf_to_mcore_config_dense,
         "Qwen2ForCausalLM": hf_to_mcore_config_dense,
         "Qwen2MoeForCausalLM": hf_to_mcore_config_qwen2moe,
+        "Qwen3ForCausalLM": hf_to_mcore_config_dense,
+        "Qwen3MoeForCausalLM": hf_to_mcore_config_qwen3moe,
         "DeepseekV3ForCausalLM": hf_to_mcore_config_dpskv3,
         "Qwen2_5_VLForConditionalGeneration": hf_to_mcore_config_qwen2_5_vl,
         "Llama4ForConditionalGeneration": hf_to_mcore_config_llama4,
@@ -71,6 +80,8 @@ def init_mcore_model(
         "LlamaForCausalLM": init_mcore_model_dense,
         "Qwen2ForCausalLM": init_mcore_model_dense,
         "Qwen2MoeForCausalLM": init_mcore_model_qwen2_moe,
+        "Qwen3ForCausalLM": init_mcore_model_dense,
+        "Qwen3MoeForCausalLM": init_mcore_model_qwen3_moe,
         "DeepseekV3ForCausalLM": init_mcore_model_dpskv3,
         "Qwen2_5_VLForConditionalGeneration": init_mcore_model_qwen2_5_vl,
         "Llama4ForConditionalGeneration": init_mcore_model_llama4,
@@ -87,6 +98,8 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig):
         "LlamaForCausalLM": gptmodel_forward_dense,
         "Qwen2ForCausalLM": gptmodel_forward_dense,
         "Qwen2MoeForCausalLM": gptmodel_forward_qwen2_moe,
+        "Qwen3ForCausalLM": gptmodel_forward_dense,
+        "Qwen3MoeForCausalLM": gptmodel_forward_qwen3_moe,
         "DeepseekV3ForCausalLM": gptmodel_forward_dpskv3,
         "Qwen2_5_VLForConditionalGeneration": gptmodel_forward_qwen2_5_vl,
         "Llama4ForConditionalGeneration": gptmodel_forward_llama4,
@@ -103,6 +116,8 @@ def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype):
         "LlamaForCausalLM": McoreToHFWeightConverterDense,
         "Qwen2ForCausalLM": McoreToHFWeightConverterDense,
         "Qwen2MoeForCausalLM": McoreToHFWeightConverterQwen2Moe,
+        "Qwen3ForCausalLM": McoreToHFWeightConverterDense,
+        "Qwen3MoeForCausalLM": McoreToHFWeightConverterQwen3Moe,
     }
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]

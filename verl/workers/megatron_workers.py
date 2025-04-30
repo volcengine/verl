@@ -645,7 +645,7 @@ class CriticWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
-            load_megatron_optimizer(optimizer=self.critic_optimizer)
+            load_megatron_optimizer(self.critic_optimizer)
 
         dataloader = self.critic.make_minibatch_iterator(data)
         with Timer(name="update_critic", logger=None) as timer:

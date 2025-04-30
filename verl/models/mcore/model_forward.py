@@ -47,6 +47,10 @@ def gptmodel_forward_qwen2_moe(model, input_ids, attention_mask, position_ids, s
     return gptmodel_forward_dense(model, input_ids, attention_mask, position_ids, sequence_parallel, value_model, pack_seqs)
 
 
+def gptmodel_forward_qwen3_moe(model, input_ids, attention_mask, position_ids, sequence_parallel, value_model=False, pack_seqs=True):
+    return gptmodel_forward_dense(model, input_ids, attention_mask, position_ids, sequence_parallel, value_model, pack_seqs)
+
+
 def gptmodel_forward_llama4(model, input_ids, attention_mask, position_ids, sequence_parallel, value_model=False, pack_seqs=True):
     return gptmodel_forward_dense(model, input_ids, attention_mask, position_ids, sequence_parallel, value_model, pack_seqs)
 
