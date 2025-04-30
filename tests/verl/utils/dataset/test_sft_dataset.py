@@ -19,7 +19,6 @@ from verl.utils.dataset.sft_dataset import SFTDataset
 
 def get_gsm8k_data():
     # prepare test dataset
-    url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
     local_folder = os.path.expanduser("~/verl-data/gsm8k/")
     local_path = os.path.join(local_folder, "train.parquet")
     return local_path
@@ -47,7 +46,7 @@ def test_sft_cot_dataset():
     data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
     assert len(output) > 1
-    assert type(output) == str
+    assert isinstance(output, str)
 
 
 def test_sft_dataset():
@@ -72,4 +71,4 @@ def test_sft_dataset():
     data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
     assert len(output) > 1
-    assert type(output) == str
+    assert isinstance(output, str)

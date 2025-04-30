@@ -29,7 +29,7 @@ requires-python = ">=3.8"
 [tool.ruff]
 # Note: While the formatter will attempt to format lines such that they remain within the line-length,
 # it isn't a hard upper bound, and formatted lines may exceed the line-length.
-line-length = 120
+line-length = 300 # TODO: Reduce this to a more reasonable value
 
 [tool.ruff.lint]
 isort = {known-first-party = ["verl"]}
@@ -58,6 +58,8 @@ ignore = [
     "UP032",
     # Can remove once 3.10+ is the minimum Python version
     "UP007",
+    # `.log()` statement uses f-string
+    "G004",
 ]
 
 # -------------------------------

@@ -60,6 +60,7 @@ verl is fast with:
 
    examples/ppo_code_architecture
    examples/gsm8k_example
+   examples/multi_modal_example
 
 .. toctree:: 
    :maxdepth: 1
@@ -119,12 +120,6 @@ Contributions from the community are welcome! Please check out our `project road
 Code Linting and Formatting
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. warning::
-   We are `immigrating to ``ruff`` as the linter and formatter and ``pre-commit`` as the managing tool <https://github.com/volcengine/verl/pull/1010>`_.
-
-   You are only expected to fix the linting errors in the files you changed.
-   Our pre-commit hook and CI action only checks the files you changed for now.
-
 We use pre-commit to help improve code quality. To initialize pre-commit, run:
 
 .. code-block:: bash
@@ -132,7 +127,7 @@ We use pre-commit to help improve code quality. To initialize pre-commit, run:
    pip install pre-commit
    pre-commit install
 
-You can also manually run pre-commit by:
+To resolve CI errors locally, you can also manually run pre-commit by:
 
 .. code-block:: bash
 

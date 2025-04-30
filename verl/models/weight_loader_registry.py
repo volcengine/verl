@@ -23,10 +23,7 @@ def get_weight_loader(arch: str):
 
     if arch in _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY[arch]
-    raise ValueError(
-        f"Model architectures {arch} loader are not supported for now. "
-        f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}"
-    )
+    raise ValueError(f"Model architectures {arch} loader are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}")
 
 
 def get_weight_saver(arch: str):
@@ -39,7 +36,4 @@ def get_weight_saver(arch: str):
     }
     if arch in _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY[arch]
-    raise ValueError(
-        f"Model architectures {arch} saver are not supported for now. "
-        f"Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}"
-    )
+    raise ValueError(f"Model architectures {arch} saver are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}")

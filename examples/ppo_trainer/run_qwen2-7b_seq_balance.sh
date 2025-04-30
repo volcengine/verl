@@ -8,10 +8,18 @@ math_test_path=$HOME/data/math/test.parquet
 train_files="['$gsm8k_train_path', '$math_train_path']"
 test_files="['$gsm8k_test_path', '$math_test_path']"
 
+# For async rollout mode, dataset should return raw chat.
+rollout_mode="sync"
+if [ "$rollout_mode" = "async" ]; then
+    return_raw_chat="True"
+    chat_scheduler=examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler
+fi
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
+    data.return_raw_chat=$return_raw_chat \
     data.train_batch_size=4096 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
@@ -29,6 +37,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.mode=$rollout_mode \
+    actor_rollout_ref.rollout.chat_scheduler=$chat_scheduler \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24000 \
     critic.optim.lr=1e-5 \
