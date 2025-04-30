@@ -29,7 +29,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
+from verl.trainer.ppo.core_algos import compute_entropy_loss, compute_kl_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
@@ -323,7 +323,7 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                     if entropy_coeff != 0:
-                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = compute_entropy_loss(logits=entropy, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -334,7 +334,7 @@ class DataParallelPPOActor(BasePPOActor):
                         ref_log_prob = data["ref_log_prob"]
                         # compute kl loss
                         kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
-                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=self.config.loss_agg_mode)
+                        kl_loss = compute_kl_loss(kld=kld, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics["actor/kl_loss"] = kl_loss.detach().item()
