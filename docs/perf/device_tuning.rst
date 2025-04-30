@@ -73,7 +73,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - 4*H800
       - fsdp
       - vllm0.8.2
-      - `qwen2-14b_grpo_4_h800_fsdp_vllm <https://github.com/volcengine/blob/main/examples/tuning/14b/qwen2-14b_grpo_4_h800_fsdp_vllm.sh>`_
+      - `qwen2-14b_grpo_4_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/14b/qwen2-14b_grpo_4_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
 
 
