@@ -12,20 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple, Optional
-from verl import DataProto
+import copy
 import heapq
+from typing import List, Optional, Tuple
 
 import torch
 from torch import distributed as dist
 
-import copy
+from verl import DataProto
 
 
 def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
     # see: https://en.wikipedia.org/wiki/Largest_differencing_method
     class Set:
-
         def __init__(self) -> None:
             self.sum = 0
             self.items = []
@@ -47,7 +46,6 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
             return self.items < other.items
 
     class State:
-
         def __init__(self, items: List[Tuple[int, int]], k: int) -> None:
             self.k = k
             # sets should always be decreasing order
@@ -56,9 +54,6 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
             for i, (idx, seqlen) in enumerate(items):
                 self.sets[i].add(idx=idx, val=seqlen)
             self.sets = sorted(self.sets, reverse=True)
-
-        def spread(self):
-            return self.sets[0].sum - self.sets[-1].sum
 
         def get_partitions(self):
             partitions = []
@@ -125,8 +120,7 @@ def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
     partitions = final_state.get_partitions()
     if equal_size:
         for i, partition in enumerate(partitions):
-            assert len(partition) * \
-                k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            assert len(partition) * k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
     return partitions
 
 
@@ -144,13 +138,12 @@ def greedy_partition(seqlen_list: List[int], k_partitions: int, equal_size: bool
         partition_sums[min_idx] += seqlen
     if equal_size:
         for i, partition in enumerate(partitions):
-            assert len(partition) * \
-                k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
+            assert len(partition) * k_partitions == len(seqlen_list), f"{len(partition)} * {k_partitions} != {len(seqlen_list)}"
     return partitions
 
 
 def get_seqlen_balanced_partitions(seqlen_list: List[int], k_partitions: int, equal_size: bool):
-    """ get order of seq lengths to make partitions balanced, this is
+    """get order of seq lengths to make partitions balanced, this is
         used in balacing sum of seqlength across dp ranks and microbatches
     Parameters:
         seqlen_list (List[int]):
@@ -192,7 +185,7 @@ def log_seqlen_unbalance(seqlen_list: List[int], partitions: List[List[int]], pr
     max_sum_seqlen = None
     total_sum_seqlen = 0
     for offset in range(0, len(seqlen_list), batch_size):
-        cur_sum_seqlen = sum(seqlen_list[offset:offset + batch_size])
+        cur_sum_seqlen = sum(seqlen_list[offset : offset + batch_size])
         if min_sum_seqlen is None or cur_sum_seqlen < min_sum_seqlen:
             min_sum_seqlen = cur_sum_seqlen
         if max_sum_seqlen is None or cur_sum_seqlen > max_sum_seqlen:
@@ -208,12 +201,12 @@ def log_seqlen_unbalance(seqlen_list: List[int], partitions: List[List[int]], pr
     max_sum_seqlen_balanced = max(balanced_sum_seqlen_list)
 
     return {
-        f'{prefix}/min': min_sum_seqlen,
-        f'{prefix}/max': max_sum_seqlen,
-        f'{prefix}/minmax_diff': max_sum_seqlen - min_sum_seqlen,
-        f'{prefix}/balanced_min': min_sum_seqlen_balanced,
-        f'{prefix}/balanced_max': max_sum_seqlen_balanced,
-        f'{prefix}/mean': total_sum_seqlen / len(partitions)
+        f"{prefix}/min": min_sum_seqlen,
+        f"{prefix}/max": max_sum_seqlen,
+        f"{prefix}/minmax_diff": max_sum_seqlen - min_sum_seqlen,
+        f"{prefix}/balanced_min": min_sum_seqlen_balanced,
+        f"{prefix}/balanced_max": max_sum_seqlen_balanced,
+        f"{prefix}/mean": total_sum_seqlen / len(partitions),
     }
 
 
@@ -221,22 +214,19 @@ def ceildiv(a, b):
     return -(a // -b)
 
 
-def get_uniform_data_chunks(data: DataProto,
-                            max_token_len: int,
-                            dp_group: Optional[dist.ProcessGroup] = None) -> tuple[list[DataProto], list[list[int]]]:
+def get_uniform_data_chunks(data: DataProto, max_token_len: int, dp_group: Optional[dist.ProcessGroup] = None) -> tuple[list[DataProto], list[list[int]]]:
     """Split the batch into a list of micro_batches, where the max_token_len is smaller than max_token_len
     and the number of valid tokens in each micro batch is well balanced.
     """
     # this is per local micro_bsz
-    max_seq_len = data.batch['attention_mask'].shape[-1]
-    assert max_token_len >= max_seq_len, \
-        f'max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}'
+    max_seq_len = data.batch["attention_mask"].shape[-1]
+    assert max_token_len >= max_seq_len, f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
 
-    seq_len_effective: torch.Tensor = data.batch['attention_mask'].sum(dim=1)
+    seq_len_effective: torch.Tensor = data.batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     num_micro_batches = ceildiv(total_seqlen, max_token_len)
     if dist.is_initialized():
-        num_micro_batches = torch.tensor([num_micro_batches], device='cuda')
+        num_micro_batches = torch.tensor([num_micro_batches], device="cuda")
         dist.all_reduce(num_micro_batches, op=dist.ReduceOp.MAX, group=dp_group)
         num_micro_batches = num_micro_batches.cpu().item()
 

@@ -33,6 +33,7 @@ verl is fast with:
    start/install
    start/quickstart
    start/multinode
+   start/ray_debug_tutorial
 
 .. toctree::
    :maxdepth: 4
@@ -59,6 +60,7 @@ verl is fast with:
 
    examples/ppo_code_architecture
    examples/gsm8k_example
+   examples/multi_modal_example
 
 .. toctree:: 
    :maxdepth: 1
@@ -67,6 +69,7 @@ verl is fast with:
    workers/ray_trainer
    workers/fsdp_workers
    workers/megatron_workers
+   workers/sglang_worker
 
 .. toctree::
    :maxdepth: 1
@@ -74,6 +77,7 @@ verl is fast with:
    
    perf/perf_tuning
    README_vllm0.8.md
+   perf/device_tuning
 
 .. toctree::
    :maxdepth: 1
@@ -111,11 +115,31 @@ verl is free software; you can redistribute it and/or modify it under the terms
 of the Apache License 2.0. We welcome contributions.
 Join us on `GitHub <https://github.com/volcengine/verl>`_, `Slack <https://join.slack.com/t/verlgroup/shared_invite/zt-2w5p9o4c3-yy0x2Q56s_VlGLsJ93A6vA>`_ and `Wechat <https://raw.githubusercontent.com/eric-haibin-lin/verl-community/refs/heads/main/WeChat.JPG>`_ for discussions.
 
-Code formatting
-^^^^^^^^^^^^^^^^^^^^^^^^
-We use yapf (Google style) to enforce strict code formatting when reviewing MRs. Run yapf at the top level of verl repo:
+Contributions from the community are welcome! Please check out our `project roadmap <https://github.com/volcengine/verl/issues/710>`_ and `good first issues <https://github.com/volcengine/verl/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22>`_ to see where you can contribute.
+
+Code Linting and Formatting
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+We use pre-commit to help improve code quality. To initialize pre-commit, run:
 
 .. code-block:: bash
 
-   pip3 install yapf
-   yapf -ir -vv --style ./.style.yapf verl examples tests
+   pip install pre-commit
+   pre-commit install
+
+To resolve CI errors locally, you can also manually run pre-commit by:
+
+.. code-block:: bash
+
+   pre-commit run
+
+Adding CI tests
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+If possible, please add CI test(s) for your new feature:
+
+1. Find the most relevant workflow yml file, which usually corresponds to a ``hydra`` default config (e.g. ``ppo_trainer``, ``ppo_megatron_trainer``, ``sft_trainer``, etc).
+2. Add related path patterns to the ``paths`` section if not already included.
+3. Minimize the workload of the test script(s) (see existing scripts for examples).
+
+We are HIRING! Send us an `email <mailto:haibin.lin@bytedance.com>`_ if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.

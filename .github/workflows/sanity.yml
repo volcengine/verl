@@ -6,14 +6,11 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/sanity.yml
+      - v0.*
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
@@ -24,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
