@@ -30,7 +30,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, get_uniform_data_chunks
-from verl.utils.torch_functional import compute_response_mask, masked_mean
+from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.critic import BasePPOCritic
 
@@ -211,9 +211,8 @@ class DataParallelPPOCritic(BasePPOCritic):
                     if self.config.loss_agg_mode == "token-mean":
                         mini_batch_loss_token_nums = data.meta_info["mini_batch_loss_token_nums"]
                         mini_batch_loss_token_num = mini_batch_loss_token_nums[mini_idx]
-                        response_mask = compute_response_mask(response_ids=response_ids, attention_mask=attention_mask)
-                        num_valid_toks = response_mask.sum()
-                        loss = vf_loss * num_valid_toks / mini_batch_loss_token_num
+                        num_loss_toks = state_mask.sum()
+                        loss = vf_loss * num_loss_toks / mini_batch_loss_token_num
                     else:  # seq-mean
                         loss = vf_loss * (len(micro_data_chunk) / self.config.ppo_mini_batch_size)
 
