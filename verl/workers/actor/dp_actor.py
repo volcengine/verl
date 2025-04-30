@@ -302,7 +302,6 @@ class DataParallelPPOActor(BasePPOActor):
 
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
                     else:
@@ -326,7 +325,6 @@ class DataParallelPPOActor(BasePPOActor):
                     loss.backward()
 
                     mini_metric_data = {
-                        "actor/entropy": entropy_loss.detach().item(),
                         "actor/pg_loss": pg_loss.detach().item(),
                         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                         "actor/ppo_kl": ppo_kl.detach().item(),
