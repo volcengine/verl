@@ -92,6 +92,8 @@ class WorkerMeta:
 class Worker(WorkerHelper):
     """A (distributed) worker."""
 
+    fused_worker_attr_name = "fused_worker_dict"
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
 
@@ -190,6 +192,11 @@ class Worker(WorkerHelper):
         if "AMD" in torch.cuda.get_device_name():
             torch.cuda.set_device(int(cuda_visible_devices))
         ###
+
+        self.fused_worker_dict = {}
+
+    def get_fused_worker_by_name(self, worker_name: str):
+        return self.fused_worker_dict.get(worker_name, None)
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """
