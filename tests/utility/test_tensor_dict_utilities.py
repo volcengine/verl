@@ -276,7 +276,7 @@ def test_len():
 
 
 def test_seqlen_balancing():
-    from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+    from verl.utils.seqlen_balancing import get_reverse_idx, get_uniform_data_chunks
 
     input_ids = torch.randint(low=0, high=10, size=(20, 100))
     from verl.utils.model import create_random_mask
@@ -284,7 +284,8 @@ def test_seqlen_balancing():
     attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
-    micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
+    micro_data_chunks, micro_bsz_idx_lst = get_uniform_data_chunks(dataproto, max_token_len=300)
+    micro_batches = [micro_data_chunk.batch for micro_data_chunk in micro_data_chunks]
     batch = torch.cat(micro_batches)
     micro_bsz_idx = []
     for idx in micro_bsz_idx_lst:
