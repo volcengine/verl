@@ -269,7 +269,7 @@ class DataParallelPPOActor(BasePPOActor):
                     response_length = micro_batch["responses"].size(-1)
                     attention_mask = micro_batch["attention_mask"]
                     if multi_turn:
-                        response_mask = data["loss_mask"][:, -response_length:]
+                        response_mask = micro_batch["loss_mask"][:, -response_length:]
                     else:
                         response_mask = attention_mask[:, -response_length:]
                     old_log_prob = micro_batch["old_log_probs"]
