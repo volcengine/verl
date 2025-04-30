@@ -214,7 +214,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                         # relative to the dynamic bsz
                         loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
                     else:
-                        loss = vf_loss / self.gradient_accumulation
+                        loss = vf_loss / len(micro_data_chunks)
 
                     loss.backward()
 
