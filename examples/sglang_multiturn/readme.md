@@ -8,7 +8,7 @@ This example demonstrates how to perform **multi-turn rollout** using SGLang wit
 ### Step 1: Download GSM8K Dataset
 
 ```bash
-cd examples/sglang_multiturn
+cd examples/data_preprocess
 python3 gsm8k.py
 ```
 
