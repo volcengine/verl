@@ -21,6 +21,7 @@ import torch
 from megatron.core.transformer import TransformerConfig
 from transformers import PretrainedConfig
 
+
 class McoreToHFWeightConverterBase:
     def __init__(self, hf_config: PretrainedConfig, mcore_config: TransformerConfig):
         self.hf_config = hf_config
@@ -28,6 +29,7 @@ class McoreToHFWeightConverterBase:
 
     def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
+
 
 class McoreToHFWeightConverterDense(McoreToHFWeightConverterBase):
     def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
@@ -138,8 +140,8 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
             raise NotImplementedError(f"Unsupported parameter name: {name}")
         return convert_names, params
 
-class McoreToHFWeightConverterMixtral(McoreToHFWeightConverterDense):
 
+class McoreToHFWeightConverterMixtral(McoreToHFWeightConverterDense):
     def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         # decoder.layers.0.mlp.router.weight
         # decoder.layers.0.mlp.experts.linear_fc1.weight0 - weight7
@@ -151,7 +153,7 @@ class McoreToHFWeightConverterMixtral(McoreToHFWeightConverterDense):
             convert_names.append(f"model.layers.{layer_number}.post_attention_layernorm.weight")
         elif "mlp.router.weight" in name:
             convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.gate.weight")
-        elif "mlp.experts.linear_fc1.weight" in name:  
+        elif "mlp.experts.linear_fc1.weight" in name:
             expert_id = name.split("weight")[-1]
             convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.experts.{expert_id}.w1.weight")
             convert_names.append(f"model.layers.{layer_number}.block_sparse_moe.experts.{expert_id}.w3.weight")

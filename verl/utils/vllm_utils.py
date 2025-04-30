@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2
@@ -29,20 +30,19 @@ def patch_vllm_moe_model_weight_loader(model):
     # (False, 'model.layers.0.post_attention_layernorm.weight') use default
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
-    from vllm.model_executor.models.deepseek_v2 import (DeepseekV2ForCausalLM,
-                                                        DeepseekV3ForCausalLM)
-    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
     from vllm.model_executor.models.mixtral import MixtralForCausalLM
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
 
     SUPPORTED_MOE_MODELS = (Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM, MixtralForCausalLM)
-    
+
     # Define MLP attribute mapping for different model types
     MLP_ATTR_MAPPING = {
-        MixtralForCausalLM: 'block_sparse_moe',
+        MixtralForCausalLM: "block_sparse_moe",
     }
-    
+
     # Default MLP attribute name for models not in the mapping
-    DEFAULT_MLP_ATTR = 'mlp'
+    DEFAULT_MLP_ATTR = "mlp"
 
     if not isinstance(model, SUPPORTED_MOE_MODELS):
         return

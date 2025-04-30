@@ -16,35 +16,33 @@
 
 # convert huggingface config to mcore transformer config
 
+
 import torch
 import torch.nn.functional as F
-from megatron.core.transformer import TransformerConfig, MLATransformerConfig
+from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from transformers import PretrainedConfig
-from typing import Dict, Callable, Type, Optional
+
 
 def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs) -> TransformerConfig:
     """
     Create a base TransformerConfig with common parameters across different model architectures.
-    TODO: (ycl) use dataclass or converter config? 
+    TODO: (ycl) use dataclass or converter config?
     https://github.com/NVIDIA/NeMo/blob/0af8b7df793ad7538f149ad9bcb8c2cae5134c1a/nemo/collections/llm/gpt/model/qwen2.py
-    
+
     Args:
         hf_config: HuggingFace model configuration
         dtype: Data type for the model
         **kwargs: Additional parameters to override defaults
-        
+
     Returns:
         TransformerConfig with common parameters
     """
     from megatron.core import parallel_state as mpu
-    
+
     # Common parallel state parameters
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
-    
+
     # Base configuration with common parameters
     base_config = {
         # Model architecture parameters
@@ -55,17 +53,14 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "ffn_hidden_size": hf_config.intermediate_size,
         "attention_dropout": hf_config.attention_dropout,
         "hidden_dropout": getattr(hf_config, "hidden_dropout", 0.0),
-        
         # Activation and normalization
         "activation_func": F.silu,
         "normalization": "RMSNorm",
         "gated_linear_unit": True,
-        
         # Data types
         "pipeline_dtype": dtype,
         "params_dtype": dtype,
         "bf16": dtype is torch.bfloat16,
-        
         # Parallel configuration
         "tensor_model_parallel_size": mpu.get_tensor_model_parallel_world_size(),
         "pipeline_model_parallel_size": mpu.get_pipeline_model_parallel_world_size(),
@@ -74,22 +69,22 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "overlap_p2p_comm": overlap_p2p_comm,
         "batch_p2p_comm": batch_p2p_comm,
         "sequence_parallel": mpu.get_tensor_model_parallel_world_size() > 1,
-        
         # Common settings
         "variable_seq_lengths": True,
         "masked_softmax_fusion": True,
         "moe_token_dispatcher_type": "alltoall",
     }
-    
+
     # Update with any provided overrides
     base_config.update(kwargs)
-    
+
     return TransformerConfig(**base_config)
+
 
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
-    
+
     return _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -97,6 +92,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         add_bias_linear=False,
         add_qkv_bias=qkv_bias,
     )
+
 
 def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     return _get_base_transformer_config(
@@ -154,6 +150,7 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype) 
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
     )
+
 
 def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM

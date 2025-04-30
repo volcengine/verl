@@ -16,24 +16,26 @@
 
 # use mcore transformer config to initialize the model
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Any
+from typing import Callable, Optional
 
-from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+from megatron.core.models.gpt.gpt_model import GPTModel
+
 from .config_converter import PretrainedConfig, TransformerConfig
+
 
 class BaseModelInitializer(ABC):
     """Base class for model initializers."""
-    
+
     def __init__(self, tfconfig: TransformerConfig, hf_config: PretrainedConfig):
         self.tfconfig = tfconfig
         self.hf_config = hf_config
-        
+
     @abstractmethod
     def get_transformer_layer_spec(self):
         """Get the transformer layer specification."""
         pass
-        
+
     def get_rope_scaling_args(self):
         rope_scaling_args = {}
         if "rope_scaling" in self.hf_config:
@@ -53,7 +55,7 @@ class BaseModelInitializer(ABC):
         """Initialize the model with the given configuration."""
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
-        
+
         model = GPTModel(
             config=self.tfconfig,
             transformer_layer_spec=transformer_layer_spec,
@@ -66,37 +68,36 @@ class BaseModelInitializer(ABC):
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
         )
-        
+
         if post_process and value:
             from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
-            model.output_layer = LinearForLastLayer(
-                input_size=self.tfconfig.hidden_size,
-                output_size=1,
-                config=self.tfconfig
-            )
-            
+
+            model.output_layer = LinearForLastLayer(input_size=self.tfconfig.hidden_size, output_size=1, config=self.tfconfig)
+
         return model
+
 
 class DenseModel(BaseModelInitializer):
     """Initializer for dense models like Llama and Qwen2."""
-    
+
     def get_transformer_layer_spec(self):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
         return get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
-        
+
+
 class Qwen2MoEModel(BaseModelInitializer):
     """Initializer for Qwen2 MoE models."""
-    
+
     def get_transformer_layer_spec(self):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
-        
+
         # Patch layer spec for shared experts
         for i in range(len(transformer_layer_spec.layer_specs)):
             transformer_layer_spec.layer_specs[i].submodules.mlp.submodules.shared_experts.params["gate"] = True
-            
+
         return transformer_layer_spec
-    
+
     def initialize(self, freeze_moe_router: bool = True, **kwargs):
         # Qwen default freeze_moe_router: true
         model = super().initialize(**kwargs)
@@ -106,14 +107,15 @@ class Qwen2MoEModel(BaseModelInitializer):
                 layer.mlp.shared_experts.gate_weight.requires_grad = False
         return model
 
+
 class MixtralModel(BaseModelInitializer):
     """Initializer for Mixtral models."""
-    
+
     def get_transformer_layer_spec(self):
         assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
         return transformer_layer_spec
-                
+
     def initialize(self, freeze_moe_router: bool = False, **kwargs):
         model = super().initialize(**kwargs)
         if freeze_moe_router:
@@ -121,8 +123,9 @@ class MixtralModel(BaseModelInitializer):
                 layer.mlp.router.weight.requires_grad = False
         return model
 
+
 class Qwen25VLModel(BaseModelInitializer):
     """Initializer for Qwen2.5 VL models."""
-    
+
     def get_transformer_layer_spec(self):
         raise NotImplementedError("VLM is not supported yet")

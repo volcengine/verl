@@ -16,35 +16,36 @@
 """
 Registry module for model architecture components.
 """
+
+from typing import Any, Callable, Dict, Optional, Type
+
 import torch
 import torch.nn as nn
-from typing import Dict, Type, Callable, Any, Optional, Union
 
 from .config_converter import (
     PretrainedConfig,
     TransformerConfig,
     hf_to_mcore_config_dense,
     hf_to_mcore_config_dpskv3,
-    hf_to_mcore_config_mixtral, 
     hf_to_mcore_config_llama4,
+    hf_to_mcore_config_mixtral,
     hf_to_mcore_config_qwen2_5_vl,
     hf_to_mcore_config_qwen2moe,
 )
 from .model_forward import (
     gptmodel_forward,
-    gptmodel_forward_qwen2_5_vl,
 )
 from .model_initializer import (
     BaseModelInitializer,
     DenseModel,
-    Qwen2MoEModel,
     MixtralModel,
+    Qwen2MoEModel,
     Qwen25VLModel,
 )
 from .weight_converter import (
-    McoreToHFWeightConverterDense, 
-    McoreToHFWeightConverterQwen2Moe,
+    McoreToHFWeightConverterDense,
     McoreToHFWeightConverterMixtral,
+    McoreToHFWeightConverterQwen2Moe,
 )
 
 # Registry for model configuration converters
@@ -88,17 +89,15 @@ MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[str, Type] = {
     "MixtralForCausalLM": McoreToHFWeightConverterMixtral,
 }
 
-### Only add model registry above and do not change below 
+
+### Only add model registry above and do not change below
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
- 
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_CONFIG_CONVERTER_REGISTRY:
-        raise ValueError(
-            f"Model architectures {arch} converter are not supported for now. "
-            f"Supported architectures: {MODEL_CONFIG_CONVERTER_REGISTRY.keys()}"
-        )
+        raise ValueError(f"Model architectures {arch} converter are not supported for now. Supported architectures: {MODEL_CONFIG_CONVERTER_REGISTRY.keys()}")
     return MODEL_CONFIG_CONVERTER_REGISTRY[arch](hf_config, dtype)
+
 
 def init_mcore_model(
     tfconfig: TransformerConfig,
@@ -112,7 +111,7 @@ def init_mcore_model(
 ) -> nn.Module:
     """
     Initialize a Mcore model.
-    
+
     Args:
         tfconfig: The transformer config.
         hf_config: The HuggingFace config.
@@ -121,28 +120,20 @@ def init_mcore_model(
         share_embeddings_and_output_weights: Whether to share embeddings and output weights.
         value: Whether to use value.
         **extra_kwargs: Additional keyword arguments.
-        
+
     Returns:
-        The initialized model.        
+        The initialized model.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_INITIALIZER_REGISTRY:
-        raise ValueError(
-            f"Model architectures {arch} initializer are not supported for now. "
-            f"Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}"
-        )
-    
+        raise ValueError(f"Model architectures {arch} initializer are not supported for now. Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}")
+
     initializer_cls = MODEL_INITIALIZER_REGISTRY[arch]
     initializer = initializer_cls(tfconfig, hf_config)
-    
-    return initializer.initialize(
-        pre_process=pre_process,
-        post_process=post_process,
-        share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-        value=value,
-        **extra_kwargs
-    )
+
+    return initializer.initialize(pre_process=pre_process, post_process=post_process, share_embeddings_and_output_weights=share_embeddings_and_output_weights, value=value, **extra_kwargs)
+
 
 def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     """
@@ -151,11 +142,9 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_FORWARD_REGISTRY:
-        raise ValueError(
-            f"Model architectures {arch} forward function are not supported for now. "
-            f"Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}"
-        )
+        raise ValueError(f"Model architectures {arch} forward function are not supported for now. Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}")
     return MODEL_FORWARD_REGISTRY[arch]
+
 
 def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) -> Any:
     """
@@ -164,9 +153,6 @@ def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) 
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     arch = hf_config.architectures[0]
     if arch not in MODEL_WEIGHT_CONVERTER_REGISTRY:
-        raise ValueError(
-            f"Model architectures {arch} weight converter are not supported for now. "
-            f"Supported architectures: {MODEL_WEIGHT_CONVERTER_REGISTRY.keys()}"
-        )
+        raise ValueError(f"Model architectures {arch} weight converter are not supported for now. Supported architectures: {MODEL_WEIGHT_CONVERTER_REGISTRY.keys()}")
     tfconfig = hf_to_mcore_config(hf_config, dtype)
     return MODEL_WEIGHT_CONVERTER_REGISTRY[arch](hf_config, tfconfig)
