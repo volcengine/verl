@@ -20,7 +20,7 @@ import torch
 import torch.distributed
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from transformers import AutoConfig, GenerationConfig, PreTrainedTokenizer, ProcessorMixin
+from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
 
@@ -47,7 +47,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         model: FSDP,
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
-        local_model_path: str = None,
         processing_class: Union[PreTrainedTokenizer, ProcessorMixin] = None,
         checkpoint_contents: Optional[list] = None,
         **kwargs,
@@ -67,7 +66,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             processing_class=processing_class,
             checkpoint_contents=checkpoint_contents,
         )
-        self.local_model_path = local_model_path
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         if local_path is None:
@@ -158,7 +156,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
 
         if "hf_model" in self.checkpoint_contents:
-            assert self.local_model_path is not None, "local_model_path must be provided when 'hf_model' is in checkpoint_contents"
             hf_local_path = os.path.join(local_path, "huggingface")
             os.makedirs(hf_local_path, exist_ok=True)
 
@@ -169,32 +166,30 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 state_dict = self.model.state_dict()
 
             if self.rank == 0:
-                auto_config = AutoConfig.from_pretrained(self.local_model_path)
-                if "ForTokenClassification" in auto_config.architectures[0]:
+                model_config = self.model._fsdp_wrapped_module.config
+                if "ForTokenClassification" in model_config.architectures[0]:
                     from transformers import AutoModelForTokenClassification
 
                     auto_model_cls = AutoModelForTokenClassification
-                elif "ForCausalLM" in auto_config.architectures[0]:
+                elif "ForCausalLM" in model_config.architectures[0]:
                     from transformers import AutoModelForCausalLM
 
                     auto_model_cls = AutoModelForCausalLM
-                elif "ForConditionalGeneration" in auto_config.architectures[0]:
+                elif "ForConditionalGeneration" in model_config.architectures[0]:
                     from transformers import AutoModelForVision2Seq
 
                     auto_model_cls = AutoModelForVision2Seq
                 else:
-                    raise NotImplementedError(f"Unknown architecture {auto_config['architectures']}")
+                    raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
 
                 with torch.device("meta"):
-                    save_model = auto_model_cls.from_config(auto_config, torch_dtype=torch.bfloat16)
+                    save_model = auto_model_cls.from_config(model_config, torch_dtype=torch.bfloat16)
                 save_model.to_empty(device="cpu")
 
                 if save_model.can_generate():
-                    try:
-                        save_model.generation_config = GenerationConfig.from_pretrained(self.local_model_path)
-                    except OSError:
-                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in {self.local_model_path}, using a generation config created from the model config when saving hf_model.")
-                        pass
+                    # self.model._fsdp_wrapped_module is initialized using `from_pretrained`,
+                    # therefore self.model._fsdp_wrapped_module.generation_config should loaded from pretrained generation config.
+                    save_model.generation_config = self.model._fsdp_wrapped_module.generation_config
 
                 save_model.save_pretrained(hf_local_path, state_dict=state_dict)
                 self.processing_class.save_pretrained(hf_local_path)
