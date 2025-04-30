@@ -417,12 +417,12 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-def compute_entropy_loss(logits: torch.Tensor, response_mask: torch.Tensor, loss_agg_mode: str):
+def compute_entropy_loss(entropy: torch.Tensor, response_mask: torch.Tensor, loss_agg_mode: str):
     """Compute Categorical entropy loss
 
     Args:
-        logits: `(torch.Tensor)`
-            shape: (bs, response_length, vocab_size)
+        entropy: `(torch.Tensor)`
+            shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
         loss_agg_mode: (str) see `agg_loss`
@@ -432,7 +432,6 @@ def compute_entropy_loss(logits: torch.Tensor, response_mask: torch.Tensor, loss
 
     """
     # compute entropy
-    entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return entropy_loss
 

@@ -323,7 +323,7 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                     if entropy_coeff != 0:
-                        entropy_loss = compute_entropy_loss(logits=entropy, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = compute_entropy_loss(entropy=entropy, response_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         # compute policy loss
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
