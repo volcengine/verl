@@ -17,6 +17,13 @@
 
 ## Quickstart
 
+0. (For reproduction) Checkout to the commit:
+
+```bash
+git fetch origin gm-tyx/puffin/main
+git checkout f7e13f5
+```
+
 1. Prepare the datasets **on the Ray cluster**:
 
 ```bash
