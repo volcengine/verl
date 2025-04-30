@@ -10,6 +10,7 @@ The migration has been successful with the help of the mcore team and the commun
 
 We are working on the following features:
 - support `Qwen2MoeForCausalLM`
+- support `MixtralForCausalLM`
 - support `DeepseekV3ForCausalLM`
 - support `expert parallel`
 
