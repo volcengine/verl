@@ -176,24 +176,14 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
     return data, metrics
 
 
-def compute_response_mask(data: DataProto):
-    responses = data.batch["responses"]
-    response_length = responses.size(1)
-    attention_mask = data.batch["attention_mask"]
-    return attention_mask[:, -response_length:]
-
-
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True):
-    # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch:
-        data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
     # TODO: add other ways to estimate advantages
     if adv_estimator == AdvantageEstimator.GAE:
         advantages, returns = core_algos.compute_gae_advantage_return(
             token_level_rewards=data.batch["token_level_rewards"],
             values=data.batch["values"],
-            response_mask=data.batch["response_mask"],
+            response_mask=data.response_mask,
             gamma=gamma,
             lam=lam,
         )
@@ -201,7 +191,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         data.batch["returns"] = returns
     elif adv_estimator == AdvantageEstimator.GRPO:
         # TODO: test on more adv estimator type
-        grpo_calculation_mask = data.batch["response_mask"]
+        grpo_calculation_mask = data.response_mask
         if multi_turn:
             # If multi-turn, replace the mask with the relevant part of loss_mask
             response_length = grpo_calculation_mask.size(1)  # Get length from the initial response mask
@@ -218,7 +208,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE:
         advantages, returns = core_algos.compute_reinforce_plus_plus_baseline_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
+            response_mask=data.response_mask,
             index=data.non_tensor_batch["uid"],
         )
         data.batch["advantages"] = advantages
@@ -226,7 +216,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         advantages, returns = core_algos.compute_reinforce_plus_plus_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
+            response_mask=data.response_mask,
             gamma=gamma,
         )
         data.batch["advantages"] = advantages
@@ -235,7 +225,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         advantages, returns = core_algos.compute_remax_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
             reward_baselines=data.batch["reward_baselines"],
-            response_mask=data.batch["response_mask"],
+            response_mask=data.response_mask,
         )
 
         data.batch["advantages"] = advantages
@@ -243,7 +233,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     elif adv_estimator == AdvantageEstimator.RLOO:
         advantages, returns = core_algos.compute_rloo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
+            response_mask=data.response_mask,
             index=data.non_tensor_batch["uid"],
         )
         data.batch["advantages"] = advantages
@@ -951,7 +941,6 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
-                    batch.batch["response_mask"] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
@@ -976,9 +965,8 @@ class RayPPOTrainer:
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=batch.response_mask, loss_agg_mode=loss_agg_mode)
                         old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")

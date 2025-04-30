@@ -110,13 +110,6 @@ def compute_data_metrics(batch, use_critic=True):
     return metrics
 
 
-def compute_response_mask(data: DataProto):
-    responses = data.batch["responses"]
-    response_length = responses.size(1)
-    attention_mask = data.batch["attention_mask"]
-    return attention_mask[:, -response_length:]
-
-
 def compute_timing_metrics(batch, timing_raw):
     response_info = _compute_response_info(batch)
     num_prompt_tokens = torch.sum(response_info["prompt_length"]).item()
@@ -395,9 +388,8 @@ class RayPRIMETrainer(RayPPOTrainer):
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
-                        response_masks = compute_response_mask(batch)
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+                        entropy_loss = agg_loss(loss_mat=entropys, loss_mask=batch.response_mask, loss_agg_mode=loss_agg_mode)
                         old_log_prob_metrics = {"actor/entropy_loss": entropy_loss.detach().item()}
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")
