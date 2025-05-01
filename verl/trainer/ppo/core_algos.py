@@ -164,6 +164,57 @@ def compute_grpo_outcome_advantage(
 
     return scores, scores
 
+def compute_grpo_passk_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+):
+    """
+    Compute advantage for Pass@k using a GRPO-style outcome reward formulation.
+    Only the best response per group gets a non-zero advantage: r_max - r_second_max.
+
+    Args:
+        token_level_rewards: (bs, response_length)
+        response_mask: (bs, response_length)
+        index: (bs,) → group ID per sample
+        epsilon: float for numerical stability
+        norm_adv_by_std_in_grpo: if True, normalize advantage by std within group
+
+    Returns:
+        advantages: (bs, response_length)
+        returns: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)  # (bs,)
+    advantages = torch.zeros_like(scores)
+
+    id2scores = defaultdict(list)
+    id2indices = defaultdict(list)
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            idx = index[i]
+            id2scores[idx].append(scores[i])
+            id2indices[idx].append(i)
+
+        for idx in id2scores:
+            rewards = torch.stack(id2scores[idx])  # (k,)
+            if rewards.numel() < 2:
+                raise ValueError(f"Pass@k requires at least 2 samples per group. Got {rewards.numel()} for group {idx}.")
+            topk, topk_idx = torch.topk(rewards, 2)
+            r_max, r_second_max = topk[0], topk[1]
+            i_max = id2indices[idx][topk_idx[0].item()]
+            advantage = r_max - r_second_max
+            if norm_adv_by_std_in_grpo:
+                std = torch.std(rewards)
+                advantage = advantage / (std + epsilon)
+            advantages[i_max] = advantage
+
+    advantages = advantages.unsqueeze(-1) * response_mask
+    return advantages, advantages
+
 
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor, epsilon: float = 1e-6):
     """
@@ -499,3 +550,46 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         raise NotImplementedError
 
     raise NotImplementedError
+
+
+if __name__ == "__main__":
+
+    def test_passk_grpo():
+        import numpy as np
+        import torch
+
+        token_level_rewards = torch.tensor([
+            [0.0, 0.0, 0.1],  # total = 1.0
+            [0.0, 0.0, 1.0],  # total = 1.0
+            [0.0, 0.0, 0.5],  # total = 1.0
+            [0.0, 0.0, 0.3],  # total = 1.0
+            [0.0, 0.0, 1.0],  # total = 0.9
+            [0.0, 0.0, 0.9],  # total = 0.9
+            [0.0, 0.0, 0.6],  # total = 0.9
+            [0.0, 0.0, 0.6],  # total = 0.9
+        ])  # shape (4, 3)
+
+        response_mask = torch.tensor([
+            [1, 0, 0],
+            [1, 1, 0],
+            [1, 1, 1],
+            [1, 0, 0],
+            [1, 0, 0],
+            [1, 1, 0],
+            [1, 1, 1],
+            [1, 0, 0],
+        ])  # same shape
+
+        index = np.array([0, 0, 0, 0, 1, 1, 1, 1])  # two groups of size 2
+
+        adv, ret = compute_passk_grpo_outcome_advantage(
+            token_level_rewards,
+            response_mask,
+            index,
+            norm_adv_by_std_in_grpo=False,
+        )
+
+        print("Advantages:\n", adv)
+        print("Returns:\n", ret)
+    
+    test_passk_grpo()
