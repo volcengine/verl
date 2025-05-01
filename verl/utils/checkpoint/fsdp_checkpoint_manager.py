@@ -169,7 +169,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     torch.save(extra_state_dict, extra_path)
                     print(f"[rank-{self.rank}]: Saving extra_state to {os.path.abspath(extra_path)}")
 
-        if "hf_model" in self.checkpoint_contents:
+        if self.save_hf_model:
             # wait for everyone to dump to local
             torch.distributed.barrier()
 
