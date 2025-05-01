@@ -445,7 +445,7 @@ class ActorRolloutRefWorker(Worker):
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
-        # load from checkpoint
+
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
             with open_dict(self.config.actor):
@@ -479,6 +479,17 @@ class ActorRolloutRefWorker(Worker):
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_contents=self.config.actor.checkpoint.contents,
+            )
+
+        if not self._is_actor and self._is_rollout:
+            # If ActorRolloutRefWorker is initialized as a standalone rollout,
+            # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+            self.checkpoint_manager = FSDPCheckpointManager(
+                model=self.actor_module_fsdp,
+                optimizer=None,
+                lr_scheduler=None,
+                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                checkpoint_contents=["model"],
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -629,6 +640,8 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+        assert self._is_actor or (not self._is_actor and self._is_rollout)
+
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 

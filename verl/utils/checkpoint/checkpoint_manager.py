@@ -61,6 +61,34 @@ class BaseCheckpointManager:
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
+    @property
+    def save_model(self) -> bool:
+        """
+        Returns True if 'model' is in checkpoint_contents, indicating the model state should be loaded and saved.
+        """
+        return "model" in self.checkpoint_contents
+
+    @property
+    def save_optimizer(self) -> bool:
+        """
+        Returns True if 'optimizer' is in checkpoint_contents, indicating the optimizer state should be loaded and saved.
+        """
+        return "optimizer" in self.checkpoint_contents
+
+    @property
+    def save_extra(self) -> bool:
+        """
+        Returns True if 'extra' is in checkpoint_contents, indicating the extra state should be loaded and saved.
+        """
+        return "extra" in self.checkpoint_contents
+
+    @property
+    def save_hf_model(self) -> bool:
+        """
+        Returns True if 'hf_model' is in checkpoint_contents, indicating the model should be converted to hf model and saved.
+        """
+        return "hf_model" in self.checkpoint_contents
+
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
