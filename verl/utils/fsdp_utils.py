@@ -168,6 +168,37 @@ def load_fsdp_optimizer(optimizer, device_id):
                     state[key] = value.to(device_id, non_blocking=True)
 
 
+@torch.no_grad()
+def init_optimizer_state(optimizer):
+    # Adapt from https://github.com/pytorch/pytorch/blob/v2.6.0/torch/optim/adam.py#L157
+    from torch.optim.optimizer import _get_scalar_dtype
+
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            state = optimizer.state[p]
+            # State initialization
+            if len(state) == 0:
+                # note(crcrpar): [special device hosting for step]
+                # Deliberately host `step` on CPU if both capturable and fused are off.
+                # This is because kernel launches are costly on CUDA and XLA.
+                state["step"] = (
+                    torch.zeros(
+                        (),
+                        dtype=_get_scalar_dtype(is_fused=group["fused"]),
+                        device=p.device,
+                    )
+                    if group["capturable"] or group["fused"]
+                    else torch.tensor(0.0, dtype=_get_scalar_dtype())
+                )
+                # Exponential moving average of gradient values
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                # Exponential moving average of squared gradient values
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                if group["amsgrad"]:
+                    # Maintains max of all exp. moving avg. of sq. grad. values
+                    state["max_exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+
+
 @contextmanager
 def meta_device_init():
     """

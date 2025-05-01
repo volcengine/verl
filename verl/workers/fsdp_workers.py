@@ -40,6 +40,7 @@ from verl.utils.fsdp_utils import (
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     init_fn,
+    init_optimizer_state,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
@@ -303,6 +304,7 @@ class ActorRolloutRefWorker(Worker):
             else:
                 raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
 
+            init_optimizer_state(optimizer=actor_optimizer)
             log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
         else:
             actor_optimizer = None
@@ -850,6 +852,7 @@ class CriticWorker(Worker):
         else:
             raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
 
+        init_optimizer_state(optimizer=critic_optimizer)
         return critic_module, critic_optimizer, critic_lr_scheduler
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
