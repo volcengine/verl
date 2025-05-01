@@ -356,11 +356,11 @@ def compute_policy_loss(
     log_prob,
     advantages,
     response_mask,
-    loss_agg_mode: str,
     cliprange=None,
     cliprange_low=None,
     cliprange_high=None,
     clip_ratio_c=3.0,
+    loss_agg_mode: str = "token-mean",
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
     Args:
@@ -417,40 +417,23 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-def compute_entropy_loss(entropy: torch.Tensor, response_mask: torch.Tensor, loss_agg_mode: str):
-    """Compute Categorical entropy loss
+def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
+    """Compute categorical entropy loss (For backward compatibility)
 
     Args:
-        entropy: `(torch.Tensor)`
-            shape: (bs, response_length)
+        logits: `(torch.Tensor)`
+            shape: (bs, response_length, vocab_size)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
-        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         entropy: a scalar torch.Tensor
 
     """
     # compute entropy
-    entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    token_entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
+    entropy_loss = agg_loss(loss_mat=token_entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return entropy_loss
-
-
-def compute_kl_loss(kld: torch.Tensor, response_mask: torch.Tensor, loss_agg_mode: str):
-    """Compute KL divergence loss
-    Args:
-        kld: `(torch.Tensor)`
-            shape: (bs, response_length)
-        response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
-        loss_agg_mode: (str) see `agg_loss`
-
-    Returns:
-        kl_loss: `torch.Tensor`
-            KL divergence loss term.
-    """
-    kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-    return kl_loss
 
 
 def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torch.Tensor, response_mask: torch.Tensor, cliprange_value: float, loss_agg_mode: str):
