@@ -23,9 +23,10 @@ from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDict
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
 from .checkpoint_manager import BaseCheckpointManager
-from verl.utils.fsdp_utils import get_fsdp_state_ctx, fsdp_version
+
 
 class FSDPCheckpointManager(BaseCheckpointManager):
     """
@@ -154,7 +155,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         if self.rank == 0:
-            hf_local_path = os.path.join(local_path, 'huggingface')
+            hf_local_path = os.path.join(local_path, "huggingface")
             os.makedirs(hf_local_path, exist_ok=True)
             if fsdp_version(self.model) == 1:
                 self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
