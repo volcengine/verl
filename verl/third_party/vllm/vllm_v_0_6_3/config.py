@@ -42,9 +42,8 @@ class LoadFormat(str, enum.Enum):
 
 
 class ModelConfig(ModelConfig):
-
     def __init__(self, hf_config: PretrainedConfig, *args, **kwargs) -> None:
-        super().__init__(model=hf_config._name_or_path, tokenizer=hf_config._name_or_path, *args, **kwargs)
+        super().__init__(model=hf_config._name_or_path, tokenizer=hf_config._name_or_path, *args, **kwargs)  # noqa: B026
         self.hf_config = hf_config
 
 
@@ -97,9 +96,5 @@ class LoadConfig:
 
         rocm_not_supported_load_format: List[str] = []
         if is_hip() and load_format in rocm_not_supported_load_format:
-            rocm_supported_load_format = [
-                f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)
-            ]
-            raise ValueError(f"load format '{load_format}' is not supported in ROCm. "
-                             f"Supported load formats are "
-                             f"{rocm_supported_load_format}")
+            rocm_supported_load_format = [f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)]
+            raise ValueError(f"load format '{load_format}' is not supported in ROCm. Supported load formats are {rocm_supported_load_format}")

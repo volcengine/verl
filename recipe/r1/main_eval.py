@@ -17,17 +17,20 @@ The input is a parquet file that contains N generated sequences and (optional) t
 
 """
 
-import hydra
-from verl.utils.fs import copy_to_local
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
 from collections import defaultdict
+
+import hydra
+import numpy as np
+import pandas as pd
 import ray
+from tqdm import tqdm
+
+from verl.utils.fs import copy_to_local
 
 
 def get_custom_reward_fn(config):
-    import importlib.util, os
+    import importlib.util
+    import os
 
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
@@ -42,7 +45,7 @@ def get_custom_reward_fn(config):
     try:
         spec.loader.exec_module(module)
     except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}': {e}")
+        raise RuntimeError(f"Error loading module from '{file_path}'") from e
 
     function_name = reward_fn_config.get("name")
 
@@ -56,16 +59,15 @@ def get_custom_reward_fn(config):
 
 @ray.remote
 def process_item(reward_fn, data_source, response_lst, reward_data):
-    ground_truth = reward_data['ground_truth']
+    ground_truth = reward_data["ground_truth"]
     score_lst = [reward_fn(data_source, r, ground_truth) for r in response_lst]
     return data_source, np.mean(score_lst)
 
 
-@hydra.main(config_path='config', config_name='evaluation', version_base=None)
+@hydra.main(config_path="config", config_name="evaluation", version_base=None)
 def main(config):
     local_path = copy_to_local(config.data.path)
     dataset = pd.read_parquet(local_path)
-    prompts = dataset[config.data.prompt_key]
     responses = dataset[config.data.response_key]
     data_sources = dataset[config.data.data_source_key]
     reward_model_data = dataset[config.data.reward_model_key]
@@ -74,16 +76,14 @@ def main(config):
 
     # Initialize Ray
     if not ray.is_initialized():
-        ray.init()
+        ray.init(num_cpus=config.ray_init.num_cpus)
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
     compute_score = get_custom_reward_fn(config)
 
     # Create remote tasks
-    remote_tasks = [
-        process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)
-    ]
+    remote_tasks = [process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
 
     # Process results as they come in
     with tqdm(total=total) as pbar:
@@ -97,10 +97,10 @@ def main(config):
 
     metric_dict = {}
     for data_source, rewards in data_source_reward.items():
-        metric_dict[f'test_score/{data_source}'] = np.mean(rewards)
+        metric_dict[f"test_score/{data_source}"] = np.mean(rewards)
 
     print(metric_dict)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -20,7 +20,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.prompt_key=extra_info \
     data.response_key=extra_info \
     optim.lr=1e-4 \
-    +data.prompt_dict_keys=['question'] \
+    data.prompt_dict_keys=['question'] \
     +data.response_dict_keys=['answer'] \
     data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=Qwen/Qwen2.5-0.5B-Instruct \

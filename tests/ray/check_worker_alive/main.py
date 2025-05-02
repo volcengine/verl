@@ -12,20 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
-import sys
 import os
+import sys
+import time
 
 import ray
 
-from verl.single_controller.ray.base import RayResourcePool, RayClassWithInitArgs, RayWorkerGroup
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.base.decorator import register, Dispatch
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 
 @ray.remote
 class TestActor(Worker):
-
     def __init__(self) -> None:
         super().__init__()
 
@@ -41,7 +40,7 @@ if __name__ == "__main__":
     ray.init()
 
     # test single-node-no-partition
-    print(f"test single-node-no-partition")
+    print("test single-node-no-partition")
     resource_pool = RayResourcePool([2], use_gpu=True)
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
@@ -56,8 +55,10 @@ if __name__ == "__main__":
     _ = wg.foo(wait_time)
     print("foo started")
 
-    print(time.time(),
-          f"wait 6x wait time {wait_time*6} to let signal returned to process but still not exceed process wait time")
+    print(
+        time.time(),
+        f"wait 6x wait time {wait_time * 6} to let signal returned to process but still not exceed process wait time",
+    )
     time.sleep(wait_time * 6)
 
     ray.shutdown()

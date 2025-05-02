@@ -13,12 +13,22 @@
 # limitations under the License.
 
 from .modeling_qwen2_megatron import (
-    # original model with megatron
-    ParallelQwen2Model,
     ParallelQwen2ForCausalLM,
     # rmpad with megatron
     ParallelQwen2ForCausalLMRmPad,
-    ParallelQwen2ForValueRmPad,
     # rmpad with megatron and pipeline parallelism
     ParallelQwen2ForCausalLMRmPadPP,
-    ParallelQwen2ForValueRmPadPP)
+    ParallelQwen2ForValueRmPad,
+    ParallelQwen2ForValueRmPadPP,
+    # original model with megatron
+    ParallelQwen2Model,
+)
+
+__all__ = [
+    "ParallelQwen2ForCausalLM",
+    "ParallelQwen2ForCausalLMRmPad",
+    "ParallelQwen2ForCausalLMRmPadPP",
+    "ParallelQwen2ForValueRmPad",
+    "ParallelQwen2ForValueRmPadPP",
+    "ParallelQwen2Model",
+]
