@@ -49,19 +49,19 @@ def get_aux_metrics(self, test_proto):
 
 def test_driverfunc_to_worker():
     # construct model
-    ray.init(num_cpus=100)
+    ray.init()
 
     # create 2 workers, each hold a GPU
-    resource_pool = RayResourcePool([2], use_gpu=False, name_prefix="a")
+    resource_pool = RayResourcePool([2], use_gpu=True, name_prefix="a")
 
     class_with_args = RayClassWithInitArgs(cls=ModelActor)
     shard_wg = RayWorkerGroup(resource_pool, class_with_args)
 
-    test_bs = 1
+    test_bs = 8
     test_proto = DataProto(
         TensorDict(
             {
-                "sequence_ids": torch.ones([test_bs, 256], dtype=torch.int64),
+                "sequence_ids": torch.ones([test_bs, 4096], dtype=torch.int64),
             },
             batch_size=test_bs,
         ),

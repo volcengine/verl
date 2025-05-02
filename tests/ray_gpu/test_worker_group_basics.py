@@ -81,8 +81,9 @@ def remote_call_wg(worker_names):
 
 
 def add_one(data):
-    data = data.to("cpu")
+    data = data.to("cuda")
     data += 1
+    data = data.to("cpu")
     return data
 
 
@@ -90,7 +91,7 @@ def test_basics():
     ray.init(num_cpus=100)
 
     # create 4 workers, each hold a GPU
-    resource_pool = RayResourcePool([4], use_gpu=False)
+    resource_pool = RayResourcePool([4], use_gpu=True)
     class_with_args = RayClassWithInitArgs(cls=TestActor, x=2)
 
     worker_group = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic")
