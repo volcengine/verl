@@ -12,11 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+model_types = []
 
-from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
-from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+try:
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM
+    model_types.append(DeepseekV2ForCausalLM)
+except ImportError:
+    pass
 
-model_types = [Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM]
+try:
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV3ForCausalLM
+    model_types.append(DeepseekV3ForCausalLM)
+except ImportError:
+    pass
+
+try: 
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    model_types.append(Qwen2MoeForCausalLM)
+except ImportError:
+    pass
 
 try:
     from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
