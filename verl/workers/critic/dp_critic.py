@@ -186,7 +186,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         else:
             dataloader = batch.split(self.config.ppo_mini_batch_size)
 
-        for epoch in range(self.config.ppo_epochs):
+        for epoch in range(self.config.epochs):
             for batch_idx, data in enumerate(dataloader):
                 # split batch into micro_batches
                 mini_batch = data
