@@ -30,11 +30,13 @@ package_name = "vllm"
 package_version = get_version(package_name)
 vllm_version = None
 
+
 if package_version == "0.5.4":
     vllm_version = "0.5.4"
     from .vllm_v_0_5_4 import parallel_state
     from .vllm_v_0_5_4.llm import LLM, LLMEngine
-elif package_version == "0.6.3" or package_version == "0.6.3+rocm624" or package_version == "0.6.3+rocm634":
+elif package_version == "0.6.3" or package_version.startswith("0.6.3"):
+    # rocm version: "0.6.3+rocmxxx"
     vllm_version = "0.6.3"
     from .vllm_v_0_6_3 import parallel_state
     from .vllm_v_0_6_3.llm import LLM, LLMEngine
