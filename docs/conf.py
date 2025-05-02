@@ -84,5 +84,5 @@ html_static_path = ["_static"]
 
 # Add the JavaScript file
 html_js_files = [
-    'js/runllm-widget.js',
+    "js/runllm-widget.js",
 ]
