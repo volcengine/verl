@@ -47,7 +47,7 @@ def get_aux_metrics(self, test_proto):
     return ret_proto
 
 
-def test_driverfunc_to_worker():
+def test():
     # construct model
     ray.init()
 
@@ -61,7 +61,7 @@ def test_driverfunc_to_worker():
     test_proto = DataProto(
         TensorDict(
             {
-                "sequence_ids": torch.ones([test_bs, 4096], dtype=torch.int64),
+                "sequence_ids": torch.ones([test_bs, 2048], dtype=torch.int64),
             },
             batch_size=test_bs,
         ),
