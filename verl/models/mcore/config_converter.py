@@ -18,7 +18,6 @@
 import torch
 import torch.nn.functional as F
 from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.enums import AttnBackend
 from transformers import PretrainedConfig
 
 
@@ -27,10 +26,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
     from megatron.core import parallel_state as mpu
 
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -58,7 +54,6 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         attention_dropout=hf_config.attention_dropout,
         hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
         add_qkv_bias=qkv_bias,
-        attention_backend=AttnBackend.flash,
         bf16=dtype is torch.bfloat16,
     )
 
@@ -68,10 +63,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
 def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     from megatron.core import parallel_state as mpu
 
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
     transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
@@ -89,8 +81,6 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         params_dtype=dtype,
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
-        attention_backend=AttnBackend.flash,
-        # attention_backend=AttnBackend.fused,
         bf16=dtype is torch.bfloat16,
         layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,

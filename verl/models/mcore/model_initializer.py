@@ -28,6 +28,7 @@ def init_mcore_model_dense(
     # for LlamaForCausalLM, Qwen2ForCausalLM
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
     from megatron.core.models.gpt.gpt_model import GPTModel
+
     use_te = True
     assert tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
     transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=use_te)
@@ -116,9 +117,7 @@ def init_mcore_model_llama4(
     value=False,
     **extra_kwargs,
 ):
-    return init_mcore_model_dense(
-        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
-    )
+    return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs)
 
 
 def init_mcore_model_dpskv3(
@@ -130,9 +129,7 @@ def init_mcore_model_dpskv3(
     value=False,
     **extra_kwargs,
 ):
-    return init_mcore_model_dense(
-        tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs
-    )
+    return init_mcore_model_dense(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights, value, **extra_kwargs)
 
 
 def init_mcore_model_qwen2_5_vl(

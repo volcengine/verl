@@ -37,7 +37,8 @@ from verl.trainer.ppo.ray_trainer import (
 def fit(self):
     """
     The training loop of PPO.
-    The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
+    The driver process only need to call the compute functions of the worker group through RPC
+    to construct the PPO dataflow.
     The light-weight advantage computation is done on the driver process.
     """
     from omegaconf import OmegaConf
@@ -101,9 +102,7 @@ def fit(self):
 
                         del gen_baseline_batch, gen_baseline_output
 
-                batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
-                )
+                batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
                 # repeat to align with repeated responses in rollout
                 batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 batch = batch.union(gen_batch_output)
@@ -148,21 +147,21 @@ def fit(self):
 
                     # compute rewards. apply_kl_penalty if available
                     if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(
-                            batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
-                        )
+                        batch, kl_metrics = apply_kl_penalty(batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty)
                         metrics.update(kl_metrics)
                     else:
                         batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
                     # compute advantages, executed on the driver process
-                    norm_adv_by_std_in_grpo = self.config.algorithm.get('norm_adv_by_std_in_grpo', True)
-                    batch = compute_advantage(batch,
-                                              adv_estimator=self.config.algorithm.adv_estimator,
-                                              gamma=self.config.algorithm.gamma,
-                                              lam=self.config.algorithm.lam,
-                                              num_repeat=self.config.actor_rollout_ref.rollout.n,
-                                              norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo)
+                    norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)
+                    batch = compute_advantage(
+                        batch,
+                        adv_estimator=self.config.algorithm.adv_estimator,
+                        gamma=self.config.algorithm.gamma,
+                        lam=self.config.algorithm.lam,
+                        num_repeat=self.config.actor_rollout_ref.rollout.n,
+                        norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                    )
 
                 # update critic
                 if self.use_critic:
@@ -186,20 +185,14 @@ def fit(self):
                     metrics.update(actor_output_metrics)
 
                 # validate
-                if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
-                ):
+                if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
                     with _timer("testing", timing_raw):
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
-                ):
+                if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
                     with _timer("save_checkpoint", timing_raw):
                         self._save_checkpoint()
 
