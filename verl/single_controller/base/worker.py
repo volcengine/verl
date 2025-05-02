@@ -134,7 +134,7 @@ class Worker(WorkerHelper):
         ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
-        # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
 
         ###
