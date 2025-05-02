@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", function () {
     script.setAttribute("version", "stable");
     script.setAttribute("crossorigin", "true");
     script.setAttribute("runllm-keyboard-shortcut", "Mod+j");
-    script.setAttribute("runllm-name", "VeRL Chatbot");
+    script.setAttribute("runllm-name", "verl Chatbot");
     script.setAttribute("runllm-position", "TOP_RIGHT");
     script.setAttribute("runllm-assistant-id", "679");
     script.async = true;
