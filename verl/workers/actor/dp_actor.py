@@ -195,6 +195,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.eval()
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid slient error
+
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
 
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
@@ -236,7 +237,7 @@ class DataParallelPPOActor(BasePPOActor):
         # make sure we are in training mode
         self.actor_module.train()
 
-        temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid slient error
+        temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         multi_turn = data.meta_info.get("multi_turn", False)
 
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]

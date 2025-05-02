@@ -61,8 +61,12 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
     # install the nightly version (recommended)
     git clone https://github.com/volcengine/verl && cd verl
-    pip3 install -e . [vllm] or pip3 install -e . [sglang]
-    # or install from pypi instead of git via `pip3 install verl[...]`
+    # pick your choice of inference engine: vllm or sglang
+    # pip3 install -e .[vllm]
+    # pip3 install -e .[sglang]
+    # or install from pypi instead of git via:
+    # pip3 install verl[vllm]
+    # pip3 install verl[sglang]
 
 .. note::
     
