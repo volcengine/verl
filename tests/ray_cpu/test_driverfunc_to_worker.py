@@ -47,9 +47,9 @@ def get_aux_metrics(self, test_proto):
     return ret_proto
 
 
-def test():
+def test_driverfunc_to_worker():
     # construct model
-    ray.init()
+    ray.init(num_cpus=100)
 
     # create 2 workers, each hold a GPU
     resource_pool = RayResourcePool([2], use_gpu=False, name_prefix="a")

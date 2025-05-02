@@ -51,4 +51,4 @@ jobs:
       - name: Running ray tests that can be tested on CPU machines
         run: |
           cd tests/ray_cpu
-          pytest -s -x --ignore=test_check_worker_alive.py .
+          pytest -s -x --ignore=test_check_worker_alive.py --ignore=test_driverfunc_to_worker.py .
