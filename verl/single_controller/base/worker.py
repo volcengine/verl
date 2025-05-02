@@ -142,8 +142,6 @@ class Worker(WorkerHelper):
         import torch
         ###
 
-        amd_enabled = torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name()
-
         ###
         # [SUPPORT AMD: torch]
         if "AMD" in torch.cuda.get_device_name():
@@ -191,7 +189,7 @@ class Worker(WorkerHelper):
         ###
         # [SUPPORT AMD: torch]
         # torch.cuda.set_device(local_rank)
-        if amd_enabled:
+        if "AMD" in torch.cuda.get_device_name():
             torch.cuda.set_device(int(cuda_visible_devices))
         ###
 
