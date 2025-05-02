@@ -18,23 +18,21 @@ We can subclass Protocol to define more detailed batch info with specific keys
 
 import contextlib
 import copy
+import logging
 import os
 import pickle
-import copy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Union
-import logging
 
 import numpy as np
 import pandas as pd
-import torch
-from torch.utils.data import DataLoader, Dataset
 import ray
 import tensordict
 import torch
 import torch.distributed
 from packaging import version
 from tensordict import TensorDict
+from torch.utils.data import DataLoader
 
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
@@ -90,7 +88,7 @@ def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
         data_padded = DataProto.concat([data] + padding_protos)
     else:
         if len(data) == 0:
-            logging.warning(f"padding a DataProto with no item, no changed made")
+            logging.warning("padding a DataProto with no item, no changed made")
         pad_size = 0
         data_padded = data
     return data_padded, pad_size
@@ -339,18 +337,10 @@ class DataProto:
             else:
                 raise ValueError(f"Unsupported type in data {type(val)}")
 
-        return DataProto.from_dict(tensors=tensors,
-                                   non_tensors=non_tensors,
-                                   meta_info=meta_info,
-                                   auto_padding=auto_padding)
+        return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
     @classmethod
-    def from_dict(cls,
-                  tensors: Dict[str, torch.Tensor],
-                  non_tensors=None,
-                  meta_info=None,
-                  num_batch_dims=1,
-                  auto_padding=False):
+    def from_dict(cls, tensors: Dict[str, torch.Tensor], non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
@@ -657,8 +647,7 @@ class DataProto:
             List[DataProto]: a list of DataProto after splitting
         """
         if not self.is_padding_enabled():
-            assert len(
-                self) % chunks == 0, f'only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}.'
+            assert len(self) % chunks == 0, f"only support equal chunk. Got size of DataProto {len(self)} and chunk {chunks}."
 
         bsz_in_batch = None
         if self.batch is not None:

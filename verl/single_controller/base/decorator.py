@@ -16,10 +16,8 @@ from enum import Enum
 from functools import wraps
 from types import FunctionType
 from typing import Dict, List, Tuple
-from types import FunctionType
 
-from verl.protocol import DataProtoFuture
-from verl.protocol import _padding_size_key
+from verl.protocol import DataProtoFuture, _padding_size_key
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
@@ -65,8 +63,7 @@ def _split_args_kwargs_data_proto(chunks, *args, __padding_127xcd7=False, **kwar
                 padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
                 splitted_kwargs[_padding_size_key] = padding_size
             else:
-                assert data_proto_len == len(arg), (f"expecting all arg share same length of {data_proto_len}, "
-                                                    f"but got {len(arg)}")
+                assert data_proto_len == len(arg), f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
                 data_proto_len = len(arg)
             arg.padding(padding_size=padding_size)
 
@@ -81,8 +78,7 @@ def _split_args_kwargs_data_proto(chunks, *args, __padding_127xcd7=False, **kwar
                 padding_size = chunks - (data_proto_len % chunks)
                 splitted_kwargs[_padding_size_key] = padding_size
             else:
-                assert data_proto_len == len(val), (f"expecting all arg share same length of {data_proto_len}, "
-                                                    f"but got {len(val)}")
+                assert data_proto_len == len(val), f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
                 data_proto_len = len(val)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
@@ -321,7 +317,6 @@ def collect_dp_compute(worker_group, output):
 
 
 def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
-    from verl.protocol import DataProtoConfig
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
@@ -329,7 +324,8 @@ def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
         worker_group.world_size,
         *args,
         __padding_127xcd7=True,  # enable for dp_compute
-        **kwargs)
+        **kwargs,
+    )
     return splitted_args, splitted_kwargs
 
 
