@@ -46,7 +46,23 @@ class Execute(Enum):
     RANK_ZERO = 1
 
 
-def _split_args_kwargs_data_proto(chunks, *args, enable_auto_padding=False, **kwargs):
+def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
+    from verl.protocol import DataProto, DataProtoFuture
+
+    splitted_args = []
+    for arg in args:
+        assert isinstance(arg, (DataProto, DataProtoFuture))
+        splitted_args.append(arg.chunk(chunks=chunks))
+
+    splitted_kwargs = {}
+    for key, val in kwargs.items():
+        assert isinstance(val, (DataProto, DataProtoFuture))
+        splitted_kwargs[key] = val.chunk(chunks=chunks)
+
+    return splitted_args, splitted_kwargs
+
+
+def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
@@ -56,7 +72,7 @@ def _split_args_kwargs_data_proto(chunks, *args, enable_auto_padding=False, **kw
     padding_size = None
     for arg in args:
         assert isinstance(arg, (DataProto, DataProtoFuture))
-        if isinstance(arg, DataProto) and enable_auto_padding and arg.is_padding_enabled():
+        if isinstance(arg, DataProto) and arg.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
                 data_proto_len = len(arg)
@@ -71,7 +87,7 @@ def _split_args_kwargs_data_proto(chunks, *args, enable_auto_padding=False, **kw
 
     for key, val in kwargs.items():
         assert isinstance(val, (DataProto, DataProtoFuture))
-        if isinstance(val, DataProto) and enable_auto_padding and val.is_padding_enabled():
+        if isinstance(val, DataProto) and val.is_padding_enabled():
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
                 data_proto_len = len(val)
@@ -320,10 +336,10 @@ def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(
+    # Note: enable auto padding for dp compute DatapProto
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto_with_auto_padding(
         worker_group.world_size,
         *args,
-        enable_auto_padding=True,  # enable for dp_compute
         **kwargs,
     )
     return splitted_args, splitted_kwargs
