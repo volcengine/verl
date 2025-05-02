@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 from enum import Enum
 from functools import wraps
 from types import FunctionType
@@ -463,8 +464,15 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
                 args, kwargs = _materialize_futures(*args, **kwargs)
             return func(*args, **kwargs)
 
+        @wraps(func)
+        async def async_inner(*args, **kwargs):
+            if materialize_futures:
+                args, kwargs = _materialize_futures(*args, **kwargs)
+            return await func(*args, **kwargs)
+
+        wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
         attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, "blocking": blocking}
-        setattr(inner, MAGIC_ATTR, attrs)
-        return inner
+        setattr(wrapper, MAGIC_ATTR, attrs)
+        return wrapper
 
     return decorator
