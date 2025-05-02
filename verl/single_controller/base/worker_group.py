@@ -110,6 +110,9 @@ class WorkerGroup:
         self._workers = []
         self._worker_names = []
 
+        self._dist_workers_info = {}
+        self._dist_global_info = {}
+
         self._master_addr = None
         self._master_port = None
 
@@ -136,6 +139,26 @@ class WorkerGroup:
     @property
     def world_size(self):
         return len(self._workers)
+    
+    def register_dist_info(self, name, dist_global_info, order='tp-cp-ep-dp-pp'):
+        """register the nD distributed info. Currently, we only support megatron mesh
+        # TODO: we can support general device mesh in the future
+        """
+        from verl.single_controller.base.worker import DistGlobalInfo
+        assert isinstance(dist_global_info, DistGlobalInfo)
+        assert name not in self._dist_global_info, f"dist_info {name} already exists"
+        assert name not in self._dist_workers_info, f"dist_info {name} already exists"
+        # compute the DistRankInfo for each worker
+        self._dist_global_info[name] = dist_global_info
+        self._dist_workers_info[name] = []
+
+        assert self.world_size == dist_global_info.get_world_size(), \
+            f"world_size mismatch. Got {self.world_size} and {dist_global_info.get_world_size()}"
+
+        for i in range(self.world_size):
+            dist_rank_info = dist_global_info.get_rank_info(global_rank=i, order=order)
+            self._dist_workers_info[name].append(dist_rank_info)
+        
 
     # execute_all_async and execute_rank_zero_async should be implemented by RayWorkerGroup, TorchRPCWorkerGroup,
     # MegatronWorkerGroup, XperfWorkerGroup should skip
