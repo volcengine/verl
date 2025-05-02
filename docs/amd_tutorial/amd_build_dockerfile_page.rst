@@ -109,7 +109,9 @@ Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above 
 Example
 -------
 
-Due to to special setting in AMD (ROCM) torch, you need to assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting Ray in VeRL's RLHF training.
+Due to to special setting in AMD (ROCM) torch, you need to assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting Ray in VeRL's RLHF training. ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
+
+
 
 PPO
 ~~~
@@ -125,6 +127,8 @@ PPO
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    ENGINE=vllm
+
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
      data.train_files=data/gsm8k/train.parquet \
      data.val_files=data/gsm8k/test.parquet \
@@ -138,6 +142,7 @@ PPO
      actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
      actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
      actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+     actor_rollout_ref.rollout.name=$ENGINE \
      actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
      actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
      critic.optim.lr=1e-5 \
@@ -171,6 +176,8 @@ GRPO
     # MODEL_PATH=Qwen/Qwen2-7B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    ENGINE=vllm
+    
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
         data.train_files=data/gsm8k/train.parquet \
@@ -192,7 +199,7 @@ GRPO
         actor_rollout_ref.actor.fsdp_config.param_offload=False \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
         actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-        actor_rollout_ref.rollout.name=vllm \
+        actor_rollout_ref.rollout.name=$ENGINE \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
         actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.fsdp_config.param_offload=False \
