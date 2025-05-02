@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
+from .async_sglang_rollout import AsyncSGLangRollout
 from .sglang_rollout import SGLangRollout
 
-__all__ = ["SGLangRollout"]
+__all__ = ["AsyncSGLangRollout", "SGLangRollout"]

@@ -27,6 +27,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoModelForTokenClassification,
     AutoModelForVision2Seq,
+    AutoTokenizer,
     GenerationConfig,
 )
 
@@ -56,6 +57,8 @@ parser.add_argument(
     required=False,
     help="test correctness of hf_model, , with hf_model in checkpoint.contents",
 )
+parser.add_argument("--private", required=False, default=False, help="Whether to upload the model to private repo")
+
 args = parser.parse_args()
 os.makedirs(args.target_dir, exist_ok=True)
 if args.test:
@@ -78,7 +81,7 @@ def upload_model_to_huggingface(hf_path):
     from huggingface_hub import HfApi
 
     api = HfApi()
-    api.create_repo(repo_id=args.hf_upload_path, private=False, exist_ok=True)
+    api.create_repo(repo_id=args.hf_upload_path, private=args.private, exist_ok=True)
     api.upload_folder(folder_path=hf_path, repo_id=args.hf_upload_path, repo_type="model")
 
 
@@ -219,6 +222,11 @@ def convert_fsdp_checkpoints_to_hfmodels():
     model.save_pretrained(hf_path, state_dict=state_dict)
     del state_dict
     del model
+
+    print("Saving tokenizer")
+    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_path)
+    tokenizer.save_pretrained(hf_path)
+
     if args.hf_upload_path:
         upload_model_to_huggingface(hf_path)
 
@@ -424,6 +432,11 @@ def convert_megatron_checkpoints_to_hfmodels():
     model.save_pretrained(hf_path, state_dict=state_dict)
     del state_dict
     del model
+
+    print("Saving tokenizer")
+    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_path)
+    tokenizer.save_pretrained(hf_path)
+
     if args.hf_upload_path:
         upload_model_to_huggingface(hf_path)
 

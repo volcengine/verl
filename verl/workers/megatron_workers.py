@@ -748,7 +748,7 @@ class RewardModelWorker(MegatronWorker):
             model_provider_func=megatron_rm_model_provider,
             model_type=ModelType.encoder_or_decoder,
             wrap_with_ddp=False,
-            use_distributed_optimizer=self.config.reward_model.use_distributed_optimizer,
+            use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
         )
         # note that here critic_module will be a list to be compatible with the construction of interleaved pp (vpp).
         # but here, we do not use pp (vpp) yet. For simplicity, we remove the list
