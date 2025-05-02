@@ -326,6 +326,7 @@ class DataProto:
 
     @classmethod
     def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
+        """Create a DataProto from a dict of tensors and non_tensors"""
         tensors = {}
         non_tensors = {}
 
@@ -619,6 +620,11 @@ class DataProto:
         return iter(get_data())
 
     def is_padding_enabled(self):
+        """
+        Check if padding is enabled for the DataProto.
+        Returns:
+            bool: True if padding is enabled, False otherwise.
+        """
         dataproto_specific_padding = self.meta_info.get(DataProtoConfig.auto_padding_key, False)
         return dataproto_specific_padding or DataProtoConfig.auto_padding
 
