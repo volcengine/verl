@@ -170,33 +170,22 @@ def load_fsdp_optimizer(optimizer, device_id):
 
 @torch.no_grad()
 def init_optimizer_state(optimizer):
-    # Adapt from https://github.com/pytorch/pytorch/blob/v2.6.0/torch/optim/adam.py#L157
-    from torch.optim.optimizer import _get_scalar_dtype
+    # save origin weight decay
+    orig_wds = [group.get("weight_decay", None) for group in optimizer.param_groups]
 
     for group in optimizer.param_groups:
+        # set weight_decay to 0 temporarily
+        if "weight_decay" in group:
+            group["weight_decay"] = 0
         for p in group["params"]:
-            state = optimizer.state[p]
-            # State initialization
-            if len(state) == 0:
-                # note(crcrpar): [special device hosting for step]
-                # Deliberately host `step` on CPU if both capturable and fused are off.
-                # This is because kernel launches are costly on CUDA and XLA.
-                state["step"] = (
-                    torch.zeros(
-                        (),
-                        dtype=_get_scalar_dtype(is_fused=group["fused"]),
-                        device=p.device,
-                    )
-                    if group["capturable"] or group["fused"]
-                    else torch.tensor(0.0, dtype=_get_scalar_dtype())
-                )
-                # Exponential moving average of gradient values
-                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                # Exponential moving average of squared gradient values
-                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                if group["amsgrad"]:
-                    # Maintains max of all exp. moving avg. of sq. grad. values
-                    state["max_exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            p.grad = torch.zeros_like(p.data)
+    optimizer.step()
+    optimizer.zero_grad()
+
+    # restore weight_decay
+    for group, wd in zip(optimizer.param_groups, orig_wds):
+        if wd is not None:
+            group["weight_decay"] = wd
 
 
 @contextmanager
