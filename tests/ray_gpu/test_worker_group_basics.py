@@ -88,7 +88,7 @@ def add_one(data):
 
 
 def test_basics():
-    ray.init()
+    ray.init(num_cpus=100)
 
     # create 4 workers, each hold a GPU
     resource_pool = RayResourcePool([4], use_gpu=True)

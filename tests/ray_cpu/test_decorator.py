@@ -74,7 +74,7 @@ def test_decorator_dp_compute(ray_init_shutdown):
 
     # Prepare input data (size 4, for 2 workers)
     input_tensor = torch.arange(4, dtype=torch.float32)
-    data = DataProto(batch=TensorDict({"input": input_tensor}))
+    data = DataProto(batch=TensorDict({"input": input_tensor}, batch_size=[4]))
 
     # Call the decorated method
     output = worker_group.dp_compute(data)
