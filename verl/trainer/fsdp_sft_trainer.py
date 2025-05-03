@@ -37,7 +37,7 @@ from torch import nn, optim
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
@@ -82,16 +82,12 @@ def convert_to_regular_types(obj):
 
 
 class FSDPSFTTrainer:
-    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh):
+    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh, tokenizer, train_dataset: Dataset, val_dataset: Dataset):
         self.config = config
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-        # build tokenizer first
-        local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
-        from verl.utils import hf_tokenizer
-
-        self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code)
+        self.tokenizer = tokenizer
         if self.config.data.chat_template is not None:
             raise ValueError("Apply Chat template from config is not supported yet.")
 
@@ -105,7 +101,7 @@ class FSDPSFTTrainer:
             print(f"Using sequence parallel size: {self.config.ulysses_sequence_parallel_size}")
             print(f"Using remove padding: {self.use_remove_padding}")
 
-        self._build_dataloader()
+        self._build_dataloader(train_dataset, val_dataset)
         # build model
         self._build_model_optimizer()
 
@@ -124,24 +120,10 @@ class FSDPSFTTrainer:
 
         assert self.config.data.train_batch_size % self.config.data.micro_batch_size_per_gpu == 0
 
-    def _build_dataloader(self):
-        config = self.config
+    def _build_dataloader(self, train_dataset, val_dataset):
         # build dataset
-        from verl.utils.import_utils import load_extern_type
-
-        # First check if a custom dataset class is specified
-        if config.data.custom_cls.get("path", None):
-            dataset_cls = load_extern_type(config.data.custom_cls.path, config.data.custom_cls.name)
-        # Then check if multi-turn dataset should be used
-        elif config.data.get("multiturn", {}).get("enable", False):
-            dataset_cls = MultiTurnSFTDataset
-        # Default to single-turn dataset
-        else:
-            dataset_cls = SFTDataset
-
-        # Create datasets based on the selected class
-        self.train_dataset = dataset_cls(parquet_files=config.data.train_files, tokenizer=self.tokenizer, config=config.data)
-        self.val_dataset = dataset_cls(parquet_files=config.data.val_files, tokenizer=self.tokenizer, config=config.data)
+        config = self.config
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         # build dataloader
         # Use data parallel rank and size instead of global rank and world size
@@ -525,8 +507,37 @@ def main(config):
     device_mesh = init_device_mesh(device_type="cuda", mesh_shape=(world_size,), mesh_dim_names=("fsdp",))
     dp_size = world_size // config.ulysses_sequence_parallel_size
     ulysses_device_mesh = init_device_mesh(device_type="cuda", mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
-    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh)
+    # build tokenizer and datasets first
+    from verl.utils import hf_tokenizer
+
+    local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
+    tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+
+    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
+
     trainer.fit()
+
+
+def create_sft_dataset(data_paths, data_config, tokenizer):
+    """Create a dataset."""
+    # build dataset
+    # First check if a custom dataset class is specified
+    if data_config.custom_cls.get("path", None):
+        from verl.utils.import_utils import load_extern_type
+
+        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+    # Then check if multi-turn dataset should be used
+    elif data_config.get("multiturn", {}).get("enable", False):
+        dataset_cls = MultiTurnSFTDataset
+    # Default to single-turn dataset
+    else:
+        dataset_cls = SFTDataset
+
+    # Create datasets based on the selected class
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    return dataset
 
 
 if __name__ == "__main__":
