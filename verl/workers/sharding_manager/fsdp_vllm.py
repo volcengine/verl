@@ -53,11 +53,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
 
         if hasattr(inference_engine.llm_engine.model_executor, 'driver_worker'):
-            self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner
+            self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
         else:
             # Fallback logic for older versions
-            self.model_runner = inference_engine.llm_engine.model_executor.worker.model_runner
-        
+            self.model_runner = inference_engine.llm_engine.model_executor.worker.model_runner if inference_engine else None
+            
         self.model_config = model_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
