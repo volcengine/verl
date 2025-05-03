@@ -120,3 +120,16 @@ We only need ``[model]_loader.py`` in original checkpoint utils now, since we ge
     For users who can **only place the huggingface model on one device**, we keep the original costly implementation in ``[model]_loader_deprecated``. In this implementation, rank 0 broadcast all weights to each tp and pp rank, and then dp rank 0 broadcast to all dp ranks. There may be at risks of OOM.
 
     To use deprecated loader, change the import package of ``load_state_dict_to_megatron_llama``.
+
+S3 Checkpointing
+----------------
+
+To save checkpoints in S3 add the s3 path you'd like to save at to: trainer.s3_checkpoint_dir.
+Example: 
+.. code:: bash
+    trainer.resume_mode='s3://<bucket_name>/<project_name>/<experiment_name>/global_step_<n>
+
+To load from a checkpoint that's stored in S3, set trainer.resume_mode to the path to your step folder in s3.
+Example:
+.. code:: bash
+    trainer.s3_checkpoint_dir=s3://<bucket_name>/${trainer.project_name}/${trainer.experiment_name}

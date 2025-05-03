@@ -25,7 +25,6 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 from verl.utils.fs import copy_to_local, is_non_local, upload_local_file_to_s3
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
-
 from .checkpoint_manager import BaseCheckpointManager
 
 
@@ -74,12 +73,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             return
 
         # every rank download its own checkpoint
-        remote_model_path = os.path.join(path, f'model_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_optim_path = os.path.join(path, f'optim_world_size_{self.world_size}_rank_{self.rank}.pt')
-        remote_extra_state_path = os.path.join(path, f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt')
-        print(
-            f'[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}'
-        )
+        remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
+        remote_optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
+        remote_extra_state_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
+        print(f"[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}")
         local_model_path = copy_to_local(remote_model_path, recursive=False)
         local_optim_path = copy_to_local(remote_optim_path, recursive=False)
         local_extra_state_path = copy_to_local(remote_extra_state_path, recursive=False)
@@ -112,12 +109,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-
-
     def save_checkpoint(self, local_path: str, global_step: int, s3_path: str = None, max_ckpt_to_keep=None, *args, **kwargs):
         if local_path is None:
             return
-        
+
         # record the previous global step
         self.previous_global_step = global_step
 
@@ -145,9 +140,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     "rng": self.get_rng_state(),
                 }
 
-                model_file = f'model_world_size_{self.world_size}_rank_{self.rank}.pt'
-                optim_file = f'optim_world_size_{self.world_size}_rank_{self.rank}.pt'
-                extra_file = f'extra_state_world_size_{self.world_size}_rank_{self.rank}.pt'
+                model_file = f"model_world_size_{self.world_size}_rank_{self.rank}.pt"
+                optim_file = f"optim_world_size_{self.world_size}_rank_{self.rank}.pt"
+                extra_file = f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt"
                 model_path = os.path.join(local_path, model_file)
                 optim_path = os.path.join(local_path, optim_file)
                 extra_path = os.path.join(local_path, extra_file)
