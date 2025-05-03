@@ -30,7 +30,7 @@ from verl import DataProto
 from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import _compute_response_info
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType, _timer, reduce_metrics
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType, _timer, compute_response_mask, reduce_metrics
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
@@ -39,11 +39,7 @@ from . import prime_core_algos
 
 def compute_advantage(data: DataProto, adv_estimator, config):
     if adv_estimator == "rloo":
-        responses = data.batch["responses"]
-        response_length = responses.size(-1)
-        attention_mask = data.batch["attention_mask"]
-        response_mask = attention_mask[:, -response_length:]
-        advantages, returns = prime_core_algos.compute_rloo_advantage_return(data, response_mask, config.actor_rollout_ref.rollout.n, config)
+        advantages, returns = prime_core_algos.compute_rloo_advantage_return(data, config=config)
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     else:
@@ -108,13 +104,6 @@ def compute_data_metrics(batch, use_critic=True):
         "prompt_length/clip_ratio": torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
     return metrics
-
-
-def compute_response_mask(data: DataProto):
-    responses = data.batch["responses"]
-    response_length = responses.size(1)
-    attention_mask = data.batch["attention_mask"]
-    return attention_mask[:, -response_length:]
 
 
 def compute_timing_metrics(batch, timing_raw):

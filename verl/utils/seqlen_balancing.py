@@ -14,11 +14,12 @@
 
 import copy
 import heapq
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
-from tensordict import TensorDict
 from torch import distributed as dist
+
+from verl import DataProto
 
 
 def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
@@ -213,15 +214,15 @@ def ceildiv(a, b):
     return -(a // -b)
 
 
-def rearrange_micro_batches(batch: TensorDict, max_token_len, dp_group=None):
+def get_uniform_data_chunks(data: DataProto, max_token_len: int, dp_group: Optional[dist.ProcessGroup] = None) -> tuple[list[DataProto], list[list[int]]]:
     """Split the batch into a list of micro_batches, where the max_token_len is smaller than max_token_len
     and the number of valid tokens in each micro batch is well balanced.
     """
     # this is per local micro_bsz
-    max_seq_len = batch["attention_mask"].shape[-1]
+    max_seq_len = data.batch["attention_mask"].shape[-1]
     assert max_token_len >= max_seq_len, f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
 
-    seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
+    seq_len_effective: torch.Tensor = data.batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     num_micro_batches = ceildiv(total_seqlen, max_token_len)
     if dist.is_initialized():
@@ -232,19 +233,11 @@ def rearrange_micro_batches(batch: TensorDict, max_token_len, dp_group=None):
     seq_len_effective = seq_len_effective.tolist()
     assert num_micro_batches <= len(seq_len_effective)
 
-    micro_bsz_idx = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
+    micro_idx_partitions = get_seqlen_balanced_partitions(seq_len_effective, num_micro_batches, equal_size=False)
 
-    micro_batches = []
+    uniform_data_chunks = [data.select_idxs(partition) for partition in micro_idx_partitions]
 
-    for partition in micro_bsz_idx:
-        curr_micro_batch = []
-        for idx in partition:
-            curr_micro_batch.append(batch[idx : idx + 1])
-        curr_micro_batch = torch.cat(curr_micro_batch)
-
-        micro_batches.append(curr_micro_batch)
-
-    return micro_batches, micro_bsz_idx
+    return uniform_data_chunks, micro_idx_partitions
 
 
 def get_reverse_idx(idx_map):

@@ -13,13 +13,18 @@
 # limitations under the License.
 
 import torch
+from omegaconf import DictConfig
 
 import verl
 import verl.utils.torch_functional as verl_F
+from verl.trainer.ppo.ray_trainer import compute_response_mask
 
 
-def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Tensor, n_samples, config):
+def compute_rloo_advantage_return(data: verl.DataProto, config: DictConfig):
     # calculate rloo reward on different reward sources, and sum again
+    action_mask = compute_response_mask(data)
+    n_samples = config.actor_rollout_ref.rollout.n
+
     def masked_rloo(reward_tensor_original, mask_tensor):
         reward_tensor = reward_tensor_original.clone()
         reward_tensor[~mask_tensor] = 0
@@ -39,13 +44,13 @@ def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Ten
     with torch.no_grad():
         if "rm_scores" in data.batch.keys() and config.algorithm.reward_dpo_coef != 0.0:
             reward_tensor = data.batch["rm_scores"]
-            reward_mask = response_mask.bool()
+            reward_mask = action_mask.bool()
 
             reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_dpo_coef)
 
         if "acc" in data.batch.keys() and config.algorithm.reward_gt_coef != 0.0:
-            reward_tensor = torch.zeros_like(response_mask, dtype=torch.float32)
-            reward_mask = torch.zeros_like(response_mask, dtype=torch.bool)
+            reward_tensor = torch.zeros_like(action_mask, dtype=torch.float32)
+            reward_mask = torch.zeros_like(action_mask, dtype=torch.bool)
 
             prompt_ids = data.batch["prompts"]
             prompt_length = prompt_ids.shape[-1]
@@ -64,10 +69,10 @@ def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Ten
 
         final_reward_tensor = sum(reward_tensors)
 
-        returns = (final_reward_tensor * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
+        returns = (final_reward_tensor * action_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
 
         advantages = returns.clone()
-        advantages = verl_F.masked_whiten(advantages, response_mask)
+        advantages = verl_F.masked_whiten(advantages, action_mask)
 
         return advantages, returns
 
