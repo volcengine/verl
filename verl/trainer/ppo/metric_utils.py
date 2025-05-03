@@ -246,7 +246,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                                 )
                                 metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = maj_n_mean, maj_n_std
 
-                    data_src2prompt2var2metric[data_source][prompt][var_name] = metric
+                data_src2prompt2var2metric[data_source][prompt][var_name] = metric
 
     # Aggregate metrics across prompts
     data_src2var2metric2prompt_vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
