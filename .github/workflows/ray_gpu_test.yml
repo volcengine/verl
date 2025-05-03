@@ -1,4 +1,4 @@
-name: ray
+name: ray_gpu
 
 on:
   # Trigger the workflow on push or pull request,
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  ray:
+  ray_gpu:
     runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
@@ -48,5 +48,5 @@ jobs:
           pip install --upgrade "ray>=2.40.0"
       - name: Running ray tests that need 8 GPUs
         run: |
-          cd tests/ray
-          pytest -s -x --ignore=test_check_worker_alive.py --ignore=test_rvdz.py .
+          cd tests/ray_gpu
+          pytest -s -x --ignore=test_rvdz.py .
