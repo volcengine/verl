@@ -169,7 +169,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         super()._validate_config()
         # TODO: Additional config checks can be added here
 
-    def _create_dataloader(self):
+    def _create_dataloader(self, *args, **kwargs):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
         # TODO: we have to make sure the batch size is divisible by the dp size

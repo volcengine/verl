@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def collate_fn(data_list: list[dict]) -> dict:
+    """Collate a batch of data."""
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 
