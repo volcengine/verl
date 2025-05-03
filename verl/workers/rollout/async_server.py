@@ -248,30 +248,30 @@ class AsyncLLMServerManager:
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
         while len(unready_dp_ranks) > 0:
-            workers = {
+            servers = {
                 rollout_dp_rank: server_class.options(
                     # make sure AsyncvLLMServer colocates with its corresponding workers
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
                         soft=False,
                     ),
-                    name=f"async_llm_worker_{rollout_dp_rank}",
+                    name=f"async_llm_server_{rollout_dp_rank}",
                 ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
                 for rollout_dp_rank in unready_dp_ranks
             }
 
-            for rollout_dp_rank, worker in workers.items():
+            for rollout_dp_rank, server in servers.items():
                 try:
-                    address = ray.get(worker.get_server_address.remote())
+                    address = ray.get(server.get_server_address.remote())
                     self.server_addresses[rollout_dp_rank] = address
-                    self.async_llm_servers[rollout_dp_rank] = worker
+                    self.async_llm_servers[rollout_dp_rank] = server
                     unready_dp_ranks.remove(rollout_dp_rank)
                 except Exception:
-                    ray.kill(worker)
-                    print(f"worker {rollout_dp_rank} failed, maybe address already in use, restarting...")
+                    ray.kill(server)
+                    print(f"rollout server {rollout_dp_rank} failed, maybe address already in use, restarting...")
 
         # All server instances are ready, init AsyncLLM engine.
-        ray.get([worker.init_engine.remote() for worker in self.async_llm_servers])
+        ray.get([server.init_engine.remote() for server in self.async_llm_servers])
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
@@ -300,11 +300,11 @@ class AsyncLLMServerManager:
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([worker.wake_up.remote() for worker in self.async_llm_servers])
+        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([worker.sleep.remote() for worker in self.async_llm_servers])
+        ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,
