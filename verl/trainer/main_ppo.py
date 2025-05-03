@@ -163,6 +163,11 @@ class TaskRunner:
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
+        from verl.utils.dataset.rl_dataset import collate_fn
+
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_sampler = create_rl_sampler(config.data, train_dataset)
         trainer = RayPPOTrainer(
             config=config,
             tokenizer=tokenizer,
@@ -172,9 +177,72 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            collate_fn=collate_fn,
+            train_sampler=train_sampler,
         )
         trainer.init_workers()
         trainer.fit()
+
+
+def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+    """Create a dataset.
+
+    Arguments:
+        data_config: The data config.
+        tokenizer (Tokenizer): The tokenizer.
+        processor (Processor): The processor.
+
+    Returns:
+        dataset (Dataset): The dataset.
+    """
+    from torch.utils.data import Dataset
+
+    from verl.utils.dataset.rl_dataset import RLHFDataset
+
+    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
+        from verl.utils.import_utils import load_extern_type
+
+        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        if not issubclass(dataset_cls, Dataset):
+            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+    else:
+        dataset_cls = RLHFDataset
+    print(f"Using dataset class: {dataset_cls.__name__}")
+
+    dataset = dataset_cls(
+        data_files=data_paths,
+        tokenizer=tokenizer,
+        processor=processor,
+        config=data_config,
+    )
+
+    return dataset
+
+
+def create_rl_sampler(data_config, dataset):
+    """Create a sampler for the dataset.
+
+    Arguments:
+        data_config: The data config.
+        dataset (Dataset): The dataset.
+
+    Returns:
+        sampler (Sampler): The sampler.
+    """
+    import torch
+    from torch.utils.data import RandomSampler, SequentialSampler
+
+    # use sampler for better ckpt resume
+    if data_config.shuffle:
+        train_dataloader_generator = torch.Generator()
+        train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+        sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+    else:
+        sampler = SequentialSampler(data_source=dataset)
+
+    return sampler
 
 
 if __name__ == "__main__":
