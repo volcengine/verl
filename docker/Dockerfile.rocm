@@ -52,4 +52,4 @@ RUN pip install "tensordict<0.6" --no-deps && \
     pip install -e . --no-deps
 
 # Install torch_memory_saver
-RUN pip install git+https://github.com/ExtremeViscent/torch_memory_saver.git --no-deps
+RUN pip install git+https://github.com/fzyzcjy/torch_memory_saver.git --no-deps
