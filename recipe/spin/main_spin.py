@@ -1,5 +1,5 @@
 
-from verl.recipe.spin.spin_trainer import RaySPINTrainer
+from recipe.spin.spin_trainer import RaySPINTrainer
 
 import os
 import ray
@@ -99,7 +99,7 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.recipe.spin.spin_trainer import ResourcePoolManager, Role
+        from recipe.spin.spin_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
             # Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
