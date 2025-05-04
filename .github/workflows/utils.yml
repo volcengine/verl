@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  ray_cpu:
+  utils:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # Increase this timeout value as needed  
     strategy:
