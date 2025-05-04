@@ -1159,7 +1159,7 @@ class RewardModelWorker(Worker):
 
             chat.append({"role": "assistant", "content": response})
 
-            prompt_with_chat_template = target_tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False)
+            prompt_with_chat_template = target_tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False, enable_thinking=False)
             if self.rank == 0 and i == 0:
                 # for debugging purpose
                 print(f"Switch template. chat: {prompt_with_chat_template}")

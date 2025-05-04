@@ -101,6 +101,7 @@ def main_task(config):
             return_tensors="pt",
             return_dict=True,
             tokenize=True,
+            enable_thinking=False
         )
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]

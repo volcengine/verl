@@ -100,6 +100,7 @@ class AsyncRolloutRequest(BaseModel):
             tools=[tool.model_dump() for tool in self.tools] if self.tools else None,
             add_generation_prompt=True,
             tokenize=False,
+            enable_thinking=False
         )
 
     def add_assistant_message(
@@ -115,7 +116,7 @@ class AsyncRolloutRequest(BaseModel):
         self.messages.append(msg)
         if tool_calls is not None:
             content_with_tool_calls: str = tokenizer.apply_chat_template(  # type: ignore
-                conversation=[msg.model_dump()], add_generation_prompt=False, tokenize=False
+                conversation=[msg.model_dump()], add_generation_prompt=False, tokenize=False, enable_thinking=False
             )
         else:
             content_with_tool_calls = content
