@@ -324,6 +324,8 @@ class SGLangRollout(BaseRollout):
                 batch_size = batch_size * self.sampling_params["n"]
                 if "multi_modal_inputs" in non_tensor_batch.keys():
                     non_tensor_batch["multi_modal_inputs"] = np.repeat(non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0)
+                if "tools_kwargs" in non_tensor_batch.keys():
+                    non_tensor_batch["tools_kwargs"] = np.repeat(non_tensor_batch["tools_kwargs"], self.sampling_params["n"], axis=0)
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
