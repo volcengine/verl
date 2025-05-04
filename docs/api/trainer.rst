@@ -6,7 +6,6 @@ Trainers drive the training loop. Introducing new trainer classes in case of new
 .. autosummary::
    :nosignatures:
 
-   verl.trainer.fsdp_sft_trainer.FSDPSFTTrainer
    verl.trainer.ppo.ray_trainer.RayPPOTrainer
 
 
