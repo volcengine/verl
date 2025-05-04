@@ -48,7 +48,7 @@ def squeeze(x):
 
 def update_model_config(module_config, override_config_kwargs):
     for key, val in override_config_kwargs.items():
-        if isinstance(val, dict) and isinstance(getattr(module_config, key), dict):
+        if isinstance(val, dict):
             update_model_config(getattr(module_config, key), val)
         else:
             setattr(module_config, key, val)
