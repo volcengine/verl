@@ -52,11 +52,12 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.inference_engine = inference_engine
         # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
 
-        if hasattr(inference_engine.llm_engine.model_executor, 'driver_worker'):
-            self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
+        if 'vllm_v_0_6_3' in str(type(self.inference_engine)) or 'vllm_v_0_5_4' in str(type(self.inference_engine)):
+            # vLLM <= v0.6.3
+            self.model_runner = self.inference_engine.llm_engine.model_executor.worker.model_runner if self.inference_engine else None
         else:
-            # Fallback logic for older versions
-            self.model_runner = inference_engine.llm_engine.model_executor.worker.model_runner if inference_engine else None
+            # vLLM > v0.6.3
+            self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
             
         self.model_config = model_config
         self.device_mesh = device_mesh
