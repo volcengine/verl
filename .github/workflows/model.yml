@@ -15,8 +15,9 @@ on:
       - "verl/**/*.py"
       # Entrypoints
       # - ".github/workflows/model.yml"
-      - "tests/model/**"
-      - "tests/distributed/**"
+      - "tests/checkpoint/test_fsdp_ckpt.py"
+      - "tests/model/test_transformers_ulysses.py"
+      - "tests/distributed/run_all.sh"
 
 # Declare permissions just read content.
 permissions:
