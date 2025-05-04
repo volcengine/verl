@@ -58,5 +58,5 @@ jobs:
       #          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
       - name: Running ray test using cupy (move it to L20 when dockerfile ready)
         run: |
-          cd tests/ray
+          cd tests/ray_gpu
           pytest -s -x test_rvdz.py
