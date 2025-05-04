@@ -1,4 +1,4 @@
-name: ray_cpu
+name: verl_unit_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -12,8 +12,8 @@ on:
       - main
       - v0.*
     paths:
-      - "verl/single_controller/*.py"
-      - .github/workflows/ray_cpu_test.yml
+      - "**/*.py"
+      - .github/workflows/verl_unit_test.yml
       - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -26,9 +26,9 @@ permissions:
   contents: read
 
 jobs:
-  ray_cpu:
+  verl_unit_test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # Increase this timeout value as needed 
+    timeout-minutes: 10 # Increase this timeout value as needed  
     strategy:
       matrix:
         python-version: ["3.10"]
@@ -41,8 +41,11 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-          pip install --upgrade "ray>=2.40.0"
-      - name: Running ray tests that can be tested on CPU machines
+      - name: Running test protocol.py 
         run: |
-          cd tests/ray_cpu
-          pytest -s -x --ignore=test_check_worker_alive.py .
+          cd tests/verl
+          pytest -s -x test_protocol.py
+      - name: Running utils tests 
+        run: |
+          cd tests/verl/utils
+          pytest -s -x --ignore=dataset/ .
