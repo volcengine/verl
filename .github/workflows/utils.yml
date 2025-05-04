@@ -12,8 +12,8 @@ on:
       - main
       - v0.*
     paths:
-      - "verl/single_controller/*.py"
-      - .github/workflows/ray_test.yml
+      - "**/*.py"
+      - .github/workflows/utils.yml
       - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
