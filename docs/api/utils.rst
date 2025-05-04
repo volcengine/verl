@@ -1,4 +1,4 @@
-Training Utils
+Training utils
 =========================
 
 Core APIs
