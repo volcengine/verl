@@ -17,8 +17,13 @@ on:
       - v0.2.x
     paths:
       - "**/*.py"
-      - "verl/trainer/config/*.yaml"
-      - .github/workflows/sgl.yml
+      # Entrypoints
+      - ".github/workflows/sgl.yml"
+      - "tests/rollout/*sglang*"
+      - "tests/rollout/async_rollout_utils.py"
+      - "!tests"
+      # Recipes
+      - "!recipe"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -31,7 +36,7 @@ permissions:
 
 jobs:
   sgl:
-    runs-on: [self-hosted, l20-0]
+    runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}

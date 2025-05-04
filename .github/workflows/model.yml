@@ -13,9 +13,11 @@ on:
       - v0.*
     paths:
       - "verl/**/*.py"
-      - "tests/**/*.sh"
+      # Entrypoints
+      - ".github/workflows/model.yml"
       - "tests/model/*"
-      - .github/workflows/model.yml
+      - "tests/distributed"
+      - "!tests"
       - "!recipe/**"
 
 # Declare permissions just read content.
