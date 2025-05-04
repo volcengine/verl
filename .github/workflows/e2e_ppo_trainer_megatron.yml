@@ -24,7 +24,7 @@ on:
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Entrypoints
-      # - ".github/workflows/e2e_ppo_trainer_megatron.yml"
+      - ".github/workflows/e2e_ppo_trainer_megatron.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/e2e/run_ppo_trainer_megatron.sh"
       - "verl/trainer/main_ppo.py"

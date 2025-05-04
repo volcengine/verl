@@ -23,7 +23,7 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Entrypoints
-      # - ".github/workflows/e2e_sft.yml"
+      - ".github/workflows/e2e_sft.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/e2e/sft"
       - "verl/trainer/fsdp_sft_trainer.py"

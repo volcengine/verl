@@ -31,7 +31,7 @@ on:
       # Recipes
       - "!recipe/**"
       # Entrypoints
-      # - ".github/workflows/sgl.yml"
+      - ".github/workflows/sgl.yml"
       - "tests/rollout/*sglang*"
       - "tests/rollout/async_rollout_utils.py"
 
