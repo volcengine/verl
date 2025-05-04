@@ -1,4 +1,4 @@
-name: utils
+name: verl_unit_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  utils:
+  verl_unit_test::
     runs-on: ubuntu-latest
     timeout-minutes: 10 # Increase this timeout value as needed  
     strategy:
@@ -43,5 +43,9 @@ jobs:
           pip install -e .[test]
       - name: Running utils tests 
         run: |
-          cd tests/utils
+          cd tests/verl
+          pytest -s -x test_protocol.py
+      - name: Running utils tests 
+        run: |
+          cd tests/verl/utils
           pytest -s -x --ignore=dataset/ .
