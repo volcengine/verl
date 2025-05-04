@@ -80,7 +80,7 @@ jobs:
         run: |
           bash tests/distributed/run_all.sh
 
-  # TODO: Remove this once FSDP2 is stable.
+  # TODO: Move this back to model_rmpad once FSDP2 is stable.
   # NOTE: List as an independent job to make rerun easier.
   model_rmpad_fsdp2:
     runs-on: [L20x8]
