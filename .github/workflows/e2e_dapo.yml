@@ -12,7 +12,6 @@ on:
       - main
       - v0.*
     paths:
-      - "**/*.py"
       # Home
       - "recipe/dapo/src"
       # Entrypoints
@@ -25,6 +24,7 @@ on:
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Megatron
       - "!verl/workers/**/megatron_*.py"
+      - "**/*.py"
 
 # Declare permissions just read content.
 permissions:
