@@ -82,7 +82,7 @@ jobs:
 
   # TODO: Move this back to model_rmpad once FSDP2 is stable.
   # NOTE: List as an independent job to make rerun easier.
-  model_rmpad_fsdp2:
+  model_rmpad_fsdp2_unstable:
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     env:
