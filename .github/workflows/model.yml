@@ -15,10 +15,8 @@ on:
       - "verl/**/*.py"
       # Entrypoints
       - ".github/workflows/model.yml"
-      - "tests/model/*"
-      - "tests/distributed"
-      - "!tests/**/*.py"
-      - "!recipe/**/*.py"
+      - "tests/model/**"
+      - "tests/distributed/**"
 
 # Declare permissions just read content.
 permissions:
