@@ -20,12 +20,12 @@ on:
       - "tests/e2e/run_r1_distill_qwen_aime24_eval.sh"
       - "verl/trainer/main_generation.py"
       - "verl/trainer/config/generation.yaml"
-      - "!examples"
-      - "!tests"
+      - "!examples/**/*.py"
+      - "!tests/**/*.py"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Other recipes
-      - "!recipe"
+      - "!recipe/**/*.py"
 
 # Declare permissions just read content.
 permissions:

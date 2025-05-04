@@ -17,8 +17,8 @@ on:
       - ".github/workflows/model.yml"
       - "tests/model/*"
       - "tests/distributed"
-      - "!tests"
-      - "!recipe/**"
+      - "!tests/**/*.py"
+      - "!recipe/**/*.py"
 
 # Declare permissions just read content.
 permissions:

@@ -19,8 +19,8 @@ on:
       - ".github/workflows/e2e_dapo.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/e2e/run_dapo.sh"
-      - "!examples"
-      - "!tests"
+      - "!examples/**/*.py"
+      - "!tests/**/*.py"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Megatron

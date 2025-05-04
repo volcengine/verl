@@ -20,12 +20,12 @@ on:
       - "tests/e2e/run_ppo_trainer_megatron.sh"
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_megatron_trainer.yaml"
-      - "!examples"
-      - "!tests"
+      - "!examples/**/*.py"
+      - "!tests/**/*.py"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Recipes
-      - "!recipe"
+      - "!recipe/**/*.py"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
 

@@ -19,12 +19,12 @@ on:
       - "tests/rollout"
       - "verl/trainer/main_generation.py"
       - "verl/trainer/config/generation.yaml"
-      - "!examples"
-      - "!tests"
+      - "!examples/**/*.py"
+      - "!tests/**/*.py"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Recipes
-      - "!recipe"
+      - "!recipe/**/*.py"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Megatron

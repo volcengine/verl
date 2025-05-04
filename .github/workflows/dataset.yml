@@ -15,7 +15,7 @@ on:
       - .github/workflows/dataset.yml
       - "!verl/workers/fsdp_workers.py"
       - "!verl/workers/megatron_workers.py"
-      - "!recipe/**"
+      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
