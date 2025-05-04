@@ -48,5 +48,5 @@ jobs:
           pip install --upgrade "ray>=2.40.0"
       - name: Running ray tests that need 8 GPUs
         run: |
-          cd tests/utils
-          pytest -s -x --ignore=dataset .
+          cd tests/ray_gpu
+          pytest -s -x --ignore=test_rvdz.py .

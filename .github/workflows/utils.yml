@@ -44,4 +44,4 @@ jobs:
       - name: Running utils tests 
         run: |
           cd tests/utils
-          pytest -s -x --ignore=test_check_worker_alive.py .
+          pytest -s -x --ignore=dataset/ .
