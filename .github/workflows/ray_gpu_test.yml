@@ -1,4 +1,4 @@
-name: dataset
+name: ray_gpu
 
 on:
   # Trigger the workflow on push or pull request,
@@ -10,11 +10,10 @@ on:
   pull_request:
     branches:
       - main
+      - v0.*
     paths:
-      - "verl/utils/**/*.py"
-      - .github/workflows/dataset.yml
-      - "!verl/workers/fsdp_workers.py"
-      - "!verl/workers/megatron_workers.py"
+      - "verl/single_controller/*.py"
+      - .github/workflows/ray_gpu_test.yml
       - "!recipe/**"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -27,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  ray:
+  ray_gpu:
     runs-on: [L20x8]
     timeout-minutes: 10 # Increase this timeout value as needed
     env:
@@ -47,16 +46,7 @@ jobs:
         run: |
           pip install -e .[test]
           pip install --upgrade "ray>=2.40.0"
-          pip install cupy-cuda12x
-      - name: Running dataset tests
-        run: |
-          [ ! -d "$HOME/verl-data" ] && git clone --depth 1 https://github.com/eric-haibin-lin/verl-data ~/verl-data
-          python3 examples/data_preprocess/geo3k.py
-          pytest -s -x tests/verl/utils/dataset/test_rl_dataset.py
-          pytest -s -x tests/verl/utils/dataset/test_sft_dataset.py
-          pytest -s -x tests/verl/utils/test_import_utils.py
-      #          pytest -s -x tests/verl/utils/dataset/test_rm_dataset.py
-      - name: Running ray test using cupy (move it to L20 when dockerfile ready)
+      - name: Running ray tests that need 8 GPUs
         run: |
           cd tests/ray_gpu
-          pytest -s -x test_rvdz.py
+          pytest -s -x --ignore=test_rvdz.py .

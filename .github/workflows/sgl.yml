@@ -41,7 +41,7 @@ jobs:
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
     container:
-      image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3
+      image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post1
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

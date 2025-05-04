@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 from enum import Enum
 from functools import wraps
 from types import FunctionType
 from typing import Dict, List, Tuple
 
-from verl.protocol import DataProtoFuture
+from verl.protocol import DataProtoFuture, _padding_size_key
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
@@ -57,6 +58,45 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     splitted_kwargs = {}
     for key, val in kwargs.items():
         assert isinstance(val, (DataProto, DataProtoFuture))
+        splitted_kwargs[key] = val.chunk(chunks=chunks)
+
+    return splitted_args, splitted_kwargs
+
+
+def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
+    from verl.protocol import DataProto, DataProtoFuture
+
+    splitted_args = []
+    splitted_kwargs = {}
+
+    data_proto_len = None
+    padding_size = None
+    for arg in args:
+        assert isinstance(arg, (DataProto, DataProtoFuture))
+        if isinstance(arg, DataProto) and arg.is_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(arg)
+                padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(arg), f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
+                data_proto_len = len(arg)
+            arg.padding(padding_size=padding_size)
+
+        splitted_args.append(arg.chunk(chunks=chunks))
+
+    for key, val in kwargs.items():
+        assert isinstance(val, (DataProto, DataProtoFuture))
+        if isinstance(val, DataProto) and val.is_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(val)
+                padding_size = chunks - (data_proto_len % chunks)
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(val), f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
+                data_proto_len = len(val)
         splitted_kwargs[key] = val.chunk(chunks=chunks)
 
     return splitted_args, splitted_kwargs
@@ -297,7 +337,12 @@ def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args, **kwargs)
+    # Note: enable auto padding for dp compute DatapProto
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto_with_auto_padding(
+        worker_group.world_size,
+        *args,
+        **kwargs,
+    )
     return splitted_args, splitted_kwargs
 
 
@@ -419,8 +464,15 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
                 args, kwargs = _materialize_futures(*args, **kwargs)
             return func(*args, **kwargs)
 
+        @wraps(func)
+        async def async_inner(*args, **kwargs):
+            if materialize_futures:
+                args, kwargs = _materialize_futures(*args, **kwargs)
+            return await func(*args, **kwargs)
+
+        wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
         attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, "blocking": blocking}
-        setattr(inner, MAGIC_ATTR, attrs)
-        return inner
+        setattr(wrapper, MAGIC_ATTR, attrs)
+        return wrapper
 
     return decorator

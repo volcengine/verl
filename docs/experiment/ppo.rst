@@ -27,6 +27,7 @@ NVIDIA GPUs
 .. _Qwen0.5b PRIME Script: https://github.com/volcengine/verl/blob/main/recipe/prime/run_prime_qwen.sh
 .. _Qwen0.5b PRIME Wandb: https://api.wandb.ai/links/zefan-wang-thu-tsinghua-university/rxd1btvb
 .. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
+.. _Qwen7b GRPO FSDP2 Script and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b-fsdp2.log
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
@@ -46,6 +47,8 @@ NVIDIA GPUs
 | deepseek-ai/deepseek-llm-7b-chat | PPO (Megatron)         | 69.5 [1]_  |   `Megatron PPO Command and Logs`_, `Megatron wandb`_                                         |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+| Qwen/Qwen2-7B-Instruct           | GRPO (FSDP2)           | 89.8       |  `_Qwen7b GRPO FSDP2 Script and Logs`_                                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO (Megatron)        | 89.6       |   `Megatron Qwen2 7b GRPO Script with Math and GSM8k`_                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
