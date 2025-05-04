@@ -23,26 +23,27 @@ import numpy as np
 import torch
 
 from verl import DataProto
+from verl.utils.import_utils import deprecated
 
-
+@deprecated("verl.utils.metric.reduce_metrics")
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
     """
     Reduces a dictionary of metric lists by computing the mean of each list.
-    
+
     Args:
         metrics: A dictionary mapping metric names to lists of metric values.
-        
+
     Returns:
         A dictionary with the same keys but with each list replaced by its mean value.
-        
+
     Example:
         >>> metrics = {"loss": [1.0, 2.0, 3.0], "accuracy": [0.8, 0.9, 0.7]}
         >>> reduce_metrics(metrics)
         {"loss": 2.0, "accuracy": 0.8}
     """
-    for key, val in metrics.items():
-        metrics[key] = np.mean(val)
-    return metrics
+    from verl.utils.metric import reduce_metrics
+
+    return reduce_metrics(metrics)
 
 
 def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
@@ -78,15 +79,15 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
-    
+
     This function calculates metrics related to scores, rewards, advantages, returns, values,
     and sequence lengths from a batch of data. It provides statistical information (mean, max, min)
     for each metric category.
-    
+
     Args:
         batch: A DataProto object containing batch data with token-level scores, rewards, advantages, etc.
         use_critic: Whether to include critic-specific metrics. Defaults to True.
-        
+
     Returns:
         A dictionary of metrics including:
             - critic/score/mean, max, min: Statistics about sequence scores
@@ -174,16 +175,16 @@ def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Di
     This function calculates both raw timing metrics (in seconds) and per-token timing metrics 
     (in milliseconds) for various processing stages like generation, reference computation, 
     value computation, advantage computation, and model updates.
-    
+
     Args:
         batch: A DataProto object containing batch data with responses and attention masks.
         timing_raw: A dictionary mapping stage names to their execution times in seconds.
-        
+
     Returns:
         A dictionary containing:
             - timing_s/{name}: Raw timing in seconds for each stage
             - timing_per_token_ms/{name}: Per-token timing in milliseconds for each stage
-            
+
     Note:
         Different stages use different token counts for normalization:
         - "gen" uses only response tokens
@@ -251,21 +252,21 @@ def bootstrap_metric(
 ) -> list[tuple[float, float]]:
     """
     Performs bootstrap resampling to estimate statistics of metrics.
-    
+
     This function uses bootstrap resampling to estimate the mean and standard deviation
     of metrics computed by the provided reduction functions on random subsets of the data.
-    
+
     Args:
         data: List of data points to bootstrap from.
         subset_size: Size of each bootstrap sample.
         reduce_fns: List of functions that compute a metric from a subset of data.
         n_bootstrap: Number of bootstrap iterations. Defaults to 1000.
         seed: Random seed for reproducibility. Defaults to 42.
-        
+
     Returns:
         A list of tuples, where each tuple contains (mean, std) for a metric
         corresponding to each reduction function in reduce_fns.
-        
+
     Example:
         >>> data = [1, 2, 3, 4, 5]
         >>> reduce_fns = [np.mean, np.max]
@@ -286,18 +287,18 @@ def bootstrap_metric(
 def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> float:
     """
     Calculate a value based on majority voting.
-    
+
     This function identifies the most common value for a specified vote key
     in the data, then returns the corresponding value for that majority vote.
-    
+
     Args:
         data: List of dictionaries, where each dictionary contains both vote_key and val_key.
         vote_key: The key in each dictionary used for voting/counting.
         val_key: The key in each dictionary whose value will be returned for the majority vote.
-        
+
     Returns:
         The value associated with the most common vote.
-        
+
     Example:
         >>> data = [
         ...     {"pred": "A", "val": 0.9},
@@ -333,7 +334,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
         sample_inputs: List of input prompts corresponding to each sample.
         infos_dict: Dictionary mapping variable names to lists of values for each sample.
         seed: Random seed for bootstrap sampling. Defaults to 42.
-        
+
     Returns:
         A nested dictionary with the structure:
         {

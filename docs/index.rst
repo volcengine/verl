@@ -60,6 +60,13 @@ verl is fast with:
    examples/gsm8k_example
    examples/multi_modal_example
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Algorithms
+
+   experiment/ppo
+
+
 .. toctree:: 
    :maxdepth: 1
    :caption: PPO Trainer and Workers
@@ -79,12 +86,6 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: Experimental Results
-
-   experiment/ppo
-
-.. toctree::
-   :maxdepth: 1
    :caption: Advance Usage and Extension
 
    advance/placement
@@ -97,7 +98,8 @@ verl is fast with:
    :maxdepth: 1
    :caption: API References
 
-   data.rst
+   data
+   api/utils
 
 
 .. toctree::

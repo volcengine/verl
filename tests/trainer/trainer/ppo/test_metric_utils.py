@@ -4,19 +4,21 @@ Tests for the metric utilities in verl.trainer.ppo.metric_utils.
 
 import unittest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
 import torch
-from collections import defaultdict
-from functools import partial
 
 from verl.trainer.ppo.metric_utils import (
-    reduce_metrics,
-    compute_data_metrics,
-    compute_timing_metrics,
-    compute_throughout_metrics,
     bootstrap_metric,
     calc_maj_val,
+    compute_data_metrics,
+    compute_throughout_metrics,
+    compute_timing_metrics,
     process_validation_metrics,
+)
+
+from verl.utils.metric import (
+    reduce_metrics,
 )
 
 
