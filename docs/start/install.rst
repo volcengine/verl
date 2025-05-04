@@ -42,7 +42,7 @@ For vLLM with Megatron or FSDP, please use ``whatcanyousee/verl:ngc-cu124-vllm0.
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.5.post3`` which is provided by SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post1`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
