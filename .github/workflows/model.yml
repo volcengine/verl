@@ -52,7 +52,11 @@ jobs:
           pytest -s tests/model/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+      - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
+        continue-on-error: true # TODO: Remove this once FSDP2 is stable
+        run: |
+          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
           torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
