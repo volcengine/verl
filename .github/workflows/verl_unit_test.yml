@@ -41,7 +41,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running utils tests 
+      - name: Running test protocol.py 
         run: |
           cd tests/verl
           pytest -s -x test_protocol.py
