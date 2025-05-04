@@ -303,34 +303,11 @@ def compute_onlineDPO_pref(data: DataProto):
         # Returning original data for now to potentially allow skipping
         return data
 
-    # print(f"  Input token_level_rewards shape: {rewards_tensor.shape}, dtype: {rewards_tensor.dtype}")
-    # if rewards_tensor.numel() > 0:
-    #     try: print(f"  Input token_level_rewards Min={rewards_tensor.min().item():.4f}, Max={rewards_tensor.max().item():.4f}, Mean={rewards_tensor.mean().item():.4f}")
-    #     except Exception as e: print(f"  Stat check failed for rewards: {e}")
-
-    # # print(f"  Input response_mask shape: {mask_tensor.shape}, dtype: {mask_tensor.dtype}")
-    # if mask_tensor.numel() > 0:
-    #      try: print(f"  Input response_mask Min={mask_tensor.min().item()}, Max={mask_tensor.max().item()}")
-    #      except Exception as e: print(f"  Stat check failed for mask: {e}")
-
-    # --- Call the core preference calculation function ---
-    # Ensure the function name 'compute_online_dpo_preference' exists in core_algos
-    # Or replace with the correct function name (e.g., 'compute_onlinedpo_pref')
     try:
         preferences = core_algos.compute_onlinedpo_pref(
             token_level_rewards=rewards_tensor,
             response_mask=mask_tensor
         )
-        # print(f"---- [DEBUG] compute_onlineDPO_pref - Output ----")
-        # print(f"  Output preferences shape: {preferences.shape}, dtype: {preferences.dtype}")
-        # if preferences.numel() > 0:
-        #      # Print counts if it's a boolean mask
-        #      if preferences.dtype == torch.bool:
-        #          print(f"  Output preferences True count: {preferences.sum().item()}, False count: {(~preferences).sum().item()}")
-        #      else: # Otherwise print min/max
-        #          try: print(f"  Output preferences Min={preferences.min().item()}, Max={preferences.max().item()}")
-        #          except Exception as e: print(f"  Stat check failed for preferences: {e}")
-
         # Store the result
         data.batch['preferences'] = preferences
 
