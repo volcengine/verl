@@ -14,7 +14,7 @@ on:
     paths:
       - "verl/**/*.py"
       # Entrypoints
-      - ".github/workflows/model.yml"
+      # - ".github/workflows/model.yml"
       - "tests/model/**"
       - "tests/distributed/**"
 

@@ -27,7 +27,7 @@ on:
       # SGLang
       - "!**/*sglang*"
       # Entrypoints
-      - ".github/workflows/vllm.yml"
+      # - ".github/workflows/vllm.yml"
       - "tests/generation"
       - "tests/rollout"
       - "verl/trainer/main_generation.py"

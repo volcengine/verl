@@ -23,7 +23,7 @@ on:
       - "recipe/r1"
       - "!recipe/r1/README.md"
       # Entrypoints
-      - ".github/workflows/e2e_eval_aime24.yml"
+      # - ".github/workflows/e2e_eval_aime24.yml"
       - "tests/e2e/run_r1_distill_qwen_aime24_eval.sh"
       - "verl/trainer/main_generation.py"
       - "verl/trainer/config/generation.yaml"
