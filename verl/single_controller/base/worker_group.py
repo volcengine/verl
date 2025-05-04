@@ -35,9 +35,12 @@ class ResourcePool:
         """Initialize the ResourcePool with node processes and GPU configuration.
 
         Args:
-            process_on_nodes (List[int], optional): List of process counts per node. Defaults to empty list.
-            max_colocate_count (int, optional): Maximum number of processes that can be colocated. Defaults to 10.
-            n_gpus_per_node (int, optional): Number of GPUs available per node. Defaults to 8.
+            process_on_nodes (List[int], optional):
+                List of process counts per node. Defaults to empty list.
+            max_colocate_count (int, optional):
+                Maximum number of processes that can be colocated. Defaults to 10.
+            n_gpus_per_node (int, optional):
+                Number of GPUs available per node. Defaults to 8.
         """
         if process_on_nodes is None:
             process_on_nodes = []
