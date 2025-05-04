@@ -43,9 +43,9 @@ jobs:
           pip install -e .[test]
       - name: Running test protocol.py 
         run: |
-          cd tests/verl
+          cd tests
           pytest -s -x test_protocol.py
       - name: Running utils tests 
         run: |
-          cd tests/verl/utils
+          cd tests/utils
           pytest -s -x --ignore=dataset/ .
