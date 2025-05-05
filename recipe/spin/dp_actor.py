@@ -106,7 +106,8 @@ class SPINDataParallelPPOActor(DataParallelPPOActor):
             # ============================================================
 
             # Get DPO params from meta_info
-            beta = data.meta_info.get('dpo_beta', 0.1) # Default beta
+            # beta = data.meta_info.get('dpo_beta', 0.1) # Default beta
+            beta = self.config.get('dpo_beta', 0.1) # Default beta
             loss_type = data.meta_info.get('dpo_loss_type', 'sigmoid')
             label_smoothing = data.meta_info.get('dpo_label_smoothing', 0.0)
             # reference_free should now be False as we provide ref logps

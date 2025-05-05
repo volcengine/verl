@@ -26,5 +26,5 @@ CUDA_VISIBLE_DEVICES=${VISIBLE_DEVICES} python3 -m recipe.spin.main_spin \
   trainer.save_freq=-1 \
   trainer.test_freq=1 \
   +trainer.log_freq=1 \
-  +trainer.ref_update_freq=1 \
+  trainer.ref_update_freq=1 \
   trainer.total_epochs=1000 2>&1 | tee verl_demo.log
