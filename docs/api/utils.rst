@@ -88,25 +88,31 @@ Ray Utilities
    :members:
 
 Model Utilities
--------------
+----------------
 
 .. automodule:: verl.utils.model
    :members:
 
 Sequence Length Balancing
------------------------
+--------------------------
 
 .. automodule:: verl.utils.seqlen_balancing
    :members:
 
 Tracking Utilities
-----------------
+--------------------
 
 .. automodule:: verl.utils.tracking
    :members:
 
 Megatron Utilities
-----------------------------------
+-------------------
 
 .. automodule:: verl.utils.megatron.pipeline_parallel
+   :members:
+
+.. automodule:: verl.utils.megatron.sequence_parallel
+   :members:
+
+.. automodule:: verl.utils.megatron.tensor_parallel
    :members:
