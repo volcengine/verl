@@ -89,7 +89,7 @@ def test_vllm_spmd():
     preencode_prompts = [
         "Who won the Champions League in 2019?",
         "The founder of Apple is",
-        "What's your name",
+        "What's your name?",
     ]
     tokenizer.pad_token = tokenizer.eos_token
     prompts = tokenizer(preencode_prompts, return_tensors="pt", padding=True)

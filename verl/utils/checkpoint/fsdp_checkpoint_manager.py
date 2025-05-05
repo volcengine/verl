@@ -23,6 +23,7 @@ from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDict
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
 from .checkpoint_manager import BaseCheckpointManager
 
@@ -83,7 +84,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # every rank download its own checkpoint
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True) if self.save_model else None
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True) if self.save_optimizer else None
-        with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_config=state_dict_cfg, optim_state_dict_config=optim_cfg):
+        with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             if self.save_model:
                 remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
                 local_model_path = copy_to_local(remote_model_path)
@@ -145,7 +146,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True) if self.save_optimizer else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_config=state_dict_cfg, optim_state_dict_config=optim_cfg):
+            with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
                 model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
                 optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
                 extra_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
@@ -173,11 +174,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             # wait for everyone to dump to local
             torch.distributed.barrier()
 
-            if self.rank == 0:
-                hf_local_path = os.path.join(local_path, "huggingface")
-                os.makedirs(hf_local_path, exist_ok=True)
+        if self.rank == 0:
+            hf_local_path = os.path.join(local_path, "huggingface")
+            os.makedirs(hf_local_path, exist_ok=True)
+            if fsdp_version(self.model) == 1:
                 self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-                self.processing_class.save_pretrained(hf_local_path)
+            else:
+                self.model.config.save_pretrained(hf_local_path)
+            self.processing_class.save_pretrained(hf_local_path)
 
         torch.distributed.barrier()
 

@@ -169,7 +169,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         super()._validate_config()
         # TODO: Additional config checks can be added here
 
-    def _create_dataloader(self):
+    def _create_dataloader(self, *args, **kwargs):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
         # TODO: we have to make sure the batch size is divisible by the dp size
@@ -327,6 +327,7 @@ class RayPRIMETrainer(RayPPOTrainer):
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
+            assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
