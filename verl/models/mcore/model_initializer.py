@@ -16,7 +16,6 @@
 
 # use mcore transformer config to initialize the model
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
 
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
@@ -33,10 +32,12 @@ class BaseModelInitializer(ABC):
 
     @abstractmethod
     def get_transformer_layer_spec(self):
-        """Get the transformer layer specification."""
+        """Get the transformer layer specification.
+        https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/models/gpt/gpt_layer_specs.py"""
         pass
 
-    def get_rope_scaling_args(self):
+    def get_rope_scaling_args(self) -> dict:
+        """Get rope scaling args."""
         rope_scaling_args = {}
         if "rope_scaling" in self.hf_config:
             if self.hf_config.rope_scaling is not None:
@@ -46,13 +47,24 @@ class BaseModelInitializer(ABC):
 
     def initialize(
         self,
-        pre_process: Optional[Callable] = None,
-        post_process: Optional[Callable] = None,
+        pre_process: bool = True,
+        post_process: bool = True,
         share_embeddings_and_output_weights: bool = False,
         value: bool = False,
         **extra_kwargs,
     ) -> GPTModel:
-        """Initialize the model with the given configuration."""
+        """Initialize a GPT model with the given configuration.
+        https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/models/gpt/gpt_model.py
+
+        Args:
+            pre_process (bool): include embedding layer.
+            post_process (bool): including an output layer.
+            share_embeddings_and_output_weights (bool): input embeddings and output logit weights are shared.
+            value (bool): add an extra linear layer for classification or regression.
+
+        Returns:
+            GPTModel: An initialized GPT model instance
+        """
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
 

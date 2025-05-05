@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 Registry module for model architecture components.
 """
 
-from typing import Any, Callable, Dict, Optional, Type
+from enum import Enum
+from typing import Callable, Dict, Type
 
 import torch
 import torch.nn as nn
@@ -48,62 +48,78 @@ from .weight_converter import (
     McoreToHFWeightConverterQwen2Moe,
 )
 
+
+class SupportedModel(Enum):
+    LLAMA = "LlamaForCausalLM"  # tested
+    QWEN2 = "Qwen2ForCausalLM"  # tested
+    QWEN2_MOE = "Qwen2MoeForCausalLM"  # pending
+    DEEPSEEK_V3 = "DeepseekV3ForCausalLM"  # not tested
+    MIXTRAL = "MixtralForCausalLM"  # tested
+    QWEN2_5_VL = "Qwen2_5_VLForConditionalGeneration"  # not supported
+    LLAMA4 = "Llama4ForConditionalGeneration"  # not tested
+
+
 # Registry for model configuration converters
-MODEL_CONFIG_CONVERTER_REGISTRY: Dict[str, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
-    "LlamaForCausalLM": hf_to_mcore_config_dense,
-    "Qwen2ForCausalLM": hf_to_mcore_config_dense,
-    "Qwen2MoeForCausalLM": hf_to_mcore_config_qwen2moe,
-    "DeepseekV3ForCausalLM": hf_to_mcore_config_dpskv3,
-    "MixtralForCausalLM": hf_to_mcore_config_mixtral,
-    "Qwen2_5_VLForConditionalGeneration": hf_to_mcore_config_qwen2_5_vl,
-    "Llama4ForConditionalGeneration": hf_to_mcore_config_llama4,
+MODEL_CONFIG_CONVERTER_REGISTRY: Dict[SupportedModel, Callable[[PretrainedConfig, torch.dtype], TransformerConfig]] = {
+    SupportedModel.LLAMA: hf_to_mcore_config_dense,
+    SupportedModel.QWEN2: hf_to_mcore_config_dense,
+    SupportedModel.QWEN2_MOE: hf_to_mcore_config_qwen2moe,
+    SupportedModel.DEEPSEEK_V3: hf_to_mcore_config_dpskv3,
+    SupportedModel.MIXTRAL: hf_to_mcore_config_mixtral,
+    SupportedModel.QWEN2_5_VL: hf_to_mcore_config_qwen2_5_vl,
+    SupportedModel.LLAMA4: hf_to_mcore_config_llama4,
 }
 
 # Registry for model initializers
-MODEL_INITIALIZER_REGISTRY: Dict[str, Type[BaseModelInitializer]] = {
-    "LlamaForCausalLM": DenseModel,
-    "Qwen2ForCausalLM": DenseModel,
-    "Qwen2MoeForCausalLM": Qwen2MoEModel,
-    "MixtralForCausalLM": MixtralModel,
-    "DeepseekV3ForCausalLM": DenseModel,
-    "Qwen2_5_VLForConditionalGeneration": Qwen25VLModel,
-    "Llama4ForConditionalGeneration": DenseModel,
+MODEL_INITIALIZER_REGISTRY: Dict[SupportedModel, Type[BaseModelInitializer]] = {
+    SupportedModel.LLAMA: DenseModel,
+    SupportedModel.QWEN2: DenseModel,
+    SupportedModel.QWEN2_MOE: Qwen2MoEModel,
+    SupportedModel.MIXTRAL: MixtralModel,
+    SupportedModel.DEEPSEEK_V3: DenseModel,
+    SupportedModel.QWEN2_5_VL: Qwen25VLModel,
+    SupportedModel.LLAMA4: DenseModel,
 }
 
 # Registry for model forward functions
-MODEL_FORWARD_REGISTRY: Dict[str, Callable] = {
-    "LlamaForCausalLM": gptmodel_forward,
-    "Qwen2ForCausalLM": gptmodel_forward,
-    "Qwen2MoeForCausalLM": gptmodel_forward,
-    "MixtralForCausalLM": gptmodel_forward,
-    "DeepseekV3ForCausalLM": gptmodel_forward,
-    "Qwen2_5_VLForConditionalGeneration": gptmodel_forward,
-    "Llama4ForConditionalGeneration": gptmodel_forward,
+MODEL_FORWARD_REGISTRY: Dict[SupportedModel, Callable] = {
+    SupportedModel.LLAMA: gptmodel_forward,
+    SupportedModel.QWEN2: gptmodel_forward,
+    SupportedModel.QWEN2_MOE: gptmodel_forward,
+    SupportedModel.MIXTRAL: gptmodel_forward,
+    SupportedModel.DEEPSEEK_V3: gptmodel_forward,
+    SupportedModel.QWEN2_5_VL: gptmodel_forward,
+    SupportedModel.LLAMA4: gptmodel_forward,
 }
 
 # Registry for model weight converters
-MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[str, Type] = {
-    "LlamaForCausalLM": McoreToHFWeightConverterDense,
-    "Qwen2ForCausalLM": McoreToHFWeightConverterDense,
-    "Qwen2MoeForCausalLM": McoreToHFWeightConverterQwen2Moe,
-    "MixtralForCausalLM": McoreToHFWeightConverterMixtral,
+MODEL_WEIGHT_CONVERTER_REGISTRY: Dict[SupportedModel, Type] = {
+    SupportedModel.LLAMA: McoreToHFWeightConverterDense,
+    SupportedModel.QWEN2: McoreToHFWeightConverterDense,
+    SupportedModel.QWEN2_MOE: McoreToHFWeightConverterQwen2Moe,
+    SupportedModel.MIXTRAL: McoreToHFWeightConverterMixtral,
 }
 
 
-### Only add model registry above and do not change below
+def get_supported_model(model_type: str) -> SupportedModel:
+    try:
+        return SupportedModel(model_type)
+    except ValueError as err:
+        supported_models = [e.value for e in SupportedModel]
+        raise NotImplementedError(f"Model Type: {model_type} not supported. Supported models: {supported_models}") from err
+
+
 def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    arch = hf_config.architectures[0]
-    if arch not in MODEL_CONFIG_CONVERTER_REGISTRY:
-        raise ValueError(f"Model architectures {arch} converter are not supported for now. Supported architectures: {MODEL_CONFIG_CONVERTER_REGISTRY.keys()}")
-    return MODEL_CONFIG_CONVERTER_REGISTRY[arch](hf_config, dtype)
+    model = get_supported_model(hf_config.architectures[0])
+    return MODEL_CONFIG_CONVERTER_REGISTRY[model](hf_config, dtype)
 
 
 def init_mcore_model(
     tfconfig: TransformerConfig,
     hf_config: PretrainedConfig,
-    pre_process: Optional[Callable] = None,
-    post_process: Optional[Callable] = None,
+    pre_process: bool = True,
+    post_process: bool = None,
     *,
     share_embeddings_and_output_weights: bool = False,
     value: bool = False,
@@ -125,13 +141,9 @@ def init_mcore_model(
         The initialized model.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    arch = hf_config.architectures[0]
-    if arch not in MODEL_INITIALIZER_REGISTRY:
-        raise ValueError(f"Model architectures {arch} initializer are not supported for now. Supported architectures: {MODEL_INITIALIZER_REGISTRY.keys()}")
-
-    initializer_cls = MODEL_INITIALIZER_REGISTRY[arch]
+    model = get_supported_model(hf_config.architectures[0])
+    initializer_cls = MODEL_INITIALIZER_REGISTRY[model]
     initializer = initializer_cls(tfconfig, hf_config)
-
     return initializer.initialize(pre_process=pre_process, post_process=post_process, share_embeddings_and_output_weights=share_embeddings_and_output_weights, value=value, **extra_kwargs)
 
 
@@ -140,19 +152,15 @@ def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
     Get the forward function for given model architecture.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    arch = hf_config.architectures[0]
-    if arch not in MODEL_FORWARD_REGISTRY:
-        raise ValueError(f"Model architectures {arch} forward function are not supported for now. Supported architectures: {MODEL_FORWARD_REGISTRY.keys()}")
-    return MODEL_FORWARD_REGISTRY[arch]
+    model = get_supported_model(hf_config.architectures[0])
+    return MODEL_FORWARD_REGISTRY[model]
 
 
-def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) -> Any:
+def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) -> Callable:
     """
     Get the weight converter for given model architecture.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    arch = hf_config.architectures[0]
-    if arch not in MODEL_WEIGHT_CONVERTER_REGISTRY:
-        raise ValueError(f"Model architectures {arch} weight converter are not supported for now. Supported architectures: {MODEL_WEIGHT_CONVERTER_REGISTRY.keys()}")
+    model = get_supported_model(hf_config.architectures[0])
     tfconfig = hf_to_mcore_config(hf_config, dtype)
-    return MODEL_WEIGHT_CONVERTER_REGISTRY[arch](hf_config, tfconfig)
+    return MODEL_WEIGHT_CONVERTER_REGISTRY[model](hf_config, tfconfig)
