@@ -39,9 +39,7 @@ def _megatron_calc_layer_map(config):
 
     for pp_rank_idx in range(pp_size):
         for virtual_pp_rank_idx in range(virtual_pp_size):
-            layer_offset = (
-                virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
-            )
+            layer_offset = virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
             for layer_idx in range(num_layers_per_model):
                 layer_map[layer_offset + layer_idx] = (
                     pp_rank_idx,
@@ -67,9 +65,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
 
     def broadcast_params(module):
         for param in module.parameters():
-            torch.distributed.broadcast(
-                param.data, src=mpu.get_data_parallel_src_rank(), group=mpu.get_data_parallel_group()
-            )
+            torch.distributed.broadcast(param.data, src=mpu.get_data_parallel_src_rank(), group=mpu.get_data_parallel_group())
 
     dp_rank = mpu.get_data_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -168,9 +164,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 requires_grad=False,
             )
         else:
-            assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank()} tensor {name} shape {tensor.shape} != {chunk_shape}"
-            )
+            assert tensor.shape == chunk_shape, f"rank #{torch.distributed.get_rank()} tensor {name} shape {tensor.shape} != {chunk_shape}"
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
@@ -215,9 +209,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 requires_grad=False,
             )
         else:
-            assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank()} tensor {name} shape {tensor.shape} != {chunk_shape}"
-            )
+            assert tensor.shape == chunk_shape, f"rank #{torch.distributed.get_rank()} tensor {name} shape {tensor.shape} != {chunk_shape}"
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
@@ -237,16 +229,12 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
         if torch.distributed.get_rank() == src_rank:
             gate_weight = state_dict[gate_name]
             up_weight = state_dict[up_name]
-            new_gate_up_weight = torch.empty(
-                config.intermediate_size * 2, config.hidden_size, dtype=params_dtype, device=torch.cuda.current_device()
-            )
+            new_gate_up_weight = torch.empty(config.intermediate_size * 2, config.hidden_size, dtype=params_dtype, device=torch.cuda.current_device())
             for i in range(tp_size):
                 intermediate_size_tp = config.intermediate_size // tp_size
                 gate_weight_tp = gate_weight[i * intermediate_size_tp : (i + 1) * intermediate_size_tp]
                 up_weight_tp = up_weight[i * intermediate_size_tp : (i + 1) * intermediate_size_tp]
-                new_gate_up_weight[intermediate_size_tp * 2 * i : intermediate_size_tp * 2 * (i + 1)].copy_(
-                    torch.cat([gate_weight_tp, up_weight_tp], dim=0)
-                )
+                new_gate_up_weight[intermediate_size_tp * 2 * i : intermediate_size_tp * 2 * (i + 1)].copy_(torch.cat([gate_weight_tp, up_weight_tp], dim=0))
 
             tensor_chunk = torch.chunk(new_gate_up_weight, tp_size, dim=0)
             chunk_shape = tensor_chunk[0].shape
@@ -269,9 +257,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 requires_grad=False,
             )
         else:
-            assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank() == src_rank:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
-            )
+            assert tensor.shape == chunk_shape, f"rank #{torch.distributed.get_rank() == src_rank:} tensor {gate_name, up_name} shape {tensor.shape} != {chunk_shape}"
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):
@@ -315,9 +301,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                     v_part_per_head = torch.chunk(v_part, num_query_groups_per_partition, dim=0)
                     total_size_per_head = total_size // num_query_groups_per_partition
                     for j in range(num_query_groups_per_partition):
-                        new_weight_qkv_this_tp[j * total_size_per_head : (j + 1) * total_size_per_head].copy_(
-                            torch.cat([q_part_per_head[j], k_part_per_head[j], v_part_per_head[j]], dim=0)
-                        )
+                        new_weight_qkv_this_tp[j * total_size_per_head : (j + 1) * total_size_per_head].copy_(torch.cat([q_part_per_head[j], k_part_per_head[j], v_part_per_head[j]], dim=0))
 
             else:
                 q_size_tp = config.hidden_size // tp_size
@@ -339,9 +323,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                     v_part_per_head = torch.chunk(v_part, config.num_attention_heads, dim=0)
                     total_size_per_head = total_size // config.num_attention_heads
                     for j in range(config.num_attention_heads):
-                        new_weight_qkv_this_tp[j * total_size_per_head : (j + 1) * total_size_per_head].copy_(
-                            torch.cat([q_part_per_head[j], k_part_per_head[j], v_part_per_head[j]], dim=0)
-                        )
+                        new_weight_qkv_this_tp[j * total_size_per_head : (j + 1) * total_size_per_head].copy_(torch.cat([q_part_per_head[j], k_part_per_head[j], v_part_per_head[j]], dim=0))
 
             tensor_chunk = torch.chunk(new_weight_qkv, tp_size, dim=0)
             chunk_shape = tensor_chunk[0].shape
@@ -364,9 +346,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                 requires_grad=False,
             )
         else:
-            assert tensor.shape == chunk_shape, (
-                f"rank #{torch.distributed.get_rank()} tensor {q_name} shape {tensor.shape} != {chunk_shape}"
-            )
+            assert tensor.shape == chunk_shape, f"rank #{torch.distributed.get_rank()} tensor {q_name} shape {tensor.shape} != {chunk_shape}"
             sync_tensor = torch.empty_like(tensor, device=torch.cuda.current_device(), requires_grad=False)
 
         for i in range(tp_size):

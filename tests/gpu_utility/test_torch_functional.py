@@ -28,9 +28,7 @@ def test_log_probs_from_logits_response_rmpad():
     response_length = 256
 
     input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, prompt_length + response_length), device="cuda")
-    attention_mask = create_random_mask(
-        input_ids=input_ids, max_ratio_of_left_padding=0.2, max_ratio_of_valid_token=0.8, min_ratio_of_valid_token=0.6
-    )
+    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.2, max_ratio_of_valid_token=0.8, min_ratio_of_valid_token=0.6)
 
     response_mask = attention_mask[:, -response_length:]
 
@@ -39,12 +37,8 @@ def test_log_probs_from_logits_response_rmpad():
     logits = torch.randn(batch_size, prompt_length + response_length, vocab_size, device="cuda")
     logits_rmpad = unpad_input(logits, attention_mask)[0]
 
-    expected_output = log_probs_from_logits_response(
-        input_ids=input_ids, logits=logits, response_length=response_length
-    )
-    actual_output = log_probs_from_logits_response_rmpad(
-        input_ids=input_ids, attention_mask=attention_mask, logits_rmpad=logits_rmpad, response_length=response_length
-    )
+    expected_output = log_probs_from_logits_response(input_ids=input_ids, logits=logits, response_length=response_length)
+    actual_output = log_probs_from_logits_response_rmpad(input_ids=input_ids, attention_mask=attention_mask, logits_rmpad=logits_rmpad, response_length=response_length)
 
     # This should bitwise align as only this operation only contains gather operators
     assert torch.all(torch.eq(actual_output * response_mask, expected_output * response_mask))
@@ -91,9 +85,7 @@ def test_lr_scheduler():
     from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    cosine_lr = get_cosine_schedule_with_warmup(
-        optimizer=optimizer, num_warmup_steps=2, num_training_steps=5, min_lr_ratio=0.1
-    )
+    cosine_lr = get_cosine_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=2, num_training_steps=5, min_lr_ratio=0.1)
 
     lr_lst = []
 

@@ -103,3 +103,10 @@ https://verl.readthedocs.io/en/latest/examples/config.html to disable just-in-ti
     ret = subprocess.check_call(cc_cmd)
   File "/data/lbh/conda_envs/verl/lib/python3.10/subprocess.py", line 369, in check_call
     raise CalledProcessError(retcode, cmd)
+
+What is the meaning of train batch size, mini batch size, and micro batch size?
+------------------------------------------------------------------------------------------
+
+Please check out the following figure from the community (credit to @hiyouga)
+
+.. image:: https://github.com/hiyouga/EasyR1/blob/main/assets/easyr1_grpo.png

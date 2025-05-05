@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 from enum import Enum
 from functools import wraps
 from types import FunctionType
 from typing import Dict, List, Tuple
 
-from verl.protocol import DataProtoFuture
+from verl.protocol import DataProtoFuture, _padding_size_key
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
@@ -62,6 +63,45 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     return splitted_args, splitted_kwargs
 
 
+def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
+    from verl.protocol import DataProto, DataProtoFuture
+
+    splitted_args = []
+    splitted_kwargs = {}
+
+    data_proto_len = None
+    padding_size = None
+    for arg in args:
+        assert isinstance(arg, (DataProto, DataProtoFuture))
+        if isinstance(arg, DataProto) and arg.is_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(arg)
+                padding_size = (chunks - (data_proto_len % chunks)) if (data_proto_len % chunks > 0) else 0
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(arg), f"expecting all arg share same length of {data_proto_len}, but got {len(arg)}"
+                data_proto_len = len(arg)
+            arg.padding(padding_size=padding_size)
+
+        splitted_args.append(arg.chunk(chunks=chunks))
+
+    for key, val in kwargs.items():
+        assert isinstance(val, (DataProto, DataProtoFuture))
+        if isinstance(val, DataProto) and val.is_padding_enabled():
+            # for padding, we only support DataProto with same length
+            if data_proto_len is None:
+                data_proto_len = len(val)
+                padding_size = chunks - (data_proto_len % chunks)
+                splitted_kwargs[_padding_size_key] = padding_size
+            else:
+                assert data_proto_len == len(val), f"expecting all arg share same length of {data_proto_len}, but got {len(val)}"
+                data_proto_len = len(val)
+        splitted_kwargs[key] = val.chunk(chunks=chunks)
+
+    return splitted_args, splitted_kwargs
+
+
 def dispatch_one_to_all(worker_group, *args, **kwargs):
     args = tuple([arg] * worker_group.world_size for arg in args)
     kwargs = {k: [v] * worker_group.world_size for k, v in kwargs.items()}
@@ -86,9 +126,7 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     """
     from verl.single_controller.base.megatron.worker_group import MegatronWorkerGroup
 
-    assert isinstance(worker_group, MegatronWorkerGroup), (
-        f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
-    )
+    assert isinstance(worker_group, MegatronWorkerGroup), f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
 
     all_args = []
     for arg in args:
@@ -146,7 +184,7 @@ def _concat_data_proto_or_future(output: List):
 
     # make sure all the elements in output has the same type
     for o in output:
-        assert type(o) == type(output[0])
+        assert type(o) is type(output[0])
 
     o = output[0]
 
@@ -299,7 +337,12 @@ def dispatch_dp_compute_data_proto(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args, **kwargs)
+    # Note: enable auto padding for dp compute DatapProto
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto_with_auto_padding(
+        worker_group.world_size,
+        *args,
+        **kwargs,
+    )
     return splitted_args, splitted_kwargs
 
 
@@ -307,7 +350,7 @@ def dispatch_dp_compute_data_proto_with_func(worker_group, *args, **kwargs):
     from verl.single_controller.base.worker_group import WorkerGroup
 
     assert isinstance(worker_group, WorkerGroup)
-    assert type(args[0]) == FunctionType  # NOTE: The first one args is a function!
+    assert isinstance(args[0], FunctionType)  # NOTE: The first one args is a function!
 
     splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(worker_group.world_size, *args[1:], **kwargs)
     splitted_args_with_func = [[args[0]] * worker_group.world_size] + splitted_args
@@ -384,9 +427,7 @@ def get_predefined_execute_fn(execute_mode):
 
 
 def _check_dispatch_mode(dispatch_mode):
-    assert isinstance(dispatch_mode, (Dispatch, Dict)), (
-        f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
-    )
+    assert isinstance(dispatch_mode, (Dispatch, Dict)), f"dispatch_mode must be a Dispatch or a Dict. Got {dispatch_mode}"
     if isinstance(dispatch_mode, Dict):
         necessary_keys = ["dispatch_fn", "collect_fn"]
         for key in necessary_keys:
@@ -423,8 +464,15 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
                 args, kwargs = _materialize_futures(*args, **kwargs)
             return func(*args, **kwargs)
 
+        @wraps(func)
+        async def async_inner(*args, **kwargs):
+            if materialize_futures:
+                args, kwargs = _materialize_futures(*args, **kwargs)
+            return await func(*args, **kwargs)
+
+        wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
         attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, "blocking": blocking}
-        setattr(inner, MAGIC_ATTR, attrs)
-        return inner
+        setattr(wrapper, MAGIC_ATTR, attrs)
+        return wrapper
 
     return decorator

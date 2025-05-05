@@ -50,9 +50,9 @@ coming at any time.
 +---------------+-----------------------------------------------------------+
 | [To-Optimize] | Efficient fused linear, entropy and cross entropy         |
 +---------------+-----------------------------------------------------------+
-| [In-Release]  | Megatron offload(param, grad, optimizer)                  |
+| [Done]        | Megatron offload(param, grad, optimizer)                  |
 +---------------+-----------------------------------------------------------+
-| [In-Release]  | Megatron Profiler                                         |
+| [Done]        | Megatron Profiler                                         |
 +---------------+-----------------------------------------------------------+
 | [In-Release]  | Megatron 0.12.0, TE 2.2 with vLLM 0.8.3 and Fused Attn    |
 +---------------+-----------------------------------------------------------+
@@ -240,3 +240,57 @@ additional initialization for the Optimizer.
 
    @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
    def compute_rm_score(self, data: DataProto):
+
+
+Utils of Train Optimization
+---------------------------
+
+Offload
+^^^^^^^
+When resources are tight, the offload method can lower GPU memory 
+usage, helping training and inference frameworks work well under verl. 
+It moves parameters, gradients, and optimizers to CPU memory and only 
+loads them back to the GPU when needed.
+
+If you want to use the offload, you can add the following parameters 
+for the actor and ref separately. 
+
+.. code:: python
+
+   # For the actor
+   actor_rollout_ref.actor.megatron.param_offload=True \
+   actor_rollout_ref.actor.megatron.grad_offload=True \
+   actor_rollout_ref.actor.megatron.optimizer_offload=True \
+   # For the ref w/o grad and optimizer
+   actor_rollout_ref.ref.megatron.param_offload=True \
+
+
+For the critic, you can include these parameters.
+
+.. code:: python
+
+   # For the critic
+   critic.megatron.param_offload=True \
+   critic.megatron.grad_offload=True \
+   critic.megatron.optimizer_offload=True \
+
+Profiler
+^^^^^^^^
+
+The profiler is a tool that helps you understand the performance of your 
+model. It can be used to profile the time spent on different operations 
+and identify the bottlenecks. You can get more information from 
+`torch.profiler <https://pytorch.org/docs/stable/profiler.html>`_.
+
+In verl, now the profiler is only support for the actor role In Megatron. You can set 
+the begin step and end step to profile. Notice, one step means one gradient update. And 
+the profile result will be saved in the save_path. If you just want to profile in the 
+specific rank, you can set the profile_ranks, by default, it will be [0].
+
+.. code:: python
+
+   actor_rollout_ref.actor.profile.use_profiler=True \
+   actor_rollout_ref.actor.profile.profile_ranks=[0] \
+   actor_rollout_ref.actor.profile.begin_step=0 \
+   actor_rollout_ref.actor.profile.end_step=1 \
+   actor_rollout_ref.actor.profile.save_path="./profile"
