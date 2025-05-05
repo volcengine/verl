@@ -60,7 +60,7 @@ docker/Dockerfile.rocm
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
-        "ray[data,train,tune,serve]" \
+        "ray[data,train,tune,serve]>=2.45.0" \
         torchdata \
         transformers \
         wandb \
