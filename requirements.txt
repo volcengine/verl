@@ -1,6 +1,6 @@
 # requirements.txt records the full set of dependencies for development
 accelerate
-boto3==1.34.162
+# boto3==1.34.162 # enable for s3 checkpointing
 codetiming
 datasets
 dill
