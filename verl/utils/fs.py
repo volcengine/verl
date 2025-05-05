@@ -27,7 +27,6 @@ try:
 except ImportError:
     from .hdfs_io import copy, makedirs, exists
 
-from verl.utils.s3_io import bulk_download, file_download, file_upload, parse_uri, s3_key_exists
 
 __all__ = ["copy", "exists", "makedirs"]
 
@@ -105,6 +104,7 @@ def copy_local_path_from_remote(src: str, cache_dir=None, filelock='.file.lock',
                 if verbose:
                     print(f'Copy from {src} to {local_path}')
                 if src.startswith(_S3_PREFIX):
+                    from verl.utils.s3_io import bulk_download, file_download, parse_uri
                     bucket, key_or_prefix, recursive = parse_uri(src, is_dir=recursive)
 
                     if recursive:
@@ -124,6 +124,8 @@ def upload_local_file_to_s3(s3_path: str, local_path: str, cache_dir=None, filel
     assert s3_path[-1] != '/', f'Make sure the last char in s3_path is not / because it will cause error. Got {s3_path}'
     assert s3_path.startswith(_S3_PREFIX), f'Path must be an s3 path with the s3:// prefix instead got: {s3_path}'
     assert  os.path.exists(local_path), f'Local copy path not found'
+
+    from verl.utils.s3_io import file_upload, parse_uri, s3_key_exists
 
     filelock = md5_encode(s3_path) + '.lock'
     lock_file = os.path.join(os.path.dirname(local_path), filelock)

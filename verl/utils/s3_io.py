@@ -1,12 +1,11 @@
-"""Utility functions for uploading and downloading files from S3 cloud storage.
+"""
+Utility functions for uploading and downloading files from S3 cloud storage.
 """
 
 import os
 import re
 import subprocess
 import time
-from functools import partial
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
