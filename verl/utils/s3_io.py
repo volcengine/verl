@@ -1,5 +1,4 @@
-"""Utility functions for downloading files from S3 cloud storage.
-Copied directly from AGIEmergeMegatronLM/coreutils/s3_buckets.py
+"""Utility functions for uploading and downloading files from S3 cloud storage.
 """
 
 import os
