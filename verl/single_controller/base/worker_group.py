@@ -68,6 +68,8 @@ class ClassWithInitArgs:
         self.args = args
         self.kwargs = kwargs
 
+        self.fused_worker_used = False
+
     # def add_arg(self, arg):
     #     self.args += (arg,)
 
@@ -92,8 +94,12 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
 class WorkerGroup:
     """A group of workers"""
 
+    fused_worker_execute_fn_name = "_fuw_execute"
+
     def __init__(self, resource_pool: ResourcePool, **kwargs) -> None:
         self._is_init_with_detached_workers = resource_pool is None
+
+        self.fused_worker_used = False
 
         if resource_pool is not None:
             # handle the case when WorkGroup is attached to an existing one
@@ -139,6 +145,7 @@ class WorkerGroup:
         Bind the worker method to the WorkerGroup
         """
 
+        method_names = []
         for method_name in dir(user_defined_cls):
             try:
                 method = getattr(user_defined_cls, method_name)
@@ -194,5 +201,8 @@ class WorkerGroup:
 
                 try:
                     setattr(self, method_name, func)
+                    method_names.append(method_name)
                 except Exception as e:
                     raise ValueError(f"Fail to set method_name {method_name}") from e
+
+        return method_names

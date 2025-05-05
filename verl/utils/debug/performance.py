@@ -89,5 +89,6 @@ class GPUMemoryLogger(DecoratorLoggerBase):
 
         mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
         message = f"After {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
+
         self.logging_function(message)
         return output

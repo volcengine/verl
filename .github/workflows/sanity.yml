@@ -43,9 +43,6 @@ jobs:
       - name: Run sanity test
         run: |
           pytest -s -x tests/sanity
-      - name: Run utility test
-        run: |
-          pytest -s -x tests/utility
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .

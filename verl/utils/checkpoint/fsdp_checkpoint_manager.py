@@ -23,6 +23,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
 from .checkpoint_manager import BaseCheckpointManager
 
@@ -96,7 +97,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-        with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
+        with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             self.model.load_state_dict(model_state_dict)
             if self.optimizer is not None:
                 self.optimizer.load_state_dict(optimizer_state_dict)
@@ -129,7 +130,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
+            with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
                 model_state_dict = self.model.state_dict()
                 optimizer_state_dict = self.optimizer.state_dict() if self.optimizer is not None else None
                 lr_scheduler_state_dict = self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None
@@ -150,7 +151,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(extra_state_dict, extra_path)
 
         if self.rank == 0:
-            self.model._fsdp_wrapped_module.config.save_pretrained(local_path)
+            if fsdp_version(self.model) == 1:
+                self.model._fsdp_wrapped_module.config.save_pretrained(local_path)
+            else:
+                self.model.config.save_pretrained(local_path)
             self.processing_class.save_pretrained(local_path)
 
         # wait for everyone to dump to local
@@ -163,11 +167,15 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             # Only rank 0 will save hf model and,
             # offload to cpu to save LLMs which may be too large to fit in one GPU
             state_dict_config = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, state_dict_config=state_dict_config, optim_state_dict_config=None):
+            with get_fsdp_state_ctx(self.model, StateDictType.FULL_STATE_DICT, state_dict_config, None):
                 state_dict = self.model.state_dict()
 
             if self.rank == 0:
-                model_config = self.model._fsdp_wrapped_module.config
+                if fsdp_version(self.model) == 1:
+                    model_config = self.model._fsdp_wrapped_module.config
+                else:
+                    model_config = self.model.config
+
                 if "ForTokenClassification" in model_config.architectures[0]:
                     from transformers import AutoModelForTokenClassification
 

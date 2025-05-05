@@ -26,7 +26,7 @@ from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
@@ -57,9 +57,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         # Full params
         self.full_params = full_params
-        if full_params:
+        if full_params and fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
-        else:
+        elif fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(
                 self.module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
@@ -181,5 +181,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         world_size = torch.distributed.get_world_size()
-        loaded_params = model.load_weights(((name, param.full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items()))
+        device = torch.cuda.current_device()  # used when fsdp2 set cpu_offload_policy
+        loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items()))
         logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))
