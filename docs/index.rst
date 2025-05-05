@@ -99,6 +99,8 @@ verl is fast with:
 
    api/data.rst
    api/single_controller.rst
+   api/trainer.rst
+   api/utils.rst
 
 
 .. toctree::
