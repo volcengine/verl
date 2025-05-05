@@ -24,9 +24,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.distributed import initialize_global_process_group
+from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2
 
 
-def test_fsdp_ckpt():
+def test_fsdp_ckpt(strategy="fsdp"):
     assert torch.cuda.device_count() >= 2, "need at least 2 gpus for test"
     local_rank, rank, world_size = initialize_global_process_group()
     device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=("dp",))
@@ -39,16 +40,24 @@ def test_fsdp_ckpt():
         model = model.to(device="cuda")
 
     # Wrap model with FSDP
-    mixed_precision = MixedPrecision(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
+    if strategy == "fsdp":
+        mixed_precision = MixedPrecision(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
 
-    model = FSDP(
-        model,
-        use_orig_params=False,
-        device_id=torch.cuda.current_device(),
-        sharding_strategy=ShardingStrategy.FULL_SHARD,
-        mixed_precision=mixed_precision,
-        device_mesh=device_mesh,
-    )
+        model = FSDP(
+            model,
+            use_orig_params=False,
+            device_id=torch.cuda.current_device(),
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            mixed_precision=mixed_precision,
+            device_mesh=device_mesh,
+        )
+    else:
+        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        fsdp_kwargs = {
+            "mesh": device_mesh,
+            "mp_policy": mp_policy,
+        }
+        apply_fsdp2(model, fsdp_kwargs, {})
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
@@ -116,7 +125,9 @@ def test_fsdp_ckpt():
     # Cleanup
     shutil.rmtree(temp_dir)
     torch.distributed.barrier()
+    torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":
-    test_fsdp_ckpt()
+    strategy = os.environ.get("STRATEGY", "fsdp")
+    test_fsdp_ckpt(strategy=strategy)
