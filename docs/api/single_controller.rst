@@ -11,7 +11,7 @@ Core APIs
 ~~~~~~~~~~~~~~~~~
 
 .. autoclass:: verl.single_controller.Worker
-   :members: __init__, __new__, get_fused_worker_by_name, get_master_addr_port, get_cuda_visible_devices, world_size, rank, execute_with_func_generator, execute_func_rank_zero
+   :members: __init__, __new__, get_master_addr_port, get_cuda_visible_devices, world_size, rank, execute_with_func_generator, execute_func_rank_zero
 
 .. autoclass:: verl.single_controller.WorkerGroup
    :members: __init__, start_worker_aliveness_check, world_size
@@ -21,6 +21,13 @@ Core APIs
 
 .. autoclass:: verl.single_controller.ResourcePool
    :members: __init__, add_note, world_size, __call__, store, local_world_size_list, local_rank_list
+
+.. automodule:: verl.single_controller.ray
+   :members: RayWorkerGroup, create_colocated_worker_cls, create_colocated_worker_cls_fused
+
+.. autoclass:: verl.single_controller.ray.megatron.NVMegatronRayWorkerGroup
+   :members: __init__
+
 
 
 Decorator APIs
