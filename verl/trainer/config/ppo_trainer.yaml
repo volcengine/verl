@@ -57,7 +57,8 @@ actor_rollout_ref:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-      min_lr_ratio: null   # only useful for warmup with cosine
+      min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
+      num_cycles: 0.5 # only used with cosine lr scheduler, default to 0.5
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
