@@ -28,9 +28,10 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import Dataset, RandomSampler, SequentialSampler
+from torch.utils.data import Dataset, RandomSampler, SequentialSampler, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 import traceback
+from typing import Optional, Callable
 
 WorkerType = Type[Worker]
 
@@ -348,7 +349,12 @@ class RaySPINTrainer(object):
                  ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
                  processor=None,
                  reward_fn=None,
-                 val_reward_fn=None):
+                 val_reward_fn=None,
+                 train_dataset: Optional[Dataset] = None,
+                 val_dataset: Optional[Dataset] = None,
+                 collate_fn=None,
+                 train_sampler: Optional[Sampler] = None,
+        ):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -377,18 +383,18 @@ class RaySPINTrainer(object):
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
-        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-            self.use_critic = True
-        elif self.config.algorithm.adv_estimator in [
-                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
-                AdvantageEstimator.RLOO, AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE
-        ]:
-            self.use_critic = False
-        else:
-            raise NotImplementedError
-
+        # if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+        #     self.use_critic = True
+        # elif self.config.algorithm.adv_estimator in [
+        #         AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+        #         AdvantageEstimator.RLOO, AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE
+        # ]:
+        #     self.use_critic = False
+        # else:
+        #     raise NotImplementedError
+        self.use_critic = False
         self._validate_config()
-        self._create_dataloader()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate_config(self):
         config = self.config
@@ -503,76 +509,70 @@ class RaySPINTrainer(object):
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
+        """
+        Creates the train and validation dataloaders.
+        """
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.utils.import_utils import load_extern_type
-        if "custom_cls" in self.config.data and self.config.data.custom_cls.get("path", None) is not None:
-            dataset_cls = load_extern_type(self.config.data.custom_cls.path, self.config.data.custom_cls.name)
-            if not issubclass(dataset_cls, Dataset):
-                raise TypeError(f"The custom dataset class '{self.config.data.custom_cls.name}' from "
-                                f"'{self.config.data.custom_cls.path}' must inherit from torch.utils.data.Dataset")
-        else:
-            dataset_cls = RLHFDataset
+        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
-        self.train_dataset = dataset_cls(
-            data_files=self.config.data.train_files,
-            tokenizer=self.tokenizer,
-            processor=self.processor,
-            config=self.config.data,
+        if train_dataset is None:
+            train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
+        if val_dataset is None:
+            val_dataset = create_rl_dataset(self.config.data.val_files, self.config.data, self.tokenizer, self.processor)
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
+
+        if train_sampler is None:
+            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
+        if collate_fn is None:
+            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+
+            collate_fn = default_collate_fn
+
+        self.train_dataloader = StatefulDataLoader(
+            dataset=self.train_dataset,
+            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            drop_last=True,
+            collate_fn=collate_fn,
+            sampler=train_sampler,
         )
 
-        # use sampler for better ckpt resume
-        if self.config.data.shuffle:
-            train_dataloader_generator = torch.Generator()
-            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
-            sampler = RandomSampler(data_source=self.train_dataset, generator=train_dataloader_generator)
-        else:
-            sampler = SequentialSampler(data_source=self.train_dataset)
+        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
+        if val_batch_size is None:
+            val_batch_size = len(self.val_dataset)
 
-        self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
-                                                   batch_size=self.config.data.get('gen_batch_size',
-                                                                                   self.config.data.train_batch_size),
-                                                   num_workers=8,
-                                                   drop_last=True,
-                                                   collate_fn=collate_fn,
-                                                   sampler=sampler)
-
-        self.val_dataset = dataset_cls(
-            data_files=self.config.data.val_files,
-            tokenizer=self.tokenizer,
-            processor=self.processor,
-            config=self.config.data,
-        )
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
-            # Validation datasets are sent to inference engines as a whole batch,
-            # which will schedule the memory themselves.
-            batch_size=len(self.val_dataset),
-            num_workers=8,
+            batch_size=val_batch_size,
+            num_workers=self.config.data.get("dataloader_num_workers", 8),
             shuffle=False,
             drop_last=False,
-            collate_fn=collate_fn)
+            collate_fn=collate_fn,
+        )
 
-        assert len(self.train_dataloader) >= 1
-        assert len(
-            self.val_dataloader
-        ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
+        assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
+        assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 
-        print(f'Size of train dataloader: {len(self.train_dataloader)}')
+        print(f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}")
 
-        # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
         if self.config.trainer.total_training_steps is not None:
             total_training_steps = self.config.trainer.total_training_steps
 
         self.total_training_steps = total_training_steps
-        print(f'Total training steps: {self.total_training_steps}')
+        print(f"Total training steps: {self.total_training_steps}")
 
-        OmegaConf.set_struct(self.config, True)
-        with open_dict(self.config):
-            self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
-            self.config.critic.optim.total_training_steps = total_training_steps
+        try:
+            OmegaConf.set_struct(self.config, True)
+            with open_dict(self.config):
+                if OmegaConf.select(self.config, "actor_rollout_ref.actor.optim"):
+                    self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
+                if OmegaConf.select(self.config, "critic.optim"):
+                    self.config.critic.optim.total_training_steps = total_training_steps
+        except Exception as e:
+            print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""

@@ -29,6 +29,7 @@ NVIDIA GPUs
 .. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
 .. _Qwen7b GRPO FSDP2 Script and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b-fsdp2.log
 .. _Qwen 7B SPPO Script: https://github.com/volcengine/verl/tree/main/recipe/sppo/README.md
+.. _Qwen 7B SPIN Script: https://github.com/volcengine/verl/tree/main/recipe/spin/README.md
 
 +----------------------------------+------------------------+-------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score  |  Details                                                                                      |
@@ -56,6 +57,8 @@ NVIDIA GPUs
 | Qwen/Qwen2.5-7B-Instruct         | ReMax                  | 97          |   `Qwen7b ReMax Script`_, `Qwen7b ReMax Wandb`_                                               |
 +==================================+========================+=============+=========================================================================+
 | Qwen/Qwen2.5-7B-Instruct         | SPPO                   | 65.6 (MATH) |   `Qwen 7B SPPO Script`_                                                                      |
++==================================+========================+=============+=========================================================================+
+| Qwen/Qwen2.5-7B-Instruct         | SPIN                   | 92          |   `Qwen 7B SPIN Script`_                                                                      |
 +==================================+========================+=============+=========================================================================+
 
 
