@@ -206,3 +206,6 @@ class WorkerGroup:
                     raise ValueError(f"Fail to set method_name {method_name}") from e
 
         return method_names
+
+    def destroy(self):
+        raise NotImplementedError("WorkerGroup.destroy called, should be implemented in derived class.")

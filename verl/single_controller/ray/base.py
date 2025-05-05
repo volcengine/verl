@@ -429,6 +429,15 @@ class RayWorkerGroup(WorkerGroup):
     def world_size(self):
         return self._world_size
 
+    def destroy(self):
+        # delete underlying actors
+        for w in self._workers:
+            ray.kill(w)
+        # delete placement groups if it's dedicated to this worker group
+        if self.resource_pool.is_shared_pgs is False and self.resource_pool.pgs:
+            for pg in self.resource_pool.pgs:
+                ray.util.remove_placement_group(pg)
+
 
 """
 Utilities that enables creating workers inside the same ray.Actor, 
