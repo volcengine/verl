@@ -1,4 +1,4 @@
-name: sanity
+name: verl_unit_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,8 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/sanity.yml
+      - .github/workflows/verl_unit_test.yml
+      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -25,9 +26,9 @@ permissions:
   contents: read
 
 jobs:
-  sanity:
+  verl_unit_test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # Increase this timeout value as needed
+    timeout-minutes: 10 # Increase this timeout value as needed
     strategy:
       matrix:
         python-version: ["3.10"]
@@ -40,9 +41,11 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Run sanity test
+      - name: Running test protocol.py
         run: |
-          pytest -s -x tests/sanity
-      - name: Run license test
+          cd tests/verl
+          pytest -s -x test_protocol.py
+      - name: Running utils tests
         run: |
-          python3 tests/sanity/check_license.py --directory .
+          cd tests/verl/utils
+          pytest -s -x --ignore=dataset/ .

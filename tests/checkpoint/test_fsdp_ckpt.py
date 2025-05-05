@@ -24,7 +24,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.distributed import initialize_global_process_group
-from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2, fully_shard
+from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2
 
 
 def test_fsdp_ckpt(strategy="fsdp"):
@@ -129,8 +129,5 @@ def test_fsdp_ckpt(strategy="fsdp"):
 
 
 if __name__ == "__main__":
-    test_fsdp_ckpt()
-    if fully_shard is not None:
-        print("begin to test fsdp2")
-        test_fsdp_ckpt(strategy="fsdp2")
-        print("test fsdp2 passed!")
+    strategy = os.environ.get("STRATEGY", "fsdp")
+    test_fsdp_ckpt(strategy=strategy)
