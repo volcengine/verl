@@ -49,3 +49,8 @@ jobs:
         run: |
           cd tests/verl/utils
           pytest -s -x --ignore=dataset/ .
+          cd -
+      - name: Running trainer tests
+        run: |
+          cd tests/trainer
+          pytest -s -x .
