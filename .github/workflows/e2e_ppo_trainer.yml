@@ -92,7 +92,7 @@ jobs:
       - name: Test FSDP checkpoints merging function (Qwen Actor) 
         run: |
           exp_name="qwen2.5-0.5b-function-reward-minimal"
-          python scripts/model_merger.py --backend fsdp --hf_model_path Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+          python scripts/model_merger.py --backend fsdp --hf_model_path ~/models/Qwen/Qwen2.5-0.5B --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
       - name: Running GSM8K E2E without rmpad using function rm
         run: |
           ray stop --force

@@ -152,9 +152,12 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         if self.rank == 0:
             if fsdp_version(self.model) == 1:
-                self.model._fsdp_wrapped_module.config.save_pretrained(local_path)
+                model_config = self.model._fsdp_wrapped_module.config
             else:
-                self.model.config.save_pretrained(local_path)
+                model_config = self.model.config
+            generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+            generation_config.save_pretrained(local_path)
+            model_config.save_pretrained(local_path)
             self.processing_class.save_pretrained(local_path)
 
         # wait for everyone to dump to local
@@ -171,11 +174,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 state_dict = self.model.state_dict()
 
             if self.rank == 0:
-                if fsdp_version(self.model) == 1:
-                    model_config = self.model._fsdp_wrapped_module.config
-                else:
-                    model_config = self.model.config
-
                 if "ForTokenClassification" in model_config.architectures[0]:
                     from transformers import AutoModelForTokenClassification
 

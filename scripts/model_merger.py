@@ -128,9 +128,9 @@ def patch_model_generation_config(model, hf_model_path):
     """
     if model.can_generate():
         try:
-            model.generation_config = GenerationConfig.from_pretrained(args.hf_model_path)
+            model.generation_config = GenerationConfig.from_pretrained(hf_model_path)
         except OSError:
-            print(f"Warning: Generation config file not found in {args.hf_model_path}, using a generation config created from the model config.")
+            print(f"Warning: Generation config file not found in {hf_model_path}, using a generation config created from the model config.")
             pass
     return model
 
@@ -248,7 +248,7 @@ def convert_fsdp_checkpoints_to_hfmodels():
 
     if args.test:
         print("Running compatibility test")
-        test_fsdp_state_dict(auto_model, args.hf_model_path, state_dict)
+        test_fsdp_state_dict(auto_model, args.test_hf_dir, state_dict)
 
     with torch.device("meta"):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
