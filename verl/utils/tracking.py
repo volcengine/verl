@@ -23,6 +23,16 @@ from typing import Any, Dict, List, Union
 
 
 class Tracking:
+    """A unified tracking interface for logging experiment data to multiple backends.
+
+    This class provides a centralized way to log experiment metrics, parameters, and artifacts
+    to various tracking backends including WandB, MLflow, SwanLab, TensorBoard, and console.
+
+    Attributes:
+        supported_backend: List of supported tracking backends.
+        logger: Dictionary of initialized logger instances for each backend.
+    """
+
     supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console"]
 
     def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
