@@ -97,7 +97,10 @@ verl is fast with:
    :maxdepth: 1
    :caption: API References
 
-   data.rst
+   api/data.rst
+   api/single_controller.rst
+   api/trainer.rst
+   api/utils.rst
 
 
 .. toctree::

@@ -25,26 +25,38 @@ MAGIC_ATTR = "attrs_3141562937"
 
 
 class Dispatch(Enum):
-    RANK_ZERO = 0
-    ONE_TO_ALL = 1
-    ALL_TO_ALL = 2
-    MEGATRON_COMPUTE = 3
-    MEGATRON_PP_AS_DP = 4
-    MEGATRON_PP_ONLY = 5
-    MEGATRON_COMPUTE_PROTO = 6
-    MEGATRON_PP_AS_DP_PROTO = 7
-    DP_COMPUTE = 8
-    DP_COMPUTE_PROTO = 9
-    DP_COMPUTE_PROTO_WITH_FUNC = 10
-    DP_COMPUTE_METRIC = 11
+    """Enum class defining different dispatch modes for distributed computation.
 
-    # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
-    DIRECT_ROLLOUT_METHOD = 12
+    Each mode represents a specific strategy for distributing data across
+    different ranks in a distributed system. The modes are used to control
+    how data is partitioned and processed across different worker groups.
+    """
+
+    RANK_ZERO = 0  #: Only on rank 0
+    ONE_TO_ALL = 1  #: Broadcast data from one rank to all others
+    ALL_TO_ALL = 2  #: Distribute data across all ranks
+    MEGATRON_COMPUTE = 3  #: Megatron-style computation with tensor/pipeline parallelism
+    MEGATRON_PP_AS_DP = 4  #: Broadcast data from one rank to all others
+    MEGATRON_PP_ONLY = 5  #: Only use pipeline parallelism
+    MEGATRON_COMPUTE_PROTO = 6  #: Megatron-style computation with tensor/pipeline parallelism
+    MEGATRON_PP_AS_DP_PROTO = 7  #: Megatron PP as DP with DataProto support
+    DP_COMPUTE = 8  #: Data parallelism computation
+    DP_COMPUTE_PROTO = 9  #: Data parallelism with DataProto support
+    DP_COMPUTE_PROTO_WITH_FUNC = 10  #: Data parallelism with DataProto, supporting one function argument
+    DP_COMPUTE_METRIC = 11  #: Data parallelism with metric computation
+
+    DIRECT_ROLLOUT_METHOD = 12  #: Special mode for vllm ExternalRayDistributedExecutor
 
 
 class Execute(Enum):
-    ALL = 0
-    RANK_ZERO = 1
+    """Enum class defining different execution modes for distributed computation.
+
+    These modes control how a function should be executed across different ranks
+    in a distributed system.
+    """
+
+    ALL = 0  #: Execute the function on all ranks
+    RANK_ZERO = 1  #: Execute the function only on rank 0
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
@@ -454,6 +466,26 @@ def _materialize_futures(*args, **kwargs):
 
 
 def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocking=True, materialize_futures=True):
+    """Register a function with distributed execution configuration.
+
+    This decorator registers a function with specific dispatch and execution modes
+    for distributed computation. It handles both synchronous and asynchronous
+    functions, and optionally materializes futures before execution.
+
+    Args:
+        dispatch_mode:
+            Dispatch mode for computation distribution. Default: Dispatch.ALL_TO_ALL.
+        execute_mode:
+            Execute mode for computation distribution. Default: Execute.ALL.
+        blocking:
+            Whether the execution should be blocking. Defaults to True.
+        materialize_futures:
+            Whether to materialize the data before dispatching. Defaults to True.
+
+    Returns:
+        A decorator that wraps the original function with distributed execution
+        configuration.
+    """
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 

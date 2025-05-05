@@ -33,6 +33,7 @@ def pad_to_sequence_parallel(unpad_tokens: torch.Tensor):
         unpad_tokens: (total_nnz, ...). Tokens after removing padding
 
     Returns:
+        the padded tokens: (total_nnz + pad_size,...)
 
     """
     total_nnz = unpad_tokens.shape[0]

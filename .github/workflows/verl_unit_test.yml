@@ -41,6 +41,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
+          pip install megatron-core
       - name: Running test protocol.py 
         run: |
           cd tests/verl
