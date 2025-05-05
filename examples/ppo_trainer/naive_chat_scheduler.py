@@ -15,7 +15,6 @@ import asyncio
 from typing import Any, Dict, List
 
 import torch
-from omegaconf import DictConfig
 from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
 
@@ -28,15 +27,6 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
     A very naive implementation of ChatCompletionScheduler for demo purpose,
     only do single-turn chat completion.
     """
-
-    def __init__(
-        self,
-        config: DictConfig,
-        model_path: str,
-        server_addresses: List[str],
-        max_cache_size: int = 10000,
-    ):
-        super().__init__(config, model_path, server_addresses, max_cache_size)
 
     async def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         kwargs = dict(
@@ -73,6 +63,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
             # call_tools(completions, info)
             # await self.submit_chat_completions(callback2, ...)
 
+        # TODO: we may need to control max concurrent requests here, or it will harm prefix cache hit rate.
         tasks, batch_conversations = [], [None] * len(batch)
         for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"]):
             # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
