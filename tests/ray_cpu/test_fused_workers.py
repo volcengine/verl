@@ -56,11 +56,11 @@ class HybridWorker(FusedBaseClass):
 
 
 def test_fused_workers():
-    ray.init()
+    ray.init(num_cpus=100)
 
     # create separate workers on the same resource pool
     process_on_nodes = [2]
-    resource_pool = RayResourcePool(process_on_nodes=process_on_nodes, use_gpu=True)
+    resource_pool = RayResourcePool(process_on_nodes=process_on_nodes, use_gpu=False)
 
     # create colocated workers
     hybrid_cls_with_init = RayClassWithInitArgs(cls=HybridWorker)

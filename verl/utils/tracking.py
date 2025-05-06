@@ -73,7 +73,7 @@ class Tracking:
             swanlab.init(
                 project=project_name,
                 experiment_name=experiment_name,
-                config={"FRAMEWORK": "veRL", **config},
+                config={"FRAMEWORK": "verl", **config},
                 logdir=SWANLAB_LOG_DIR,
                 mode=SWANLAB_MODE,
             )
