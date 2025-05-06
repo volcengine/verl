@@ -208,4 +208,5 @@ class WorkerGroup:
         return method_names
 
     def destroy(self):
+        # Implement this method in derived class if needed
         raise NotImplementedError("WorkerGroup.destroy called, should be implemented in derived class.")
