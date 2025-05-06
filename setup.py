@@ -31,14 +31,13 @@ install_requires = [
     "hydra-core",
     "numpy",
     "pandas",
-    "datasets",
     "peft",
     "pyarrow>=15.0.0",
     "pybind11",
     "pylatexenc",
     "ray[default]>=2.10",
-    "tensordict<=0.6.2",
     "torchdata",
+    "tensordict<=0.6.2",
     "transformers",
     "wandb",
 ]
@@ -48,10 +47,10 @@ PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
 MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
-VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.2"]
+VLLM_REQUIRES = ["tensordict<=0.6.2", "vllm<=0.8.3"]
 SGLANG_REQUIRES = [
     "tensordict<=0.6.2",
-    "sglang[all]==0.4.4.post4",
+    "sglang[srt,openai]==0.4.6.post1",
     "torch-memory-saver>=0.0.5",
 ]
 

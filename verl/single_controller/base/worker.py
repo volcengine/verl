@@ -19,6 +19,8 @@ import os
 import socket
 from dataclasses import dataclass
 
+import ray
+
 from .decorator import Dispatch, Execute, register
 
 
@@ -90,6 +92,8 @@ class WorkerMeta:
 class Worker(WorkerHelper):
     """A (distributed) worker."""
 
+    fused_worker_attr_name = "fused_worker_dict"
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
 
@@ -120,24 +124,24 @@ class Worker(WorkerHelper):
             if os.getenv("WG_BACKEND", None) == "ray":
                 from verl.single_controller.base.register_center.ray import create_worker_group_register_center
 
-                self.register_center = create_worker_group_register_center(
-                    name=register_center_name, info=rank_zero_info
-                )
+                self.register_center = create_worker_group_register_center(name=register_center_name, info=rank_zero_info)
 
             os.environ.update(rank_zero_info)
+        else:
+            self.register_center = ray.get_actor(register_center_name)
+
+        # set worker info for node affinity scheduling
+        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
-        # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
 
-        ###
-        # [SUPPORT AMD: torch]
         import torch
-        ###
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name():
             os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("ROCR_VISIBLE_DEVICES")
             os.environ["LOCAL_RANK"] = os.environ.get("RAY_LOCAL_RANK")
         ###
@@ -155,13 +159,8 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name():
             self.local_rank = int(os.environ["LOCAL_RANK"])
-        ###
-
-        ###
-        # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
             cuda_visible_devices = str(local_rank)
         ###
 
@@ -181,10 +180,14 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        # torch.cuda.set_device(local_rank)
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name():
             torch.cuda.set_device(int(cuda_visible_devices))
         ###
+
+        self.fused_worker_dict = {}
+
+    def get_fused_worker_by_name(self, worker_name: str):
+        return self.fused_worker_dict.get(worker_name, None)
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """
@@ -198,9 +201,7 @@ class Worker(WorkerHelper):
             if val is not None:
                 # print(f"set {key} to {val}")
                 os.environ[key] = str(val)
-        os.environ["REDIS_STORE_SERVER_HOST"] = (
-            str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
-        )
+        os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
 
     def get_master_addr_port(self):
         return self._master_addr, self._master_port

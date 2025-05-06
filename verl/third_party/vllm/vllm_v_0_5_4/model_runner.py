@@ -137,9 +137,7 @@ class ModelRunner(ModelRunner):
             if self.model_config.quantization_param_path is not None:
                 if callable(getattr(self.model, "load_kv_cache_scales", None)):
                     warnings.warn(
-                        "Loading kv cache scaling factor from JSON is "
-                        "deprecated and will be removed. Please include "
-                        "kv cache scaling factors in the model checkpoint.",
+                        "Loading kv cache scaling factor from JSON is deprecated and will be removed. Please include kv cache scaling factors in the model checkpoint.",
                         FutureWarning,
                         stacklevel=2,
                     )
@@ -147,16 +145,11 @@ class ModelRunner(ModelRunner):
                     logger.info("Loaded KV cache scaling factors from %s", self.model_config.quantization_param_path)
                 else:
                     raise RuntimeError(
-                        "Using FP8 KV cache and scaling factors provided but "
-                        "model %s does not support loading scaling factors.",
+                        "Using FP8 KV cache and scaling factors provided but model %s does not support loading scaling factors.",
                         self.model.__class__,
                     )
             else:
-                logger.warning(
-                    "Using FP8 KV cache but no scaling factors "
-                    "provided. Defaulting to scaling factors of 1.0. "
-                    "This may lead to less accurate results!"
-                )
+                logger.warning("Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0. This may lead to less accurate results!")
 
         if envs.VLLM_TEST_DYNAMO_GRAPH_CAPTURE:
             self.model = torch.compile(self.model, fullgraph=True, backend="eager")

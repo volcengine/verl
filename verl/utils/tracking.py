@@ -32,7 +32,7 @@ class Tracking:
             if backend == "tracking":
                 import warnings
 
-                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning)
+                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning, stacklevel=2)
             else:
                 assert backend in self.supported_backend, f"{backend} is not supported"
 
@@ -73,7 +73,7 @@ class Tracking:
             swanlab.init(
                 project=project_name,
                 experiment_name=experiment_name,
-                config={"FRAMEWORK": "veRL", **config},
+                config={"FRAMEWORK": "verl", **config},
                 logdir=SWANLAB_LOG_DIR,
                 mode=SWANLAB_MODE,
             )
@@ -201,9 +201,7 @@ class ValidationGenerationsLogger:
         import wandb
 
         # Create column names for all samples
-        columns = ["step"] + sum(
-            [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
-        )
+        columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])
 
         if not hasattr(self, "validation_table"):
             # Initialize the table on first call

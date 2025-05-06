@@ -64,6 +64,9 @@ actor_rollout_ref:
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
     megatron:
+      param_offload: False
+      grad_offload: False
+      optimizer_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
@@ -73,27 +76,40 @@ actor_rollout_ref:
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: 1
+    profile: # profile the actor model in `update_policy` 
+      use_profile: False # open it when you want to profile the actor model
+      profile_ranks: null # list, you can specify the ranks to profile
+      step_start: -1 # start step in update_policy 
+      step_end: -1 # end step 
+      save_path: null # the path to save the profile result
     load_weight: True
     checkpoint:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     strategy: megatron
     megatron:
+      param_offload: False
       tensor_model_parallel_size: 1
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
       sequence_parallel: True
-      use_distributed_optimizer: True
+      use_distributed_optimizer: False
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: 1
+    profile:
+      use_profile: False
+      profile_ranks: null
+      step_start: -1
+      step_end: -1
+      save_path: null
     load_weight: True
-    param_offload: False
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
   rollout:
     name: vllm
+    mode: sync # sync: LLM, async: AsyncLLM
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -130,6 +146,11 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+    multi_turn: 
+      enable: False  # should set rollout.name to sglang_async if True
+      max_turns: null  # null for no limit (default max_length // 3)
+      tool_config_path: null  # null for no tool
+      format: chatml  # chatml, more formats will be supported in the future
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
@@ -154,6 +175,9 @@ critic:
       activations_checkpoint_granularity: null
       activations_checkpoint_num_layers: null
   megatron:
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
@@ -182,12 +206,15 @@ reward_model:
   enable: False
   strategy: megatron
   megatron:
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
     sequence_parallel: True
-    use_distributed_optimizer: True
+    use_distributed_optimizer: False
     use_dist_checkpointing: False
     dist_checkpointing_path: null
     seed: 1
@@ -196,11 +223,11 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
-  param_offload: False
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
+  launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
 
 custom_reward_function:
   path: null

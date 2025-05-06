@@ -23,8 +23,7 @@ For users who pursue better scalability, we recommend using **Megatron-LM** back
 
 .. note:: 
 
-    We are announcing the direct support of megatron GPTModel, without need to implement your own model any more. Also it's easy to use TransformerEngine's support for even higher performance.
-    The main branch of verl has enabled this as an preview feature. If you encounter issues, please feel free to report and try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
+    verl directly supports megatron's `GPTModel` API on the main branch with mcore v0.11. For mcore v0.4 try `0.3.x branch <https://github.com/volcengine/verl/tree/v0.3.x>`_ instead.
 
 2. Inference:
 
@@ -39,9 +38,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-For latest vllm and Megatron or FSDP, please use ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0``.
+For vLLM with Megatron or FSDP, please use ``whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.5.1-cu126-sglang0.4.4.post4`` which is provided by SGLang RL Group.
+For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
+
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post1`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -60,21 +61,28 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
     # install the nightly version (recommended)
     git clone https://github.com/volcengine/verl && cd verl
-    pip3 install -e . [vllm] or pip3 install -e . [sglang]
-    # or install from pypi instead of git via `pip3 install verl[...]`
+    # pick your choice of inference engine: vllm or sglang
+    # pip3 install -e .[vllm]
+    # pip3 install -e .[sglang]
+    # or install from pypi instead of git via:
+    # pip3 install verl[vllm]
+    # pip3 install verl[sglang]
 
 .. note::
     
-    The Docker image ``whatcanyousee/verl:ngc-th2.6.0-cu124-vllm0.8.2-mcore0.11.0-te2.0`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
+    - **cuDNN**: 9.8.0
+    - **nvidia-cudnn-cu12**: 9.8.0.87, **important for the usage of Megatron FusedAttention with MLA Support**
+    - **Flash Attenttion**: 2.7.4.post1
+    - **Flash Infer**: 0.2.2.post1
+    - **vLLM**: 0.8.3
+    - **SGLang**: 0.4.5.post3
     - **Megatron-LM**: v0.11.0
-    - **vLLM**: 0.8.2
-    - **Ray**: 2.44.0
-    - **TransformerEngine**: 2.0.0
-
-    Now verl has been **compatible to Megatron-LM v0.11.0**, and there is **no need to apply patches** to Megatron-LM. Also, the image has integrated **Megatron-LM v0.11.0**, located at ``/opt/nvidia/Meagtron-LM``. One more thing, because verl only use ``megatron.core`` module for now, there is **no need to modify** ``PATH`` if you have installed Megatron-LM with this docker image.
+    - **TransformerEngine**: 2.2.0
+    - **Ray**: 2.44.1
 
 
 Install from custom environment
@@ -94,11 +102,13 @@ own post-training jobs.
 .. code:: bash
 
    # install verl together with some lightweight dependencies in setup.py
-   pip3 install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+   pip3 install torch torchvision
    pip3 install flash-attn --no-build-isolation
    git clone https://github.com/volcengine/verl.git
    cd verl
-   pip3 install -e .
+   # pick your choice of inference engine: vllm or sglang
+   # pip3 install -e .[vllm]
+   # pip3 install -e .[sglang]
 
 
 Megatron is optional. It's dependencies can be setup as below:
@@ -110,9 +120,9 @@ Megatron is optional. It's dependencies can be setup as below:
        git+https://github.com/NVIDIA/apex
 
    # transformer engine
-   pip3 install git+https://github.com/NVIDIA/TransformerEngine.git@stable
+   pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
    # megatron core
-   pip3 install megatron-core==0.11.0
+   pip3 install --no-deps megatron-core==0.12.0
 
 
 Install with AMD GPUs - ROCM kernel support

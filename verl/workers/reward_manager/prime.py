@@ -46,18 +46,13 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(
-    evaluation_func, completions, references, tasks, extra_info=None, num_processes=64
-):
+async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         if extra_info is None:
             extra_info = [None] * len(tasks)
         # Create tasks for all rows
-        tasks_async = [
-            single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0)
-            for completion, reference, task, task_extra_info in zip(completions, references, tasks, extra_info)
-        ]
+        tasks_async = [single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0) for completion, reference, task, task_extra_info in zip(completions, references, tasks, extra_info)]
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
