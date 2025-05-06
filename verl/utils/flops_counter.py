@@ -164,10 +164,9 @@ class FlopsCounter:
         num_hidden_layers = self.config.num_hidden_layers
         num_key_value_heads = self.config.num_key_value_heads
         num_attention_heads = self.config.num_attention_heads
-        intermediate_size = self.config.intermediate_size
         moe_intermediate_size = self.config.moe_intermediate_size       
-        moe_num_expert = self.config.num_experts
         moe_topk = self.config.num_experts_per_tok
+        num_experts = self.config.num_experts
 
         head_dim = getattr(self.config, "head_dim", self.config.hidden_size // self.config.num_attention_heads)
         q_size = num_attention_heads * head_dim
@@ -175,8 +174,8 @@ class FlopsCounter:
         v_size = num_key_value_heads * head_dim
 
         # non-attn per layer parm
-        # Qwen2/LLama use SwiGelu, gate, having up and down linear layer in mlp
-        moe_mlp_N = moe_topk * moe_intermediate_size 
+        # gate + moe export
+        moe_mlp_N = moe_topk * moe_intermediate_size + num_experts
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         emd_and_lm_head_N = vocab_size * hidden_size * 2
         # non-attn all_layer parm
