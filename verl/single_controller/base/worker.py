@@ -229,3 +229,16 @@ class Worker(WorkerHelper):
     def execute_func_rank_zero(self, func, *args, **kwargs):
         result = func(*args, **kwargs)
         return result
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def ready(self):
+        # Whether the worker is ready to be used for computing.
+        # Subclasses can override this method to implement custom readiness checks,
+        # e.g., for additional model initialization
+        return True
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def will_be_destroyed(self):
+        # Method called before destruction, should not block,
+        # used for final resource cleanup and memory release
+        pass
