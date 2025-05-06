@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # test single-node-no-partition
     print("test single-node-no-partition")
-    resource_pool = RayResourcePool([2], use_gpu=True)
+    resource_pool = RayResourcePool([2], use_gpu=False)
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
     print("create worker group")

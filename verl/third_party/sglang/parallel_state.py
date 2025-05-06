@@ -72,7 +72,7 @@ def initialize_parallel_state(
 # this function to sync the _TP, _PP define at the beginning of this file. Otherwise, only the conterparts
 # inside sglang.srt.distributed are init as ProcessGroup, the symbols defined in this file remain as None.
 # It could be weird to maintain two _TP and _PP, I follow the same way to maintain an extra ones for
-# veRL itself as how it was done in verl.third_party.vllm.parallel_state. Note that the process is a little
+# verl itself as how it was done in verl.third_party.vllm.parallel_state. Note that the process is a little
 # bit different
 def ensure_model_parallel_initialized(
     tensor_model_parallel_size: int,
@@ -89,17 +89,9 @@ def ensure_model_parallel_initialized(
         initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size, backend)
         return
 
-    assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, (
-        "tensor parallel group already initialized, but of unexpected size: "
-        f"{get_tensor_model_parallel_world_size()=} vs. "
-        f"{tensor_model_parallel_size=}"
-    )
+    assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, f"tensor parallel group already initialized, but of unexpected size: {get_tensor_model_parallel_world_size()=} vs. {tensor_model_parallel_size=}"
     pp_world_size = get_pp_group().world_size
-    assert pp_world_size == pipeline_model_parallel_size, (
-        "pipeline parallel group already initialized, but of unexpected size: "
-        f"{pp_world_size=} vs. "
-        f"{pipeline_model_parallel_size=}"
-    )
+    assert pp_world_size == pipeline_model_parallel_size, f"pipeline parallel group already initialized, but of unexpected size: {pp_world_size=} vs. {pipeline_model_parallel_size=}"
 
 
 # TODO(sgm): deviate from the v0.5.4, not pp now
@@ -131,8 +123,6 @@ def initialize_model_parallel_for_sglang(
     global _TP
 
     world_size: int = torch.distributed.get_world_size()
-
-    rank = torch.distributed.get_rank()
 
     backend = torch.distributed.get_backend()
 
@@ -303,7 +293,7 @@ Tensor model parallel utilities
 """
 
 
-# NOTE(linjunrong): In the vllm version parallel_state.py. veRL created its own _TP and _PP as veRL want to use
+# NOTE(linjunrong): In the vllm version parallel_state.py. verl created its own _TP and _PP as verl want to use
 # the process group for some extra purpose. Under the hood, there is no difference between them and the original
 # one in vllm.distributed.parallel_state. However, the implementation need to hack the init process of inference
 # engine, as we do not maintain another SGLang here, I just use the original _TP and _PP directly.

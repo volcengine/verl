@@ -22,9 +22,7 @@ from vllm.config import (
     DecodingConfig,
     DeviceConfig,
     EngineConfig,
-    LoadConfig,
     LoRAConfig,
-    ModelConfig,
     ObservabilityConfig,
     ParallelConfig,
     PromptAdapterConfig,
@@ -32,7 +30,6 @@ from vllm.config import (
     SpeculativeConfig,
 )
 from vllm.core.scheduler import Scheduler
-from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.llm_engine import LLMEngine, SchedulerContext, SchedulerOutputState, _load_generation_config_dict
 from vllm.engine.metrics_types import StatLoggerBase
 from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
@@ -255,22 +252,14 @@ class LLMEngine(LLMEngine):
             # different process.
             self.tokenizer.ping()
 
-        self.cached_scheduler_outputs = [
-            SchedulerOutputState() for _ in range(self.parallel_config.pipeline_parallel_size)
-        ]
+        self.cached_scheduler_outputs = [SchedulerOutputState() for _ in range(self.parallel_config.pipeline_parallel_size)]
 
-        self.scheduler_contexts = [
-            SchedulerContext(multi_step_stream_outputs=self.scheduler_config.multi_step_stream_outputs)
-            for _ in range(self.parallel_config.pipeline_parallel_size)
-        ]
+        self.scheduler_contexts = [SchedulerContext(multi_step_stream_outputs=self.scheduler_config.multi_step_stream_outputs) for _ in range(self.parallel_config.pipeline_parallel_size)]
 
         if model_config.use_async_output_proc:
             process_model_outputs = weak_bind(self._process_model_outputs)
 
-            self.async_callbacks = [
-                partial(process_model_outputs, ctx=self.scheduler_contexts[v_id])
-                for v_id in range(self.parallel_config.pipeline_parallel_size)
-            ]
+            self.async_callbacks = [partial(process_model_outputs, ctx=self.scheduler_contexts[v_id]) for v_id in range(self.parallel_config.pipeline_parallel_size)]
         else:
             self.async_callbacks = []
 
@@ -333,9 +322,7 @@ class LLMEngine(LLMEngine):
 
     # TODO(sgm): add for verl but we may not tokenizer in Rollout
     def _init_tokenizer(self, tokenizer, **tokenizer_init_kwargs):
-        init_kwargs = dict(
-            enable_lora=bool(self.lora_config), max_num_seqs=self.scheduler_config.max_num_seqs, max_input_length=None
-        )
+        init_kwargs = dict(enable_lora=bool(self.lora_config), max_num_seqs=self.scheduler_config.max_num_seqs, max_input_length=None)
         init_kwargs.update(tokenizer_init_kwargs)
         return TokenizerGroup(tokenizer, **init_kwargs)
 
@@ -351,11 +338,8 @@ class LLMEngine(LLMEngine):
     # The GPUExecutor remove the Ray dependency
     @classmethod
     def _get_executor_cls(cls, engine_config: EngineConfig) -> Type[ExecutorBase]:
-        distributed_executor_backend = engine_config.parallel_config.distributed_executor_backend
         # Initialize the cluster and specify the executor class.]
-        assert engine_config.device_config.device_type == "cuda", (
-            "Currently, the vllm in verl only support running on GPU"
-        )
+        assert engine_config.device_config.device_type == "cuda", "Currently, the vllm in verl only support running on GPU"
 
         # print('Waiting for debugger'); import os,debugpy; debugpy.listen(('localhost', 5678 + int(os.getenv('RANK', '0')))); debugpy.wait_for_client()
         if engine_config.parallel_config.world_size == 1:
@@ -381,9 +365,7 @@ class LLMEngine(LLMEngine):
         engine_config = engine_args.create_engine_config()
         executor_class = cls._get_executor_cls(engine_config)
         # Initialize the cluster and specify the executor class.
-        assert engine_config.device_config.device_type == "cuda", (
-            "Currently, the vllm in verl only support running on GPU"
-        )
+        assert engine_config.device_config.device_type == "cuda", "Currently, the vllm in verl only support running on GPU"
 
         from .spmd_gpu_executor import SPMDGPUExecutor
 

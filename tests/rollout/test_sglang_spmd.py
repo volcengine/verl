@@ -1,17 +1,5 @@
 # Copyright 2023-2024 SGLang Team
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import os
 
 import torch
@@ -114,7 +101,7 @@ def test_sglang_spmd():
     preencode_prompts = [
         "Who won the Champions League in 2019?",
         "The founder of Apple is",
-        "What's your name",
+        "What's your name?",
     ]
     tokenizer.pad_token = tokenizer.eos_token
     prompts = tokenizer(preencode_prompts, return_tensors="pt", padding=True)
@@ -207,7 +194,6 @@ def test_sglang_spmd():
 
 def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor):
     # remove the left padding in the prompt token_id
-    # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids

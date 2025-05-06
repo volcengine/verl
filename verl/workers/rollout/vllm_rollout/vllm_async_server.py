@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -21,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
@@ -43,25 +45,16 @@ class ExternalRayDistributedExecutor(Executor):
         assert self.vllm_config.instance_id is not None, "instance_id must be set for external ray actors."
 
         fields = self.vllm_config.instance_id.split(":")
-        assert len(fields) == 4, (
-            f"instance_id: {self.vllm_config.instance_id} must be in "
-            f"the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
-        )
+        assert len(fields) == 4, f"instance_id: {self.vllm_config.instance_id} must be in the format of <namespace>:<wg_prefix>:<vllm_dp_size>:<vllm_dp_rank>."
         namespace, wg_prefix, vllm_dp_size, vllm_dp_rank = fields[0], fields[1], int(fields[2]), int(fields[3])
 
         # Make sure subprocess in same namespace as parent actor.
         # actor name format: {name_prefix}WorkerDict_{pg_idx}:{local_rank}
         ray.init(namespace=namespace)
-        actor_names = [
-            actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")
-        ]
+        actor_names = [actor_name for actor_name in ray.util.list_named_actors() if actor_name.startswith(f"{wg_prefix}WorkerDict")]
 
         vllm_tp_size = self.vllm_config.parallel_config.tensor_parallel_size
-        assert len(actor_names) == vllm_dp_size * vllm_tp_size, (
-            f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, "
-            f"but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = "
-            f"{vllm_dp_size * vllm_tp_size} is expected."
-        )
+        assert len(actor_names) == vllm_dp_size * vllm_tp_size, f"instance_id: {self.vllm_config.instance_id} has {len(actor_names)} actors, but vllm_dp_size: {vllm_dp_size} * vllm_tp_size: {vllm_tp_size} = {vllm_dp_size * vllm_tp_size} is expected."
 
         def get_pg_index_and_local_rank(actor_name) -> Tuple[int, int]:
             fields = actor_name.split(":")
@@ -101,9 +94,7 @@ class ExternalRayDistributedExecutor(Executor):
             sent_method = cloudpickle.dumps(method)
         del method
 
-        outputs = ray.get(
-            [worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers]
-        )
+        outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
         return outputs
 
     def check_health(self):
@@ -157,12 +148,6 @@ class AsyncvLLMServer(AsyncServerBase):
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         max_model_len = int(max_model_len)
 
-        if max_num_batched_tokens < max_model_len and config.enable_chunked_prefill:
-            raise ValueError(
-                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill"
-            )
-
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(
@@ -212,7 +197,7 @@ class AsyncvLLMServer(AsyncServerBase):
             model_config,
             models,
             "assistant",
-            request_logger=None,
+            request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
         )
@@ -233,6 +218,28 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
+
+    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
+        """Direct chat completion without FastAPI.
+
+        Args:
+            request: ChatCompletionRequest, request object.
+
+        Returns:
+            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
+        """
+        generator = await self.openai_serving_chat.create_chat_completion(request)
+        if isinstance(generator, ErrorResponse):
+            data = generator.model_dump_json(exclude_unset=True)
+            yield generator.code, f"data: {data}\n\n"
+
+        if request.stream:
+            async for chunk in generator:
+                yield 200, chunk
+        else:
+            assert isinstance(generator, ChatCompletionResponse)
+            data = generator.model_dump_json(exclude_unset=True)
+            yield 200, f"data: {data}\n\n"
 
     async def wake_up(self):
         await self.engine.wake_up()

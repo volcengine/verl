@@ -34,15 +34,13 @@ class TestActor(Worker):
 
 
 def test_basics():
-    ray.init()
+    ray.init(num_cpus=100)
 
     # create 4 workers, each hold a GPU
-    resource_pool = RayResourcePool([4], use_gpu=True)
+    resource_pool = RayResourcePool([4], use_gpu=False)
     class_with_args = RayClassWithInitArgs(cls=TestActor)
 
-    worker_group = RayWorkerGroup(
-        resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic"
-    )
+    worker_group = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic")
 
     output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_WORLD_SIZE")
     assert output == ["4", "4", "4", "4"]
