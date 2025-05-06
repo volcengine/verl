@@ -152,11 +152,19 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         if self.rank == 0:
             if fsdp_version(self.model) == 1:
-                model_config = self.model._fsdp_wrapped_module.config
+                unwrap_model = self.model._fsdp_wrapped_module
             else:
-                model_config = self.model.config
-            generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
-            generation_config.save_pretrained(local_path)
+                unwrap_model = self.model
+
+            model_config = unwrap_model.config
+            if unwrap_model.can_generate() and hasattr(model_config, "name_or_path") and model_config.name_or_path:
+                # Some model's name_or_path is empty if not initialized from pretrained,
+                # in this cases, we don't save generation config.
+                generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+                generation_config.save_pretrained(local_path)
+            else:
+                generation_config = None
+
             model_config.save_pretrained(local_path)
             self.processing_class.save_pretrained(local_path)
 
@@ -194,10 +202,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 save_model.to_empty(device="cpu")
 
                 if save_model.can_generate():
-                    try:
-                        save_model.generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
-                    except OSError:
-                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in {model_config.name_or_path}, using a generation config created from the model config when saving hf_model.")
+                    if generation_config is not None:
+                        save_model.generation_config = generation_config
+                    else:
+                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in, using a generation config created from the model config when saving hf_model.")
 
                 save_model.save_pretrained(hf_local_path, state_dict=state_dict)
                 self.processing_class.save_pretrained(hf_local_path)
