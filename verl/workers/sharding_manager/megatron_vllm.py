@@ -579,3 +579,32 @@ def get_micro_data_parallel_world_size():
 
 def get_micro_data_parallel_rank():
     return torch.distributed.get_rank(group=get_micro_data_parallel_group())
+
+
+def _patch_vllm_moe_model_weight_loader(model):
+    # this is a work around to load the weight of vllm qwen2 moe model
+    # it is from a bug from vllm 0.8.2
+    # all the weights are supposed to have a weight_loader, but the moe weights
+    # do not have a weight_loader, so we need to patch it
+    # (True, 'model.embed_tokens.weight')
+    # (True, 'model.layers.0.self_attn.qkv_proj.weight')
+    # (True, 'model.layers.0.self_attn.qkv_proj.bias')
+    # (True, 'model.layers.0.self_attn.o_proj.weight')
+    # (True, 'model.layers.0.mlp.gate.weight')
+    # (True, 'model.layers.0.mlp.shared_expert.gate_up_proj.weight')
+    # (True, 'model.layers.0.mlp.shared_expert.down_proj.weight')
+    # (False, 'model.layers.0.mlp.shared_expert_gate.weight')   use default
+    # (False, 'model.layers.0.input_layernorm.weight')          use default
+    # (False, 'model.layers.0.post_attention_layernorm.weight') use default
+    # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
+    # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV3ForCausalLM
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+
+    if isinstance(model, DeepseekV3ForCausalLM) or isinstance(model, Qwen2MoeForCausalLM):
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            param_dict = dict(mlp.named_parameters())
+            for name, param in param_dict.items():
+                if "w13_weight" in name or "w2_weight" in name:
+                    param.weight_loader = mlp.experts.weight_loader
