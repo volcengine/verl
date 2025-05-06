@@ -19,7 +19,8 @@ from typing import List, Dict, Any
 
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
-from verl.single_controller.torchrpc.utils import create_remote_actor, remote_actor_call, rref_to_here, stop_remote_actors
+from verl.single_controller.torchrpc.node import NodeManager, NodeResource
+from verl.single_controller.torchrpc.utils import rref_to_here
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
@@ -31,31 +32,6 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
         return output
     return func
 
-
-class Node:
-    def __init__(self, name, total_cpu=-1, total_gpu=-1, used_cpu=0, used_gpu=0):
-        self.name = name
-        self.total_cpu = total_cpu if total_cpu != -1 else rpc.remote(name, os.cpu_count).to_here()
-        self.total_gpu = total_gpu if total_gpu != -1 else rpc.remote(name, torch.cuda.device_count).to_here()
-        self.used_cpu = used_cpu
-        self.used_gpu = used_gpu
-
-global_nodes = None
-
-def get_global_nodes():
-    global global_nodes
-    if not global_nodes:
-        global_nodes = [Node(f'worker{i}') for i in range(int(os.environ.get('TORCHRPC_WORLD_SIZE', 2)))]
-    return global_nodes
-
-def get_best_node(cpu, gpu):
-    nodes = get_global_nodes()
-    ret = None
-    for node in nodes:
-        if node.total_cpu - node.used_cpu >= cpu and node.total_gpu - node.used_gpu >= gpu:
-            if ret is None or node.total_gpu - node.used_gpu < ret.total_gpu - ret.used_gpu:
-                ret = node
-    return ret
 
 def _get_node_ip():
     # TODO: 暂时没找到TorchRPC相关API，使用环境变量
@@ -73,64 +49,40 @@ def _get_available_master_addr_port():
 # name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
     def __init__(self,
+                 node_manager: NodeManager,
                  process_on_nodes: List[int] = None,
                  use_gpu: bool = True,
-                #  name_prefix: str = "",
                  max_colocate_count: int = 5,
-                #  detached=False
                 ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
-        # self.name_prefix = name_prefix
-        self.nodes = None
-        # self.detached = detached
+        self.resources = None
+        self.node_manager = node_manager
 
-    def get_nodes(self):
-        if self.nodes is not None:
-            return self.nodes
+    def get_resources(self):
+        if self.resources is not None:
+            return self.resources
         
-        self.nodes = []
+        self.resources = []
         for process_count in self._store:
-            cpu = self.max_colocate_count * process_count
-            gpu = process_count if self.use_gpu else 0
-            node = get_best_node(cpu, gpu)
-            if node is None:
-                raise Exception("No node found")
-            node.used_cpu += cpu
-            node.used_gpu += gpu
-            self.nodes.append(node)
-        return self.nodes
+            self.resources.append(self.node_manager.dispatch(process_count if self.use_gpu else 0))
+        return self.resources
 
 class TorchRPCClassWithInitArgs(ClassWithInitArgs):
     def __init__(self, cls, *args, **kwargs) -> None:
         super().__init__(cls, *args, **kwargs)
-        # self._options = {}
-        # self._additional_resource = {}
         self._env_vars = {}
-
-    # def set_additional_resource(self, additional_resource):
-    #     self._additional_resource = additional_resource
-
-    # def update_options(self, options: Dict):
-    #     self._options.update(options)
 
     def update_env_vars(self, env_vars: Dict):
         self._env_vars.update(env_vars)
 
     def __call__(self,
-                 node: Node,
+                 resource: NodeResource,
                  use_gpu: bool = True,
                  num_gpus=1,
-                 sharing_with=None) -> Any:
-        # options = self._options.copy()
-        # if use_gpu:
-        #     options["num_gpus"] = num_gpus
-
-        # if len(self._additional_resource) >= 1:
-        #     for k, v in self._additional_resource.items():
-        #         options[k] = v
-
-        return rpc.remote(node.name, create_remote_actor, args=(self.cls, self.args, self.kwargs, self._env_vars))
+                ) -> Any:
+        assert use_gpu is not (num_gpus == 0)
+        return resource.create_actor(self.cls, self.args, self.kwargs, self._env_vars, num_gpus)
 
 class TorchRPCWorkerGroup(WorkerGroup):
 
@@ -138,15 +90,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
                  resource_pool: TorchRPCResourcePool = None,
                  cls_with_init: TorchRPCClassWithInitArgs = None,
                  bin_pack: bool = True,
-                #  name_prefix: str = None,
-                #  detached=False,
-                #  worker_names=None,
                  worker_rrefs=None,
                  **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.cls_with_init = cls_with_init
-        # 名字怎么用？
-        # self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
 
         if worker_rrefs is not None:
             # _is_init_with_detached_workers -> resource_pool is None
@@ -173,11 +120,11 @@ class TorchRPCWorkerGroup(WorkerGroup):
     def _init_with_resource_pool(self, resource_pool, cls_with_init, bin_pack):
         use_gpu = resource_pool.use_gpu
 
-        nodes = resource_pool.get_nodes()
+        resources = resource_pool.get_resources()
         self._world_size = resource_pool.world_size
 
         rank = -1
-        for node_idx, node in enumerate(nodes):
+        for node_idx, resource in enumerate(resources):
             local_world_size = resource_pool.store[node_idx]
             for local_rank in range(local_world_size):
                 rank += 1
@@ -195,17 +142,17 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 }
 
                 if rank == 0:
-                    self._master_addr, self._master_port = rpc.remote(node.name, _get_available_master_addr_port).to_here()
+                    self._master_addr, self._master_port = rpc.remote(resource.node.name, _get_available_master_addr_port).to_here()
 
                 env_vars['MASTER_ADDR'] = self._master_addr
                 env_vars['MASTER_PORT'] = self._master_port
 
                 cls_with_init.update_env_vars(env_vars)
-                worker = cls_with_init(node, use_gpu, )
+                worker = cls_with_init(resource, use_gpu, )
                 self._workers.append(worker)
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
-        return remote_actor_call(self._workers[0], method_name, args, kwargs)
+        return self._workers[0](method_name, args, kwargs)
 
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
         return self.execute_rank_zero_async(method_name, *args, **kwargs).to_here()
@@ -214,21 +161,17 @@ class TorchRPCWorkerGroup(WorkerGroup):
         return self.execute_rank_zero_async(method_name, *args, **kwargs)
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
-        # Here, we assume that if all arguments in args and kwargs are lists, and their lengths match len(self._workers),
-        # we'll distribute each element in these lists to the corresponding worker
-        # print(f"execute_all_async: method {method_name}({args}, {kwargs})")
         length = len(self._workers)
         if all(isinstance(arg, list) for arg in args) and all(isinstance(kwarg, list) for kwarg in kwargs.values()):
             if all(len(arg) == length for arg in args) and all(len(kwarg) == length for kwarg in kwargs.values()):
-                # print(f"splitting args and kwargs into {length} shards")
                 result = []
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(remote_actor_call(self._workers[i], method_name, sliced_args, sliced_kwargs))
+                    result.append(self._workers[i](method_name, sliced_args, sliced_kwargs))
                 return result
 
-        return [remote_actor_call(worker, method_name, args, kwargs) for worker in self._workers]
+        return [worker(method_name, args, kwargs) for worker in self._workers]
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
         ret = self.execute_all_async(method_name, *args, **kwargs)
@@ -284,5 +227,4 @@ def torchrpc_remote(func):
         if rank == 0:
             func()
         rpc.shutdown()
-        stop_remote_actors()
     return wrapper
