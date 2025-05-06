@@ -93,6 +93,7 @@ class AsyncSGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
         tool_list = None
         if config.multi_turn.tool_config_path is not None:
@@ -216,6 +217,7 @@ class AsyncSGLangRollout(BaseRollout):
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
 
         if first_rank_in_node:
+            rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             self._engine = Engine(
                 model_path=actor_module,
@@ -230,6 +232,16 @@ class AsyncSGLangRollout(BaseRollout):
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
                 trust_remote_code=trust_remote_code,
+                # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
+                # when random.seed is being set during training
+                port=30000 + rank,
+                # NOTE(Chenyang): if you want to debug the SGLang engine output
+                # please set the following parameters
+                # Otherwise, it will make the engine run too slow
+                # log_level="INFO",
+                # log_requests=True,
+                # log_requests_level=2,
+                # max_running_requests=1,
             )
         else:
             self._engine = None
