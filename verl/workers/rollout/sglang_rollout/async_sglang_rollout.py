@@ -186,7 +186,8 @@ class AsyncSGLangRollout(BaseRollout):
         # get tp_rank of this process in this tp group
         visible_devices = [None] * device_mesh_cpu.size(1)
 
-                ###
+        
+        ###
         # [SUPPORT AMD: torch]
         from packaging import version
         import ray
@@ -196,6 +197,7 @@ class AsyncSGLangRollout(BaseRollout):
         else:
             dist.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
             os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
+        ###
 
         # initialize the inference engine
         monkey_patch_torch_reductions()
