@@ -18,6 +18,7 @@
 
 import hashlib
 import os
+import shutil
 import tempfile
 
 try:
@@ -56,7 +57,38 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
+def _record_directory_structure(folder_path):
+    record_file = os.path.join(folder_path, ".directory_record.txt")
+    with open(record_file, "w") as f:
+        for root, dirs, files in os.walk(folder_path):
+            for dir_name in dirs:
+                relative_dir = os.path.relpath(os.path.join(root, dir_name), folder_path)
+                f.write(f"dir:{relative_dir}\n")
+            for file_name in files:
+                if file_name != ".directory_record.txt":
+                    relative_file = os.path.relpath(os.path.join(root, file_name), folder_path)
+                    f.write(f"file:{relative_file}\n")
+    return record_file
+
+
+def _check_directory_structure(folder_path, record_file):
+    if not os.path.exists(record_file):
+        return False
+    existing_entries = set()
+    for root, dirs, files in os.walk(folder_path):
+        for dir_name in dirs:
+            relative_dir = os.path.relpath(os.path.join(root, dir_name), folder_path)
+            existing_entries.add(f"dir:{relative_dir}")
+        for file_name in files:
+            if file_name != ".directory_record.txt":
+                relative_file = os.path.relpath(os.path.join(root, file_name), folder_path)
+                existing_entries.add(f"file:{relative_file}")
+    with open(record_file) as f:
+        recorded_entries = set(f.read().splitlines())
+    return existing_entries == recorded_entries
+
+
+def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
     """Copy src from hdfs to local if src is on hdfs or directly return src.
     If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
     the src name is the same between calls
@@ -67,10 +99,10 @@ def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False
     Returns:
         a local path of the copied file
     """
-    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
+    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
 
 
-def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
+def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
     """Deprecated. Please use copy_to_local instead."""
     from filelock import FileLock
 
@@ -88,10 +120,26 @@ def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", v
         filelock = md5_encode(src) + ".lock"
         lock_file = os.path.join(cache_dir, filelock)
         with FileLock(lock_file=lock_file):
+            if always_recopy and os.path.exists(local_path):
+                if os.path.isdir(local_path):
+                    shutil.rmtree(local_path, ignore_errors=True)
+                else:
+                    os.remove(local_path)
             if not os.path.exists(local_path):
                 if verbose:
                     print(f"Copy from {src} to {local_path}")
                 copy(src, local_path)
+                if os.path.isdir(local_path):
+                    _record_directory_structure(local_path)
+            elif os.path.isdir(local_path):
+                # always_recopy=False, local path exists, and it is a folder: check whether there is anything missed
+                record_file = os.path.join(local_path, ".directory_record.txt")
+                if not _check_directory_structure(local_path, record_file):
+                    if verbose:
+                        print(f"Recopy from {src} to {local_path} due to missing files or directories.")
+                    shutil.rmtree(local_path, ignore_errors=True)
+                    copy(src, local_path)
+                    _record_directory_structure(local_path)
         return local_path
     else:
         return src
