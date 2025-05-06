@@ -681,7 +681,7 @@ def default_tp_concat_fn(layer_name_mapping, name, param, infer_params, model_co
     return infer_params
 
 
-def per_tensor_generator(actor_module, model_config, weight_converter, convert_qkv_gate_up_by_simple_split=True):
+def per_tensor_generator(actor_module, model_config, weight_converter, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
     from megatron.core import parallel_state as mpu
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
@@ -739,7 +739,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, convert_q
                     infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
                 )
             infer_params = default_tp_concat_fn(
-                cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split
+                layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split
             )
         else:
             infer_params = broad_pp_tensor

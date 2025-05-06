@@ -53,6 +53,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from sglang.srt.entrypoints.verl_engine import VerlEngine
+from verl.utils.debug import GPUMemoryLogger
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.utils.megatron_utils import per_tensor_generator, default_tp_concat_fn
@@ -90,13 +91,14 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             if rank in ranks:
                 _MICRO_DATA_PARALLEL_GROUP = group
 
-    @GPU
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
-        per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter)
+        per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.layer_name_mapping)
         self.inference_engine.resume_memory_occupation()
         self.inference_engine.update_weights_from_tensor(per_tensor_param, load_format=None)
         log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
 
+    @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
         self.inference_engine.release_memory_occupation()
