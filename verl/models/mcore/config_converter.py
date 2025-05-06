@@ -71,6 +71,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         # Common settings
         "variable_seq_lengths": True,
         "masked_softmax_fusion": True,
+        "moe_token_dispatcher_type": "alltoall",
     }
 
     # Update with any provided overrides
@@ -101,7 +102,6 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
         # MoE specific
-        moe_token_dispatcher_type="alltoall",
         moe_ffn_hidden_size=hf_config.moe_intermediate_size,
         moe_router_bias_update_rate=0.001,
         moe_router_topk=hf_config.num_experts_per_tok,
@@ -131,7 +131,6 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype) 
         add_bias_linear=False,
         layernorm_epsilon=hf_config.rms_norm_eps,
         # MoE specific
-        moe_token_dispatcher_type="alltoall",
         num_moe_experts=hf_config.num_local_experts,
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         moe_router_topk=hf_config.num_experts_per_tok,
