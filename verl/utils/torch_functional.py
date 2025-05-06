@@ -17,7 +17,7 @@ Contain small torch utilities
 
 import math
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import torch
 import torch.distributed
@@ -26,6 +26,9 @@ from tensordict import TensorDict
 from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -264,7 +267,7 @@ def postprocess_data(
     truncation="error",
 ):
     """
-    input_data is the output from tokenizer.
+    input_ids and attention_mask are output from tokenizer.
     """
     assert truncation in ["left", "right", "error"]
     assert input_ids.ndim == 2
@@ -287,6 +290,17 @@ def postprocess_data(
             raise NotImplementedError(f"Unknown truncation method {truncation}")
 
     return input_ids, attention_mask
+
+
+def tokenize_and_postprocess_data(prompt: str, tokenizer: PreTrainedTokenizer, max_length: int, pad_token_id: int, left_pad=True, truncation="error"):
+    """
+    input_data is the output from tokenizer.
+    """
+    input_data = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+    input_ids = input_data["input_ids"]
+    attention_mask = input_data["attention_mask"]
+
+    return postprocess_data(input_ids, attention_mask, max_length, pad_token_id, left_pad, truncation)
 
 
 def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
@@ -566,3 +580,57 @@ def check_cuda_is_available():
         raise RuntimeError("CUDA must be initialized before importing this module.")
 
     yield
+
+
+def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=True, compute_std=True):
+    """
+    Compute the mean of a tensor across all processes in a distributed setup.
+
+    Args:
+        local_tensor (torch.Tensor): The local tensor on each process.
+
+    Returns:
+        torch.Tensor: The mean of the tensor across all processes.
+    """
+    # Sum the local tensor across all processes
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+
+    if compute_max:
+        local_max = torch.max(local_tensor)
+        torch.distributed.all_reduce(local_max, op=torch.distributed.ReduceOp.MAX)
+    else:
+        local_max = None
+
+    if compute_min:
+        local_min = torch.min(local_tensor)
+        torch.distributed.all_reduce(local_min, op=torch.distributed.ReduceOp.MIN)
+    else:
+        local_min = None
+
+    if compute_std:
+        square_diff = torch.sum(torch.pow(local_tensor - global_mean, 2))
+        torch.distributed.all_reduce(square_diff, op=torch.distributed.ReduceOp.SUM)
+        global_std = torch.sqrt(square_diff / (local_num - 1))
+    else:
+        global_std = None
+
+    return global_mean, local_max, local_min, global_std
+
+
+def distributed_masked_mean(local_tensor, local_mask):
+    local_tensor = local_tensor * local_mask
+
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.sum(local_mask)
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+    return global_mean
