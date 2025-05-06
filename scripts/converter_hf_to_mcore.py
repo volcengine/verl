@@ -54,6 +54,37 @@ class Config:
         self.model = ModelConfig()
 
 
+def test_conversion(megatron_model_provider, tfconfig, output_path, model):
+    ########### test ###########
+    # load model
+    model_test = get_model(
+        model_provider_func=megatron_model_provider,
+        model_type=ModelType.encoder_or_decoder,
+        wrap_with_ddp=True,
+        transformer_config=tfconfig,
+    )
+    ref_state_dict = model_test[0].module.sharded_state_dict()
+    dist_checkpointing.load(ref_state_dict, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
+
+    dut_state_dict = model[0].module.state_dict()
+    for name in dut_state_dict.keys():
+        if dut_state_dict[name] is None:
+            continue
+        dut_data = dut_state_dict[name].data
+        if name in ref_state_dict:
+            ref_data = ref_state_dict[name].data
+            assert dut_data.shape == ref_state_dict.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
+            assert (dut_data == ref_data).all(), f"{name} is not equal"
+    for name in ref_state_dict.keys():
+        if ref_state_dict[name] is None:
+            continue
+        ref_data = ref_state_dict[name].data
+        if name in dut_state_dict:
+            dut_data = dut_state_dict[name].data
+            assert dut_data.shape == ref_data.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
+            assert (dut_data == ref_data).all(), f"{name} is not equal"
+
+
 def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config):
     num_attention_heads = hf_config.num_attention_heads
     hidden_dim = hf_config.hidden_size
@@ -157,7 +188,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
 
     # init hf model
     hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16)
-    ref_state_dict = hf_model.state_dict()
+    hf_state_dict = hf_model.state_dict()
 
     # load hf state dict to megatron model
     if "Qwen2MoeForCausalLM" in hf_config.architectures:
@@ -167,84 +198,21 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
 
         load_state_dict_to_megatron_gptmodel(
-            state_dict=ref_state_dict,
+            state_dict=hf_state_dict,
             wrapped_models=model,
             config=hf_config,
             params_dtype=torch.bfloat16,
             is_value_model=False,
         )
 
-    ssd = model[0].module.sharded_state_dict()
-    del ref_state_dict, hf_model
+    megatron_state_dict = model[0].module.sharded_state_dict()
+    del hf_state_dict, hf_model
 
     # save megatron model
     if len(os.listdir(output_path)) == 0:
-        dist_checkpointing.save(ssd, output_path, sharded_strategy=None, async_sharded_save=False)
+        dist_checkpointing.save(megatron_state_dict, output_path, sharded_strategy=None, async_sharded_save=False)
     if test:
-        ########### test ###########
-        # load model
-        model_test = get_model(
-            model_provider_func=megatron_model_provider,
-            model_type=ModelType.encoder_or_decoder,
-            wrap_with_ddp=True,
-            transformer_config=tfconfig,
-        )
-        ssd2 = model_test[0].module.sharded_state_dict()
-        dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.ASSUME_OK_UNEXPECTED)
-
-        sd = model[0].module.state_dict()
-        sd2 = model_test[0].module.state_dict()
-        for k in sd.keys():
-            if sd[k] is None:
-                continue
-            d1 = sd[k].data
-            if k in sd2:
-                d2 = sd2[k].data
-                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
-                assert (d1 == d2).all(), f"{k} is not equal"
-        for k in sd2.keys():
-            if sd2[k] is None:
-                continue
-            d1 = sd2[k].data
-            if k in sd:
-                d2 = sd[k].data
-                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
-                assert (d1 == d2).all(), f"{k} is not equal"
-
-        # load value model
-        def megatron_value_model_provider(pre_process, post_process):
-            from verl.utils.model import get_parallel_gptmodel_from_config
-
-            parallel_model = get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True)
-            parallel_model.cuda()
-            return parallel_model
-
-        model_value = get_model(
-            model_provider_func=megatron_value_model_provider,
-            model_type=ModelType.encoder_or_decoder,
-            wrap_with_ddp=True,
-        )
-        ssd2 = model_value[0].module.sharded_state_dict()
-        dist_checkpointing.load(ssd2, output_path, strict=StrictHandling.IGNORE_ALL)
-
-        sd = model[0].module.state_dict()
-        sd2 = model_value[0].module.state_dict()
-        for k in sd.keys():
-            if sd[k] is None:
-                continue
-            d1 = sd[k].data
-            if k in sd2:
-                d2 = sd2[k].data
-                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
-                assert (d1 == d2).all(), f"{k} is not equal"
-        for k in sd2.keys():
-            if sd2[k] is None:
-                continue
-            d1 = sd2[k].data
-            if k in sd:
-                d2 = sd[k].data
-                assert d1.shape == d2.shape, f"{k=} {d1.shape=} {d2.shape=}"
-                assert (d1 == d2).all(), f"{k} is not equal"
+        test_conversion(megatron_model_provider, tfconfig, output_path, model)
 
 
 if __name__ == "__main__":

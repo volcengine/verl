@@ -112,7 +112,7 @@ Megatron dist-checkpoint supports loading with different kinds of model parallel
 and it is much faster than the original checkpoint loading.
 
 To convert original HuggingFace model to Megatron dist-checkpoint,
-you can use the ``scripts/converter_hf_to_mcore.py`` script. Large models are temporarily supported with CPU initialization,
+you can use the ``scripts/converter_hf_to_mcore.py`` script. Large MoE models are temporarily supported with CPU initialization,
 which is a little slower. While we are working on a better solution to support large models.
 
 Example command to convert the model is as follows:
@@ -122,7 +122,7 @@ Example command to convert the model is as follows:
     python scripts/converter_hf_to_mcore.py \
         --hf_model_path Qwen/Qwen1.5-MoE-A2.7B-Chat \
         --output_path /mnt/disk/Qwen/Qwen1.5-MoE-A2.7B-Chat \
-        --use_cpu_initialization
+        --use_cpu_initialization    # Only work for MoE models
 
 
 Original Checkpoint Utils
