@@ -1,5 +1,5 @@
-# veRL Megatron-Core Models
-The earlier versions of veRL use `Megatron-LM` 0.4 and workaround huggingface model classes. To better use the latest features and speedup of modern Megatron, we are migrating to `Megatron-Core`(mcore), and use the recommended `GPTModel` class for all language models. With mcore `GPTModel`, we can use the latest features like `context parallel`, `expert parallel`, `dist_checkpointing`, etc. and we can update mcore with little effort in the future for new features.
+# verl Megatron-Core Models
+The earlier versions of verl use `Megatron-LM` 0.4 and workaround huggingface model classes. To better use the latest features and speedup of modern Megatron, we are migrating to `Megatron-Core`(mcore), and use the recommended `GPTModel` class for all language models. With mcore `GPTModel`, we can use the latest features like `context parallel`, `expert parallel`, `dist_checkpointing`, etc. and we can update mcore with little effort in the future for new features.
 
 The migration has been successful with the help of the mcore team and the community. What we have done is:
 1. update `Megatron` version to `0.11.0`
@@ -10,6 +10,7 @@ The migration has been successful with the help of the mcore team and the commun
 
 We are working on the following features:
 - support `Qwen2MoeForCausalLM`
+- support `MixtralForCausalLM`
 - support `DeepseekV3ForCausalLM`
 - support `expert parallel`
 

@@ -276,6 +276,9 @@ class vLLMRollout(BaseRollout):
                 batch_size = batch_size * self.sampling_params.n
                 if "multi_modal_inputs" in non_tensor_batch.keys():
                     non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(non_tensor_batch["multi_modal_inputs"], self.sampling_params.n)
+                # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
+                if "tools_kwargs" in non_tensor_batch.keys():
+                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(non_tensor_batch["tools_kwargs"], self.sampling_params.n)
 
             seq = torch.cat([idx, response], dim=-1)
 

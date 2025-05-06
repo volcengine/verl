@@ -36,8 +36,8 @@ RUN pip config set global.index-url "${PIP_INDEX}" && \
     pip config set global.extra-index-url "${PIP_INDEX}" && \
     python -m pip install --upgrade pip
 
-# Install sglang-0.4.5.post3 and torch-memory-saver
-RUN pip install "sglang[all]==0.4.5.post3" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+# Install sglang-0.4.6.post1 and torch-memory-saver
+RUN pip install "sglang[all]==0.4.6.post1" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
 
 # Install torch-2.6.0
 RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 tensordict torchdata \
@@ -47,8 +47,8 @@ RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.
 
 # Install flash_attn-2.7.4.post1
 RUN pip uninstall -y transformer-engine flash-attn && \
-    wget -v https://ghfast.top/https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
-    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.5cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+    wget -v https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
+    pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
 # Fix cv2
 RUN pip uninstall -y pynvml nvidia-ml-py && \

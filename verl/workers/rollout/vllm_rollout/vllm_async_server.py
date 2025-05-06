@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -21,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
@@ -146,12 +148,6 @@ class AsyncvLLMServer(AsyncServerBase):
         max_model_len = config.max_model_len if config.max_model_len else config.prompt_length + config.response_length
         max_model_len = int(max_model_len)
 
-        if max_num_batched_tokens < max_model_len and config.enable_chunked_prefill:
-            raise ValueError(
-                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
-                             please increase max_num_batched_tokens or disable chunked prefill"
-            )
-
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         kwargs = dict(
@@ -201,7 +197,7 @@ class AsyncvLLMServer(AsyncServerBase):
             model_config,
             models,
             "assistant",
-            request_logger=None,
+            request_logger=RequestLogger(max_log_len=4096),
             chat_template=None,
             chat_template_content_format="auto",
         )
@@ -222,6 +218,28 @@ class AsyncvLLMServer(AsyncServerBase):
         else:
             assert isinstance(generator, ChatCompletionResponse)
             return JSONResponse(content=generator.model_dump())
+
+    async def chat_completion_generator(self, request: ChatCompletionRequest) -> AsyncGenerator[Tuple[int, str]]:
+        """Direct chat completion without FastAPI.
+
+        Args:
+            request: ChatCompletionRequest, request object.
+
+        Returns:
+            AsyncGenerator[Tuple[int, str]]: async generator of (status_code, data) pairs.
+        """
+        generator = await self.openai_serving_chat.create_chat_completion(request)
+        if isinstance(generator, ErrorResponse):
+            data = generator.model_dump_json(exclude_unset=True)
+            yield generator.code, f"data: {data}\n\n"
+
+        if request.stream:
+            async for chunk in generator:
+                yield 200, chunk
+        else:
+            assert isinstance(generator, ChatCompletionResponse)
+            data = generator.model_dump_json(exclude_unset=True)
+            yield 200, f"data: {data}\n\n"
 
     async def wake_up(self):
         await self.engine.wake_up()

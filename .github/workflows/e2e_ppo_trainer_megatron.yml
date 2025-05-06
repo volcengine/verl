@@ -14,19 +14,21 @@ on:
       - v0.*
     paths:
       - "**/*.py"
+      # Other entrypoints
+      - "!examples/**"
+      - "!tests/**"
+      - "!verl/trainer/main_*.py"
+      - "!verl/trainer/fsdp_sft_trainer.py"
+      # Recipes
+      - "!recipe/**"
+      # FSDP
+      - "!verl/workers/**/*dp_*.py"
       # Entrypoints
       - ".github/workflows/e2e_ppo_trainer_megatron.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/e2e/run_ppo_trainer_megatron.sh"
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_megatron_trainer.yaml"
-      - "!examples"
-      - "!verl/trainer/main_*.py"
-      - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe"
-      # FSDP
-      - "!verl/workers/**/*dp_*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -44,7 +46,8 @@ jobs:
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1"
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
@@ -55,7 +58,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test]
+          pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
@@ -85,7 +88,8 @@ jobs:
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1"
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
       image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
@@ -96,7 +100,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test]
+          pip3 install --no-deps -e .[test]
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py

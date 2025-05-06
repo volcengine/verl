@@ -1,4 +1,6 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +15,7 @@
 # limitations under the License.
 
 import copy
+import logging
 import os
 import re
 from collections import defaultdict
@@ -28,8 +31,11 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 
+logger = logging.getLogger(__name__)
+
 
 def collate_fn(data_list: list[dict]) -> dict:
+    """Collate a batch of data."""
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 
@@ -75,16 +81,15 @@ class RLHFDataset(Dataset):
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
-
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
-
-        # whether to store the dataset in state_dict()
-        # default not store
+        self.chat_template_func = config.get("chat_template_func", None)
+        self.need_tools_kwargs = config.get("need_tools_kwargs", False)
+        self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self._download()
         self._read_files_and_tokenize()
@@ -240,8 +245,12 @@ class RLHFDataset(Dataset):
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
+        tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
+        need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
+        if need_tools_kwargs and not tools_kwargs:
+            logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
-
+        row_dict["tools_kwargs"] = tools_kwargs
         return row_dict
 
     def __getstate__(self):
