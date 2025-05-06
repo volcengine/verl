@@ -29,6 +29,7 @@ NVIDIA GPUs
 .. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
 .. _Qwen7b GRPO FSDP2 Script and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b-fsdp2.log
 .. _Qwen 7B SPPO Script: https://github.com/volcengine/verl/tree/main/recipe/sppo/README.md
+.. _Mixtral-8x22B-Instruct RLOO Wandb: https://api.wandb.ai/links/ppo_dev/sbuiuf2d
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
@@ -57,6 +58,11 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-7B-Instruct         | SPPO                   | 65.6 (MATH)|   `Qwen 7B SPPO Script`_                                                                      |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+| Mixtral-8x22B-Instruct-v0.1      | Original instruct model| 83.7       |   `Qwen Blog`_                                                                                |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+| Mixtral-8x22B-Instruct-v0.1      | RLOO (Megatron)        | 92.3       |   `Mixtral-8x22B-Instruct RLOO Wandb`_                                                        |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
+
 
 
 AMD GPUs (MI300)
