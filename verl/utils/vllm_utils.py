@@ -12,11 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
-from vllm.model_executor.models.mixtral import MixtralForCausalLM
-from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering unsupported issues.
+SUPPORTED_MOE_MODELS = []
 
-SUPPORTED_MOE_MODELS = [Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM, MixtralForCausalLM]
+try:
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
+    SUPPORTED_MOE_MODELS.append(DeepseekV2ForCausalLM)
+    SUPPORTED_MOE_MODELS.append(DeepseekV3ForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.mixtral import MixtralForCausalLM
+    SUPPORTED_MOE_MODELS.append(MixtralForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    SUPPORTED_MOE_MODELS.append(Qwen2MoeForCausalLM)
 
 try:
     from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
