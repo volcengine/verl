@@ -175,7 +175,7 @@ class FlopsCounter:
 
         # non-attn per layer parm
         # gate + moe export
-        moe_mlp_N = moe_topk * moe_intermediate_size + num_experts
+        moe_mlp_N = hidden_size * moe_topk * moe_intermediate_size * 3 + hidden_size * num_experts
         attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
         emd_and_lm_head_N = vocab_size * hidden_size * 2
         # non-attn all_layer parm
