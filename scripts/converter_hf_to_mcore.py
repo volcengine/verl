@@ -69,20 +69,29 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
     dut_state_dict = model[0].module.state_dict()
     for name in dut_state_dict.keys():
         if dut_state_dict[name] is None:
+            print(f"[Warning] {name} is none in dut_state_dict")
             continue
         dut_data = dut_state_dict[name].data
         if name in ref_state_dict:
             ref_data = ref_state_dict[name].data
             assert dut_data.shape == ref_state_dict.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
             assert (dut_data == ref_data).all(), f"{name} is not equal"
+            print(f"{name} is equal")
+        else:
+            print(f"[Warning] {name} is not in ref_state_dict")
     for name in ref_state_dict.keys():
         if ref_state_dict[name] is None:
+            print(f"[Warning] {name} is none in ref_state_dict")
             continue
         ref_data = ref_state_dict[name].data
         if name in dut_state_dict:
             dut_data = dut_state_dict[name].data
             assert dut_data.shape == ref_data.shape, f"{name=} {dut_data.shape=} {ref_data.shape=}"
             assert (dut_data == ref_data).all(), f"{name} is not equal"
+            print(f"{name} is equal")
+        else:
+            print(f"[Warning] {name} is not in dut_state_dict")
+    print("Conversion test passed!")
 
 
 def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config):
@@ -98,9 +107,7 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
         for layer, hf_layer in zip(model.decoder.layers, hf_model.model.layers):
             layer.self_attention.linear_qkv.layer_norm_weight.copy_(hf_layer.input_layernorm.weight)
 
-            q = hf_layer.self_attn.q_proj.weight.view(
-                [num_key_value_heads, kv_channels * num_attention_heads // num_key_value_heads, -1]
-            )
+            q = hf_layer.self_attn.q_proj.weight.view([num_key_value_heads, kv_channels * num_attention_heads // num_key_value_heads, -1])
             k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, kv_channels, -1])
             v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, kv_channels, -1])
             qkv = torch.cat([q, k, v], dim=1).view(-1, hidden_dim).contiguous()
