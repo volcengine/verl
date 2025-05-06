@@ -109,8 +109,8 @@ Example
 -------
 
 Due to to special setting in AMD (ROCM) torch, 
-1. If your ``ray>=0.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in VeRL's RLHF training.
-2. If your ``ray<0.45.0``, you need to assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES`` when starting ray in VeRL's RLHF training.
+1. If your ``ray>=2.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in VeRL's RLHF training.
+2. If your ``ray<2.45.0``, you need to assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES`` when starting ray in VeRL's RLHF training.
 Inference ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
 
 
@@ -124,12 +124,12 @@ PPO
     YOUR_RUN_NAME=r1-training_ppo-upstream 
     # export HYDRA_FULL_ERROR=1
 
-    # [ray] < 0.45.0
+    # [ray] < 2.45.0
     #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
     #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
 
-    # [ray] >= 0.45.0
+    # [ray] >= 2.45.0
     export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
 
     GPUS_PER_NODE=8
@@ -179,11 +179,11 @@ GRPO
     # export HYDRA_FULL_ERROR=1
     # export FSDP_VERBOSE=1 
 
-    # [ray] < 0.45.0
+    # [ray] < 2.45.0
     #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
 
-    # [ray] >= 0.45.0
+    # [ray] >= 2.45.0
     export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
 
     GPUS_PER_NODE=8
@@ -307,12 +307,12 @@ slurm_script.sh
     ##########################################################################
 
     ### For rocm and training script
-    # [ray] < 0.45.0
+    # [ray] < 2.45.0
     #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
     #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
 
-    # [ray] >= 0.45.0
+    # [ray] >= 2.45.0
     export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
 
 
