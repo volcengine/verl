@@ -31,6 +31,8 @@ except ImportError:
 try:
     from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
     SUPPORTED_MOE_MODELS.append(Qwen2MoeForCausalLM)
+except ImportError:
+    pass
 
 try:
     from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
