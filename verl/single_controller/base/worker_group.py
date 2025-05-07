@@ -169,9 +169,6 @@ class WorkerGroup:
                 # get dispatch fn
                 if isinstance(dispatch_mode, Dispatch):
                     # get default dispatch fn
-                    from verl.single_controller.base.decorator import DISPATCH_MODE_FN_REGISTRY
-
-                    assert dispatch_mode in DISPATCH_MODE_FN_REGISTRY, f"dispatch_mode {dispatch_mode} is not registered {DISPATCH_MODE_FN_REGISTRY.keys()}"
                     fn = get_predefined_dispatch_fn(dispatch_mode=dispatch_mode)
                     dispatch_fn = fn["dispatch_fn"]
                     collect_fn = fn["collect_fn"]

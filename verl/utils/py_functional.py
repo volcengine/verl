@@ -15,6 +15,7 @@
 Contain small python utility functions
 """
 
+import importlib
 import multiprocessing
 import os
 import queue  # Import the queue module for exception type hint
@@ -185,6 +186,10 @@ class DynamicEnumMeta(type):
     def __getitem__(cls, name: str) -> Any:
         return cls._registry[name]
 
+    def __reduce_ex__(cls, protocol):
+        # Always load the existing module and grab the class
+        return getattr, (importlib.import_module(cls.__module__), cls.__name__)
+
     def names(cls):
         return list(cls._registry.keys())
 
@@ -203,11 +208,14 @@ class DynamicEnum(metaclass=DynamicEnumMeta):
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}: {self.value}>"
 
-    def __eq__(self, other):
-        return isinstance(other, DynamicEnum) and self.__class__ == other.__class__ and self.name == other.name and self.value == other.value
-
-    def __hash__(self):
-        return hash((self.__class__, self.name, self.value))
+    def __reduce_ex__(self, protocol):
+        """
+        Unpickle via: getattr(import_module(module).Dispatch, 'ONE_TO_ALL')
+        so the existing class is reused instead of re-executed.
+        """
+        module = importlib.import_module(self.__class__.__module__)
+        enum_cls = getattr(module, self.__class__.__name__)
+        return getattr, (enum_cls, self.name)
 
     @classmethod
     def register(cls, name: str) -> "DynamicEnum":
