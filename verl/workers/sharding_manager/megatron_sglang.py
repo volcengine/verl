@@ -96,7 +96,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.layer_name_mapping)
         self.inference_engine.resume_memory_occupation()
         self.inference_engine.update_weights_from_tensor(per_tensor_param, load_format=None)
-        log_gpu_memory_usage('After load_weights sharding manager memory', logger=None)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
