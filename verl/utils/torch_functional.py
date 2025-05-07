@@ -387,15 +387,16 @@ Optimizer related
 """
 
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 from torch.distributed.optim import _apply_optimizer_in_backward
+
 import math
+
 
 def apply_optimizer_in_backward(
         model: torch.nn.Module,
-        optim_config
-
-):
+        optim_config: Dict
+) -> Dict[torch.nn.Parameter, Optimizer]:
     flat_params = [p for p in model.parameters() if p.requires_grad]
     _apply_optimizer_in_backward(
         torch.optim.AdamW,
@@ -464,7 +465,14 @@ def get_constant_schedule_with_warmup(
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
-def update_scheduler_with_custom_step(scheduler, optim_dict):
+
+def update_scheduler_with_custom_step(scheduler: _LRScheduler, optim_dict: Dict[str, Optimizer]) -> None:
+    """Updates a scheduler's step method to also update learning rates of additional optimizers.
+    
+    Args:
+        scheduler: The learning rate scheduler to modify
+        optim_dict: Dictionary mapping optimizer names to optimizer instances that should have their learning rates updated
+    """
     original_step = scheduler.step
 
     def custom_step(epoch=None):

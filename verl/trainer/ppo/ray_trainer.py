@@ -315,8 +315,8 @@ class RayPPOTrainer:
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-
-        assert real_train_batch_size % n_gpus == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        assert real_train_batch_size % n_gpus == 0, \
+            f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -341,36 +341,12 @@ class RayPPOTrainer:
                         f"[{name}] You have set both '{name}.{param}' AND '{name}.{param_per_gpu}'. "
                         f"Please remove '{name}.{param}' because only '*_{param_per_gpu}' is supported (the former is deprecated)."
                     )
-                
-        # Actor
-        # check if train_batch_size is larger than ppo_mini_batch_size
-        assert config.data.train_batch_size >= config.actor_rollout_ref.actor.ppo_mini_batch_size
 
-         # Check for backward hook with gradient accumulation
-        if config.actor_rollout_ref.actor.optim.bwd_hook:
-
-            if config.actor_rollout_ref.actor.ppo_micro_batch_size or config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu or  config.actor_rollout_ref.actor.ppo_use_dynamic_bsz:
-                raise RuntimeError(
-                    "Gradient accumulation is not compatible with optimizer in backward step"
-                )
-        else:
-            if not config.actor_rollout_ref.actor.ppo_use_dynamic_bsz:
-                # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
-                check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
-                                        config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
-                                        "actor_rollout_ref.actor")
-                 # Actor
-                # if NOT dynamic_bsz, we must ensure:
-                #    ppo_mini_batch_size is divisible by ppo_micro_batch_size
-                #    ppo_micro_batch_size * sequence_parallel_size >= n_gpus
-                
-                sp_size = config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1)
-                if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
-                    assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
-                    assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
-        
-        # check this irrespective of gradient accumulation
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
+            # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
+            check_mutually_exclusive(config.actor_rollout_ref.actor.ppo_micro_batch_size,
+                                     config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu,
+                                     "actor_rollout_ref.actor")
 
             if self.use_reference_policy:
                 # reference: log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
@@ -387,21 +363,26 @@ class RayPPOTrainer:
                 "actor_rollout_ref.rollout",
             )
 
-        if self.use_critic:
-            if config.critic.optim.bwd_hook:
-                if config.critic.ppo_micro_batch_size or config.critic.ppo_micro_batch_size_per_gpu or config.critic.use_dynamic_bsz:
-                    raise RuntimeError(
-                    "Gradient accumulation is not compatible with optimizer in backward step"
-                )
-            else:
-                if not config.critic.use_dynamic_bsz:         
-                    # Check for critic micro-batch size conflicts
-                    check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu,
-                                            "critic")
+        if self.use_critic and not config.critic.use_dynamic_bsz:
+            # Check for critic micro-batch size conflicts
+            check_mutually_exclusive(config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu,
+                                     "critic")
 
         # Check for reward model micro-batch size conflicts
         if config.reward_model.enable and not config.reward_model.use_dynamic_bsz:
             check_mutually_exclusive(config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu, "reward_model")
+
+        # Actor
+        # check if train_batch_size is larger than ppo_mini_batch_size
+        # if NOT dynamic_bsz, we must ensure:
+        #    ppo_mini_batch_size is divisible by ppo_micro_batch_size
+        #    ppo_micro_batch_size * sequence_parallel_size >= n_gpus
+        if not config.actor_rollout_ref.actor.use_dynamic_bsz:
+            assert config.data.train_batch_size >= config.actor_rollout_ref.actor.ppo_mini_batch_size
+            sp_size = config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1)
+            if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
+                assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollout_ref.actor.ppo_micro_batch_size == 0
+                assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
         assert config.actor_rollout_ref.actor.loss_agg_mode in [
             "token-mean",
