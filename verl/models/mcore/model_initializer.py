@@ -136,6 +136,23 @@ class MixtralModel(BaseModelInitializer):
         return model
 
 
+class Qwen3MoEModel(BaseModelInitializer):
+    """Initializer for Qwen3 MoE models."""
+
+    def get_transformer_layer_spec(self):
+        assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
+        return transformer_layer_spec
+
+    def initialize(self, freeze_moe_router: bool = True, **kwargs):
+        # Qwen default freeze_moe_router: true
+        model = super().initialize(**kwargs)
+        if freeze_moe_router:
+            for layer in model.decoder.layers:
+                layer.mlp.router.weight.requires_grad = False
+        return model
+
+
 class Qwen25VLModel(BaseModelInitializer):
     """Initializer for Qwen2.5 VL models."""
 
