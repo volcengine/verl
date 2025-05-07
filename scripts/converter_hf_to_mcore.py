@@ -96,11 +96,10 @@ def test_conversion(megatron_model_provider, tfconfig, output_path, model):
 
 def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config):
     num_attention_heads = hf_config.num_attention_heads
-    hidden_dim = hf_config.hidden_size
-    head_dim = hidden_dim // num_attention_heads
     num_key_value_heads = hf_config.num_key_value_heads
-    kv_channels = hidden_dim // num_key_value_heads
-    if head_dim != num_key_value_heads:
+    hidden_dim = hf_config.hidden_size
+    head_dim = getattr(hf_config, "head_dim", hidden_dim // num_attention_heads)
+    if num_attention_heads != num_key_value_heads:
         print("[WARNING] Converting GQA model")
     has_qkv_bias = getattr(hf_config, "qkv_bias", False) or getattr(hf_config, "attention_bias", False)
     has_share_expert = getattr(hf_config, "shared_expert_intermediate_size", None)
@@ -109,9 +108,9 @@ def convert_checkpoint_from_transformers_to_megatron(hf_model, model, hf_config)
         for layer, hf_layer in zip(model.decoder.layers, hf_model.model.layers):
             layer.self_attention.linear_qkv.layer_norm_weight.copy_(hf_layer.input_layernorm.weight)
 
-            q = hf_layer.self_attn.q_proj.weight.view([num_key_value_heads, kv_channels * num_attention_heads // num_key_value_heads, -1])
-            k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, kv_channels, -1])
-            v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, kv_channels, -1])
+            q = hf_layer.self_attn.q_proj.weight.view([num_key_value_heads, head_dim * num_attention_heads // num_key_value_heads, -1])
+            k = hf_layer.self_attn.k_proj.weight.view([num_key_value_heads, head_dim, -1])
+            v = hf_layer.self_attn.v_proj.weight.view([num_key_value_heads, head_dim, -1])
             qkv = torch.cat([q, k, v], dim=1).view(-1, hidden_dim).contiguous()
             layer.self_attention.linear_qkv.weight.copy_(qkv)
 
