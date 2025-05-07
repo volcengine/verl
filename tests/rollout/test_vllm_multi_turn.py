@@ -11,27 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import os
+import asyncio
+import json
 from typing import Any, Dict
 
 import numpy as np
 import ray
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from openai.types.chat.chat_completion import ChatCompletion
+from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse, ErrorResponse
 
+from tests.rollout.async_rollout_utils import init_async_rollout_manager
 from verl.protocol import DataProto
-from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
-from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 
-def test_vllm_multi_turn():
+def init_config() -> DictConfig:
     config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
     model_path = "Qwen/Qwen2-7B-Instruct"
-    model_name = "/".join(model_path.split("/")[-2:])
     config.actor_rollout_ref.model.path = model_path
     config.actor_rollout_ref.rollout.mode = "async"
     config.actor_rollout_ref.rollout.chat_scheduler = "examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler"
@@ -42,12 +38,10 @@ def test_vllm_multi_turn():
     config.actor_rollout_ref.actor.fsdp_config.param_offload = True
     config.actor_rollout_ref.actor.fsdp_config.optimizer_offload = True
 
-    # =========================== 1. Create hybrid ActorRollout workers ===========================
-    # make openai client happy
-    os.environ["no_proxy"] = ""
-    os.environ["http_proxy"] = ""
-    os.environ["https_proxy"] = ""
+    return config
 
+
+def test_vllm_multi_turn(config):
     ray.init(
         runtime_env={
             "env_vars": {
@@ -58,41 +52,10 @@ def test_vllm_multi_turn():
             }
         }
     )
-    role_worker_mapping = {
-        Role.ActorRollout: ray.remote(AsyncActorRolloutRefWorker),
-    }
-    global_pool_id = "global_pool"
-    resource_pool_spec = {
-        global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-    }
-    mapping = {
-        Role.ActorRollout: global_pool_id,
-    }
-    resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
-    resource_pool_manager.create_resource_pool()
-    resource_pool_to_cls = {pool: {} for pool in resource_pool_manager.resource_pool_dict.values()}
 
-    # create actor and rollout
-    resource_pool = resource_pool_manager.get_resource_pool(Role.ActorRollout)
-    actor_rollout_cls = RayClassWithInitArgs(cls=role_worker_mapping[Role.ActorRollout], config=config.actor_rollout_ref, role="actor_rollout")
-    resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
-
-    all_wg = {}
-    wg_dicts = []
-    for resource_pool, class_dict in resource_pool_to_cls.items():
-        worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
-        wg_dict = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
-        spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
-        all_wg.update(spawn_wg)
-        wg_dicts.append(wg_dict)
-    actor_rollout_wg = all_wg["actor_rollout"]
-    actor_rollout_wg.init_model()
-
-    # =========================== 2. Create AsyncLLMServerManager  ===========================
-    async_rollout_manager = AsyncLLMServerManager(
-        config=config.actor_rollout_ref,
-        worker_group=actor_rollout_wg,
-    )
+    # =========================== 1. Init rollout manager ===========================
+    model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
+    worker_groups, async_rollout_manager = init_async_rollout_manager(config)
 
     # test sleep and wake_up
     async_rollout_manager.sleep()
@@ -100,7 +63,7 @@ def test_vllm_multi_turn():
 
     async_chat_scheduler = async_rollout_manager.chat_scheduler
 
-    # =========================== 3. Multi turn rollout  ===========================
+    # =========================== 2. Multi turn rollout  ===========================
     async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
         assert exception is None, f"exception: {exception}"
         messages, round = info["messages"], info["round"]
@@ -144,7 +107,7 @@ def test_vllm_multi_turn():
         else:
             assert message["role"] == "assistant"
 
-    # =========================== 4. Generate sequences  ===========================
+    # =========================== 3. Generate sequences  ===========================
     raw_prompts = [
         [
             {
@@ -166,6 +129,67 @@ def test_vllm_multi_turn():
     assert result.batch["attention_mask"].size(1) == seq_len
     assert result.batch["position_ids"].size(1) == seq_len
 
+    ray.shutdown()
+
+
+async def test_vllm_streaming_response(config):
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
+    model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
+    worker_groups, async_rollout_manager = init_async_rollout_manager(config)
+    async_llm_server = async_rollout_manager.async_llm_servers[0]
+
+    # non-streaming request
+    request = ChatCompletionRequest(
+        model=model_name,
+        messages=[{"role": "user", "content": "What is your name?"}],
+        stream=False,
+    )
+    generator = async_llm_server.chat_completion_generator.remote(request)
+    async for ref in generator:
+        status_code, data = await ref
+        print(f">>>> status_code: {status_code}, {data}")
+        data = data[len("data: ") :].rstrip()
+        if status_code != 200:
+            response = ErrorResponse(**json.loads(data))
+        else:
+            response = ChatCompletionResponse(**json.loads(data))
+            assert response.choices[0].message.role == "assistant"
+            assert response.choices[0].message.content is not None
+
+    # streaming request
+    request = ChatCompletionRequest(
+        model=model_name,
+        messages=[{"role": "user", "content": "How are you?"}],
+        stream=True,
+    )
+    generator = async_llm_server.chat_completion_generator.remote(request)
+    async for ref in generator:
+        status_code, data = await ref
+        print(f">>>> status_code: {status_code}, {data}")
+        data = data[len("data: ") :].rstrip()
+        if status_code != 200:
+            response = ErrorResponse(**json.loads(data))
+        elif data == "[DONE]":
+            break
+        else:
+            response = ChatCompletionStreamResponse(**json.loads(data))
+            assert response.choices[0].delta.role is None or response.choices[0].delta.role == "assistant"
+            assert response.choices[0].delta.content is not None
+
+    ray.shutdown()
+
 
 if __name__ == "__main__":
-    test_vllm_multi_turn()
+    config = init_config()
+    test_vllm_multi_turn(config)
+    asyncio.run(test_vllm_streaming_response(config))

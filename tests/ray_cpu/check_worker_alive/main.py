@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-e2e test verl.single_controller.ray
-"""
 
 import os
+import sys
+import time
 
 import ray
 
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
@@ -28,28 +28,37 @@ class TestActor(Worker):
     def __init__(self) -> None:
         super().__init__()
 
-    def getenv(self, key):
-        val = os.getenv(key, f"{key} not set")
-        return val
-
-
-def test_basics():
-    ray.init()
-
-    # create 4 workers, each hold a GPU
-    resource_pool = RayResourcePool([4], use_gpu=True)
-    class_with_args = RayClassWithInitArgs(cls=TestActor)
-
-    worker_group = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=class_with_args, name_prefix="worker_group_basic")
-
-    output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_WORLD_SIZE")
-    assert output == ["4", "4", "4", "4"]
-
-    output = worker_group.execute_all_sync("getenv", key="RAY_LOCAL_RANK")
-    assert set(output) == set(["0", "1", "2", "3"])
-
-    ray.shutdown()
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def foo(self, wait_time):
+        time.sleep(wait_time)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    test_basics()
+    wait_time = int(os.getenv("WAIT_TIME", "10"))
+
+    ray.init()
+
+    # test single-node-no-partition
+    print("test single-node-no-partition")
+    resource_pool = RayResourcePool([2], use_gpu=False)
+    class_with_args = RayClassWithInitArgs(cls=TestActor)
+
+    print("create worker group")
+    wg = RayWorkerGroup(resource_pool, class_with_args, name_prefix="test")
+
+    wg.start_worker_aliveness_check(1)
+    time.sleep(1)
+
+    print(time.time(), "start foo")
+
+    _ = wg.foo(wait_time)
+    print("foo started")
+
+    print(
+        time.time(),
+        f"wait 6x wait time {wait_time * 6} to let signal returned to process but still not exceed process wait time",
+    )
+    time.sleep(wait_time * 6)
+
+    ray.shutdown()

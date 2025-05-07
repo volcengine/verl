@@ -45,13 +45,12 @@ from torch.distributed.tensor import DTensor
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_available
 
 from .base import BaseShardingManager
 
 # from vllm.distributed import parallel_state as sglang_ps
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -81,9 +80,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
         # Full params
         self.full_params = full_params
-        if full_params:
+        if full_params and fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
-        else:
+        elif fsdp_version(self.module) == 1:
             FSDP.set_state_dict_type(
                 self.module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
@@ -108,6 +107,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             load_fsdp_model_to_gpu(self.module)
         params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
+        device = torch.cuda.current_device()  # used when fsdp2 set cpu_offload_policy
+        params = {k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()}
         # Copy, not share memory
         self.update_weights(params)
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)

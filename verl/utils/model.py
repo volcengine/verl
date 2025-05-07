@@ -47,8 +47,16 @@ def squeeze(x):
 
 
 def update_model_config(module_config, override_config_kwargs):
+    """Update the module config with the override_config_kwargs.
+    Args:
+        module_config: The module config from Huggingface Transformers.
+        override_config_kwargs: The kwargs to override the module config.
+    """
     for key, val in override_config_kwargs.items():
-        setattr(module_config, key, val)
+        if isinstance(val, dict):
+            update_model_config(getattr(module_config, key), val)
+        else:
+            setattr(module_config, key, val)
 
 
 def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
@@ -397,11 +405,16 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
 def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
+    from megatron.core.models.gpt.gpt_model import GPTModel
 
     # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
     strict = StrictHandling.ASSUME_OK_UNEXPECTED
     for model in parallel_model:
-        ssd = model.module.module.sharded_state_dict()
+        if isinstance(model.module, GPTModel):
+            ssd = model.module.sharded_state_dict()
+        else:
+            ssd = model.module.module.sharded_state_dict()
+
         if is_value_model:
             for k in list(ssd.keys()):
                 if "output_layer" in k:
