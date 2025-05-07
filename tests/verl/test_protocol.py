@@ -29,9 +29,7 @@ def test_union_tensor_dict():
     data1 = TensorDict({"obs": obs, "act": torch.randn(100, 3)}, batch_size=[100])
     data2 = TensorDict({"obs": obs, "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
 
-    data_with_copied_obs = TensorDict(
-        {"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100]
-    )
+    data_with_copied_obs = TensorDict({"obs": obs.clone(), "next_obs": torch.randn(100, 10), "rew": torch.randn(100)}, batch_size=[100])
 
     data = union_tensor_dict(data1, data2)
     with pytest.raises(AssertionError):
@@ -283,9 +281,7 @@ def test_seqlen_balancing():
     input_ids = torch.randint(low=0, high=10, size=(20, 100))
     from verl.utils.model import create_random_mask
 
-    attention_mask = create_random_mask(
-        input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5
-    )
+    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
     micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)

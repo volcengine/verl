@@ -25,7 +25,6 @@ from .dapo_ray_trainer import RayDAPOTrainer
 
 def get_custom_reward_fn(config):
     import importlib.util
-    import os
 
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
@@ -58,15 +57,10 @@ def main(config):
 
 
 def run_ppo(config) -> None:
-    # TODO(linjunrong.ocss884): this ENV is left for resolving SGLang conflict with ray devices
-    # isolation, will solve in the future
-    os.environ["ENSURE_CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={
-                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
-            },
+            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}},
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -76,8 +70,7 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
-
-    async def run(self, config):
+    def run(self, config):
         # print initial config
         from pprint import pprint
 
@@ -202,7 +195,7 @@ class TaskRunner:
             val_reward_fn=val_reward_fn,
         )
         trainer.init_workers()
-        await trainer.fit()
+        trainer.fit()
 
 
 if __name__ == "__main__":

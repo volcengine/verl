@@ -15,7 +15,6 @@ import asyncio
 from typing import Any, Dict, List
 
 import torch
-from omegaconf import DictConfig
 from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
 
@@ -28,15 +27,6 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
     A very naive implementation of ChatCompletionScheduler for demo purpose,
     only do single-turn chat completion.
     """
-
-    def __init__(
-        self,
-        config: DictConfig,
-        model_path: str,
-        server_addresses: List[str],
-        max_cache_size: int = 10000,
-    ):
-        super().__init__(config, model_path, server_addresses, max_cache_size)
 
     async def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         kwargs = dict(
@@ -73,6 +63,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
             # call_tools(completions, info)
             # await self.submit_chat_completions(callback2, ...)
 
+        # TODO: we may need to control max concurrent requests here, or it will harm prefix cache hit rate.
         tasks, batch_conversations = [], [None] * len(batch)
         for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"]):
             # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
@@ -96,9 +87,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
 
         return self._postprocess(batch, batch_conversations, kwargs["n"])
 
-    def _postprocess(
-        self, batch: DataProto, batch_conversations: List[List[List[Dict[str, str]]]], n: int
-    ) -> DataProto:
+    def _postprocess(self, batch: DataProto, batch_conversations: List[List[List[Dict[str, str]]]], n: int) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -107,10 +96,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
 
         # prompts: [prompt] from input dataset
-        prompts = [
-            self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False)
-            for prompt in batch.non_tensor_batch["raw_prompt"]
-        ]
+        prompts = [self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
 
         # flatten batch_conversations if n > 1
         assert len(batch_conversations) == len(prompts)
@@ -118,10 +104,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         assert len(batch_conversations) == len(prompts) * n
 
         # sequences: [prompt + response]
-        sequences = [
-            self.tokenizer.apply_chat_template(conversation, add_generation_prompt=False, tokenize=False)
-            for conversation in batch_conversations
-        ]
+        sequences = [self.tokenizer.apply_chat_template(conversation, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
 
         # responses: [response]
         # TODO: mask out tools calling tokens?

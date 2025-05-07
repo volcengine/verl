@@ -30,7 +30,7 @@ actor_rollout_ref:
     use_remove_padding: False
     use_liger: False
   actor:
-    strategy: fsdp  # This is for backward-compatibility
+    strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
@@ -67,11 +67,14 @@ actor_rollout_ref:
         min_num_params: 0
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   ref:
     strategy: fsdp
     fsdp_config:
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -121,10 +124,15 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+    multi_turn: 
+      enable: False  # should set rollout.name to sglang_async if True
+      max_turns: null  # null for no limit (default max_length // 3)
+      tool_config_path: null  # null for no tool
+      format: chatml  # chatml, more formats will be supported in the future
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: fsdp
+  strategy: fsdp # [fsdp, fsdp2]
   optim:
     lr: 1e-5
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -142,6 +150,8 @@ critic:
     fsdp_config:
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -174,6 +184,7 @@ reward_model:
       wrap_policy:
         min_num_params: 0
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null # set a number

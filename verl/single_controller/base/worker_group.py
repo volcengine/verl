@@ -49,9 +49,7 @@ class ResourcePool:
         return self._store
 
     def local_world_size_list(self) -> List[int]:
-        nested_local_world_size_list = [
-            [local_world_size for _ in range(local_world_size)] for local_world_size in self._store
-        ]
+        nested_local_world_size_list = [[local_world_size for _ in range(local_world_size)] for local_world_size in self._store]
         return [item for row in nested_local_world_size_list for item in row]
 
     def local_rank_list(self) -> List[int]:
@@ -70,6 +68,8 @@ class ClassWithInitArgs:
         self.args = args
         self.kwargs = kwargs
 
+        self.fused_worker_used = False
+
     # def add_arg(self, arg):
     #     self.args += (arg,)
 
@@ -86,7 +86,7 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
     while True:
         for worker in workers:
             if not is_alive(worker):
-                logging.warning(f"worker {worker} is not alive" + " sending signal to main thread")
+                logging.warning(f"worker {worker} is not alive sending signal to main thread")
                 signal.raise_signal(signal.SIGABRT)
         time.sleep(gap_time)
 
@@ -94,8 +94,12 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
 class WorkerGroup:
     """A group of workers"""
 
+    fused_worker_execute_fn_name = "_fuw_execute"
+
     def __init__(self, resource_pool: ResourcePool, **kwargs) -> None:
         self._is_init_with_detached_workers = resource_pool is None
+
+        self.fused_worker_used = False
 
         if resource_pool is not None:
             # handle the case when WorkGroup is attached to an existing one
@@ -126,9 +130,7 @@ class WorkerGroup:
         # before starting checking worker aliveness, make sure all workers are already alive
         self._block_until_all_workers_alive()
 
-        self._checker_thread = threading.Thread(
-            target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds)
-        )
+        self._checker_thread = threading.Thread(target=check_workers_alive, args=(self._workers, self._is_worker_alive, every_n_seconds))
         self._checker_thread.start()
 
     @property
@@ -143,6 +145,7 @@ class WorkerGroup:
         Bind the worker method to the WorkerGroup
         """
 
+        method_names = []
         for method_name in dir(user_defined_cls):
             try:
                 method = getattr(user_defined_cls, method_name)
@@ -198,5 +201,8 @@ class WorkerGroup:
 
                 try:
                     setattr(self, method_name, func)
-                except Exception:
-                    raise ValueError(f"Fail to set method_name {method_name}")
+                    method_names.append(method_name)
+                except Exception as e:
+                    raise ValueError(f"Fail to set method_name {method_name}") from e
+
+        return method_names

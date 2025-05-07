@@ -20,6 +20,7 @@ FROM: https://github.com/openai/prm800k/blob/main/prm800k/grading/grader.py
 """
 
 import contextlib
+import math
 import os
 import re
 
@@ -29,6 +30,7 @@ from sympy.parsing import sympy_parser
 
 from . import math_normalize
 from .grader import math_equal
+from verl.utils.py_functional import timeout_limit
 
 # import math_normalize
 # from grader import math_equal
@@ -37,33 +39,6 @@ from .grader import math_equal
 BAD_SUBSTRINGS = ["^{", "^("]
 BAD_REGEXES = ["\^[0-9]+\^", "\^[0-9][0-9]+"]
 TUPLE_CHARS = "()[]"
-
-
-def timeout(timeout_seconds: int = 8):
-    if os.name == "posix":
-        import signal
-
-        def decorator(func):
-            def handler(signum, frame):
-                raise TimeoutError("Operation timed out!")
-
-            def wrapper(*args, **kwargs):
-                old_handler = signal.getsignal(signal.SIGALRM)
-                signal.signal(signal.SIGALRM, handler)
-                signal.alarm(timeout_seconds)
-
-                try:
-                    return func(*args, **kwargs)
-                finally:
-                    signal.alarm(0)
-                    signal.signal(signal.SIGALRM, old_handler)
-
-            return wrapper
-
-        return decorator
-    else:
-        raise NotImplementedError(f"Unsupported OS: {os.name}")
-
 
 def _sympy_parse(expr: str):
     """Parses an expression with sympy."""
@@ -103,7 +78,7 @@ def _is_float(num: str) -> bool:
 def _is_int(x: float) -> bool:
     try:
         return abs(x - int(round(x))) <= 1e-7
-    except:
+    except Exception:
         return False
 
 
@@ -116,7 +91,7 @@ def _str_is_int(x: str) -> bool:
         x = _strip_properly_formatted_commas(x)
         x = float(x)
         return abs(x - int(round(x))) <= 1e-7
-    except:
+    except Exception:
         return False
 
 
@@ -233,7 +208,7 @@ def should_allow_eval(expr: str):
     return all(re.search(bad_regex, expr) is None for bad_regex in BAD_REGEXES)
 
 
-@timeout(timeout_seconds=10)
+@timeout_limit(seconds=10)
 def are_equal_under_sympy(ground_truth_normalized: str, given_normalized: str):
     are_equal = False
     try:
@@ -243,7 +218,7 @@ def are_equal_under_sympy(ground_truth_normalized: str, given_normalized: str):
             simplified = sympy.simplify(sympy_diff)
             if simplified == 0:
                 are_equal = True
-    except:
+    except Exception:
         pass
     return are_equal
 
@@ -255,12 +230,7 @@ def split_tuple(expr: str):
     expr = _strip_properly_formatted_commas(expr)
     if len(expr) == 0:
         return []
-    if (
-        len(expr) > 2
-        and expr[0] in TUPLE_CHARS
-        and expr[-1] in TUPLE_CHARS
-        and all([ch not in expr[1:-1] for ch in TUPLE_CHARS])
-    ):
+    if len(expr) > 2 and expr[0] in TUPLE_CHARS and expr[-1] in TUPLE_CHARS and all([ch not in expr[1:-1] for ch in TUPLE_CHARS]):
         elems = [elem.strip() for elem in expr[1:-1].split(",")]
     else:
         elems = [expr]
@@ -299,11 +269,7 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
     ground_truth_elems = split_tuple(ground_truth_normalized)
     given_elems = split_tuple(given_normalized)
 
-    if (
-        len(ground_truth_elems) > 1
-        and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1])
-        or len(ground_truth_elems) != len(given_elems)
-    ):
+    if len(ground_truth_elems) > 1 and (ground_truth_normalized[0] != given_normalized[0] or ground_truth_normalized[-1] != given_normalized[-1]) or len(ground_truth_elems) != len(given_elems):
         is_correct = False
     else:
         for ground_truth_elem, given_elem in zip(ground_truth_elems, given_elems):
@@ -315,7 +281,12 @@ def grade_answer(given_answer: str, ground_truth: str) -> bool:
                 # if the ground truth answer is an integer, we require the given answer to be a strict match (no sympy.simplify)
                 is_correct = False
             else:
-                is_correct = are_equal_under_sympy(ground_truth_elem, given_elem)
+                try:
+                    is_correct = are_equal_under_sympy(ground_truth_elem, given_elem)
+                except Exception as e:
+                    # if there's an error, we'll just say it's not correct
+                    is_correct = False
+                    print(f"Error: {e} from are_equal_under_sympy, {ground_truth_elem}, {given_elem}")
             if not is_correct:
                 break
 
@@ -328,7 +299,7 @@ def remove_boxed(s):
         assert s[: len(left)] == left
         assert s[-1] == "}"
         return s[len(left) : -1]
-    except:
+    except Exception:
         return None
 
 
@@ -404,9 +375,6 @@ def match_answer(response):
     return is_matched, response
 
 
-import math
-
-
 def compute_score(model_output: str, ground_truth: str) -> bool:
     model_output = str(model_output)
     ground_truth = str(ground_truth)
@@ -426,7 +394,7 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
             is_correct = any(equivs)
         else:
             is_correct = math_equal(extracted_model_output, ground_truth, timeout=True)
-    except:
+    except Exception:
         is_correct = False
 
     return is_correct, format_correctness, extracted_model_output

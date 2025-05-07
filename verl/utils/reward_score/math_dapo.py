@@ -17,7 +17,6 @@ import re
 import signal
 from typing import Optional
 
-
 def last_boxed_only_string(string: str) -> Optional[str]:
     """Extract the last LaTeX boxed expression from a string.
 
@@ -62,21 +61,6 @@ def remove_boxed(s: str) -> str:
     assert s[-1] == "}", f"box error: {s}"
     return s[len(left) : -1]
 
-
-class timeout:
-    def __init__(self, seconds=1, error_message="Timeout"):
-        self.seconds = seconds
-        self.error_message = error_message
-
-    def handle_timeout(self, signum, frame):
-        raise TimeoutError(self.error_message)
-
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(self, type, value, traceback):
-        signal.alarm(0)
 
 
 # Constants for normalization
@@ -179,9 +163,7 @@ def normalize_final_answer(final_answer: str) -> str:
     return final_answer.strip()
 
 
-def is_correct_minerva(
-    solution_str: str, gt: str, gt_need_extract: bool = False, answer_pattern: str = r"(?i)Answer\s*:\s*([^\n]+)"
-) -> tuple[bool, str]:
+def is_correct_minerva(solution_str: str, gt: str, gt_need_extract: bool = False, answer_pattern: str = r"(?i)Answer\s*:\s*([^\n]+)") -> tuple[bool, str]:
     """Check if the solution is correct according to Minerva criteria.
 
     Args:
@@ -207,9 +189,7 @@ def is_correct_minerva(
     return (pred == gt), pred
 
 
-def is_correct_strict_box(
-    pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None
-) -> tuple[int, Optional[str]]:
+def is_correct_strict_box(pred: str, gt: str, pause_tokens_index: Optional[list[int]] = None) -> tuple[int, Optional[str]]:
     """Check if the prediction is correct using strict boxed answer criteria.
 
     Args:
@@ -234,9 +214,7 @@ def is_correct_strict_box(
     return 1 if (extracted_pred == gt) else -1, extracted_pred
 
 
-def verify(
-    solution_str: str, answer: str, strict_box_verify: bool = False, pause_tokens_index: Optional[list[int]] = None
-) -> bool:
+def verify(solution_str: str, answer: str, strict_box_verify: bool = False, pause_tokens_index: Optional[list[int]] = None) -> bool:
     """Verify if the solution is correct.
 
     Args:

@@ -2,7 +2,7 @@
 
 ## Installation
 
-Note: This version of veRL+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
+Note: This version of verl+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
 
 ```
 # Create the conda environment
