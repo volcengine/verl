@@ -615,10 +615,10 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     return obj_output[0]
 
-def default_tp_concat_fn(layer_name_mapping, name, param, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
+def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
-    param: training parameters
+    train_params: training parameters
     infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from micro_dp_group
     model_config: huggingface model_config
     TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
@@ -676,7 +676,7 @@ def default_tp_concat_fn(layer_name_mapping, name, param, infer_params, model_co
 
     else:
         # concat tensor
-        infer_params = torch.cat(infer_params, dim=tp_utils.get_tensor_parallel_partition_dim(param))
+        infer_params = torch.cat(infer_params, dim=tp_utils.get_tensor_parallel_partition_dim(train_params))
 
     return infer_params
 
