@@ -357,7 +357,7 @@ class ActorRolloutRefWorker(Worker):
             # TODO: a sharding manager that do nothing?
 
         elif rollout_name == "vllm":
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMAsyncRollout, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
@@ -370,6 +370,7 @@ class ActorRolloutRefWorker(Worker):
                     model_hf_config=self.actor_model_config,
                 )
             elif vllm_mode == "spmd":
+                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
                 vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
                 rollout = vllm_rollout_cls(
                     model_path=local_path,
