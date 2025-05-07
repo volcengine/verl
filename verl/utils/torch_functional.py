@@ -17,7 +17,7 @@ Contain small torch utilities
 
 import math
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed
@@ -26,9 +26,7 @@ from tensordict import TensorDict
 from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
-
-if TYPE_CHECKING:
-    from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
