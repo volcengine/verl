@@ -147,9 +147,20 @@ class SGLangRollout(BaseRollout):
         rank = device_mesh_cpu.get_rank()
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
-        visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
+        
+        ###
+        # [SUPPORT AMD: torch]
+        from packaging import version
+        import ray
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) >= version.parse("2.45.0"):
+            torch.distributed.all_gather_object(visible_devices, os.environ["HIP_VISIBLE_DEVICES_ENV_VAR"], device_mesh_cpu.get_group("tp"))
+            visible_devices_set = set(",".join(visible_devices).split(","))
+            os.environ["HIP_VISIBLE_DEVICES_ENV_VAR"] = ",".join(sorted(list(visible_devices_set)))
+        else:
+            torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
+            visible_devices_set = set(",".join(visible_devices).split(","))
+            os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
+        ###
 
         nnodes = -(-tp_size // len(visible_devices_set))
         if nnodes > 1:
