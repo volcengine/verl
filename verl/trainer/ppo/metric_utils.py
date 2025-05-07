@@ -23,6 +23,7 @@ import numpy as np
 import torch
 
 from verl import DataProto
+import pdb
 
 
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
@@ -49,7 +50,15 @@ def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
 
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
     # TODO: add response length
+    
+    data_source = batch.non_tensor_batch['data_source']
+    
+    chess_best_idx = [i for i, source in enumerate(data_source) if "chess_best" in source]
+    chess_legal_idx = [i for i, source in enumerate(data_source) if "chess_legal" in source]
+    
     sequence_score = batch.batch["token_level_scores"].sum(-1)
+    sequence_score_chess_best = sequence_score[chess_best_idx]
+    sequence_score_chess_legal = sequence_score[chess_legal_idx]
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
 
     advantages = batch.batch["advantages"]
@@ -79,7 +88,15 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
         # score
         "critic/score/mean": torch.mean(sequence_score).detach().item(),
         "critic/score/max": torch.max(sequence_score).detach().item(),
-        "critic/score/min": torch.min(sequence_score).detach().item(),
+        # "critic/score/min": torch.min(sequence_score).detach().item(),
+        # score chess_best
+        "critic/score_chess_best/mean": torch.mean(sequence_score_chess_best).detach().item(),
+        "critic/score_chess_best/max": torch.max(sequence_score_chess_best).detach().item(),
+        # "critic/score_chess_best/min": torch.min(sequence_score_chess_best).detach().item(),
+        # score chess_legal
+        "critic/score_chess_legal/mean": torch.mean(sequence_score_chess_legal).detach().item(),
+        "critic/score_chess_legal/max": torch.max(sequence_score_chess_legal).detach().item(),
+        # "critic/score_chess_legal/min": torch.min(sequence_score_chess_legal).detach().item(),
         # reward
         "critic/rewards/mean": torch.mean(sequence_reward).detach().item(),
         "critic/rewards/max": torch.max(sequence_reward).detach().item(),
@@ -246,7 +263,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                                 )
                                 metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = maj_n_mean, maj_n_std
 
-                    data_src2prompt2var2metric[data_source][prompt][var_name] = metric
+                data_src2prompt2var2metric[data_source][prompt][var_name] = metric
 
     # Aggregate metrics across prompts
     data_src2var2metric2prompt_vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -255,6 +272,7 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
             for var_name, metric in var2metric.items():
                 for metric_name, metric_val in metric.items():
                     data_src2var2metric2prompt_vals[data_source][var_name][metric_name].append(metric_val)
+
 
     data_src2var2metric2val = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
     for data_source, var2metric2prompt_vals in data_src2var2metric2prompt_vals.items():

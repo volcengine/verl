@@ -1060,6 +1060,9 @@ class RayPPOTrainer:
                                 dump_path=rollout_data_dir,
                             )
 
+                    # import pdb
+                    # pdb.set_trace()
+                    
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
                         with _timer("testing", timing_raw):
