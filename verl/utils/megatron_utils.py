@@ -38,7 +38,13 @@ def get_model_config(model):
     return get_attr_wrapped_model(model, "config", allow_none=False)
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, use_distributed_optimizer=True):
+def get_model(
+    model_provider_func,
+    model_type=ModelType.encoder_or_decoder,
+    wrap_with_ddp=True,
+    use_distributed_optimizer=True,
+    transformer_config=None,
+):
     """Build the model."""
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
@@ -95,8 +101,9 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
         )
 
     # GPU allocation.
-    for model_module in model:
-        model_module.cuda(torch.cuda.current_device())
+    if transformer_config is None or (not transformer_config.use_cpu_initialization):
+        for model_module in model:
+            model_module.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])
