@@ -370,3 +370,12 @@ class SGLangRollout(BaseRollout):
             self.inference_engine._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+    # this function is left for uniform train-inference resharding
+    def update_weights(self, params_iter):
+        self.inference_engine.resume_memory_occupation()
+        self.inference_engine.update_weights_from_tensor(params_iter, load_format=None)
+
+    # this function is left for uniform train-inference resharding
+    def offload(self):
+        self.inference_engine.release_memory_occupation()
