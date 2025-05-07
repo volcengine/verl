@@ -52,6 +52,8 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "ffn_hidden_size": hf_config.intermediate_size,
         "attention_dropout": hf_config.attention_dropout,
         "hidden_dropout": getattr(hf_config, "hidden_dropout", 0.0),
+        "kv_channels": getattr(hf_config, "head_dim", None),
+        "layernorm_epsilon": hf_config.rms_norm_eps,
         # Activation and normalization
         "activation_func": F.silu,
         "normalization": "RMSNorm",
@@ -84,6 +86,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
+    qk_layernorm = True if "Qwen3ForCausalLM" in hf_config.architectures else False
 
     return _get_base_transformer_config(
         hf_config=hf_config,
@@ -91,6 +94,7 @@ def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) ->
         use_cpu_initialization=False,
         add_bias_linear=False,
         add_qkv_bias=qkv_bias,
+        qk_layernorm=qk_layernorm,
     )
 
 
@@ -148,6 +152,33 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype) 
         apply_rope_fusion=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
+    )
+
+
+def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+    return _get_base_transformer_config(
+        hf_config=hf_config,
+        dtype=dtype,
+        use_cpu_initialization=False,
+        add_bias_linear=False,
+        layernorm_epsilon=hf_config.rms_norm_eps,
+        # MoE specific
+        moe_ffn_hidden_size=hf_config.moe_intermediate_size,
+        moe_router_bias_update_rate=0.001,
+        moe_router_topk=hf_config.num_experts_per_tok,
+        num_moe_experts=hf_config.num_experts,
+        moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
+        # moe_aux_loss_coeff=0.0,
+        moe_router_load_balancing_type="aux_loss",
+        moe_grouped_gemm=True,
+        moe_router_score_function="softmax",
+        # Other optimizations
+        persist_layer_norm=True,
+        bias_activation_fusion=True,
+        bias_dropout_fusion=True,
+        # Qwen specific
+        moe_router_pre_softmax=True,
+        qk_layernorm=True,
     )
 
 
