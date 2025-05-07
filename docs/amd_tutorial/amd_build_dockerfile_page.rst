@@ -6,8 +6,7 @@ Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 Setup
 -----
 
-If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run VeRL. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting RLHF training.
-
+If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES``, and ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in verl's RLHF training.
 
 
 docker/Dockerfile.rocm
@@ -23,7 +22,7 @@ docker/Dockerfile.rocm
     # Support - Traing: fsdp; Inference: vllm
     # FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
     # Support - Traing: fsdp; Inference: vllm, sglang
-    FROM lmsysorg/sglang:v0.4.5-rocm630
+    FROM lmsysorg/sglang:v0.4.6.post1-rocm630
 
     # Set working directory
     # WORKDIR $PWD/app
@@ -60,7 +59,7 @@ docker/Dockerfile.rocm
         peft \
         "pyarrow>=15.0.0" \
         pylatexenc \
-        "ray[data,train,tune,serve]" \
+        "ray[data,train,tune,serve]>=2.45.0" \
         torchdata \
         transformers \
         wandb \
@@ -109,7 +108,12 @@ Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above 
 Example
 -------
 
-Due to to special setting in AMD (ROCM) torch, you need to assign ``HIP_VISIBLE_DEVICES`` and ``ROCR_VISIBLE_DEVICES`` when starting Ray in VeRL's RLHF training.
+Due to to special setting in AMD (ROCM) torch, 
+1. If your ``ray>=2.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in verl's RLHF training.
+2. If your ``ray<2.45.0``, you need to assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
+Inference ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
+
+
 
 PPO
 ~~~
@@ -119,12 +123,21 @@ PPO
     YOUR_PROJECT_NAME=r1-verl-ppo-upstream
     YOUR_RUN_NAME=r1-training_ppo-upstream 
     # export HYDRA_FULL_ERROR=1
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+    # [ray] < 2.45.0
+    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+    # [ray] >= 2.45.0
+    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
+
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    ENGINE=vllm
+
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
      data.train_files=data/gsm8k/train.parquet \
      data.val_files=data/gsm8k/test.parquet \
@@ -138,6 +151,7 @@ PPO
      actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
      actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
      actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+     actor_rollout_ref.rollout.name=$ENGINE \
      actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
      actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
      critic.optim.lr=1e-5 \
@@ -164,13 +178,21 @@ GRPO
     YOUR_RUN_NAME=r1-training_grpo-upstream
     # export HYDRA_FULL_ERROR=1
     # export FSDP_VERBOSE=1 
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+    # [ray] < 2.45.0
+    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+    # [ray] >= 2.45.0
+    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
+
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     # MODEL_PATH=Qwen/Qwen2-7B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
+    ENGINE=vllm
+    
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
         data.train_files=data/gsm8k/train.parquet \
@@ -192,7 +214,7 @@ GRPO
         actor_rollout_ref.actor.fsdp_config.param_offload=False \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
         actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-        actor_rollout_ref.rollout.name=vllm \
+        actor_rollout_ref.rollout.name=$ENGINE \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
         actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.fsdp_config.param_offload=False \
@@ -285,9 +307,13 @@ slurm_script.sh
     ##########################################################################
 
     ### For rocm and training script
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
-    export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    # [ray] < 2.45.0
+    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+
+    # [ray] >= 2.45.0
+    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
 
 
     # Build and launch the Docker container
@@ -320,6 +346,7 @@ slurm_script.sh
         -e HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES} \
         -e ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES} \
         -e CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} \
+        -e HIP_VISIBLE_DEVICES_ENV_VAR=${HIP_VISIBLE_DEVICES_ENV_VAR} \
         -e NCCL_DEBUG=${NCCL_DEBUG} \
         -e GPU_MAX_HW_QUEUES=${GPU_MAX_HW_QUEUES} \
         -e TORCH_NCCL_HIGH_PRIORITY=${TORCH_NCCL_HIGH_PRIORITY} \
