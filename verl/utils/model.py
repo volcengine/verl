@@ -414,7 +414,6 @@ def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=Fal
             ssd = model.module.sharded_state_dict()
         else:
             ssd = model.module.module.sharded_state_dict()
-
         if is_value_model:
             for k in list(ssd.keys()):
                 if "output_layer" in k:
@@ -447,7 +446,8 @@ def get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process=None, pos
         rotary_base=hf_config.rope_theta,
         **rope_scaling_args,
     )
-    # # for layer in parallel_model.decoder.layers: layer.self_attention.core_attention.flash_attention.softmax_scale = None
+    # # for layer in parallel_model.decoder.layers:
+    # layer.self_attention.core_attention.flash_attention.softmax_scale = None
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
