@@ -21,8 +21,6 @@ import threading
 import time
 from typing import Any, Callable, Dict, List
 
-import verl.single_controller.base.decorator  # noqa: F401
-
 from .decorator import MAGIC_ATTR, Dispatch, get_predefined_dispatch_fn, get_predefined_execute_fn
 
 
