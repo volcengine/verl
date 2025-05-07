@@ -39,6 +39,7 @@ class MultiTurnSFTDataset(Dataset):
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
+        self.loss_mask_key = multiturn_config.get("loss_mask_key", "loss_mask")
 
         assert self.truncation in ["error", "left", "right"]
 
@@ -74,6 +75,7 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        self.loss_mask = self.dataframe[self.loss_mask_key].apply(series_to_item).tolist()
 
     def __len__(self):
         return len(self.messages)
@@ -104,7 +106,7 @@ class MultiTurnSFTDataset(Dataset):
             end_pos = prefix_tokens[0].shape[0]
 
             # If this is an assistant message, set loss mask
-            if msg["role"] == "assistant":
+            if msg["role"] == "assistant" and self.loss_mask[i]:
                 loss_mask[start_pos:end_pos] = 1
 
         # Handle sequence length
