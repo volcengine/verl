@@ -203,6 +203,12 @@ class DynamicEnum(metaclass=DynamicEnumMeta):
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}: {self.value}>"
 
+    def __eq__(self, other):
+        return isinstance(other, DynamicEnum) and self.__class__ == other.__class__ and self.name == other.name and self.value == other.value
+
+    def __hash__(self):
+        return hash((self.__class__, self.name, self.value))
+
     @classmethod
     def register(cls, name: str) -> "DynamicEnum":
         key = name.upper()

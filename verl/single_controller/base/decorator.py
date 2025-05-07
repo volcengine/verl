@@ -428,7 +428,6 @@ DISPATCH_MODE_FN_REGISTRY = {
 
 
 def get_predefined_dispatch_fn(dispatch_mode):
-    print(f"[debug] {DISPATCH_MODE_FN_REGISTRY.keys()=}")
     return DISPATCH_MODE_FN_REGISTRY[dispatch_mode]
 
 
