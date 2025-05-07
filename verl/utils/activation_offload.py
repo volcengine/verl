@@ -14,23 +14,25 @@
 # limitations under the License.
 
 """Functionality for CPU offloading of tensors saved for backward pass."""
+
 from __future__ import annotations
-from contextlib import nullcontext
-from typing import Any, Dict, Optional
+
+import functools
+from typing import Any, Optional
 
 import torch
-import functools
-
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 
 def _get_unique_tensor_key(tensor):
     key = (tensor.untyped_storage().data_ptr() + tensor.storage_offset(), tensor.dtype)
     return key
 
+
 class FSDPParameterFilter:
     def __init__(self):
         self.model_parameters_storage = set()
-    
+
     def __call__(self, tensor):
         return tensor.untyped_storage().data_ptr() not in self.model_parameters_storage
 
@@ -39,6 +41,7 @@ class FSDPParameterFilter:
         for p in model.parameters():
             new_storage.add(p.data.untyped_storage().data_ptr())
         self.model_parameters_storage = new_storage
+
 
 class CpuOffloadHookWithOffloadHandler:
     """Context-manager that offloads/recovers tensors through an offload hander.
@@ -51,21 +54,17 @@ class CpuOffloadHookWithOffloadHandler:
     def __init__(
         self,
         offload_handler: OffloadHandler,
-        handler_extra_kwargs: Optional[Dict[str, Any]] = None,
-        debug: bool = False,
+        handler_extra_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         if handler_extra_kwargs is None:
             handler_extra_kwargs = {}
-        self.debug: bool = debug
         self.offload_handler: OffloadHandler = offload_handler
-        self.handler_extra_kwargs: Dict[str, Any] = handler_extra_kwargs
+        self.handler_extra_kwargs: dict[str, Any] = handler_extra_kwargs
         self.inside_context = False
 
     def __enter__(self):
         self.inside_context = True
-        torch._C._autograd._push_saved_tensors_default_hooks(
-            self.on_save_for_backward, self.on_get_saved_tensor
-        )
+        torch._C._autograd._push_saved_tensors_default_hooks(self.on_save_for_backward, self.on_get_saved_tensor)
 
     def __exit__(self, *args: Any):
         self.inside_context = False
@@ -88,17 +87,11 @@ class OffloadHandler:
 
     def tensor_push(self, tensor: torch.Tensor, **kwargs) -> Any:
         """Tensor push."""
-        raise NotImplementedError(
-            "`tensor_push is not implented in OffloadHandler class. "
-            "Inherit this class and implement your custom tensor_push."
-        )
+        raise NotImplementedError("`tensor_push is not implented in OffloadHandler class. Inherit this class and implement your custom tensor_push.")
 
     def tensor_pop(self, tensor_tag: Any, **kwargs):
         """Tensor pop."""
-        raise NotImplementedError(
-            "`tensor_pop is not implented in OffloadHandler class. "
-            "Inherit this class and implement your custom tensor_pop."
-        )
+        raise NotImplementedError("`tensor_pop is not implented in OffloadHandler class. Inherit this class and implement your custom tensor_pop.")
 
 
 class GroupCommitFunction(torch.autograd.Function):
@@ -133,14 +126,11 @@ class SynchronizedGroupOffloadHandler(OffloadHandler):
     as the computation kernels, thus the copying will block computation.
     """
 
-    def __init__(
-        self, num_offload_group, tensor_need_offloading_checker=(lambda _: True), debug=False
-    ) -> None:
+    def __init__(self, num_offload_group, tensor_need_offloading_checker=(lambda _: True)) -> None:
         super().__init__()
 
         self.num_offload_group = num_offload_group
         self.tensor_need_offloading_checker = tensor_need_offloading_checker
-        self.debug = debug
 
         self.groupid_reset()
 
@@ -194,9 +184,7 @@ class SynchronizedGroupOffloadHandler(OffloadHandler):
         tensor_tag = (self.current_group, self.tensor_count_current_group)
         self.tensor_count_current_group += 1
         assert tensor_tag not in self.tensor_tag_to_state
-        if self.current_group < self.num_offload_group and self.tensor_need_offloading_checker(
-            tensor
-        ):
+        if self.current_group < self.num_offload_group and self.tensor_need_offloading_checker(tensor):
             state = SynchronizedGroupOffloadHandler.offload(tensor)
             self.tensor_tag_to_state[tensor_tag] = state
         else:
@@ -228,20 +216,15 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         num_offload_group,  # must be <= actual number of groups (number of commits)
         num_model_group,
         tensor_need_offloading_checker=(lambda t: True),
-        debug=False,
     ) -> None:
         super().__init__(
             num_offload_group=num_offload_group,
             tensor_need_offloading_checker=tensor_need_offloading_checker,
-            debug=debug,
         )
         # Number of layers in the model
         self.num_layers = num_model_group
         # Data Structure to maintain reference to activation tensors
         self.tensor_tag_to_buf = {}
-        # Data structure to hold the FP8/MXFP8 tensor objects
-        self.fp8_tensor_object_map = {}
-        self.float8_transpose_cache_valid = {}
         # Tracking the number of layers offloaded
         self.offloaded_group_count = 0
         # Core data structure that decides the window for offloading
@@ -334,7 +317,6 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
         # Window map data structure helps us synchronize based on number
         # of layers offloaded
         if self.layer_window_map[self.offloaded_group_count] == current_group:
-
             # Stream synchronization both ways
             self.d2h_stream.wait_stream(torch.cuda.current_stream())
             torch.cuda.current_stream().wait_stream(self.d2h_stream)
@@ -386,7 +368,6 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
 
         # Layer window data structure helps us to reload at right times
         if self.layer_window_map[self.offloaded_group_count - 1] == self.current_group:
-
             # Stream synchronization both ways
             self.h2d_stream.wait_stream(torch.cuda.current_stream())
             torch.cuda.current_stream().wait_stream(self.h2d_stream)
@@ -403,12 +384,7 @@ class AsyncDoubleBufferGroupOffloadHandler(SynchronizedGroupOffloadHandler):
             self.offloaded_group_count = 0
 
 
-def get_activation_offload_context(
-    num_layers: int = 1,
-    model_layers: int = 1,
-    tensor_need_offloading_checker = (lambda t: True)
-):
-
+def get_activation_offload_context(num_layers: int = 1, model_layers: int = 1, tensor_need_offloading_checker=(lambda t: True)):
     cpu_offload_handler = AsyncDoubleBufferGroupOffloadHandler(
         num_offload_group=num_layers,
         num_model_group=model_layers,
@@ -440,7 +416,7 @@ class ActivationHandler:
         if module.training:
             self._offload_ctx.__enter__()
             self._tensor_filter.update_model_parameters(module)
-    
+
     def post_forward(self, module):
         if module.training:
             self._offload_ctx.__exit__(None, None, None)
@@ -455,15 +431,13 @@ class ActivationHandler:
         return tuple(flat_args), tuple(kwarg_keys)
 
     def _unpack_kwargs(self, flat_args, kwarg_keys):
-        assert len(kwarg_keys) <= len(
-            flat_args
-        ), f"too many keys {len(kwarg_keys)} vs. {len(flat_args)}"
+        assert len(kwarg_keys) <= len(flat_args), f"too many keys {len(kwarg_keys)} vs. {len(flat_args)}"
         if len(kwarg_keys) == 0:
             return flat_args, {}
         args = flat_args[: -len(kwarg_keys)]
         kwargs = dict(zip(kwarg_keys, flat_args[-len(kwarg_keys) :]))
         return args, kwargs
-    
+
     def _ckpt_forward(self, forward_method, *args, **kwargs):
         flat_args, kwarg_keys = self._pack_kwargs(*args, **kwargs)
 
@@ -477,7 +451,7 @@ class ActivationHandler:
         return self.checkpoint_fn(
             my_function,
             *flat_args,
-        )      
+        )
 
     def forward(self, module, forward_method, *args, **kwargs):
         if not module.training:
@@ -490,15 +464,15 @@ class ActivationHandler:
         if isinstance(ret, tuple):
             binded_tensor = ret[0]
         binded_tensor = self._sync_func(binded_tensor)
-        final_ret = (binded_tensor, )
+        final_ret = (binded_tensor,)
         if isinstance(ret, tuple):
             final_ret += ret[1:]
         return final_ret
-        
-    
+
     def wrap_module_forward_method(self, module):
-        orig_method = getattr(module, 'forward')
+        orig_method = module.forward
         handler = self
+
         @functools.wraps(orig_method)
         def wrapped_method(model_self, *args, **kwargs):
             nonlocal handler
@@ -507,19 +481,17 @@ class ActivationHandler:
             handler.post_forward(model_self)
             return out
 
-        setattr(
-            module,
-            'forward',
-            wrapped_method.__get__(module, type(module))
-        )
+        module.forward = wrapped_method.__get__(module, type(module))
+
 
 def enable_activation_offload_for_fsdp_model(model, enable_ckpt=False):
     layers = []
+
     def get_layers(module):
         for name, child in module.named_children():
             if isinstance(child, FSDP):
                 layers.append(child)
-            else: # avoid nested
+            else:  # avoid nested
                 get_layers(child)
 
     get_layers(model)
@@ -527,11 +499,9 @@ def enable_activation_offload_for_fsdp_model(model, enable_ckpt=False):
         return
 
     tensor_filter = FSDPParameterFilter()
-    context, sync_func = get_activation_offload_context(
-        len(layers) - 1, len(layers), tensor_filter
-    )
+    context, sync_func = get_activation_offload_context(len(layers) - 1, len(layers), tensor_filter)
     if enable_ckpt:
-        # The implementation of activation checkpointing in transformers is uncompatiable with activation offload
+        # The implementation of activation checkpointing in transformers is uncompatible with activation offload
         for module in model.modules():
             if hasattr(module, "gradient_checkpointing_disable"):
                 module.gradient_checkpointing_disable()
