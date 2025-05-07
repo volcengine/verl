@@ -344,6 +344,7 @@ Reward Model
        input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
        path: ~/models/Anomy-RM-v0.1
        external_lib: ${actor_rollout_ref.model.external_lib}
+       trust_remote_code: False
        fsdp_config:
          min_num_params: 0
          param_offload: False
@@ -365,6 +366,8 @@ Reward Model
   - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
+  - ``trust_remote_code``: Whether to enable loading a remote code model,
+    default to False.
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
   is ``naive``. If all verification functions are multiprocessing-safe, the reward
