@@ -361,6 +361,58 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
 
     return advantages, returns
 
+def compute_gpg_outcome_advantage(
+    token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6, f_norm: float = 1.0, alpha: float = 1.0
+):
+    """
+    Compute advantage for GPG, operating only on Outcome reward
+    (with only one scalar reward for each response).
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+        index: `(np.ndarray)`
+            shape: (bs,)
+        epsilon: (float)
+        f_norm: (float)
+        alpha: (float)
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        m = torch.count_nonzero(scores)
+        alpha = bsz / m.clamp(min=1)
+        
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+                
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = torch.tensor(0.0)
+                id2std[idx] = torch.tensor(1.0)
+            elif len(id2score[idx]) > 1:
+                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
+                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+        for i in range(bsz):
+            scores[i] = alpha * (scores[i] - id2mean[index[i]]) / (f_norm)
+        scores = scores.unsqueeze(-1) * response_mask
+
+    return scores, scores
+
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     kl = old_log_prob - ref_log_prob
@@ -411,6 +463,7 @@ def compute_policy_loss(
     cliprange_low=None,
     cliprange_high=None,
     clip_ratio_c=3.0,
+    use_gpg=False,
     loss_agg_mode: str = "token-mean",
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
@@ -460,12 +513,37 @@ def compute_policy_loss(
 
     pg_losses3 = -advantages * clip_ratio_c
     clip_pg_losses2 = torch.min(pg_losses3, clip_pg_losses1)
-    pg_clipfrac_lower = verl_F.masked_mean(torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(), response_mask)
-
+    pg_clipfrac_lower = verl_F.masked_mean(
+        torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(), response_mask
+    )
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
+
+    
+def compute_gpg_loss(
+    log_prob,
+    advantages,
+    response_mask,
+    loss_agg_mode="token-mean" 
+):
+    """Adapted from https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495 "
+    Args:
+        log_prob: `(torch.Tensor)`
+            shape: (bs, response_length) 
+        advantages: `(torch.Tensor)`
+            shape: (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape: (bs, response_length)
+    return: 
+        pg_loss: `a scalar torch.Tensor`
+            policy gradient loss computed via GPG
+    """
+    pg_losses = - log_prob * advantages
+
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    return pg_loss
 
 
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
