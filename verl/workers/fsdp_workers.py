@@ -789,8 +789,7 @@ class CriticWorker(Worker):
 
         from transformers import AutoConfig, AutoModelForTokenClassification
 
-        trust_remote_code = False
-        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=config.model.get("trust_remote_code", False))
         critic_model_config.num_labels = 1
 
         init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh)
@@ -804,7 +803,7 @@ class CriticWorker(Worker):
                 torch_dtype=torch_dtype,
                 config=critic_model_config,
                 attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
+                trust_remote_code=config.model.get("trust_remote_code", False),
             )
 
             use_remove_padding = config.model.get("use_remove_padding", False)
