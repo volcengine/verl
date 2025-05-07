@@ -132,7 +132,6 @@ def get_chess_legal_dataset(args):
             
             for move in legal_moves:
                 from_square = chess.square_name(move.from_square)
-                # from_piece = board.piece_at(move.from_square).symbol()
                 if from_square not in legal_moves_per_square:
                     legal_moves_per_square[from_square] = []
                 legal_moves_per_square[from_square].append(move.uci())
