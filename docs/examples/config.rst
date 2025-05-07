@@ -89,6 +89,7 @@ Actor/Rollout/Reference Policy
       external_lib: null
       override_config: { }
       enable_gradient_checkpointing: False
+      trust_remote_code: False
       use_remove_padding: False
     actor:
       strategy: fsdp  # This is for backward-compatibility
@@ -177,6 +178,8 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
+  a remote code model
 
 **Actor model**
 
