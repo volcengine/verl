@@ -40,11 +40,6 @@ rollout:
   disable_log_stats: True
   enable_chunked_prefill: True
   n: 1
-  length_penalty:
-    enabled: False  # Set to True to enable length penalty during generation
-    alpha: 0.0      # Alpha parameter: positive favors longer sequences, negative favors shorter
-    min_length: 0   # Minimum sequence length before applying penalty
-    max_length: null  # Maximum sequence length (null means no maximum)
 actor:
   strategy: fsdp  # This is for backward-compatibility
   ulysses_sequence_parallel_size: 1 # sp size

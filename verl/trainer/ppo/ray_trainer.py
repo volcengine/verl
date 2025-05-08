@@ -1034,34 +1034,7 @@ class RayPPOTrainer:
                         print(f"{list(reward_extra_infos_dict.keys())=}")
 
                         if reward_extra_infos_dict:
-                            for key in ["length_penalty_applied", "length_penalty_alpha", 
-                                        "original_rewards_mean", "penalized_rewards_mean", "penalty_ratio"]:
-                                if key in reward_extra_infos_dict:
-                                    metrics[f"reward/length_penalty/{key}"] = reward_extra_infos_dict[key]
-                            
-                            for key, value in reward_extra_infos_dict.items():
-                                if isinstance(value, (int, float)):  # Scalar values only
-                                    if key not in ["length_penalty_applied", "length_penalty_alpha", 
-                                                "original_rewards_mean", "penalized_rewards_mean", "penalty_ratio"]:
-                                        if "score" in key:
-                                            metrics[f"reward/scores/{key}"] = value
-                                        elif "format" in key:
-                                            metrics[f"reward/format/{key}"] = value
-                                        elif "proof" in key:
-                                            metrics[f"reward/proof/{key}"] = value
-                                        else:
-                                            metrics[f"reward/other/{key}"] = value
-                            
-                            safe_dict = {}
-                            for k, v in reward_extra_infos_dict.items():
-                                if isinstance(v, list) and len(v) == len(batch):
-                                    try:
-                                        safe_dict[k] = np.array(v)
-                                    except Exception as e:
-                                        print(f"Warning: Could not convert reward extra info '{k}' to numpy array: {e}")
-                            
-                            if safe_dict:
-                                batch.non_tensor_batch.update(safe_dict)
+                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
