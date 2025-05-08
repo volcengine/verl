@@ -426,8 +426,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             num_attention_heads = model_config.num_attention_heads
             num_key_value_heads = model_config.num_key_value_heads
             if "vision_model" in name:
-                num_attention_heads = unwrap_model(self.actor_module[0]).vision_model.config.num_attention_heads
-                num_key_value_heads = unwrap_model(self.actor_module[0]).vision_model.config.num_query_groups
+                num_attention_heads = self.weight_converter.hf_config.vision_config['num_heads']
+                num_key_value_heads = self.weight_converter.hf_config.vision_config['num_heads']
             assert num_attention_heads % num_key_value_heads == 0
             num_q_per_kv = num_attention_heads // num_key_value_heads
             assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, (
