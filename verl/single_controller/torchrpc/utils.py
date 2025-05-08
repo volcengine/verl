@@ -22,7 +22,7 @@ class LocalActor:
         ctx = mp.get_context('spawn')
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
-        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue))
+        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue), daemon=True)
         self.process.start()
 
     def run(self, method_name, args, kwargs):
@@ -32,6 +32,7 @@ class LocalActor:
 class LocalActorManager:
     def __init__(self):
         self.lock = threading.Lock()
+
     def create_local_actor(self, cls, args, kwargs, env_vars, gpus):
         with self.lock:
             original_cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
@@ -40,6 +41,10 @@ class LocalActorManager:
             if original_cuda_visible_devices is not None:
                 os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible_devices
         return actor
+
+    def run(self, method_name, args, kwargs):
+        method = getattr(self, method_name)
+        return method(*args, **kwargs)
 
 def _call_local_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
     actor = actor_rref.local_value()
@@ -53,17 +58,3 @@ def rref_to_here(x):
         return [i.to_here() for i in x]
     else:
         return x.to_here()
-
-
-class RemoteActor:
-    def __init__(self, resource, rref, gpus):
-        self.resource = resource
-        self.rref = rref
-        self.gpus = gpus
-
-    def __call__(self, method_name, *args, **kwargs):
-        print(f"calling {method_name} on {self.rref.owner()}")
-        return call_remote_actor(self.rref, method_name, args, kwargs)
-
-    def __del__(self):
-        self.resource.recycle(self)

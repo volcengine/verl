@@ -20,7 +20,7 @@ from typing import List, Dict, Any
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
 from verl.single_controller.torchrpc.node import NodeManager, NodeResource
-from verl.single_controller.torchrpc.utils import rref_to_here
+from verl.single_controller.torchrpc.utils import call_remote_actor, rref_to_here
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
@@ -71,21 +71,18 @@ class TorchRPCResourcePool(ResourcePool):
 class TorchRPCClassWithInitArgs(ClassWithInitArgs):
     def __init__(self, cls, *args, **kwargs) -> None:
         super().__init__(cls, *args, **kwargs)
-        self._env_vars = {}
+        self.env_vars = {}
 
     def update_env_vars(self, env_vars: Dict):
-        self._env_vars.update(env_vars)
+        self.env_vars.update(env_vars)
 
     def __call__(self,
                  resource: NodeResource,
-                 use_gpu: bool = True,
-                 num_gpus=1,
+                 gpus: List[int]
                 ) -> Any:
-        assert use_gpu is not (num_gpus == 0)
-        return resource.create_actor(self.cls, self.args, self.kwargs, self._env_vars, num_gpus)
+        return resource.create_actor(self.cls, self.args, self.kwargs, self.env_vars, gpus)
 
 class TorchRPCWorkerGroup(WorkerGroup):
-
     def __init__(self,
                  resource_pool: TorchRPCResourcePool = None,
                  cls_with_init: TorchRPCClassWithInitArgs = None,
@@ -124,8 +121,8 @@ class TorchRPCWorkerGroup(WorkerGroup):
         self._world_size = resource_pool.world_size
 
         rank = -1
-        for node_idx, resource in enumerate(resources):
-            local_world_size = resource_pool.store[node_idx]
+        for idx, resource in enumerate(resources):
+            local_world_size = resource_pool.store[idx]
             for local_rank in range(local_world_size):
                 rank += 1
                 
@@ -133,12 +130,9 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 env_vars = {
                     'WORLD_SIZE': str(self._world_size),
                     'RANK': str(rank),
-                    # TODO:前缀
-                    # 'WG_PREFIX': self.name_prefix,
                     'WG_BACKEND': 'torchrpc',
                     'LOCAL_WORLD_SIZE': str(local_world_size),
-                    'LOCAL_RANK': str(local_rank),
-                    'CUDA_VISIBLE_DEVICES': str(local_rank)
+                    'LOCAL_RANK': str(local_rank)
                 }
 
                 if rank == 0:
@@ -148,11 +142,11 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 env_vars['MASTER_PORT'] = self._master_port
 
                 cls_with_init.update_env_vars(env_vars)
-                worker = cls_with_init(resource, use_gpu, )
+                worker = cls_with_init(resource, [resource.gpus[local_rank]] if use_gpu else [])
                 self._workers.append(worker)
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
-        return self._workers[0](method_name, args, kwargs)
+        return call_remote_actor(self._workers[0], method_name, args, kwargs)
 
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
         return self.execute_rank_zero_async(method_name, *args, **kwargs).to_here()
@@ -168,10 +162,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(self._workers[i](method_name, sliced_args, sliced_kwargs))
+                    result.append(call_remote_actor(self._workers[i], method_name, sliced_args, sliced_kwargs))
                 return result
 
-        return [worker(method_name, args, kwargs) for worker in self._workers]
+        return [call_remote_actor(worker, method_name, args, kwargs) for worker in self._workers]
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
         ret = self.execute_all_async(method_name, *args, **kwargs)
@@ -219,12 +213,13 @@ def create_colocated_worker_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]
     remote_cls = TorchRPCClassWithInitArgs(cls=WorkerDict)
     return remote_cls
 
-def torchrpc_remote(func):
+def torchrpc_remote(torchrpc_func):
     def wrapper():
         rank = int(os.environ.get('TORCHRPC_RANK'))
         world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-        rpc.init_rpc(f"worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
+        rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
         if rank == 0:
-            func()
+            node_manager = NodeManager()
+            torchrpc_func(node_manager)
         rpc.shutdown()
     return wrapper

@@ -19,6 +19,7 @@ import torch.distributed.rpc as rpc
 from verl.single_controller.base.decorator import Dispatch, Execute, collect_all_to_all, register
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.torchrpc import TorchRPCResourcePool, TorchRPCClassWithInitArgs, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
+from verl.single_controller.torchrpc.node import NodeManager
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
     """
@@ -65,8 +66,8 @@ def add_one(data):
     return data
 
 @torchrpc_remote
-def test_basics():
-    resource_pool = TorchRPCResourcePool([2,2], use_gpu=True)
+def test_basics(node_manager):
+    resource_pool = TorchRPCResourcePool(node_manager, [2,2], use_gpu=True)
     class_with_args = TorchRPCClassWithInitArgs(cls=TestActor, x=2)
     worker_group = TorchRPCWorkerGroup(
         resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic"
@@ -77,7 +78,6 @@ def test_basics():
 
     # this is a list of object reference. It won't block.
     output_ref = worker_group.execute_all_async("foo", y=4)
-    print(output_ref)
 
     assert rref_to_here(output_ref) == [6, 6, 6, 6]
 
@@ -95,6 +95,7 @@ def test_basics():
 
     output_ref = worker_group.foo_rank_zero(x=1, y=2)
     assert output_ref == 5
+    print("FINISHED!!!!!!")
 
 if __name__ == "__main__":
     test_basics()
