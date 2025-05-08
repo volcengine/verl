@@ -17,6 +17,7 @@ the class for Worker
 
 import os
 import socket
+from ast import Dict
 from dataclasses import dataclass
 
 import ray
@@ -70,24 +71,6 @@ class WorkerHelper:
         return
 
 
-class WorkerMeta:
-    keys = [
-        "WORLD_SIZE",
-        "RANK",
-        "LOCAL_WORLD_SIZE",
-        "LOCAL_RANK",
-        "MASTER_ADDR",
-        "MASTER_PORT",
-        "CUDA_VISIBLE_DEVICES",
-    ]
-
-    def __init__(self, store) -> None:
-        self._store = store
-
-    def to_dict(self):
-        return {f"_{key.lower()}": self._store.get(f"_{key.lower()}", None) for key in WorkerMeta.keys}
-
-
 # we assume that in each WorkerGroup, there is a Master Worker
 class Worker(WorkerHelper):
     """A (distributed) worker."""
@@ -133,6 +116,11 @@ class Worker(WorkerHelper):
         # set worker info for node affinity scheduling
         ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
+    @classmethod
+    def env_keys(cls):
+        """The keys of the environment variables that are used to configure the Worker."""
+        return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
+
     def __init__(self, cuda_visible_devices=None) -> None:
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
@@ -176,8 +164,7 @@ class Worker(WorkerHelper):
         if cuda_visible_devices is not None:
             store["_cuda_visible_devices"] = cuda_visible_devices
 
-        meta = WorkerMeta(store=store)
-        self._configure_with_meta(meta=meta)
+        self._configure_with_store(store=store)
 
         ###
         # [SUPPORT AMD: torch]
@@ -190,14 +177,14 @@ class Worker(WorkerHelper):
     def get_fused_worker_by_name(self, worker_name: str):
         return self.fused_worker_dict.get(worker_name, None)
 
-    def _configure_with_meta(self, meta: WorkerMeta):
+    def _configure_with_store(self, store: Dict):
         """
         This function should only be called inside by WorkerGroup
         """
-        assert isinstance(meta, WorkerMeta)
-        self.__dict__.update(meta.to_dict())  # this is hacky
+        store_env_dict = {f"_{key.lower()}": store.get(f"_{key.lower()}", None) for key in type(self).env_keys()}
+        self.__dict__.update(store_env_dict)  # this is hacky
         # print(f"__dict__: {self.__dict__}")
-        for key in WorkerMeta.keys:
+        for key in type(self).env_keys():
             val = self.__dict__.get(f"_{key.lower()}", None)
             if val is not None:
                 # print(f"set {key} to {val}")
