@@ -53,8 +53,6 @@ def test_copy_from_hdfs_with_mocks(tmp_path, mocker):
     assert local_path == expected_path
     assert os.path.exists(local_path)
 
-    # Test recopy with always_recopy=True
-
 
 def test_always_recopy_flag(tmp_path, mocker):
     # Mock HDFS dependencies
