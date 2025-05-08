@@ -844,58 +844,6 @@ class RayPPOTrainer:
         global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
-    def log_token_lengths(self, data, step):
-        """
-        Log average token lengths for positive and negative responses.
-
-        Args:
-            data: DataProto containing batch data
-            step: Current training step
-        """
-        if not self.config.trainer.get('track_token_lengths', False):
-            return
-
-        threshold = self.config.trainer.get('positive_reward_threshold', 0.5)
-        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'token_length')
-
-        # Extract rewards and responses
-        rewards = data.batch['acc'].cpu().tolist()
-        responses = data.batch['responses']
-        attention_mask = data.batch['attention_mask']
-        prompt_len = data.batch['prompts'].shape[-1]
-        valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
-
-        # Categorize as positive or negative based on reward threshold
-        positive_tokens = []
-        negative_tokens = []
-
-        for i, reward in enumerate(rewards):
-            length = valid_response_lengths[i].item()
-            response_tokens = responses[i][:length].tolist()
-
-            if reward > threshold:
-                positive_tokens.append(response_tokens)
-            else:
-                negative_tokens.append(response_tokens)
-
-        # Calculate average lengths
-        pos_avg_len = 0
-        neg_avg_len = 0
-
-        if positive_tokens:
-            pos_avg_len = sum(len(tokens) for tokens in positive_tokens) / len(positive_tokens)
-
-        if negative_tokens:
-            neg_avg_len = sum(len(tokens) for tokens in negative_tokens) / len(negative_tokens)
-
-        log_dict = {
-            f"{tag_prefix}/positive_avg_token_length": pos_avg_len,
-            f"{tag_prefix}/negative_avg_token_length": neg_avg_len
-        }
-
-        if hasattr(self, 'tracker') and self.tracker:
-            self.tracker.log(log_dict, step=step)
-
     def fit(self):
         """
         The training loop of PPO.
@@ -1042,8 +990,6 @@ class RayPPOTrainer:
                         if self.config.reward_model.launch_reward_fn_async:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
-
-                        self.log_token_lengths(batch, self.global_steps)
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
                         if reward_extra_infos_dict:
