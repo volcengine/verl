@@ -45,6 +45,7 @@ import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.debug import log_gpu_memory_usage
+<<<<<<< HEAD
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn
@@ -56,6 +57,20 @@ from verl.utils.ulysses import (
     ulysses_pad_and_slice_inputs,
 )
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+||||||| parent of 0348e38 (SFT: support dtype, save/test_freq)
+from peft import LoraConfig, TaskType, get_peft_model
+
+from verl.workers.sharding_manager import FSDPUlyssesShardingManager
+from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
+from verl import DataProto
+=======
+from peft import LoraConfig, TaskType, get_peft_model
+
+from verl.workers.sharding_manager import FSDPUlyssesShardingManager
+from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
+from verl import DataProto
+from verl.utils.torch_dtypes import PrecisionType
+>>>>>>> 0348e38 (SFT: support dtype, save/test_freq)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -176,6 +191,8 @@ class FSDPSFTTrainer:
         log_gpu_memory_usage("Before model allocation", logger=logger)
 
         trust_remote_code = self.config.model.trust_remote_code
+        torch_dtype = self.config.model.fsdp_config.get('model_dtype', 'fp32')
+        torch_dtype = PrecisionType.to_dtype(torch_dtype)
         # load config first
         config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
         if self.config.ulysses_sequence_parallel_size > 1:
@@ -185,6 +202,7 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
+<<<<<<< HEAD
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 config=config,
@@ -192,6 +210,19 @@ class FSDPSFTTrainer:
                 attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
             )
+||||||| parent of 0348e38 (SFT: support dtype, save/test_freq)
+            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
+                                                                               config=config,
+                                                                               torch_dtype=torch.float32,
+                                                                               attn_implementation='flash_attention_2',
+                                                                               trust_remote_code=trust_remote_code)
+=======
+            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
+                                                                               config=config,
+                                                                               torch_dtype=torch_dtype,
+                                                                               attn_implementation='flash_attention_2',
+                                                                               trust_remote_code=trust_remote_code)
+>>>>>>> 0348e38 (SFT: support dtype, save/test_freq)
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -428,6 +459,17 @@ class FSDPSFTTrainer:
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
 
+    def _validate(self):
+        val_losses = []
+        for data in self.val_dataloader:
+            data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+            val_loss = self.validation_step(data)
+            val_losses.append(val_loss)
+
+        val_loss = torch.mean(torch.stack(val_losses))
+        metric = {'val/loss': val_loss.detach().item()}
+        return metric
+
     def fit(self):
         rank = self.device_mesh.get_rank()
 
@@ -466,24 +508,33 @@ class FSDPSFTTrainer:
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
 
-                # for early exit validation
-                if global_step >= self.total_training_steps:
-                    # Perform final validation
-                    val_losses = []
-                    for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
-                        val_loss = self.validation_step(val_data)
-                        val_losses.append(val_loss)
+                is_last_step = global_step >= self.total_training_steps
+                if self.config.trainer.test_freq > 0 and \
+                    (is_last_step or  global_step % self.config.trainer.test_freq == 0):
+                    val_metric = self._validate()
                     if rank == 0:
+<<<<<<< HEAD
                         avg_val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": avg_val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
+||||||| parent of 0348e38 (SFT: support dtype, save/test_freq)
+                        avg_val_loss = torch.mean(torch.stack(val_losses))
+                        metric = {'val/loss': avg_val_loss.detach().item()}
+                        tracking.log(data=metric, step=global_step)
+=======
+                        tracking.log(data=val_metric, step=global_step)
+>>>>>>> 0348e38 (SFT: support dtype, save/test_freq)
                     torch.distributed.barrier()
 
-                    # Save final checkpoint
+                if self.config.trainer.save_freq > 0 and ( is_last_step or \
+                        global_step % self.config.trainer.save_freq == 0):
                     self.save_checkpoint(step=global_step)
+
+                if is_last_step:
+                    print(f'Final validation metrics: {val_metric}')
                     return
 
+<<<<<<< HEAD
             # validation
             val_losses = []
             for data in self.val_dataloader:
@@ -499,6 +550,24 @@ class FSDPSFTTrainer:
             # save checkpoint
             self.save_checkpoint(step=global_step)
 
+||||||| parent of 0348e38 (SFT: support dtype, save/test_freq)
+            # validation
+            val_losses = []
+            for data in self.val_dataloader:
+                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+                val_loss = self.validation_step(data)
+                val_losses.append(val_loss)
+            if rank == 0:
+                val_loss = torch.mean(torch.stack(val_losses))
+                metric = {'val/loss': val_loss.detach().item()}
+                tracking.log(data=metric, step=global_step)
+            torch.distributed.barrier()
+
+            # save checkpoint
+            self.save_checkpoint(step=global_step)
+
+=======
+>>>>>>> 0348e38 (SFT: support dtype, save/test_freq)
 
 from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
 import hydra
