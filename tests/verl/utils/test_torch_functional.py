@@ -82,7 +82,10 @@ def _worker_mask(rank: int, world_size: int, rendezvous_file: str):
         mask = torch.tensor([0, 1], device=f"cuda:{rank}", dtype=torch.float32)
 
     gmean = distributed_masked_mean(local_tensor, mask)
-    assert torch.allclose(gmean.cpu(), torch.tensor(2.5)), f"masked_mean@{rank}"
+
+    valid_values = [1.0] + [2 * i + 2.0 for i in range(1, world_size)]
+    expected_mean = sum(valid_values) / len(valid_values)
+    assert torch.allclose(gmean.cpu(), torch.tensor(expected_mean)), f"masked_mean@{rank}"
 
     dist.destroy_process_group()
 
