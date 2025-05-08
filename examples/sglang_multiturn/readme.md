@@ -9,7 +9,7 @@ This example demonstrates how to perform **multi-turn rollout** using SGLang wit
 
 ```bash
 cd examples/data_preprocess
-python3 gsm8k.py
+python3 gsm8k_multiturn_w_tool.py
 ```
 
 This will download and preprocess the GSM8K dataset into ~/data/gsm8k/.
