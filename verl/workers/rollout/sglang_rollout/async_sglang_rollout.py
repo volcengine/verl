@@ -219,6 +219,9 @@ class AsyncSGLangRollout(BaseRollout):
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
         self._device_mesh_cpu = device_mesh_cpu
+        # Get the rank of this process in the whole world
+        self._rank = device_mesh_cpu.get_rank()
+        # Get the rank of this process in the tp group
         self._tp_rank = device_mesh_cpu["tp"].get_local_rank()
         self._tp_size = device_mesh_cpu["tp"].size()
         tp_size_per_node = self._tp_size // nnodes
@@ -583,7 +586,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
-            rank=self._tp_rank,
+            rank=self._rank,
             dist_group=self._device_mesh_cpu["tp"].get_group(),
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
             force_cpu_device=False,
