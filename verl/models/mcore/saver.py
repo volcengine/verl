@@ -453,3 +453,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
 
 def merge_megatron_ckpt_gptmodel_qwen_moe(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen_moe is not implemented")
+
+
+def merge_megatron_ckpt_gptmodel_mixtral(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+    raise NotImplementedError("merge_megatron_ckpt_gptmodel_mixtral is not implemented")

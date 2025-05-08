@@ -92,6 +92,8 @@ class WorkerMeta:
 class Worker(WorkerHelper):
     """A (distributed) worker."""
 
+    fused_worker_attr_name = "fused_worker_dict"
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
 
@@ -132,17 +134,14 @@ class Worker(WorkerHelper):
         ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
-        # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
-
-        ###
-        # [SUPPORT AMD: torch]
         import torch
-        ###
+        from packaging import version
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("ROCR_VISIBLE_DEVICES")
             os.environ["LOCAL_RANK"] = os.environ.get("RAY_LOCAL_RANK")
         ###
@@ -160,13 +159,8 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             self.local_rank = int(os.environ["LOCAL_RANK"])
-        ###
-
-        ###
-        # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
             cuda_visible_devices = str(local_rank)
         ###
 
@@ -186,10 +180,14 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        # torch.cuda.set_device(local_rank)
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             torch.cuda.set_device(int(cuda_visible_devices))
         ###
+
+        self.fused_worker_dict = {}
+
+    def get_fused_worker_by_name(self, worker_name: str):
+        return self.fused_worker_dict.get(worker_name, None)
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """

@@ -48,7 +48,9 @@ class MegatronRewardModel(BasePPORewardModel):
         self.rm_tokenizer = rm_tokenizer
         self.use_different_tokenizer = rm_tokenizer is not None
 
-        if self.config.param_offload:
+        print(f"MegatronRewardModel.config: {self.config}")
+
+        if self.config.megatron.param_offload:
             self.offload_params_to_cpu()
 
     def re_encode_by_rm_tokenizer(self, data: DataProto) -> DataProto:
@@ -81,7 +83,8 @@ class MegatronRewardModel(BasePPORewardModel):
                 # only print first decode result
                 print(
                     f"device {torch.cuda.current_device()}: sft decode result:\n{decode_result}\n \
-                        \ndevice {torch.cuda.current_device()}: sft decode result with rm chat template:\n{decode_with_rm_chat}\n\n"
+                        \ndevice {torch.cuda.current_device()}: sft decode result with \
+                        rm chat template:\n{decode_with_rm_chat}\n\n"
                 )
                 print_decode = False
             # 3. encode by rm_tokenizer
@@ -116,7 +119,7 @@ class MegatronRewardModel(BasePPORewardModel):
 
     @torch.no_grad()
     def compute_reward(self, data: DataProto) -> DataProto:
-        if self.config.param_offload:
+        if self.config.megatron.param_offload:
             self.load_params_to_cuda()
 
         if self.use_different_tokenizer:
@@ -133,13 +136,14 @@ class MegatronRewardModel(BasePPORewardModel):
         with torch.no_grad():
             output = self.forward_batch(data)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                logits = torch.cat([output], dim=0)
+                logits = torch.cat(output, dim=0)
             else:
                 logits = torch.empty(
                     (input_ids.shape[0], input_ids.shape[1]),
-                    dtype=torch.bfloat16,  # TODO(sgm): check why is bfloat16
                     device=input_ids.device,
                 )
+            logits = logits.to(torch.float32)
+
             # broadcast across pp ranks
             torch.distributed.broadcast(
                 tensor=logits,
@@ -170,7 +174,7 @@ class MegatronRewardModel(BasePPORewardModel):
         token_level_rewards = token_level_rewards * eos_mask
         token_level_rewards = token_level_rewards[:, -response_length:]
 
-        if self.config.param_offload:
+        if self.config.megatron.param_offload:
             self.offload_params_to_cpu()
         else:
             # add empty cache after each compute
@@ -192,8 +196,8 @@ class MegatronRewardModel(BasePPORewardModel):
         broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
 
         # split into micro-batches
-        if self.config is not None and "ppo_micro_batch_size_per_gpu" in self.config:
-            infer_batch_size = self.config.ppo_micro_batch_size_per_gpu
+        if self.config is not None and "micro_batch_size_per_gpu" in self.config:
+            infer_batch_size = self.config.micro_batch_size_per_gpu
         else:
             infer_batch_size = data.batch.batch_size[0]
 
@@ -206,7 +210,7 @@ class MegatronRewardModel(BasePPORewardModel):
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output):
-            return 1.0, {"logits": output}
+            return 1.0, output
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)

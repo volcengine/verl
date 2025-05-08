@@ -1,4 +1,4 @@
-name: ray
+name: ray_cpu
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,8 +13,8 @@ on:
       - v0.*
     paths:
       - "verl/single_controller/*.py"
-      - .github/workflows/ray_test.yml
-      - "!recipe/**"
+      - .github/workflows/ray_cpu_test.yml
+      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -26,26 +26,23 @@ permissions:
   contents: read
 
 jobs:
-  ray:
-    runs-on: [L20x8]
+  ray_cpu:
+    runs-on: ubuntu-latest
     timeout-minutes: 10 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
-      options: --gpus all --shm-size=10g
+    strategy:
+      matrix:
+        python-version: ["3.10"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
-          fetch-depth: 0
+          python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
           pip install -e .[test]
           pip install --upgrade "ray>=2.40.0"
-      - name: Running ray tests that need 8 GPUs
+      - name: Running ray tests that can be tested on CPU machines
         run: |
-          cd tests/ray
-          pytest -s -x --ignore=test_check_worker_alive.py --ignore=test_rvdz.py .
+          cd tests/ray_cpu
+          pytest -s -x --ignore=test_check_worker_alive.py .
