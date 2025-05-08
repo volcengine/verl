@@ -81,7 +81,7 @@ verl is fast with:
 
 ## Key Features
 
-- **FSDP** and **Megatron-LM** for training.
+- **FSDP**, **FSDP2** and **Megatron-LM** for training.
 - **vLLM**, **SGLang** and **HF Transformers** for rollout generation.
 - Compatible with Hugging Face Transformers and Modelscope Hub: [Qwen-3](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3-8b.sh), Qwen-2.5, Llama3.1, Gemma2, DeepSeek-LLM, etc
 - Supervised fine-tuning.
@@ -159,9 +159,21 @@ verl now supports vLLM>=0.8.2 when using FSDP as the training backend. Please re
 
 SGLang is fully supported with verl, and SGLang RL Group is working extensively on building unique features, including multi-turn agentic RL, VLM RLHF, server-based RL, and partial rollout. Please refer to [this document](https://verl.readthedocs.io/en/latest/workers/sglang_worker.html) for the installation guide and more information.
 
+## Upgrade to FSDP2
+
+verl is fully embracing FSDP2! FSDP2 is recommended by torch distributed team, providing better throughput and memory usage, and is composible with other features (e.g. torch.compile). To enable FSDP2, simply use verl main and set the following options:
+```
+actor_rollout_ref.ref.strategy=fsdp2
+actor_rollout_ref.actor.strategy=fsdp2
+critic.strategy=fsdp2 
+reward_model.strategy=fsdp2 
+```
+Furthermore, FSDP2 cpu offloading is compatible with gradient accumulation. You can turn it on to save memory with `actor_rollout_ref.actor.offload_policy=True`. For more details, see https://github.com/volcengine/verl/pull/1026
+
 ## [Hardware] Support AMD (ROCm Kernel)
 
 verl now supports FSDP as the training engine (Megatron support coming soon) and both integrates with vLLM and SGLang as inference engines. Please refer to [this document](https://github.com/volcengine/verl/blob/main/docs/amd_tutorial/amd_build_dockerfile_page.rst) for the installation guide and more information, and [this document](https://github.com/volcengine/verl/blob/main/docs/amd_tutorial/amd_vllm_page.rst) for the vLLM performance tuning for ROCm.
+
 
 ## Citation and acknowledgement
 
