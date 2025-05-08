@@ -19,7 +19,7 @@ from typing import List, Dict, Any
 
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
-from verl.single_controller.torchrpc.node import NodeManager, NodeResource
+from verl.single_controller.torchrpc.node import node_manager, NodeResource
 from verl.single_controller.torchrpc.utils import call_remote_actor, rref_to_here
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
@@ -56,8 +56,6 @@ class TorchRPCResourcePool(ResourcePool):
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
         self.resources = None
-        global node_manager
-        self.node_manager = node_manager
 
     def get_resources(self):
         if self.resources is not None:
@@ -65,7 +63,7 @@ class TorchRPCResourcePool(ResourcePool):
         
         self.resources = []
         for process_count in self._store:
-            self.resources.append(self.node_manager.dispatch(process_count if self.use_gpu else 0))
+            self.resources.append(node_manager.dispatch(process_count if self.use_gpu else 0))
         return self.resources
 
 class TorchRPCClassWithInitArgs(ClassWithInitArgs):
@@ -219,8 +217,7 @@ def torchrpc_remote(torchrpc_func):
         world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
         rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
         if rank == 0:
-            global node_manager
-            node_manager = NodeManager()
+            node_manager.init()
             torchrpc_func()
         rpc.shutdown()
     return wrapper

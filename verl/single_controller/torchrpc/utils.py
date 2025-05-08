@@ -6,15 +6,15 @@ import dill
 
 # TODO: 重构LocalActor，使其更清真。
 
-def _local_actor_runner(pickled_cls, args, kwargs, env_vars, input_queue, output_queue):
+def _local_actor_runner(pickled_args, input_queue, output_queue):
+    cls, args, kwargs, env_vars = dill.loads(pickled_args)
     if env_vars is not None:
         for k, v in env_vars.items():
             os.environ[k] = v
-    cls = dill.loads(pickled_cls)
     inst = cls(*args, **kwargs)
     while True:
-        cmd = input_queue.get()
-        method_name, args, kwargs = cmd
+        pickled_cmd = input_queue.get()
+        method_name, args, kwargs = dill.loads(pickled_cmd)
         method = getattr(inst, method_name)
         result = method(*args, **kwargs)
         output_queue.put(result)
@@ -24,12 +24,11 @@ class LocalActor:
         ctx = mp.get_context('spawn')
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
-        pickled_cls = dill.dumps(cls)
-        self.process = ctx.Process(target=_local_actor_runner, args=(pickled_cls, args, kwargs, env_vars, self.input_queue, self.output_queue), daemon=True)
+        self.process = ctx.Process(target=_local_actor_runner, args=(dill.dumps((cls, args, kwargs, env_vars)), self.input_queue, self.output_queue), daemon=True)
         self.process.start()
 
     def run(self, method_name, args, kwargs):
-        self.input_queue.put((method_name, args, kwargs))
+        self.input_queue.put(dill.dumps((method_name, args, kwargs)))
         return self.output_queue.get()
 
 class LocalActorManager:

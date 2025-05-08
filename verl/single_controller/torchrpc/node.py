@@ -7,7 +7,7 @@ class Node:
     def __init__(self, name):
         self.name = name
         self.local_actor_manager_rref = rpc.remote(self.name, LocalActorManager)
-        self.dispatched_resources = []
+        # self.dispatched_resources = []
         # TODO: 初始化获取可用资源
         self.gpus = [0, 1, 2, 3, 4, 5, 6, 7]
 
@@ -17,12 +17,12 @@ class Node:
         gpus = self.gpus[:gpu]
         self.gpus = self.gpus[gpu:]
         ret = NodeResource(self, gpus)
-        self.dispatched_resources.append(ret)
+        # self.dispatched_resources.append(ret)
         return ret
 
     def recycle(self, resource: 'NodeResource'):
         self.gpus.extend(resource.gpus)
-        self.dispatched_resources.remove(resource)
+        # self.dispatched_resources.remove(resource)
 
 
 class NodeResource:
@@ -36,15 +36,20 @@ class NodeResource:
         rref = call_remote_actor(self.node.local_actor_manager_rref, 'create_local_actor', (cls, args, kwargs, env_vars, gpus), {})
         self.actors.append(rref)
         return rref
-    
+
     def __del__(self):
         self.node.recycle(self)
 
 
 class NodeManager:
     def __init__(self):
-        world_size = int(os.environ['TORCHRPC_WORLD_SIZE'])
-        self.nodes = [Node(f'torchrpc_worker{i}') for i in range(world_size)]
+        self._initiated = False
+    
+    def init(self):
+        if not self._initiated:
+            self._initiated = True
+            world_size = int(os.environ['TORCHRPC_WORLD_SIZE'])
+            self.nodes = [Node(f'torchrpc_worker{i}') for i in range(world_size)]
 
     def dispatch(self, gpu) -> NodeResource:
         # TODO: CPU only下全部派给一个node
@@ -55,3 +60,5 @@ class NodeManager:
                     ret = node
         assert ret is not None
         return ret.dispatch(gpu)
+
+node_manager = NodeManager()

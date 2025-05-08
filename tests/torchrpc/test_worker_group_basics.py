@@ -66,8 +66,8 @@ def add_one(data):
     return data
 
 @torchrpc_remote
-def test_basics(node_manager):
-    resource_pool = TorchRPCResourcePool(node_manager, [2,2], use_gpu=True)
+def test_basics():
+    resource_pool = TorchRPCResourcePool([2,2], use_gpu=True)
     class_with_args = TorchRPCClassWithInitArgs(cls=TestActor, x=2)
     worker_group = TorchRPCWorkerGroup(
         resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic"
@@ -95,7 +95,6 @@ def test_basics(node_manager):
 
     output_ref = worker_group.foo_rank_zero(x=1, y=2)
     assert output_ref == 5
-    print("FINISHED!!!!!!")
 
 if __name__ == "__main__":
     test_basics()

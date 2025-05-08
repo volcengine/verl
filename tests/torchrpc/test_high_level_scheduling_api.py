@@ -16,7 +16,6 @@ import time
 
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.torchrpc.base import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, torchrpc_remote
-from verl.single_controller.torchrpc.node import NodeManager
 
 
 class TestActor(Worker):
@@ -26,10 +25,10 @@ class TestActor(Worker):
 
 
 @torchrpc_remote
-def test(node_manager):
+def test():
     # test single-node-no-partition
     print("test single-node-no-partition")
-    resource_pool = TorchRPCResourcePool(node_manager, [8], use_gpu=True)
+    resource_pool = TorchRPCResourcePool([8], use_gpu=True)
 
     class_with_args = TorchRPCClassWithInitArgs(cls=TestActor)
 
@@ -56,8 +55,8 @@ def test(node_manager):
     
     # test single-node-multi-partition
     print("test single-node-multi-partition")
-    rm_resource_pool = TorchRPCResourcePool(node_manager, [4], use_gpu=True)
-    ref_resource_pool = TorchRPCResourcePool(node_manager, [4], use_gpu=True)
+    rm_resource_pool = TorchRPCResourcePool([4], use_gpu=True)
+    ref_resource_pool = TorchRPCResourcePool([4], use_gpu=True)
 
     assert rm_resource_pool.world_size == 4
     assert ref_resource_pool.world_size == 4
@@ -71,8 +70,6 @@ def test(node_manager):
     # assert critic_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(8)]
     assert rm_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4)]
     assert ref_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4, 8)]
-
-    print("FINISHED!!!!!")
 
 if __name__ == "__main__":
     test()
