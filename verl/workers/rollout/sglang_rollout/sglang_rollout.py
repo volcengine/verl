@@ -99,6 +99,7 @@ class SGLangRollout(BaseRollout):
         tokenizer,
         model_hf_config,
         port=None,
+        trust_remote_code: bool = False,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -147,11 +148,12 @@ class SGLangRollout(BaseRollout):
         rank = device_mesh_cpu.get_rank()
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        
+
         ###
         # [SUPPORT AMD: torch]
-        from packaging import version
         import ray
+        from packaging import version
+
         if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) >= version.parse("2.45.0"):
             torch.distributed.all_gather_object(visible_devices, os.environ["HIP_VISIBLE_DEVICES_ENV_VAR"], device_mesh_cpu.get_group("tp"))
             visible_devices_set = set(",".join(visible_devices).split(","))
@@ -190,6 +192,7 @@ class SGLangRollout(BaseRollout):
             load_format=load_format,
             dist_init_addr=dist_init_addr,
             nnodes=nnodes,
+            trust_remote_code=trust_remote_code,
             # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
             # when random.seed is being set during training
             port=30000 + rank,
