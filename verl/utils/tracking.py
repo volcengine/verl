@@ -70,6 +70,9 @@ class Tracking:
             SWANLAB_MODE = os.environ.get("SWANLAB_MODE", "cloud")
             if SWANLAB_API_KEY:
                 swanlab.login(SWANLAB_API_KEY)  # NOTE: previous login information will be overwritten
+            
+            if config is None:
+                config = {} # make sure config is not None, otherwise **config will raise error
             swanlab.init(
                 project=project_name,
                 experiment_name=experiment_name,
