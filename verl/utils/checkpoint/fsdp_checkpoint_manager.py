@@ -18,9 +18,9 @@ from typing import Optional, Union
 
 import torch
 import torch.distributed
+from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
-from transformers import PreTrainedTokenizer, ProcessorMixin
+from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
@@ -170,19 +170,69 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     torch.save(extra_state_dict, extra_path)
                     print(f"[rank-{self.rank}]: Saving extra_state to {os.path.abspath(extra_path)}")
 
-        if self.save_hf_model:
-            # wait for everyone to dump to local
-            torch.distributed.barrier()
-
         if self.rank == 0:
+            if fsdp_version(self.model) == 1:
+                unwrap_model = self.model._fsdp_wrapped_module
+            else:
+                unwrap_model = self.model
+
+            model_config = unwrap_model.config
+            if unwrap_model.can_generate() and hasattr(model_config, "name_or_path") and model_config.name_or_path:
+                # Some model's name_or_path is empty if not initialized from pretrained,
+                # in this cases, we don't save generation config.
+                generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+                generation_config.save_pretrained(local_path)
+            else:
+                generation_config = None
+
+            model_config.save_pretrained(local_path)
+            self.processing_class.save_pretrained(local_path)
+
+        # wait for everyone to dump to local
+        torch.distributed.barrier()
+
+        if self.save_hf_model:
             hf_local_path = os.path.join(local_path, "huggingface")
             os.makedirs(hf_local_path, exist_ok=True)
-            if fsdp_version(self.model) == 1:
-                self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-            else:
-                self.model.config.save_pretrained(hf_local_path)
-            self.processing_class.save_pretrained(hf_local_path)
 
-        torch.distributed.barrier()
+            # Only rank 0 will save hf model and,
+            # offload to cpu to save LLMs which may be too large to fit in one GPU
+            state_dict_config = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with get_fsdp_state_ctx(self.model, StateDictType.FULL_STATE_DICT, state_dict_config, None):
+                state_dict = self.model.state_dict()
+
+            if self.rank == 0:
+                if "ForTokenClassification" in model_config.architectures[0]:
+                    from transformers import AutoModelForTokenClassification
+
+                    auto_model_cls = AutoModelForTokenClassification
+                elif "ForCausalLM" in model_config.architectures[0]:
+                    from transformers import AutoModelForCausalLM
+
+                    auto_model_cls = AutoModelForCausalLM
+                elif "ForConditionalGeneration" in model_config.architectures[0]:
+                    from transformers import AutoModelForVision2Seq
+
+                    auto_model_cls = AutoModelForVision2Seq
+                else:
+                    raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
+
+                with torch.device("meta"):
+                    save_model = auto_model_cls.from_config(model_config, torch_dtype=torch.bfloat16)
+                save_model.to_empty(device="cpu")
+
+                if save_model.can_generate():
+                    if generation_config is not None:
+                        save_model.generation_config = generation_config
+                    else:
+                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in, using a generation config created from the model config when saving hf_model.")
+
+                save_model.save_pretrained(hf_local_path, state_dict=state_dict)
+                self.processing_class.save_pretrained(hf_local_path)
+                del state_dict
+                del save_model
+
+            # wait for rank0 to dump hf_model to local
+            torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)

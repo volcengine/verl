@@ -14,7 +14,7 @@ on:
     paths:
       - "verl/single_controller/*.py"
       - .github/workflows/ray_gpu_test.yml
-      - "!recipe/**"
+      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:

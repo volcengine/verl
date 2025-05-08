@@ -48,23 +48,6 @@ class CODE_TYPE(Enum):
     call_based = 0
     standard_input = 1
 
-
-# stuff for setting up signal timer
-class TimeoutException(Exception):
-    pass
-
-
-def timeout_handler(signum, frame):
-    print("alarm went off")
-    return
-    # raise TimeoutException # this is an unhandled exception. just return None is OK
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
-
-# timeout = 6  # seconds
-
-
 # used to capture stdout as a list
 # from https://stackoverflow.com/a/16571630/6416660
 # alternative use redirect_stdout() from contextlib
