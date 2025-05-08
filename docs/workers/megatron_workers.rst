@@ -193,6 +193,13 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/mega
   the last pp.
 - Update the actor model weight using PPO & entropy loss.
 
+
+..note:: 
+
+   Currently, training Tensor Parallel Size can be different from inference
+   Tensor Parallel Size.
+
+
 ReferenceModel
 ''''''''''''''
 
