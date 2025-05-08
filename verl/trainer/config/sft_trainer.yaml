@@ -23,7 +23,7 @@ data:
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   fsdp_config:
-    model_dtype: bfloat16
+    model_dtype: fp32
     wrap_policy:
       min_num_params: 0
     cpu_offload: False
