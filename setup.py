@@ -40,6 +40,7 @@ install_requires = [
     "tensordict<=0.6.2",
     "transformers",
     "wandb",
+    "packaging>=20.0",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
