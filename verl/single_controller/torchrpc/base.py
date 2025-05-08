@@ -49,7 +49,6 @@ def _get_available_master_addr_port():
 # name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
     def __init__(self,
-                 node_manager: NodeManager,
                  process_on_nodes: List[int] = None,
                  use_gpu: bool = True,
                  max_colocate_count: int = 5,
@@ -57,6 +56,7 @@ class TorchRPCResourcePool(ResourcePool):
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
         self.resources = None
+        global node_manager
         self.node_manager = node_manager
 
     def get_resources(self):
@@ -219,7 +219,8 @@ def torchrpc_remote(torchrpc_func):
         world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
         rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
         if rank == 0:
+            global node_manager
             node_manager = NodeManager()
-            torchrpc_func(node_manager)
+            torchrpc_func()
         rpc.shutdown()
     return wrapper

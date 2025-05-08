@@ -2,13 +2,15 @@ import os
 import torch.distributed.rpc as rpc
 import multiprocessing as mp
 import threading
+import dill
 
 # TODO: 重构LocalActor，使其更清真。
 
-def _local_actor_runner(cls, args, kwargs, env_vars, input_queue, output_queue):
+def _local_actor_runner(pickled_cls, args, kwargs, env_vars, input_queue, output_queue):
     if env_vars is not None:
         for k, v in env_vars.items():
             os.environ[k] = v
+    cls = dill.loads(pickled_cls)
     inst = cls(*args, **kwargs)
     while True:
         cmd = input_queue.get()
@@ -22,7 +24,8 @@ class LocalActor:
         ctx = mp.get_context('spawn')
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
-        self.process = ctx.Process(target=_local_actor_runner, args=(cls, args, kwargs, env_vars, self.input_queue, self.output_queue), daemon=True)
+        pickled_cls = dill.dumps(cls)
+        self.process = ctx.Process(target=_local_actor_runner, args=(pickled_cls, args, kwargs, env_vars, self.input_queue, self.output_queue), daemon=True)
         self.process.start()
 
     def run(self, method_name, args, kwargs):
