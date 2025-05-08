@@ -50,8 +50,17 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
+
         self.use_remove_padding = self.config.get("use_remove_padding", False)
         print(f"Actor use_remove_padding={self.use_remove_padding}")
+        self.return_last_hidden_state = self.config.get("return_last_hidden_state", False)
+        print(f"Actor return_last_hidden_state={self.return_last_hidden_state}")
+        self.use_fused_loss = self.config.get("use_fused_loss", False)
+        print(f"Actor use_fused_loss={self.use_fused_loss}")
+
+        if self.use_fused_loss:
+            assert self.return_last_hidden_state, "Unable to use `use_fused_loss` without `return_last_hidden_state`"
+
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
@@ -97,8 +106,16 @@ class DataParallelPPOActor(BasePPOActor):
 
                 # pad and slice the inputs if sp > 1
                 if self.use_ulysses_sp:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
-                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, self.ulysses_sequence_parallel_size)
+                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad,
+                        position_ids_rmpad=position_ids_rmpad,
+                        sp_size=self.ulysses_sequence_parallel_size,
+                    )
+                    input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
+                        input_ids_rmpad_rolled,
+                        position_ids_rmpad=None,
+                        sp_size=self.ulysses_sequence_parallel_size,
+                    )
 
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
@@ -110,30 +127,81 @@ class DataParallelPPOActor(BasePPOActor):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
-                logits_rmpad.div_(temperature)
+                if self.use_fused_loss:
+                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
 
-                # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                inplace_backward = True
-                if calculate_entropy:
-                    inplace_backward = False
-                log_probs = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled, inplace_backward=inplace_backward)
+                    hidden_states = output.last_hidden_state
+                    vocab_weights = self.actor_module.lm_head.weight
 
-                # compute entropy
-                if calculate_entropy:
-                    entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
+                    log_probs = fused_log_probs(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                        input_ids=input_ids_rmpad_rolled[None],
+                        temperature=temperature,
+                    ).squeeze(0)
+                    if calculate_entropy:
+                        entropy_rmpad = fused_entropy(
+                            hidden_states=hidden_states,
+                            vocab_weights=vocab_weights,
+                            temperature=temperature,
+                        ).squeeze(0)
+
+                else:
+                    if self.return_last_hidden_state:
+                        hidden_states = output.last_hidden_state
+                        logits = self.actor_module.lm_head(hidden_states)
+                        logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
+                    else:
+                        logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+
+                    # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                    logits_rmpad.div_(temperature)
+
+                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                    inplace_backward = True
+                    if calculate_entropy:
+                        inplace_backward = False
+                    log_probs = logprobs_from_logits(
+                        logits=logits_rmpad,
+                        labels=input_ids_rmpad_rolled,
+                        inplace_backward=inplace_backward,
+                    )
+
+                    # compute entropy
+                    if calculate_entropy:
+                        entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
                     # gather and unpad for the ulysses sp
-                    log_probs = gather_outpus_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                    log_probs = gather_outpus_and_unpad(
+                        log_probs,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
+                    )
                     if calculate_entropy:
-                        entropy_rmpad = gather_outpus_and_unpad(entropy_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                        entropy_rmpad = gather_outpus_and_unpad(
+                            entropy_rmpad,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size,
+                        )
                 # pad back to (bsz, seqlen)
                 if calculate_entropy:
-                    full_entropy = pad_input(hidden_states=entropy_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
-                full_log_probs = pad_input(hidden_states=log_probs.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
+                    full_entropy = pad_input(
+                        hidden_states=entropy_rmpad.unsqueeze(-1),
+                        indices=indices,
+                        batch=batch_size,
+                        seqlen=seqlen,
+                    )
+                full_log_probs = pad_input(
+                    hidden_states=log_probs.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
+                )
 
                 # only return response part:
                 if calculate_entropy:
@@ -148,12 +216,37 @@ class DataParallelPPOActor(BasePPOActor):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-                logits = output.logits
-                logits.div_(temperature)
-                logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
-                log_probs = logprobs_from_logits(logits, micro_batch["responses"])
-                if calculate_entropy:
-                    entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+
+                if self.use_fused_loss:
+                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
+
+                    hidden_states = output.last_hidden_state
+                    vocab_weights = self.actor_module.lm_head.weight
+
+                    log_probs = fused_log_probs(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                        input_ids=micro_batch["responses"],
+                        temperature=temperature,
+                    )
+                    entropy = fused_entropy(
+                        hidden_states=hidden_states,
+                        vocab_weights=vocab_weights,
+                        temperature=temperature,
+                    )
+
+                else:
+                    if self.return_last_hidden_state:
+                        hidden_states = output.last_hidden_state
+                        logits = self.actor_module.lm_head(hidden_states)
+                    else:
+                        logits = output.logits
+
+                    logits.div_(temperature)
+                    logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                    if calculate_entropy:
+                        entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
 
             return entropy, log_probs
 
