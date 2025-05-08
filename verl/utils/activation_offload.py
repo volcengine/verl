@@ -18,10 +18,15 @@
 from __future__ import annotations
 
 import functools
+import logging
+import os
 from typing import Any, Optional
 
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def _get_unique_tensor_key(tensor):
@@ -496,6 +501,7 @@ def enable_activation_offload_for_fsdp_model(model, enable_ckpt=False):
 
     get_layers(model)
     if len(layers) < 3:
+        logger.warning(f"Find only {len(layers)} fsdp layers, not neccessary to enable async activation offloading")
         return
 
     tensor_filter = FSDPParameterFilter()
