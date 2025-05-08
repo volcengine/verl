@@ -264,7 +264,7 @@ def test_vllm_tool_calling():
     # Init sandbox and async rollout manager
     sandbox = Sandbox.options(num_cpus=1).remote()
     sandbox_address = ray.get(sandbox.get_server_address.remote())
-    worker_groups, async_rollout_manager = init_async_rollout_manager(config, scheduler_kwargs={"sandbox_address": sandbox_address, "system_prompt": system_prompt})
+    async_rollout_manager = init_async_rollout_manager(config, scheduler_kwargs={"sandbox_address": sandbox_address, "system_prompt": system_prompt})
 
     # Build dataset
     dataset = load_dataset("Maxwell-Jia/AIME_2024", split="train")
