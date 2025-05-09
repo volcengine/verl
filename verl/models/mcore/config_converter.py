@@ -174,8 +174,7 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         context_parallel_size=mpu.get_context_parallel_world_size(),
         overlap_p2p_comm=overlap_p2p_comm,
         batch_p2p_comm=batch_p2p_comm,
-        # sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
-        sequence_parallel=False,
+        sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
         attention_backend=AttnBackend.flash,
         # moe specific
         moe_token_dispatcher_type="alltoall",
