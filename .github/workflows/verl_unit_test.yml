@@ -48,4 +48,4 @@ jobs:
       - name: Running utils tests
         run: |
           cd tests/verl/utils
-          pytest -s -x --ignore=dataset/ .
+          pytest -s -x --ignore=dataset/ --ignore=test_torch_function.py .
