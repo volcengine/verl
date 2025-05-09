@@ -266,7 +266,7 @@ def postprocess_data(
     """
     input_data is the output from tokenizer.
     """
-    assert truncation in ["left", "right", "error"]
+    assert truncation in ["left", "right", "middle", "error"]
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
@@ -281,6 +281,11 @@ def postprocess_data(
         elif truncation == "right":
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
+        elif truncation == "middle":
+            left_half = max_length // 2
+            right_half = max_length - left_half
+            input_ids = torch.cat([input_ids[:, :left_half], input_ids[:, -right_half:]], dim=-1)
+            attention_mask = torch.cat([attention_mask[:, :left_half], attention_mask[:, -right_half:]], dim=-1)
         elif truncation == "error":
             raise NotImplementedError(f"{sequence_length=} is larger than {max_length=}")
         else:
