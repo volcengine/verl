@@ -22,7 +22,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 
-from verl.utils.activation_offload import enable_activation_offload_for_fsdp_model
+from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy
@@ -89,7 +89,7 @@ def test_fsdp_activation_offloading():
         logits_without_offloading = model(input_ids=input_ids2, attention_mask=attention_mask2).logits
 
     # Step 3: wrap module with activation offloading and load checkpoint
-    enable_activation_offload_for_fsdp_model(model)
+    enable_activation_offloading(model, "fsdp")
     checkpoint_manager.load_checkpoint(checkpoint_path)
 
     # Step 4: Repeat the second update with same input
