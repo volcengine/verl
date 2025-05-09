@@ -106,4 +106,4 @@ jobs:
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
-          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/utils/checkpoint/test_fsdp_ckpt.py

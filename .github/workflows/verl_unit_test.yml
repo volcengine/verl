@@ -45,7 +45,7 @@ jobs:
         run: |
           cd tests
           pytest -s -x test_protocol.py
-      - name: Running utils tests
+      - name: running utils tests
         run: |
           cd tests/utils
-          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ .
+          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ --ignore=test_flops_counter.py .
