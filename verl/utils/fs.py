@@ -40,14 +40,17 @@ def md5_encode(path: str) -> str:
 
 
 def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
-    """Return a local temp path that joins cache_dir and basename of hdfs_path
+    """Generate a unique local cache path for an HDFS resource.
+    Creates a MD5-hashed subdirectory in cache_dir to avoid name conflicts,
+    then returns path combining this subdirectory with the HDFS basename.
 
     Args:
-        hdfs_path:
-        cache_dir:
+        hdfs_path (str): Source HDFS path to be cached
+        cache_dir (str): Local directory for storing cached files
 
     Returns:
-
+        str: Absolute local filesystem path in format:
+            {cache_dir}/{md5(hdfs_path)}/{basename(hdfs_path)}
     """
     # make a base64 encoding of hdfs_path to avoid directory conflict
     encoded_hdfs_path = md5_encode(hdfs_path)
@@ -89,15 +92,17 @@ def _check_directory_structure(folder_path, record_file):
 
 
 def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
-    """Copy src from hdfs to local if src is on hdfs or directly return src.
-    If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
-    the src name is the same between calls
+    """Copy files/directories from HDFS to local cache with validation.
 
     Args:
-        src (str): a HDFS path of a local path
+        src (str): Source path - HDFS path (hdfs://...) or local filesystem path
+        cache_dir (str, optional): Local directory for cached files. Uses system tempdir if None
+        filelock (str): Base name for file lock. Defaults to ".file.lock"
+        verbose (bool): Enable copy operation logging. Defaults to False
+        always_recopy (bool): Force fresh copy ignoring cache. Defaults to False
 
     Returns:
-        a local path of the copied file
+        str: Local filesystem path to copied resource
     """
     return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
 

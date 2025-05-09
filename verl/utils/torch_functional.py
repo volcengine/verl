@@ -248,10 +248,10 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     pad a 2D tensors (e.g. responses, logprobs) in the last dim to max_seq_length.
     input shape: [bs, seq_length]
     output shape: [bs, max_seq_length]
-    (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     """
     if tensors.shape[-1] >= max_seq_len:
         return tensors
+    # (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
     return F.pad(tensors, pad_tuple, "constant", pad_token_id)
 
@@ -264,8 +264,18 @@ def postprocess_data(
     left_pad=True,
     truncation="error",
 ):
-    """
-    input_ids and attention_mask are output from tokenizer.
+    """Process tokenizer outputs to consistent shapes via padding/truncation.
+
+    Args:
+        input_ids: Token indices [batch_size, seq_len]
+        attention_mask: Mask [batch_size, seq_len]
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: "left", "right" or "error"
+
+    Returns:
+        (input_ids, attention_mask) padded/truncated to max_length
     """
     assert truncation in ["left", "right", "error"]
     assert input_ids.ndim == 2
@@ -291,8 +301,18 @@ def postprocess_data(
 
 
 def tokenize_and_postprocess_data(prompt: str, tokenizer: PreTrainedTokenizer, max_length: int, pad_token_id: int, left_pad=True, truncation="error"):
-    """
-    input_data is the output from tokenizer.
+    """Tokenize text and process outputs to consistent tensor shapes.
+
+    Args:
+        prompt: Input text to tokenize
+        tokenizer: HuggingFace tokenizer instance
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: Truncation strategy ("left"/"right"/"error")
+
+    Returns:
+        Tuple of (input_ids, attention_mask) from postprocess_data
     """
     input_data = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
     input_ids = input_data["input_ids"]
@@ -581,14 +601,16 @@ def check_cuda_is_available():
 
 
 def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=True, compute_std=True):
-    """
-    Compute the mean of a tensor across all processes in a distributed setup.
+    """Compute distributed statistics across all processes.
 
     Args:
-        local_tensor (torch.Tensor): The local tensor on each process.
+        local_tensor: Tensor containing local values
+        compute_max: Include maximum value calculation
+        compute_min: Include minimum value calculation
+        compute_std: Include standard deviation calculation
 
     Returns:
-        torch.Tensor: The mean of the tensor across all processes.
+        Tuple containing (mean, max, min, std) in this order. None for disabled metrics.
     """
     # Sum the local tensor across all processes
     local_sum = torch.sum(local_tensor)
@@ -622,6 +644,15 @@ def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=Tru
 
 
 def distributed_masked_mean(local_tensor, local_mask):
+    """Compute global mean of non-masked elements across distributed processes.
+
+    Args:
+        local_tensor (torch.Tensor): Input tensor with local values
+        local_mask (torch.Tensor): Binary mask (1=valid, 0=ignore) matching local_tensor shape
+
+    Returns:
+        torch.Tensor: Global mean of all valid elements across processes
+    """
     local_tensor = local_tensor * local_mask
 
     local_sum = torch.sum(local_tensor)
