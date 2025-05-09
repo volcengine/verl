@@ -2,6 +2,7 @@ set -x
 
 python3 -m verl.trainer.main_ppo \
     reward_model.sandbox_fusion_url='https://xxxxxxxxx.apigateway-cn-beijing.volceapi.com/run_code' \
+    reward_model.sandbox_fusion_max_concurrent=128 \
     reward_model.reward_manager=prime \
     algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/Eurus-2-RL-Data/train.parquet \
@@ -34,8 +35,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_example_gsm8k' \
-    trainer.experiment_name='deepseek_llm_7b_function_rm' \
+    trainer.project_name='verl_example_sandbox_fusion' \
+    trainer.experiment_name='deepseek_llm_7b_function_sandbox_fusion' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \

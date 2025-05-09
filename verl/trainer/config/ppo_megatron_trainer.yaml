@@ -229,7 +229,8 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
-
+  sandbox_fusion_url: null # faas url to run code in cloud sandbox
+  sandbox_fusion_max_concurrent: 64 # max concurrent requests to sandbox
 custom_reward_function:
   path: null
   name: compute_score

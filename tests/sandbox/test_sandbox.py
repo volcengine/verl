@@ -11,16 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
- 
+
 import asyncio
 import json
 import os
+
 import pytest
 
-from verl.utils.reward_score import prime_code, sandbox_fusion, _default_compute_score
+from verl.utils.reward_score import _default_compute_score, prime_code, sandbox_fusion
 from verl.utils.reward_score.prime_code import apps_check_correctness
 from verl.workers.reward_manager.prime import parallel_compute_score_async
-
 
 prime_math_answers = [
     """\\begin{bmatrix}\n -7 & 6 & -8 \\\\\n 11 & -9 & 12 \\\\\n 15 & -16 & 19 \n \\end{bmatrix}""",
@@ -122,6 +122,7 @@ def test_prime_code():
         score = _default_compute_score(data_source, completion, ground_truth)
         assert float(score) == score_
 
+
 # Use the pytest.mark.skipif decorator to skip the test
 @pytest.mark.skipif(not os.environ.get("SANDBOX_FUSION_URL"), reason="SANDBOX_FUSION_URL environment variable not set")
 def test_prime_code_sandbox_fusion():
@@ -134,9 +135,9 @@ def test_prime_code_sandbox_fusion():
     # Removed the previous 'if not sandbox_url' check block
 
     for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
-        score = _default_compute_score(data_source, completion, ground_truth,
-                                        extra_info={"sandbox_fusion_url": sandbox_fusion_url}) # <-- Use the URL obtained from the environment variable
+        score = _default_compute_score(data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url})  # <-- Use the URL obtained from the environment variable
         assert float(score) == score_
+
 
 @pytest.mark.skipif(not os.environ.get("SANDBOX_FUSION_URL"), reason="SANDBOX_FUSION_URL environment variable not set")
 def test_continuous_score_consistency():
@@ -144,21 +145,16 @@ def test_continuous_score_consistency():
     Verify that continuous score calculation is consistent between prime_code and sandbox_fusion.
     Uses a test case where the first 9 out of 11 sub-cases pass (expected score 0.9).
     """
-    data_source = "codecontests"
-    completion = prime_code_answers[1] # Use the second sample
-    ground_truth = prime_code_gts[1]   # Use the second sample (9/11 pass, first 9 pass)
+    completion = prime_code_answers[1]  # Use the second sample
+    ground_truth = prime_code_gts[1]  # Use the second sample (9/11 pass, first 9 pass)
     expected_continuous_score = 0.9
 
     # 1. Calculate score using prime_code (default) with continuous=True
-    prime_score, _ = sandbox_fusion.compute_score(os.environ.get("SANDBOX_FUSION_URL"),
-                                                completion, ground_truth, continuous=True)
+    prime_score, _ = sandbox_fusion.compute_score(os.environ.get("SANDBOX_FUSION_URL"), None, completion, ground_truth, continuous=True)
 
     # 2. Calculate score using sandbox_fusion with continuous=True
-    sandbox_url = os.environ.get("SANDBOX_FUSION_URL")
     # Ensure the extra_info key triggers the sandbox_fusion path in _default_compute_score
-    sandbox_extra_info = {"sandbox_fusion_url": sandbox_url} # Or {"sandbox_fusion": True} if that's the trigger
-    fusion_score, _ = prime_code.compute_score(completion, ground_truth,
-                                             continuous=True)
+    fusion_score, _ = prime_code.compute_score(completion, ground_truth, continuous=True)
 
     # 3. Assert scores are equal (using pytest.approx for float comparison)
     assert float(prime_score) == pytest.approx(expected_continuous_score)
@@ -166,6 +162,7 @@ def test_continuous_score_consistency():
     assert float(prime_score) == pytest.approx(float(fusion_score))
     print(f"Continuous Score (Prime Code): {prime_score}")
     print(f"Continuous Score (Sandbox Fusion): {fusion_score}")
+
 
 def test_check_correctness():
     completion = prime_code_answers[0]

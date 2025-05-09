@@ -1,9 +1,11 @@
 import concurrent.futures  # <-- Import concurrent.futures
 import json
 import logging
-import time  # <-- Import time module
+import os
+import threading
+import time
 import traceback
-import uuid  # <-- Import uuid module
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -110,17 +112,25 @@ def call_sandbox_api(sandbox_fusion_url: str, code: str, stdin: str, compile_tim
     return None, last_error.replace(log_prefix, "API Call Failed: ") if last_error else "API Call Failed after retries"
 
 
-def _process_single_case(case_index: int, stdin_data: Any, expected_output: Any, sandbox_fusion_url: str, generation: str, timeout: int, language: str) -> Tuple[int, Dict[str, Any]]:
+def _process_single_case(case_index: int, stdin_data: Any, expected_output: Any, sandbox_fusion_url: str, generation: str, timeout: int, language: str, concurrent_semaphore: Optional[threading.Semaphore] = None) -> Tuple[int, Dict[str, Any]]:
     """Helper function to process a single test case."""
     api_response = None
     error_msg = None
-    logger.info(f"Processing test case {case_index + 1}.")  # Log case start
+    logger.info(f"Processing test case {case_index + 1}.")
 
     try:
-        api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=generation, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
+        if concurrent_semaphore:
+            # logger.debug(f"Case {case_index + 1}: Attempting to acquire semaphore.")
+            with concurrent_semaphore:
+                # logger.debug(f"Case {case_index + 1}: Semaphore acquired. Calling API.")
+                api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=generation, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
+            # logger.debug(f"Case {case_index + 1}: Semaphore released.")
+        else:
+            api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=generation, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
     except Exception as e:
-        error_msg = f"API Request Exception during check_correctness: {e}"
-        logger.error(f"Case {case_index}: {error_msg}")
+        error_msg = f"API Request Exception during check_correctness for case {case_index + 1}: {e}"
+        logger.error(f"Case {case_index + 1}: {error_msg}")
+        traceback.print_exc()
 
     metadata = {
         "case_index": case_index,
@@ -240,7 +250,7 @@ def _process_single_case(case_index: int, stdin_data: Any, expected_output: Any,
     return result_status, metadata
 
 
-def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generation: str, timeout: int = DEFAULT_TIMEOUT, language: str = "python") -> Tuple[List[Any], List[Dict[str, Any]]]:
+def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generation: str, timeout: int = DEFAULT_TIMEOUT, language: str = "python", concurrent_semaphore: Optional[threading.Semaphore] = None) -> Tuple[List[Any], List[Dict[str, Any]]]:
     """
     Checks the correctness of code generation using the remote sandbox API,
     processing test cases concurrently.
@@ -283,11 +293,10 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
 
     first_compile_error_index = -1
 
-    # Use ThreadPoolExecutor for concurrent execution
-    # Adjust max_workers based on expected load and API limits
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Submit all tasks
-        future_to_index = {executor.submit(_process_single_case, i, stdin_data, expected_outputs[i], sandbox_fusion_url, generation, timeout, language): i for i, stdin_data in enumerate(inputs)}
+    # max_workers is limited by sandbox_fusion_max_concurrent from concurrent_semaphore
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(32, os.cpu_count() * 5)) as executor:
+        # Submit all tasks, passing the concurrent_semaphore to _process_single_case
+        future_to_index = {executor.submit(_process_single_case, i, stdin_data, expected_outputs[i], sandbox_fusion_url, generation, timeout, language, concurrent_semaphore): i for i, stdin_data in enumerate(inputs)}
 
         # Process results as they complete
         for future in concurrent.futures.as_completed(future_to_index):

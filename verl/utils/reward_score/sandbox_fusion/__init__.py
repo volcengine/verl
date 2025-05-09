@@ -1,19 +1,20 @@
 import json
-import traceback
 import logging
+import traceback
 
 from .utils import check_correctness
 
-'''
+"""
 Verify code correctness using the sandbox_fusion FaaS service provided by public clouds. Public clouds covered by testing include:
 - volcengine.com
 
 sandbox_fusion comes from https://bytedance.github.io/SandboxFusion/
 
-'''
+"""
 logger = logging.getLogger(__name__)
 
-def compute_score(sandbox_fusion_url, completion, test_cases, continuous=False, timeout=10):
+
+def compute_score(sandbox_fusion_url, concurrent_semaphore, completion, test_cases, continuous=False, timeout=10):
     """
     Computes the code score using the remote sandbox API.
 
@@ -34,16 +35,15 @@ def compute_score(sandbox_fusion_url, completion, test_cases, continuous=False, 
     if "```python" in completion:
         solution = completion.split("```python")[-1].split("```")[0]
     elif "```" in completion:
-         # Handle cases like ```\ncode\n```
-         parts = completion.split("```")
-         if len(parts) >= 2:
-             solution = parts[1]
-             # Remove potential language specifier like 'python\n'
-             if '\n' in solution:
-                 first_line, rest = solution.split('\n', 1)
-                 if first_line.strip().isalpha(): # Simple check for language name
-                     solution = rest
-
+        # Handle cases like ```\ncode\n```
+        parts = completion.split("```")
+        if len(parts) >= 2:
+            solution = parts[1]
+            # Remove potential language specifier like 'python\n'
+            if "\n" in solution:
+                first_line, rest = solution.split("\n", 1)
+                if first_line.strip().isalpha():  # Simple check for language name
+                    solution = rest
 
     try:
         if not isinstance(test_cases, dict):
@@ -54,22 +54,17 @@ def compute_score(sandbox_fusion_url, completion, test_cases, continuous=False, 
                 return 0.0, [{"error": "Invalid test_cases JSON format"}]
 
         if not test_cases or "inputs" not in test_cases or "outputs" not in test_cases:
-             logger.error("Invalid test_cases structure.")
-             return 0.0, [{"error": "Invalid test_cases structure (missing inputs/outputs)"}]
+            logger.error("Invalid test_cases structure.")
+            return 0.0, [{"error": "Invalid test_cases structure (missing inputs/outputs)"}]
 
         # Check all test cases
         # Note: The return value of check_correctness might need adaptation here
         # Assume check_correctness returns (results_list, metadata_list)
         # results_list contains True, False, or error codes (-1, -2, -3, etc.)
-        res_list, metadata_list = check_correctness(
-            sandbox_fusion_url=sandbox_fusion_url,
-            in_outs=test_cases,
-            generation=solution,
-            timeout=timeout,
-        )
+        res_list, metadata_list = check_correctness(sandbox_fusion_url=sandbox_fusion_url, in_outs=test_cases, generation=solution, timeout=timeout, concurrent_semaphore=concurrent_semaphore)
 
         # Calculate score
-        if not res_list: # If there are no results (e.g., invalid input)
+        if not res_list:  # If there are no results (e.g., invalid input)
             return 0.0, metadata_list
 
         if continuous:
@@ -94,8 +89,7 @@ def compute_score(sandbox_fusion_url, completion, test_cases, continuous=False, 
         traceback.print_exc()
         score = 0.0
         # Try to return partial metadata if available, otherwise return error info
-        final_metadata = metadata_list if 'metadata_list' in locals() else [{"error": f"Unhandled exception: {e}"}]
-
+        final_metadata = metadata_list if "metadata_list" in locals() else [{"error": f"Unhandled exception: {e}"}]
 
     # Ensure float and list are returned
     return float(score), final_metadata if isinstance(final_metadata, list) else [final_metadata]

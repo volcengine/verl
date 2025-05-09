@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import multiprocessing
 import os
 from functools import partial
 
@@ -82,8 +83,10 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
 
     if compute_score is None:
         sandbox_url = config.reward_model.get("sandbox_fusion_url")
+        sandbox_manager = multiprocessing.Manager()
+        _concurrent_semaphore = sandbox_manager.Semaphore(config.reward_model.get("sandbox_fusion_max_concurrent", 64))
         if sandbox_url:
-            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url)
+            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
         else:
             final_compute_score = _default_compute_score
 
