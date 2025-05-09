@@ -117,8 +117,6 @@ class SGLangRollout(BaseRollout):
         self.config = config
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
-        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
-
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
 
@@ -201,7 +199,8 @@ class SGLangRollout(BaseRollout):
         )
 
         # offload
-        self.inference_engine.release_memory_occupation()
+        if config.free_cache_engine:
+            self.inference_engine.release_memory_occupation()
 
         kwargs = dict(
             n=1,
@@ -239,8 +238,6 @@ class SGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # if self.config.free_cache_engine:
-
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -365,16 +362,18 @@ class SGLangRollout(BaseRollout):
         )
 
         # free cache engine
-        if self.config.free_cache_engine and self.inference_engine._engine is not None and self.inference_engine._engine.tokenizer_manager is not None:
+        if self.inference_engine._engine is not None and self.inference_engine._engine.tokenizer_manager is not None:
             self.inference_engine._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
     # this function is left for uniform train-inference resharding
     def update_weights(self, params_iter):
-        self.inference_engine.resume_memory_occupation()
+        if self.config.free_cache_engine:
+            self.inference_engine.resume_memory_occupation()
         self.inference_engine.update_weights_from_tensor(params_iter, load_format=None)
 
     # this function is left for uniform train-inference resharding
     def offload(self):
-        self.inference_engine.release_memory_occupation()
+        if self.config.free_cache_engine:
+            self.inference_engine.release_memory_occupation()
