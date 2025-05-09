@@ -114,4 +114,3 @@ def compute_reward_async(data: DataProto, config, tokenizer):
     """
     reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
     return compute_reward(data, reward_fn)
-    

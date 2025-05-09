@@ -825,29 +825,29 @@ class RayPPOTrainer:
         global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
-    def log_token_lengths(self, data, step, metrics=None):
+    def maybe_log_token_lengths(self, data, step, metrics=None):
         """Log average token lengths for positive and negative responses."""
-        if not self.config.trainer.get('track_token_lengths', False):
+        if not self.config.trainer.get("track_token_lengths", False):
             return
 
-        threshold = self.config.trainer.get('positive_reward_threshold', 0.5)
-        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'token_length')
+        threshold = self.config.trainer.get("positive_reward_threshold", 0.5)
+        tag_prefix = self.config.trainer.get("token_length_tag_prefix", "token_length")
 
         try:
-            if 'acc' in data.batch:
-                rewards = data.batch['acc'].cpu().tolist()
-            elif 'token_level_scores' in data.batch:
-                rewards = data.batch['token_level_scores'].sum(-1).cpu().tolist()
+            if "acc" in data.batch:
+                rewards = data.batch["acc"].cpu().tolist()
+            elif "token_level_scores" in data.batch:
+                rewards = data.batch["token_level_scores"].sum(-1).cpu().tolist()
             else:
                 print("Warning: Cannot track token lengths - no reward information found")
                 return
         except Exception as e:
             print(f"Warning: Error computing rewards for token length tracking: {e}")
             return
-            
-        responses = data.batch['responses']
-        attention_mask = data.batch['attention_mask']
-        prompt_len = data.batch['prompts'].shape[-1]
+
+        responses = data.batch["responses"]
+        attention_mask = data.batch["attention_mask"]
+        prompt_len = data.batch["prompts"].shape[-1]
         valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
 
         positive_tokens = []
@@ -871,15 +871,12 @@ class RayPPOTrainer:
         if negative_tokens:
             neg_avg_len = sum(len(tokens) for tokens in negative_tokens) / len(negative_tokens)
 
-        log_dict = {
-            f"{tag_prefix}/positive_avg_token_length": pos_avg_len,
-            f"{tag_prefix}/negative_avg_token_length": neg_avg_len
-        }
+        log_dict = {f"{tag_prefix}/positive_avg_token_length": pos_avg_len, f"{tag_prefix}/negative_avg_token_length": neg_avg_len}
 
         if metrics is not None:
             metrics.update(log_dict)
 
-        if hasattr(self, 'tracker') and self.tracker:
+        if hasattr(self, "tracker") and self.tracker:
             self.tracker.log(log_dict, step=step)
 
         return log_dict
@@ -1029,7 +1026,7 @@ class RayPPOTrainer:
 
                         batch.batch["acc"] = batch.batch["token_level_scores"].sum(-1)
 
-                        token_metrics = self.log_token_lengths(batch, self.global_steps, metrics)
+                        self.maybe_log_token_lengths(batch, self.global_steps, metrics)
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
 
