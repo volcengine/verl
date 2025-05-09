@@ -53,6 +53,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         actor_module: nn.ModuleList,
         inference_engine: Engine,
         model_config,
+        rollout_config,
         transformer_config,
         layer_name_mapping,
         weight_converter,
@@ -61,6 +62,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.rollout_config = rollout_config
         self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
@@ -102,10 +104,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.release_memory())
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.release_memory())
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
             model.train()
@@ -118,7 +121,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     async def update_weights(self, params):
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
@@ -142,7 +145,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 await self.inference_engine.flush_cache()
 
     async def release_memory(self):
-        if self.device_mesh["tp"].get_local_rank() == 0:
+        if self.device_mesh["tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             await self.inference_engine.release_memory_occupation()
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
@@ -162,9 +165,10 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     async def sleep(self):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        await self.release_memory()
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            await self.release_memory()
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
             model.train()

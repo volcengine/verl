@@ -62,6 +62,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         inference_engine: LLM,
         model_config,
         transformer_config,
+        rollout_config,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
     ):
@@ -69,6 +70,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.inference_engine = inference_engine
         self.model_config = model_config
         self.transformer_config = transformer_config
+        self.rollout_config = rollout_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         # initialize groups for vllm inference
@@ -103,10 +105,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
             else:
                 # > 0.7.2
-                if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                    self.inference_engine.wake_up(tags=["weights"])
-                else:
-                    self.inference_engine.wake_up()
+                if self.rollout_config.free_cache_engine:
+                    if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                        self.inference_engine.wake_up(tags=["weights"])
+                    else:
+                        self.inference_engine.wake_up()
                 per_tensor_param = per_tensor_generator(
                     self.actor_module,
                     self.model_config,
@@ -121,7 +124,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 logger.info(info)
 
             # (vermouth1992) We move wake up kv cache after we release model weights. Need refactor to make API cleaner
-            # if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            # if self.rollout_config.free_cache_engine and "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
             #     self.inference_engine.wake_up(tags=["kv_cache"])
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
@@ -131,7 +134,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             "0.6.3",
         ):
             self.inference_engine.offload_model_weights()
-        else:
+        elif self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
         for model in self.actor_module:
             model.train()
