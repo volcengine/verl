@@ -138,7 +138,7 @@ def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResour
 
     new_store = rp1.store + rp2.store
 
-    merged = RayResourcePool(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
+    merged = rp1.__class__(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
     merged.pgs = rp1.get_placement_groups() + rp2.get_placement_groups()
 
     return merged

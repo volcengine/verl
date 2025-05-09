@@ -68,7 +68,19 @@ class WorkerHelper:
         return self._get_node_ip(), str(self._get_free_port())
 
     def _get_pid(self):
-        return
+        return os.getpid()
+
+    @classmethod
+    def with_mixin(cls, *mixins):
+        """
+        Mixin a collection of MIXIN classes into the current class.
+        """
+        mixin_names = "".join(m.__name__ for m in mixins)
+        name = f"{cls.__name__}With{mixin_names}" if mixin_names else cls.__name__
+
+        # order: all mixins first, then the original class
+        bases = mixins + (cls,)
+        return type(name, bases, {})
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
