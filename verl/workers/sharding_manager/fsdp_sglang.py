@@ -68,6 +68,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         module: FSDP,
         inference_engine: Union[VerlEngine, Engine],
         model_config,
+        rollout_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
@@ -75,6 +76,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.rollout_config = rollout_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
 
@@ -130,9 +132,10 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        self.release_memory()
-        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            self.release_memory()
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         self.module.train()
 
@@ -145,11 +148,13 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def update_weights(self, params):
-        self.inference_engine.resume_memory_occupation()
+        if self.rollout_config.free_cache_engine:
+            self.inference_engine.resume_memory_occupation()
         self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
 
     def release_memory(self):
-        self.inference_engine.release_memory_occupation()
+        if self.rollout_config.free_cache_engine:
+            self.inference_engine.release_memory_occupation()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         """All gather across tp group to make each rank has identical input."""
@@ -176,14 +181,15 @@ class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):
         module: FSDP,
         inference_engine: Engine,
         model_config,
+        rollout_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
     ):
-        super().__init__(module, inference_engine, model_config, full_params, device_mesh, offload_param)
+        super().__init__(module, inference_engine, model_config, rollout_config, full_params, device_mesh, offload_param)
 
     def update_weights(self, params):
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
@@ -216,5 +222,5 @@ class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):
                 )
 
     def release_memory(self):
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if self.device_mesh["infer_tp"].get_local_rank() == 0 and self.rollout_config.free_cache_engine:
             self.inference_engine.release_memory_occupation()

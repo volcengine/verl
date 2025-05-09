@@ -163,7 +163,7 @@ class AsyncvLLMServer(AsyncServerBase):
 
         engine_args = AsyncEngineArgs(
             model=local_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=config.free_cache_engine,
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend=ExternalRayDistributedExecutor,
@@ -243,9 +243,11 @@ class AsyncvLLMServer(AsyncServerBase):
             yield 200, f"data: {data}\n\n"
 
     async def wake_up(self):
-        await self.engine.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.engine.wake_up()
 
     async def sleep(self):
         # TODO: https://github.com/vllm-project/vllm/issues/17103
         await self.engine.reset_prefix_cache()
-        await self.engine.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.engine.sleep()
