@@ -24,7 +24,7 @@ from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 
 
-async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout):
+async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
@@ -34,21 +34,23 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
         )
         return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
-        print(f"[Timeout] Task timeout: {completion[:80]}")
+        print(f"[Timeout] Task timeout: {completion}")
         return None  # Default value for timed-out rows
     except Exception as e:
         print(f"[Error] Task failed: {e}, completion: {completion[:80]}")
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info, num_processes, timeout):
+async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
+    if extra_info is None:
+        extra_info = [None] * len(tasks)
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
             # Create tasks for all rows
             tasks_async = [
-                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout)
+                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0)
                 for c, r, t, ei in zip(completions, references, tasks, extra_info)
             ]
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
@@ -81,16 +83,12 @@ async def parallel_compute_score_async(evaluation_func, completions, references,
             scores.append(float(result[0]))
     return scores
 
-def run_reward_scoring(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64, timeout=300.0):
-    if extra_info is None:
-        extra_info = [None] * len(tasks)
-
+def run_reward_scoring(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         return loop.run_until_complete(parallel_compute_score_async(
-            evaluation_func, completions, references, tasks, extra_info, 
-            num_processes, timeout
+            evaluation_func, completions, references, tasks, extra_info, num_processes
         ))
     finally:
         loop.close()
@@ -135,7 +133,6 @@ class PrimeRewardManager:
                 tasks=data_sources,
                 extra_info=extra_info,
                 num_processes=64,
-                timeout=300.,
             )
         except asyncio.TimeoutError:
             print("[Timeout] Global reward scoring timed out. Setting all as 0.")
