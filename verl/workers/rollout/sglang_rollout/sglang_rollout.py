@@ -99,6 +99,7 @@ class SGLangRollout(BaseRollout):
         tokenizer,
         model_hf_config,
         port=None,
+        trust_remote_code: bool = False,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -147,9 +148,21 @@ class SGLangRollout(BaseRollout):
         rank = device_mesh_cpu.get_rank()
         tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
-        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
-        visible_devices_set = set(",".join(visible_devices).split(","))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
+
+        ###
+        # [SUPPORT AMD: torch]
+        import ray
+        from packaging import version
+
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) >= version.parse("2.45.0"):
+            torch.distributed.all_gather_object(visible_devices, os.environ["HIP_VISIBLE_DEVICES_ENV_VAR"], device_mesh_cpu.get_group("tp"))
+            visible_devices_set = set(",".join(visible_devices).split(","))
+            os.environ["HIP_VISIBLE_DEVICES_ENV_VAR"] = ",".join(sorted(list(visible_devices_set)))
+        else:
+            torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
+            visible_devices_set = set(",".join(visible_devices).split(","))
+            os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
+        ###
 
         nnodes = -(-tp_size // len(visible_devices_set))
         if nnodes > 1:
@@ -179,6 +192,7 @@ class SGLangRollout(BaseRollout):
             load_format=load_format,
             dist_init_addr=dist_init_addr,
             nnodes=nnodes,
+            trust_remote_code=trust_remote_code,
             # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
             # when random.seed is being set during training
             port=30000 + rank,
@@ -359,3 +373,12 @@ class SGLangRollout(BaseRollout):
             self.inference_engine._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+    # this function is left for uniform train-inference resharding
+    def update_weights(self, params_iter):
+        self.inference_engine.resume_memory_occupation()
+        self.inference_engine.update_weights_from_tensor(params_iter, load_format=None)
+
+    # this function is left for uniform train-inference resharding
+    def offload(self):
+        self.inference_engine.release_memory_occupation()

@@ -99,9 +99,13 @@ import signal
 from math import isclose
 from typing import Union
 
+# sympy related
 from sympy import N, simplify
 from sympy.parsing.latex import parse_latex
 from sympy.parsing.sympy_parser import parse_expr
+
+# verl related
+from verl.utils.py_functional import timeout_limit
 
 
 def is_digit(s):
@@ -280,47 +284,38 @@ def symbolic_equal(a, b, tolerance, timeout=10.0):
     def _parse(s):
         for f in [parse_expr, parse_latex]:
             try:
-                with time_limit(timeout):
+                with timeout_limit(seconds=timeout):
                     return f(s)
+            except TimeoutError:
+                print(f"Parsing timed out for {s}")
+                continue
             except Exception:
-                pass
+                continue
         return s
 
     a = _parse(a)
     b = _parse(b)
 
     try:
-        with time_limit(timeout):
+        with timeout_limit(seconds=timeout):
             if simplify(a - b) == 0:
                 return True
+    except TimeoutError:
+        print(f"Simplification timed out for {a} - {b}") 
+        pass
     except Exception:
         pass
 
     try:
-        with time_limit(timeout):
+        with timeout_limit(seconds=timeout):
             if isclose(N(a), N(b), rel_tol=tolerance):
                 return True
+    except TimeoutError:
+        print(f"Numerical evaluation timed out for {a}, {b}")
+        pass
     except Exception:
         pass
     return False
-
-
-class TimeoutException(Exception):
-    pass
-
-
-@contextlib.contextmanager
-def time_limit(seconds: float):
-    def signal_handler(signum, frame):
-        raise TimeoutException("Timed out!")
-
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    signal.signal(signal.SIGALRM, signal_handler)
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-
 
 def format_intervals(prediction):
     patterns = {

@@ -32,13 +32,21 @@ from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
 from verl.utils.torch_dtypes import PrecisionType
+from verl.utils.model import normalize_model_name
+import verl.utils.megatron.tensor_parallel as tp_utils
 
 
 def get_model_config(model):
     return get_attr_wrapped_model(model, "config", allow_none=False)
 
 
-def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True, use_distributed_optimizer=True):
+def get_model(
+    model_provider_func,
+    model_type=ModelType.encoder_or_decoder,
+    wrap_with_ddp=True,
+    use_distributed_optimizer=True,
+    transformer_config=None,
+):
     """Build the model."""
     # Build model.
     if mpu.get_pipeline_model_parallel_world_size() > 1 and mpu.get_virtual_pipeline_model_parallel_world_size() is not None:
@@ -95,8 +103,9 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
         )
 
     # GPU allocation.
-    for model_module in model:
-        model_module.cuda(torch.cuda.current_device())
+    if transformer_config is None or (not transformer_config.use_cpu_initialization):
+        for model_module in model:
+            model_module.cuda(torch.cuda.current_device())
 
     # Fp16 conversion.
     config: TransformerConfig = get_model_config(model[0])
@@ -612,3 +621,140 @@ def broadcast_str_from_megatron_pp(obj: Any):
     torch.distributed.broadcast_object_list(object_list=obj_output, src=global_rank, group=mpu.get_pipeline_model_parallel_group())
 
     return obj_output[0]
+
+def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
+    """
+    name: name of the parameter
+    train_params: training parameters
+    infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from micro_dp_group
+    model_config: huggingface model_config
+    TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
+    definition so that it is model-agnostic. If the model doesn't implement this function, 
+    we can throw an error to force user disable TP HybridEngine.
+    """
+    from megatron.core import mpu
+
+    if layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
+        # if the tensor is qkv, for each param on tp, split into q, k, v
+        # concat q, k, v separately.
+        q_lst = []
+        k_lst = []
+        v_lst = []
+        assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
+        num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
+        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0
+        kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
+        split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
+        for infer_param in infer_params:
+            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size(
+            )
+            for chunk in infer_param.chunk(num_query_groups_per_partition):
+                split_size = [
+                    kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition
+                ]
+                q, k, v = chunk.split(split_size)
+                q_lst.append(q)
+                k_lst.append(k)
+                v_lst.append(v)
+        q = torch.cat(q_lst, dim=0)
+        k = torch.cat(k_lst, dim=0)
+        v = torch.cat(v_lst, dim=0)
+        if not convert_qkv_gate_up_by_simple_split:
+            infer_params = torch.cat((q, k, v), dim=0)
+        else:
+            infer_params = [q, k, v]
+
+    elif layer_name_mapping.get("gate_proj_layer_name") in name:
+        # if the tensor is gate and proj
+        gate_lst = []
+        up_lst = []
+        for infer_param in infer_params:
+            gate, up = infer_param.chunk(2)
+            gate_lst.append(gate)
+            up_lst.append(up)
+        gate = torch.cat(gate_lst, dim=0)
+        up = torch.cat(up_lst, dim=0)
+        if not convert_qkv_gate_up_by_simple_split:
+            infer_params = torch.cat((gate, up), dim=0)
+        else:
+            infer_params = [gate, up]
+
+    else:
+        # concat tensor
+        infer_params = torch.cat(infer_params, dim=tp_utils.get_tensor_parallel_partition_dim(train_params))
+
+    return infer_params
+
+
+def per_tensor_generator(actor_module, model_config, weight_converter, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
+    from megatron.core import parallel_state as mpu
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    pp_size = mpu.get_pipeline_model_parallel_world_size()
+    vpp_size = len(actor_module)
+    all_gather_group = mpu.get_tensor_model_parallel_group()
+    all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
+
+    def tensor_generator():
+        for scan_vpp_idx in range(vpp_size):
+            yield from actor_module[scan_vpp_idx].named_parameters()
+
+    # we need first make all rank get full model information
+    meta_info = []
+    for scan_vpp_idx in range(vpp_size):
+        for idx, (name, _) in enumerate(actor_module[scan_vpp_idx].named_parameters()):
+            meta_info.append((pp_rank, scan_vpp_idx, idx, name))
+
+    obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
+    torch.distributed.all_gather_object(
+        object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group()
+    )
+    layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
+
+    gen_func = tensor_generator()
+
+    # lazy load tensor for full model
+    for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+        if cur_pp_rank == pp_rank:
+            try:
+                cur_name, cur_tensor = next(gen_func)
+            except StopIteration:
+                cur_name, cur_tensor = None, None
+            cur_name = normalize_model_name(
+                name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers
+            )
+        else:
+            cur_tensor, cur_name = None, None
+
+        # pp broadcast model tensor and name
+        cur_name = broadcast_str_from_megatron_pp(cur_name)
+        broad_pp_tensor = broadcast_from_megatron_pp(cur_tensor)
+
+        # (xya): this is a hack to fix the name of the parameters
+        while cur_name.startswith("module."):
+            cur_name = cur_name[len("module.") :]
+
+        # tp all gather
+        if tp_utils.is_tensor_parallel_param(broad_pp_tensor):
+            # allocate a new tensor with proper size
+            if all_gather_group_size <= 1:
+                infer_params = [broad_pp_tensor]
+            else:
+                infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
+                torch.distributed.all_gather(
+                    infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
+                )
+            infer_params = default_tp_concat_fn(
+                layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split
+            )
+        else:
+            infer_params = broad_pp_tensor
+
+
+        if not isinstance(infer_params, list):
+            infer_params = [infer_params]
+        converted_names, converted_params = weight_converter.convert_param(cur_name, infer_params)
+
+        yield from zip(converted_names, converted_params)
+
