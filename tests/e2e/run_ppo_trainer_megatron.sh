@@ -20,6 +20,9 @@ TEST_FREQ=${TEST_FREQ:--1}
 RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
+# Parallelism
+TRAIN_TP=${TRAIN_TP:-2}
+INFER_TP=${INFER_TP:-2}
 
 train_traj_micro_bsz_per_gpu=2 # b
 n_resp_per_prompt=4 # g
@@ -48,13 +51,13 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=2 \
     actor_rollout_ref.actor.megatron.context_parallel_size=2 \
-    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=2 \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$TRAIN_TP \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.checkpoint.contents=['model','hf_model','optimizer','extra'] \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=$INFER_TP \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \

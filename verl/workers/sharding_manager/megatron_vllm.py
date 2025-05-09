@@ -32,6 +32,7 @@ from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
+from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
@@ -48,7 +49,7 @@ from verl.utils.memory_buffer import (
     get_weight_buffer_meta_from_module,
 )
 from verl.utils.model import normalize_model_name
-from verl.utils.torch_functional import allgather_dict_tensors, check_cuda_is_available
+from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -288,28 +289,33 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.module = module
         # initialize micro_dp group for vllm inference
         global _MICRO_DATA_PARALLEL_GROUP
-        world_size = torch.distributed.get_world_size()
         rank = torch.distributed.get_rank()
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
+        if vllm_version not in ("0.5.4", "0.6.3"):
+            self.infer_tp_group = self.infer_tp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
-        self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
+        self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
+        self.train_tp_larger = self.train_tp_size > self.infer_tp_size
 
-        # TODO(sgm): this may not be true for FSDP -> vLLM
-        assert self.infer_tp_size <= self.train_tp_size, "Not implemented for infer_tp > train_tp"
-        assert self.train_tp_size % self.infer_tp_size == 0
+        assert self.train_tp_size % self.infer_tp_size == 0 or self.infer_tp_size % self.train_tp_size == 0
 
-        micro_dp_size = self.train_tp_size // self.infer_tp_size
-        num_micro_dp_groups = world_size // micro_dp_size
+        micro_dp_size = self.train_tp_size // self.infer_tp_size if self.train_tp_larger else self.infer_tp_size // self.train_tp_size
         assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
-        for i in range(num_micro_dp_groups):
-            ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-            group = new_group(ranks=ranks)
+        # The order is smaller_tp - micro_dp
+        larger_tp_size = max(self.infer_tp_size, self.train_tp_size)
+        smaller_tp_size = min(self.infer_tp_size, self.train_tp_size)
+        tp_start_rank = rank - rank % larger_tp_size
+        local_micro_dp_groups = larger_tp_size // micro_dp_size
+        for i in range(smaller_tp_size):
+            ranks = range(tp_start_rank + i, tp_start_rank + larger_tp_size, local_micro_dp_groups)
             if rank in ranks:
+                group = new_group(ranks=ranks, use_local_synchronization=True)
                 _MICRO_DATA_PARALLEL_GROUP = group
+                print(f"rank: {rank}, ranks: {ranks}")
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         """
@@ -542,10 +548,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     def preprocess_data(self, data: DataProto) -> DataProto:
         # prompts are identical for each training tp. We select for each inference tp
         micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            local_prompts = data.chunk(chunks=micro_dp_size)
-            data = local_prompts[get_micro_data_parallel_rank()]
-
+        if self.need_tp_reshard:
+            if self.train_tp_larger:
+                local_prompts = data.chunk(chunks=micro_dp_size)
+                data = local_prompts[get_micro_data_parallel_rank()]
+            else:
+                all_gather_data_proto(data, get_micro_data_parallel_group())
         return data
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
@@ -553,18 +561,49 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         # MEGATRON_PP_AS_DP_PROTO will collect PP+CP+DP group
         # all gather batch among micro-dp groups
         micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            data.batch = allgather_dict_tensors(
-                data.batch.contiguous(),
-                size=get_micro_data_parallel_world_size(),
-                group=get_micro_data_parallel_group(),
-                dim=0,
-            )
+        if self.need_tp_reshard:
+            if not self.train_tp_larger:
+                data = data.chunk(chunks=micro_dp_size)[get_micro_data_parallel_rank()]
+            all_gather_data_proto(data, self.train_tp_group)
         return data
 
 
 """
 Micro Data parallel group
+
+Different with HybridFlow article's Figure 8
+(https://arxiv.org/abs/2409.19256),
+Current implementation reconsiders the problem of train tp and infer tp resharding process,
+and only when pre/post-processing data (no need in weights transfer).
+
+Also different with FSDP, actually micro data parallel is helpful in megatron training to 
+reduce the communication cost and make it easier to understand the resharding process.
+
+To be short here, we use 2 examples to show how micro data parallel works.
+
+1) Train TP is larger than Infer TP
+
+|  Train Ranks  |  Infer Ranks  |
+|0|1|2|3|4|5|6|7|      0|1      |
+|0|1|2|3|4|5|6|7|      2|3      |
+|0|1|2|3|4|5|6|7|      4|5      |
+|0|1|2|3|4|5|6|7|      6|7      |
+
+One line means one TP group. As we need Infer TP ranks to be same in preprocess and 
+Train TP rank 0 to have whole results in postprocess.
+So its more convinient to set micro data parallel groups as:
+
+| micro data parallel groups |
+|          0|2|4|6           |
+|          1|3|5|7           |
+
+need to split in preprocess and all-gather in postprocess
+
+2) Train TP is smaller than Infer TP
+
+The micro data parallel is the same as above,
+but need to all-gather in preprocess and split+all-gather in postprocess
+
 """
 
 
