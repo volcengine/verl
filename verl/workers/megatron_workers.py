@@ -270,6 +270,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 transformer_config=self.tf_config,
+                rollout_config=self.config.rollout,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
@@ -316,6 +317,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
                 actor_module=self.actor.actor_module,
                 inference_engine=rollout._engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
@@ -494,7 +496,7 @@ class ActorRolloutRefWorker(MegatronWorker, WorkerProfilerExtension):
             if self.config.rollout.name == "vllm":
                 import inspect
 
-                if "tags" in inspect.signature(self.rollout.inference_engine.wake_up).parameters:
+                if self.config.rollout.free_cache_engine and "tags" in inspect.signature(self.rollout.inference_engine.wake_up).parameters:
                     self.rollout.inference_engine.wake_up(tags=["kv_cache"])
 
             prompts = self.sharding_manager.preprocess_data(prompts)

@@ -65,11 +65,17 @@ class AsyncSglangServer(AsyncServerBase):
         return JSONResponse(outputs)
 
     async def wake_up(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.wake_up.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)
 
     async def sleep(self):
+        if not self.config.rollout.free_cache_engine:
+            return
+
         tasks = [worker.sleep.remote() for worker in self.workers]
         if tasks:
             await asyncio.gather(*tasks)
