@@ -73,7 +73,8 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length="${MAX_PROMPT_LEN}" \
     data.max_response_length="${MAX_RESPONSE_LEN}" \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    # We only run one step, make lr a bit higher so that our model weight will be updated more, used for checkpoint testing
+    actor_rollout_ref.actor.optim.lr=1e-4 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
