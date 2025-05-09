@@ -489,7 +489,8 @@ class ActivationHandler:
         module.forward = wrapped_method.__get__(module, type(module))
 
 
-def enable_activation_offload_for_fsdp_model(model, enable_ckpt=False):
+def enable_activation_offloading(model, strategy, enable_ckpt=False):
+    assert strategy == "fsdp", "activation offloading only supports fsdp strategy"
     layers = []
 
     def get_layers(module):
@@ -507,7 +508,9 @@ def enable_activation_offload_for_fsdp_model(model, enable_ckpt=False):
     tensor_filter = FSDPParameterFilter()
     context, sync_func = get_activation_offload_context(len(layers) - 1, len(layers), tensor_filter)
     if enable_ckpt:
-        # The implementation of activation checkpointing in transformers is uncompatible with activation offload
+        # The implementation of activation checkpointing in transformers library is incompatible with activation offloading,
+        # so it will be disabled, but this implementation supports another version of activation checkpointing, so that
+        # these two features can be enabled at the same time.
         for module in model.modules():
             if hasattr(module, "gradient_checkpointing_disable"):
                 module.gradient_checkpointing_disable()
