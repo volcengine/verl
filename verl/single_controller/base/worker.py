@@ -17,8 +17,8 @@ the class for Worker
 
 import os
 import socket
-from ast import Dict
 from dataclasses import dataclass
+from typing import Dict
 
 import ray
 
