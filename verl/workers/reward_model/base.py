@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 
 from verl import DataProto
 
-
 class BasePPORewardModel(ABC):
     def __init__(self, config):
         self.config = config
