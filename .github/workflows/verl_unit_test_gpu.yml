@@ -44,4 +44,4 @@ jobs:
       - name: Running utils tests
         run: |
           cd tests/verl/utils
-          pytest -s -x test_torch_function.py
+          pytest -s -x test_torch_functional.py
