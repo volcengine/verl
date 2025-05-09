@@ -23,7 +23,7 @@ RUN pip3 install --no-cache-dir \
 
 RUN pip3 install --no-cache-dir flash-attn==2.7.0.post2 --no-build-isolation
 
-# vllm depends on ray, and veRL does not support ray > 2.37
+# vllm depends on ray, and verl does not support ray > 2.37
 RUN pip3 install --no-cache-dir vllm==0.6.3 ray==2.10
 
 # install apex

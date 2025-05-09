@@ -14,7 +14,7 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/verl_unit_test.yml
-      - "!recipe/**"
+      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -28,7 +28,7 @@ permissions:
 jobs:
   verl_unit_test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # Increase this timeout value as needed  
+    timeout-minutes: 10 # Increase this timeout value as needed
     strategy:
       matrix:
         python-version: ["3.10"]
@@ -41,11 +41,11 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running test protocol.py 
+      - name: Running test protocol.py
         run: |
           cd tests
           pytest -s -x test_protocol.py
-      - name: Running utils tests 
+      - name: Running utils tests
         run: |
           cd tests/utils
           pytest -s -x --ignore=dataset/ --ignore=checkpoint/ .
