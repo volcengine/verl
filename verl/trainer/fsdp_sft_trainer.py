@@ -30,6 +30,11 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
+from torch import nn, optim
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
+from torch.distributed.optim import _apply_optimizer_in_backward
+from tqdm import tqdm
+from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
 from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
@@ -57,8 +62,9 @@ from verl.utils.ulysses import (
 )
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
+
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
+logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN')) 
 
 
 def extract_step(path):
@@ -91,6 +97,8 @@ class FSDPSFTTrainer:
         if self.config.data.chat_template is not None:
             raise ValueError("Apply Chat template from config is not supported yet.")
 
+        self.micro_batch_size = self.config.data.micro_batch_size_per_gpu
+
         # normalize dp size
         self._normalize_config_bsz()
 
@@ -98,8 +106,21 @@ class FSDPSFTTrainer:
         self.config.ulysses_sequence_parallel_size = getattr(self.config, "ulysses_sequence_parallel_size", 1)
         self.use_remove_padding = getattr(self.config, "use_remove_padding", False)
         if self.device_mesh.get_rank() == 0:
-            print(f"Using sequence parallel size: {self.config.ulysses_sequence_parallel_size}")
-            print(f"Using remove padding: {self.use_remove_padding}")
+            print(f'Using sequence parallel size: {self.config.ulysses_sequence_parallel_size}')
+            print(f'Using remove padding: {self.use_remove_padding}')
+        
+        self.optimizer = None
+        self.optim_bwd_hook = self.config.optim.bwd_hook
+        self.optim_dict = None
+        self.lr_scheduler = None
+        
+
+        # Optimizer in backward is not compatible with gradient accumulation 
+        if self.optim_bwd_hook:
+            if self.micro_batch_size > 0:
+                raise RuntimeError(
+                    "Gradient accumulation is not compatible with optimizer in backward step"
+                )
 
         self._build_dataloader(train_dataset, val_dataset)
         # build model
@@ -114,11 +135,16 @@ class FSDPSFTTrainer:
         if self.device_mesh.get_rank() == 0:
             print(f"Normalize batch size by dp {dp_size}")
 
-        assert self.config.data.train_batch_size % dp_size == 0, f"Global batch size {self.config.data.train_batch_size} is not divisible by dp size {dp_size}"
+        assert self.config.data.train_batch_size % dp_size == 0, f"Global train batch size {self.config.data.train_batch_size} is not divisible by dp size {dp_size}"
+
+        assert self.config.data.val_batch_size % dp_size == 0, f"Global val batch size {self.config.data.val_batch_size} is not divisible by dp size {dp_size}"
 
         self.config.data.train_batch_size //= dp_size
 
-        assert self.config.data.train_batch_size % self.config.data.micro_batch_size_per_gpu == 0
+        self.config.data.val_batch_size //= dp_size
+
+        if self.micro_batch_size > 0:
+            assert self.config.data.train_batch_size % self.micro_batch_size == 0
 
     def _build_dataloader(self, train_dataset, val_dataset):
         # build dataset
@@ -139,27 +165,31 @@ class FSDPSFTTrainer:
             rank = self.device_mesh.get_rank()
             world_size = self.device_mesh.size()
         if self.device_mesh.get_rank() == 0:
-            print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
+            print(f'Using FSDP rank {rank} and size {world_size} for data distribution')
 
-        self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
-        self.train_dataloader = DataLoader(
-            dataset=self.train_dataset,
-            batch_size=config.data.train_batch_size,
-            sampler=self.train_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
+        self.train_sampler = DistributedSampler(self.train_dataset,
+                                                shuffle=True,
+                                                num_replicas=world_size,
+                                                rank=rank,
+                                                drop_last=True)
+        self.train_dataloader = DataLoader(dataset=self.train_dataset,
+                                           batch_size=config.data.train_batch_size,
+                                           sampler=self.train_sampler,
+                                           num_workers=8,
+                                           pin_memory=True,
+                                           drop_last=True)
 
-        self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
-        self.val_dataloader = DataLoader(
-            dataset=self.val_dataset,
-            batch_size=config.data.micro_batch_size_per_gpu,
-            sampler=self.val_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
+        self.val_sampler = DistributedSampler(self.val_dataset,
+                                              shuffle=False,
+                                              num_replicas=world_size,
+                                              rank=rank,
+                                              drop_last=True)
+        self.val_dataloader = DataLoader(dataset=self.val_dataset,
+                                         batch_size=config.data.val_batch_size,
+                                         sampler=self.val_sampler,
+                                         num_workers=8,
+                                         pin_memory=True,
+                                         drop_last=True)
 
     def _build_model_optimizer(self):
         # TODO (zhangchi.usc1992):
@@ -236,29 +266,31 @@ class FSDPSFTTrainer:
         else:
             cpu_offload = CPUOffload(offload_params=self.config.model.fsdp_config.offload_params)
 
-        self.fsdp_model = FSDP(
-            module=self.model,
-            auto_wrap_policy=auto_wrap_policy,
-            param_init_fn=init_fn,
-            sharding_strategy=ShardingStrategy.FULL_SHARD,
-            mixed_precision=mixed_precision,
-            device_mesh=self.device_mesh,
-            sync_module_states=True,
-            device_id=torch.cuda.current_device(),
-            cpu_offload=cpu_offload,
-            use_orig_params=False,
-        )
+        self.fsdp_model = FSDP(module=self.model,
+                               auto_wrap_policy=auto_wrap_policy,
+                               param_init_fn=init_fn,
+                               sharding_strategy=ShardingStrategy.FULL_SHARD,
+                               mixed_precision=mixed_precision,
+                               device_mesh=self.device_mesh,
+                               sync_module_states=True,
+                               device_id=torch.cuda.current_device(),
+                               cpu_offload=cpu_offload,
+                               use_orig_params=True)
 
-        log_gpu_memory_usage("After FSDP wrapping", logger=logger)
+        log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
-        self.optimizer = optim.AdamW(
-            self.fsdp_model.parameters(),
-            lr=self.config.optim.lr,
-            betas=self.config.optim.betas,
-            weight_decay=self.config.optim.weight_decay,
-        )
+        from verl.utils.torch_functional import apply_optimizer_in_backward, get_cosine_schedule_with_warmup, update_scheduler_with_custom_step
+        
+        if self.optim_bwd_hook:
+            optim_dict = apply_optimizer_in_backward(self.fsdp_model, self.config.optim)
+            self.optimizer = next(iter(optim_dict.values()))
+        else:
+            self.optimizer = optim.AdamW(self.fsdp_model.parameters(),
+                                        lr=self.config.optim.lr,
+                                        betas=self.config.optim.betas,
+                                        weight_decay=self.config.optim.weight_decay)
 
-        log_gpu_memory_usage("After initialize optimizer", logger=logger)
+        log_gpu_memory_usage('After initialize optimizer', logger=logger)
 
         self.steps_per_epoch = len(self.train_dataloader)
         self.total_steps = self.steps_per_epoch * self.config.trainer.total_epochs
@@ -274,6 +306,9 @@ class FSDPSFTTrainer:
             self.lr_scheduler = get_wsd_schedule_with_warmup(optimizer=self.optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=self.total_steps)
         else:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
+
+        if self.optim_bwd_hook:
+            update_scheduler_with_custom_step(self.lr_scheduler, optim_dict)
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -367,15 +402,20 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("Before optimizer zero_grad", logger=logger)
 
-        self.optimizer.zero_grad()
-
+        if not self.optim_bwd_hook:
+            self.optimizer.zero_grad()
         log_gpu_memory_usage("After optimizer zero_grad", logger=logger)
-
-        micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
-        n_micro_batches = len(micro_batches)
+        
         step_loss = 0
-        for micro_batch in micro_batches:
-            loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+
+        if self.micro_batch_size > 0:
+            micro_batches = batch.split(self.micro_batch_size)
+            n_micro_batches = len(micro_batches)
+            for micro_batch in micro_batches:
+                loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+                step_loss += loss.item()
+        else:
+            loss = self._compute_loss_and_backward(batch)
             step_loss += loss.item()
 
         grad_norm = self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
@@ -383,11 +423,12 @@ class FSDPSFTTrainer:
         log_gpu_memory_usage("Before optimizer step", logger=logger)
 
         # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: grad_norm is not finite: {grad_norm}")
-            self.optimizer.zero_grad()
-        else:
-            self.optimizer.step()
+        if not self.optim_bwd_hook:
+            if not torch.isfinite(grad_norm):
+                print(f"WARN: grad_norm is not finite: {grad_norm}")
+                self.optimizer.zero_grad()
+            else:
+                self.optimizer.step()
 
         log_gpu_memory_usage("After optimizer step", logger=logger)
 
@@ -471,7 +512,7 @@ class FSDPSFTTrainer:
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+                        val_data = TensorDict(val_data, batch_size=self.config.data.val_batch_size).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
@@ -487,7 +528,7 @@ class FSDPSFTTrainer:
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+                data = TensorDict(data, batch_size=self.config.data.val_batch_size).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:
@@ -500,7 +541,16 @@ class FSDPSFTTrainer:
             self.save_checkpoint(step=global_step)
 
 
+from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
+import hydra
+
+from torch.distributed.device_mesh import init_device_mesh
+
+from verl.utils.distributed import initialize_global_process_group
+
+
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+
 def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
