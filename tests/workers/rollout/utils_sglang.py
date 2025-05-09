@@ -141,7 +141,7 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "mode": "sync",
             "load_format": "dummy_dtensor",
             "enforce_eager": False,
-            "free_cache_engine": False,
+            "free_cache_engine": True,
             "dtype": dtype,
             "gpu_memory_utilization": 0.5,
             "ignore_eos": False,

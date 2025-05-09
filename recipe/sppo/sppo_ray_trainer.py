@@ -34,7 +34,10 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import reduce_metrics
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, ResourcePoolManager, Role, WorkerType, apply_kl_penalty, compute_response_mask
+from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
+                                          ResourcePoolManager, Role,
+                                          WorkerType, apply_kl_penalty,
+                                          compute_response_mask)
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.debug.performance import simple_timer
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -186,9 +189,11 @@ class RaySPPOTrainer(RayPPOTrainer):
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
-                            self.async_rollout_manager.wake_up()
+                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
+                                self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
-                            self.async_rollout_manager.sleep()
+                            if self.config.actor_rollout_ref.rollout.free_cache_engine:
+                                self.async_rollout_manager.sleep()
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 

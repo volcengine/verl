@@ -32,19 +32,22 @@ from verl import DataProto
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer, omega_conf_to_dataclass
-from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
-from verl.utils.debug import DistProfiler, DistProfilerExtension, GPUMemoryLogger, ProfilerConfig, log_gpu_memory_usage, simple_timer
+from verl.utils.checkpoint.megatron_checkpoint_manager import \
+    MegatronCheckpointManager
+from verl.utils.debug import (DistProfiler, DistProfilerExtension,
+                              GPUMemoryLogger, ProfilerConfig,
+                              log_gpu_memory_usage, simple_timer)
 from verl.utils.debug.performance import reduce_timing
-from verl.utils.device import get_device_id, get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.device import (get_device_id, get_device_name,
+                               get_nccl_backend, get_torch_device)
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
-from verl.utils.megatron_utils import (
-    load_megatron_model_to_gpu,
-    load_megatron_optimizer,
-    offload_megatron_model_to_cpu,
-    offload_megatron_optimizer,
-)
-from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.utils.megatron_utils import (load_megatron_model_to_gpu,
+                                       load_megatron_optimizer,
+                                       offload_megatron_model_to_cpu,
+                                       offload_megatron_optimizer)
+from verl.utils.model import (load_mcore_dist_weights,
+                              load_megatron_gptmodel_weights)
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
@@ -156,8 +159,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
-        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
+        from verl.utils.megatron.optimizer import (
+            get_megatron_optimizer, get_megatron_optimizer_param_scheduler)
+        from verl.utils.megatron_utils import (get_model,
+                                               init_megatron_optim_config)
         from verl.utils.model import get_generation_config, print_model_size
 
         self._init_hf_config_and_tf_config(model_path, model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
@@ -231,8 +236,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
-            from verl.workers.sharding_manager.megatron_vllm import MegatronVLLMShardingManager
+            from verl.workers.rollout.vllm_rollout import (vllm_mode,
+                                                           vLLMRollout)
+            from verl.workers.sharding_manager.megatron_vllm import \
+                MegatronVLLMShardingManager
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
@@ -273,6 +280,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 transformer_config=self.tf_config,
+                rollout_config=self.config.rollout,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
@@ -289,13 +297,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                     stacklevel=2,
                 )
             from verl.workers.rollout.sglang_rollout import SGLangRollout
-
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
             # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
             # "RuntimeError: No CUDA GPUs are available".
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
+            from verl.workers.sharding_manager.megatron_sglang import \
+                MegatronSGLangShardingManager
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
@@ -321,6 +329,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 actor_module=self.actor.actor_module,
                 inference_engine=rollout._engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
@@ -605,13 +614,15 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
-        await self.rollout.wake_up()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.wake_up()
         # return something to block the caller
         return True
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def sleep(self):
-        await self.rollout.sleep()
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.sleep()
         # return something to block the caller
         return True
 
@@ -666,8 +677,10 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
     def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
-        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
-        from verl.utils.megatron_utils import get_model, init_megatron_optim_config
+        from verl.utils.megatron.optimizer import (
+            get_megatron_optimizer, get_megatron_optimizer_param_scheduler)
+        from verl.utils.megatron_utils import (get_model,
+                                               init_megatron_optim_config)
         from verl.utils.model import print_model_size
 
         self._init_hf_config_and_tf_config(model_path, self.config.model.tokenizer_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
