@@ -68,6 +68,8 @@ actor_rollout_ref:
       grad_offload: False
       optimizer_offload: False
       tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: None
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
@@ -91,6 +93,8 @@ actor_rollout_ref:
     megatron:
       param_offload: False
       tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: None
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
@@ -180,6 +184,8 @@ critic:
     grad_offload: False
     optimizer_offload: False
     tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: None
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
@@ -211,6 +217,8 @@ reward_model:
     grad_offload: False
     optimizer_offload: False
     tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: None
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
