@@ -96,6 +96,23 @@ class SFTDataset(Dataset):
             except Exception:
                 print(f"self.prompts={self.prompts}")
                 raise
+        
+        # Ensure self.prompts is a pandas Series before converting to list. It may happen when user does not specify prompt_dict_keys.
+        if isinstance(self.prompts, pd.DataFrame):
+            # Check if accessing nested dictionary keys was unnecessary. Otherwise, it should be dealed in the preceding loop.
+            assert len(self.prompt_dict_keys) == 0, (
+                "self.prompts is a DataFrame, but self.prompt_dict_keys is not empty. "
+                "This indicates that accessing nested dictionary keys was attempted, "
+                "but resulted in a DataFrame instead of a Series."
+            )
+            # Check if the DataFrame has exactly one column
+            assert len(self.prompts.columns) == 1, (
+                "self.prompts is a DataFrame with multiple columns. "
+                f"Expected 1 column, got {len(self.prompts.columns)}. "
+                "Columns: {self.prompts.columns.tolist()}"
+            )
+            self.prompts = self.prompts.iloc[:, 0]
+        
         self.prompts = self.prompts.tolist()
         self.responses = self.dataframe[self.response_key]
         for key in self.response_dict_keys:
