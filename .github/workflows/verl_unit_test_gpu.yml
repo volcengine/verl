@@ -1,4 +1,4 @@
-name: verl_unit_test
+name: verl_unit_test_gpu
 
 on:
   # Trigger the workflow on push or pull request,
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  verl_unit_test:
+  verl_unit_test_gpu:
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     container:
