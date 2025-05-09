@@ -30,6 +30,15 @@ RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
+# whether to save hf_model
+SAVE_HF_MODEL=${SAVE_HF_MODEL:-False}
+
+if [ "${SAVE_HF_MODEL}" = "True" ]; then
+    CHECKPOINT_CONTENTS="['model','hf_model','optimizer','extra']"
+else
+    CHECKPOINT_CONTENTS="['model','optimizer','extra']"
+fi
+
 train_traj_micro_bsz_per_gpu=2 # b
 n_resp_per_prompt=4 # g
 
@@ -70,6 +79,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.actor.fsdp_config.param_offload=${ACTOR_FSDP_PARAM_OFFLOAD} \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${ACTOR_FSDP_OPTIMIZER_OFFLOAD} \
+    actor_rollout_ref.actor.checkpoint.contents=${CHECKPOINT_CONTENTS} \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL}" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \

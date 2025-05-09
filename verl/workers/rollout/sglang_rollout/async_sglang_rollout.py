@@ -79,6 +79,7 @@ class AsyncSGLangRollout(BaseRollout):
         tokenizer,
         model_hf_config,
         port=None,
+        trust_remote_code: bool = False,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -185,6 +186,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # get tp_rank of this process in this tp group
         visible_devices = [None] * device_mesh_cpu.size(1)
+
         dist.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
 
@@ -227,6 +229,7 @@ class AsyncSGLangRollout(BaseRollout):
                 nnodes=nnodes,
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
+                trust_remote_code=trust_remote_code,
             )
         else:
             self._engine = None
