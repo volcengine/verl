@@ -262,8 +262,9 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         elif self.config.rollout.name == 'sglang':
             from verl.workers.rollout.sglang_rollout import SGLangRollout
+
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
-            # However, due to veRL's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
             # "RuntimeError: No CUDA GPUs are available".
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
