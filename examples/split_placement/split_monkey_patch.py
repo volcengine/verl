@@ -30,8 +30,8 @@ from verl.trainer.ppo.ray_trainer import (
     compute_advantage,
     compute_data_metrics,
     compute_timing_metrics,
-    reduce_metrics,
 )
+from verl.utils.metric import reduce_metrics
 
 
 def fit(self):
