@@ -147,7 +147,6 @@ class AsyncSGLangRollout(BaseRollout):
             self._tool_call_parser_type = None
             self._sgl_tools = []
             self._function_call_parser = None
-        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
@@ -221,7 +220,7 @@ class AsyncSGLangRollout(BaseRollout):
                 model_path=actor_module,
                 dtype=config.dtype,
                 mem_fraction_static=config.gpu_memory_utilization,
-                enable_memory_saver=True,
+                enable_memory_saver=config.free_cache_engine,
                 base_gpu_id=0,
                 gpu_id_step=1,
                 tp_size=self._tp_size,
@@ -235,7 +234,7 @@ class AsyncSGLangRollout(BaseRollout):
             self._engine = None
 
         # offload
-        if self._tp_rank == 0:
+        if self._tp_rank == 0 and config.free_cache_engine:
             self._engine.release_memory_occupation()
 
         kwargs = dict(
@@ -274,8 +273,6 @@ class AsyncSGLangRollout(BaseRollout):
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        # if self.config.free_cache_engine:
-
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
         attention_mask = prompts.batch["attention_mask"]
@@ -410,7 +407,7 @@ class AsyncSGLangRollout(BaseRollout):
         )
 
         # free cache engine
-        if self.config.free_cache_engine and self._engine is not None:
+        if self._engine is not None:
             self._engine.tokenizer_manager.flush_cache()
 
         return DataProto(batch=batch)

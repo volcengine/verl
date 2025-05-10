@@ -43,6 +43,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         module: FSDP,
         inference_engine: LLM,
         model_config,
+        rollout_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
@@ -58,8 +59,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             # vLLM > v0.6.3
             self.model_runner = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if self.inference_engine else None
-            
+
         self.model_config = model_config
+        self.rollout_config = rollout_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
 
@@ -114,7 +116,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sync_model_weights(params, load_format=load_format)
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
-        else:
+        elif self.rollout_config.free_cache_engine:
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["weights"])
             else:
@@ -128,7 +130,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 offload_fsdp_model_to_cpu(self.module)
             torch.cuda.empty_cache()
 
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            if self.rollout_config.free_cache_engine and "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
 
         log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
@@ -146,7 +148,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             "0.6.3",
         ):
             self.inference_engine.offload_model_weights()
-        else:
+        elif self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
 
         self.module.train()

@@ -48,11 +48,12 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 class MegatronSGLangShardingManager(BaseShardingManager):
 
-    def __init__(self, actor_module: nn.ModuleList, inference_engine: VerlEngine, model_config, layer_name_mapping, weight_converter):
+    def __init__(self, actor_module: nn.ModuleList, inference_engine: VerlEngine, model_config, rollout_config, layer_name_mapping, weight_converter):
         from megatron.core import parallel_state as mpu
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.rollout_config = rollout_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         global _MICRO_DATA_PARALLEL_GROUP
@@ -79,14 +80,16 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.layer_name_mapping)
-        self.inference_engine.resume_memory_occupation()
+        if self.rollout_config.free_cache_engine:
+            self.inference_engine.resume_memory_occupation()
         self.inference_engine.update_weights_from_tensor(per_tensor_param, load_format=None)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        log_gpu_memory_usage('Before SGLang offload in sharding manager', logger=logger)
-        self.inference_engine.release_memory_occupation()
-        log_gpu_memory_usage('After SGLang offload in sharding manager', logger=logger)
+        if self.rollout_config.free_cache_engine:
+            log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+            self.inference_engine.release_memory_occupation()
+            log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
             model.train()

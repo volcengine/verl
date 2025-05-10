@@ -221,7 +221,6 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
-            
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
@@ -255,6 +254,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                rollout_config=self.config.rollout,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
