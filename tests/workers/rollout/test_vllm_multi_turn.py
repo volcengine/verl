@@ -21,7 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 from openai.types.chat.chat_completion import ChatCompletion
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse, ErrorResponse
 
-from tests.rollout.async_rollout_utils import init_async_rollout_manager
+from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
 from verl.protocol import DataProto
 
 
