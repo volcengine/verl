@@ -29,12 +29,12 @@ class TestReduceMetrics(unittest.TestCase):
         """Test that reduce_metrics correctly computes means."""
         metrics = {
             "loss": [1.0, 2.0, 3.0],
-            "accuracy": [0.8, 0.9, 0.7],
+            "accuracy": [0.0, 0.5, 1.0],
         }
         result = reduce_metrics(metrics)
         
         self.assertEqual(result["loss"], 2.0)
-        self.assertEqual(result["accuracy"], 0.8)
+        self.assertEqual(result["accuracy"], 0.5)
     
     def test_reduce_metrics_empty(self):
         """Test that reduce_metrics handles empty lists."""
