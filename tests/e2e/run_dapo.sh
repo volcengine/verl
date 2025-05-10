@@ -41,7 +41,7 @@ gen_prompt_bsz=$((train_prompt_bsz * 4))
 
 exp_name="$(basename "${MODEL_ID,,}")-dapo-minimal"
 
-python3 -m recipe.dapo.src.main_dapo \
+python3 -m recipe.dapo.main_dapo \
     data.train_files="${HOME}/data/gsm8k/train.parquet" \
     data.val_files="${HOME}/data/gsm8k/test.parquet" \
     reward_model.reward_manager=dapo \
