@@ -51,12 +51,12 @@ Currently, for llama, mistral, gemma1 and qwen based models, users can enable `u
 sequence packing implementation provided by transformers library.
 
 For other models, transformers library may also support it but we haven't tested it yet.
-Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/model/test_transformer.py#L24>`_ file.
+Users can add the desired model config to the  `test_transformer.py <https://github.com/volcengine/verl/blob/main/tests/models/test_transformer.py#L24>`_ file.
 And test its functionaility by running the following command:
 
 .. code-block:: bash
 
-  pytest -s tests/model/test_transformer.py
+  pytest -s tests/models/test_transformer.py
 
 If the test passes, you can add your desired model into the model `registry.py <https://github.com/volcengine/verl/blob/main/verl/models/registry.py#L24>`_ file.
 Then, you can enjoy the performance boost of sequence packing

@@ -15,8 +15,8 @@ on:
       - "verl/**/*.py"
       # Entrypoints
       - ".github/workflows/model.yml"
-      - "tests/checkpoint/test_fsdp_ckpt.py"
-      - "tests/model/test_transformers_ulysses.py"
+      - "tests/utils/checkpoint/test_fsdp_ckpt.py"
+      - "tests/models/test_transformers_ulysses.py"
       - "tests/distributed/run_all.sh"
 
 # Declare permissions just read content.
@@ -46,37 +46,37 @@ jobs:
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
-          pytest -s tests/model/test_transformer.py
+          pytest -s tests/models/test_transformer.py
       - name: Running rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
-          pytest -s tests/model/test_transformer.py
+          pytest -s tests/models/test_transformer.py
       - name: Running FSDP rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
-          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp torchrun --nproc_per_node=8 tests/utils/checkpoint/test_fsdp_ckpt.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + latest transformers
         run: |
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.49.0
         run: |
           pip3 install transformers==4.49.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.48.0
         run: |
           pip3 install transformers==4.48.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.47.0
         run: |
           pip3 install transformers==4.47.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.46.0
         run: |
           pip3 install transformers==4.46.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Running transformers ulysses tests on 8 L20 GPUs + transformers 4.45.0
         run: |
           pip3 install transformers==4.45.0
-          torchrun --nproc_per_node=8 -m pytest tests/model/test_transformers_ulysses.py
+          torchrun --nproc_per_node=8 -m pytest tests/models/test_transformers_ulysses.py
       - name: Run distributed test
         run: |
           bash tests/distributed/run_all.sh
@@ -106,4 +106,4 @@ jobs:
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           pip3 install --upgrade flash_attn --no-build-isolation
-          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/checkpoint/test_fsdp_ckpt.py
+          STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/utils/checkpoint/test_fsdp_ckpt.py

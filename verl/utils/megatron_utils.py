@@ -31,9 +31,9 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
-from verl.utils.torch_dtypes import PrecisionType
-from verl.utils.model import normalize_model_name
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils.model import normalize_model_name
+from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):

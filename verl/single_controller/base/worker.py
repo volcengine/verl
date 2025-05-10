@@ -136,6 +136,7 @@ class Worker(WorkerHelper):
     def __init__(self, cuda_visible_devices=None) -> None:
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
+
         import torch
         from packaging import version
 
