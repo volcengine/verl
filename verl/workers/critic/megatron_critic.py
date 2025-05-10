@@ -90,7 +90,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
     @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
-        # data.batch = data.batch.to(self.critic_module.module.device)
+        data.to(torch.cuda.current_device())
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
@@ -146,6 +146,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def forward_backward_batch(self, data: DataProto, forward_only=False, use_dynamic_bsz=False, micro_batch_size=None, max_token_len=None, mini_batch_size=None):
         # broadcast from last pp rank to all other pp ranks
         mini_batch = data
+        mini_batch.to(torch.cuda.current_device())
         mini_batch.batch = mini_batch.batch.contiguous()
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
