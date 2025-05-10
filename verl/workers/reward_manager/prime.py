@@ -16,7 +16,7 @@ import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from typing import Callable, Optional
-
+import psutil
 import torch
 from transformers import PreTrainedTokenizer
 
@@ -28,52 +28,70 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
-        tasks = [
-            asyncio.wait_for(
-                loop.run_in_executor(
-                    executor,
-                    partial(evaluation_func, task, completion, reference, task_extra_info),  # Ensure synchronous
-                ),
-                timeout=timeout,
-            )
-        ]
-        return await asyncio.gather(*tasks)
+        future = loop.run_in_executor(
+            executor,
+            partial(evaluation_func, task, completion, reference, task_extra_info)
+        )
+        return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
-        print(f"Timeout occurred for completion: {completion}")
+        print(f"[Timeout] Task timeout: {completion}")
         return None  # Default value for timed-out rows
     except Exception as e:
-        print(f"Error processing completion: {completion[:10]}, Error: {e}")
+        print(f"[Error] Task failed: {e}, completion: {completion[:80]}")
         return None  # Default value for failed rows
 
 
 async def parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
+    if extra_info is None:
+        extra_info = [None] * len(tasks)
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        if extra_info is None:
-            extra_info = [None] * len(tasks)
-        # Create tasks for all rows
-        tasks_async = [single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0) for completion, reference, task, task_extra_info in zip(completions, references, tasks, extra_info)]
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
+            # Create tasks for all rows
+            tasks_async = [
+                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0)
+                for c, r, t, ei in zip(completions, references, tasks, extra_info)
+            ]
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
-        except:
+        except Exception as e:
+            print(f"[Exception] async gather failed: {e}")
+            raise
+        finally:
+            terminated_count = 0
             for pid, proc in executor._processes.items():
                 try:
-                    proc.kill()
-                except Exception as kill_err:
-                    print("shut down failed: " + str(kill_err))
-            raise
+                    p = psutil.Process(pid)
+                    p.terminate()
+                    try:
+                        p.wait(timeout=5)
+                    except psutil.TimeoutExpired:
+                        p.kill()
+                    terminated_count += 1
+                except Exception:
+                    pass
+            print(f"[Shutdown] {terminated_count} subprocess(es) terminated.")
 
     # Process results
     for result, completion, reference, task in zip(results, completions, references, tasks):
         if isinstance(result, Exception) or result is None:
             # Handle failed or timed-out tasks
             scores.append(0.0)
-        elif isinstance(result[0], (int, float, bool)):
-            scores.append(float(result[0]))
+        elif isinstance(result, (int, float, bool)):
+            scores.append(float(result))
         else:
-            scores.append(float(result[0][0]))
+            scores.append(float(result[0]))
     return scores
+
+def run_reward_scoring(evaluation_func, completions, references, tasks, extra_info=None, num_processes=64):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(parallel_compute_score_async(
+            evaluation_func, completions, references, tasks, extra_info, num_processes
+        ))
+    finally:
+        loop.close()
 
 
 class PrimeRewardManager:
@@ -108,21 +126,19 @@ class PrimeRewardManager:
 
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
-            scores = asyncio.run(
-                parallel_compute_score_async(
-                    self.compute_score,
-                    sequences_str,
-                    ground_truth,
-                    data_sources,
-                    extra_info=extra_info,
-                    num_processes=64,
-                )
+            scores = run_reward_scoring(
+                self.compute_score,
+                completions=sequences_str,
+                references=ground_truth,
+                tasks=data_sources,
+                extra_info=extra_info,
+                num_processes=64,
             )
         except asyncio.TimeoutError:
-            print("Global timeout in reward computing! Setting all as 0.")
+            print("[Timeout] Global reward scoring timed out. Setting all as 0.")
             scores = [0.0 for _ in range(len(sequences_str))]
         except Exception as e:
-            print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
+            print(f"[Error] Unexpected error during scoring. Setting all as 0. {e}")
             scores = [0.0 for _ in range(len(sequences_str))]
         data.batch["acc"] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
