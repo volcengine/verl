@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
+import inspect
+from typing import Any
 import torch
 import torch.distributed as dist
 import logging
@@ -22,9 +25,18 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
         memory_allocated = torch.cuda.memory_allocated() / 1024**3
         memory_reserved = torch.cuda.memory_reserved() / 1024**3
 
-        message = f'{head}, memory allocated (GB): {memory_allocated}, memory reserved (GB): {memory_reserved}'
+        message = f'{head}, memory allocated (GB): {memory_allocated:.2f}, memory reserved (GB): {memory_reserved:.2f}'
 
         if logger is None:
             print(message)
         else:
             logger.log(msg=message, level=level)
+
+def log_print(ctn: Any):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    frame = inspect.currentframe().f_back
+    function_name = frame.f_code.co_name
+    line_number = frame.f_lineno
+    file_name = frame.f_code.co_filename.split('/')[-1]
+    print(f"[{file_name}:{line_number}:{function_name}]: {ctn}")

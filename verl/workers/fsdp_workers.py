@@ -29,7 +29,7 @@ from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import register, Dispatch
 from verl.utils import hf_tokenizer, hf_processor
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import log_gpu_memory_usage, log_print
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
 from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_model_to_cpu, load_fsdp_optimizer, \
@@ -42,6 +42,15 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from peft import LoraConfig, TaskType, get_peft_model
 from codetiming import Timer
+
+import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from peft import PeftModel
+from peft.utils.save_and_load import get_peft_model_state_dict
+from safetensors.torch import save_file
+from dataclasses import asdict
+import json
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -106,7 +115,8 @@ class ActorRolloutRefWorker(Worker):
                                                         mesh_dim_names=['dp', 'sp'])
 
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
-        self._is_lora = self.config.model.get('lora_rank', 0) > 0
+        self._lora_rank = self.config.model.get('lora_rank', 0)
+        self._is_lora = self._lora_rank > 0
 
         self.role = role
         assert self.role in ['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']
@@ -169,7 +179,7 @@ class ActorRolloutRefWorker(Worker):
         assert role in ['actor', 'ref']
 
         log_gpu_memory_usage('Before init from HF AutoModel', logger=logger)
-        local_path = copy_to_local(model_path)
+        local_path = model_path
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
@@ -343,29 +353,33 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
             from verl.workers.sharding_manager import FSDPVLLMShardingManager
             log_gpu_memory_usage(f'Before building {rollout_name} rollout', logger=None)
-            local_path = copy_to_local(self.config.model.path)
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get('use_shm', False))
+            lora_kwargs = {'lora_kwargs': {"enable_lora":True, "max_loras":1, "max_lora_rank":self._lora_rank}} if self._is_lora else {}
+            # lora_kwargs = {}
             if vllm_mode == 'customized':
                 rollout = vLLMRollout(actor_module=self.actor_module_fsdp,
                                       config=self.config.rollout,
                                       tokenizer=self.tokenizer,
-                                      model_hf_config=self.actor_model_config)
+                                      model_hf_config=self.actor_model_config,
+                                      **lora_kwargs)
             elif vllm_mode == 'spmd':
                 rollout = vLLMRollout(model_path=local_path,
                                       config=self.config.rollout,
                                       tokenizer=self.tokenizer,
                                       model_hf_config=self.actor_model_config,
                                       device_mesh=rollout_device_mesh,
-                                      trust_remote_code=trust_remote_code)
+                                      trust_remote_code=trust_remote_code,
+                                      **lora_kwargs)
             else:
                 raise NotImplementedError("vllm_mode must be 'customized' or 'spmd'")
             log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
-            if torch.distributed.get_world_size() == 1:
-                self.config.rollout.load_format = 'dummy_hf'
+            full_params = torch.distributed.get_world_size() == 1
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
                                                                inference_engine=rollout.inference_engine,
                                                                model_config=self.actor_model_config,
-                                                               full_params='hf' in self.config.rollout.load_format,
-                                                               device_mesh=rollout_device_mesh)
+                                                               full_params=full_params,
+                                                               device_mesh=rollout_device_mesh,
+                                                               load_format=self.config.rollout.load_format)
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         elif rollout_name == 'sglang':
@@ -404,6 +418,7 @@ class ActorRolloutRefWorker(Worker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
         use_remove_padding = self.config.model.get('use_remove_padding', False)
+        use_shm = self.config.model.get('use_shm', False)
 
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -413,8 +428,9 @@ class ActorRolloutRefWorker(Worker):
             else:
                 optim_config = None
                 fsdp_config = OmegaConf.create()
+            local_path = copy_to_local(self.config.model.path, use_shm)
             self.actor_module_fsdp, self.actor_optimizer, self.actor_lr_scheduler, self.actor_model_config = self._build_model_optimizer(
-                model_path=self.config.model.path,
+                model_path=local_path,
                 fsdp_config=fsdp_config,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
@@ -444,7 +460,8 @@ class ActorRolloutRefWorker(Worker):
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
         if self._is_ref:
-            self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
+            local_path = copy_to_local(self.config.model.path, use_shm)
+            self.ref_module_fsdp = self._build_model_optimizer(model_path=local_path,
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
@@ -628,49 +645,13 @@ class ActorRolloutRefWorker(Worker):
 
         return output
 
-
-    
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         # only support save and load ckpt for actor
         assert self._is_actor
 
-        import torch.distributed as dist
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-        from peft import PeftModel
-        import transformers
-
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-
-        if self._is_lora and isinstance(self.actor_module, PeftModel):
-            if dist.get_rank() == 0:
-                os.makedirs(local_path, exist_ok=True)
-
-            lora_save_path = os.path.join(local_path, "lora_adapter")
-
-            if isinstance(self.actor_module_fsdp, FSDP):
-                with FSDP.summon_full_params(self.actor_module_fsdp, writeback=False, offload_to_cpu=True):
-                    if dist.get_rank() == 0:
-                        from typing import OrderedDict
-                        lora_params = OrderedDict()
-                        model = self.actor_module_fsdp._fsdp_wrapped_module.base_model.model
-                        for name, param in model.named_parameters():
-                            if ".lora_" in name:
-                                name = "base_model.model." + name.replace("._fsdp_wrapped_module.", ".")
-                                lora_params[name] = param
-                        self.actor_module_fsdp.save_pretrained(
-                            lora_save_path,
-                            state_dict=lora_params,
-                            safe_serialization=True
-                        )
-            else:
-                self.actor_module.save_pretrained(lora_save_path, safe_serialization=True)
-
-            dist.barrier()
-            if dist.get_rank() == 0:
-                print(f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}")
 
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
@@ -678,6 +659,35 @@ class ActorRolloutRefWorker(Worker):
                                                 max_ckpt_to_keep=max_ckpt_to_keep)
 
         dist.barrier()
+
+        if self._is_lora and isinstance(self.actor_module, PeftModel):
+            lora_save_path = os.path.join(local_path, "lora_adapter")
+            peft_config = {}
+            if dist.get_rank() == 0:
+                os.makedirs(lora_save_path, exist_ok=True)
+                peft_config = asdict(self.actor_module.peft_config.get('default', {}))
+                peft_config['task_type'] = peft_config['task_type'].value
+                peft_config['peft_type'] = peft_config['peft_type'].value
+                peft_config['target_modules'] = list(peft_config['target_modules'])
+            try:
+                if isinstance(self.actor_module_fsdp, FSDP):
+                    self.actor_module_fsdp = self.actor_module_fsdp.cuda()
+                    with FSDP.summon_full_params(self.actor_module_fsdp, writeback=False):
+                        lora_params = get_peft_model_state_dict(self.actor_module_fsdp._fsdp_wrapped_module)
+                        lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
+                                       for name, param in lora_params.items()}
+                        if dist.get_rank() == 0:
+                            save_file(lora_params, os.path.join(lora_save_path, "adapter_model.safetensors"))
+                            with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding='utf-8') as f:
+                                json.dump(peft_config, f, ensure_ascii=False, indent=4)
+            except Exception as e:
+                if dist.get_rank() == 0:
+                    log_print(f"[rank-{self.rank}]: Save LoRA Adapter Error ({e})")
+
+            dist.barrier()
+            if dist.get_rank() == 0:
+                print(f"[rank-{self.rank}]: Saved LoRA adapter to: {lora_save_path}")
+
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
@@ -750,11 +760,12 @@ class CriticWorker(Worker):
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, MixedPrecision
         from torch import optim
 
-        local_path = copy_to_local(config.model.path)
+        use_shm = config.model.get('use_shm', False)
+        local_path = copy_to_local(config.model.path, use_shm=use_shm)
         # note that the tokenizer between actor and critic may be different. So override tokenizer info with actor info
         # using random initialized model from any architecture. May not be the same as Actor.
 
-        tokenizer_path = copy_to_local(config.model.tokenizer_path)
+        tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
         self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
 
@@ -1044,14 +1055,15 @@ class RewardModelWorker(Worker):
         from transformers import AutoModelForTokenClassification, AutoConfig
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
 
+        use_shm = config.model.get('use_shm', False)
         # download the checkpoint from hdfs
-        local_path = copy_to_local(config.model.path)
+        local_path = copy_to_local(config.model.path, use_shm=use_shm)
 
         if self.config.model.input_tokenizer is None:
             self._do_switch_chat_template = False
         else:
             self._do_switch_chat_template = True
-            input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer)
+            input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer, use_shm=use_shm)
             self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
                                                 trust_remote_code=config.model.get('trust_remote_code', False))
             self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))

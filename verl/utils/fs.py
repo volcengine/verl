@@ -16,8 +16,11 @@
 # -*- coding: utf-8 -*-
 """File-system agnostic IO APIs"""
 import os
+import shutil
 import tempfile
 import hashlib
+
+from verl.utils.debug import log_print
 
 try:
     from hdfs_io import copy, makedirs, exists  # for internal use only
@@ -55,7 +58,27 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
+def copy_to_shm(src:str):
+    """
+        Load the model into   /dev/shm   to make the process of loading the model multiple times more efficient.
+    """
+    shm_model_root = '/dev/shm/verl-cache/'
+    src_abs = os.path.abspath(os.path.normpath(src))
+    dest = os.path.join(shm_model_root, hashlib.md5(src_abs.encode('utf-8')).hexdigest())
+    os.makedirs(dest, exist_ok=True)
+    dest = os.path.join(dest, os.path.basename(src_abs))
+    if os.path.exists(dest):
+        # inform user and depends on him
+        log_print(f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task.")
+    else:
+        log_print(f'Load from disk {src} into memory {dest}')
+        if os.path.isdir(src):
+            shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dest)
+    return dest
+
+def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False, use_shm:bool = False) -> str:
     """Copy src from hdfs to local if src is on hdfs or directly return src.
     If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
     the src name is the same between calls
@@ -66,8 +89,12 @@ def copy_to_local(src: str, cache_dir=None, filelock='.file.lock', verbose=False
     Returns:
         a local path of the copied file
     """
-    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
-
+    # Save to a local path for persistence.
+    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
+    # Load into shm to improve efficiency.
+    if use_shm:
+        return copy_to_shm(local_path)
+    return local_path
 
 def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock='.file.lock', verbose=False) -> str:
     """Deprecated. Please use copy_to_local instead."""

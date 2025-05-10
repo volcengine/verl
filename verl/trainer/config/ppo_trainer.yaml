@@ -1,5 +1,6 @@
 data:
   tokenizer: null
+  use_shm: True
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
@@ -24,6 +25,7 @@ actor_rollout_ref:
   hybrid_engine: True
   model:
     path: ~/models/deepseek-llm-7b-chat
+    use_shm: True
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: True
@@ -134,6 +136,7 @@ critic:
     weight_decay: 0.01
   model:
     path: ~/models/deepseek-llm-7b-chat
+    use_shm: True
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
@@ -171,6 +174,7 @@ reward_model:
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    use_shm: True
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
     fsdp_config:

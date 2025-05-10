@@ -15,6 +15,8 @@
 import os
 import inspect
 import logging
+import time
+from typing import List
 import torch
 import numpy as np
 from packaging import version
@@ -28,16 +30,98 @@ from verl.third_party.vllm import LLM
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import log_gpu_memory_usage, log_print
 from verl.third_party.vllm import vllm_version
 from vllm.version import __version__ as VLLM_VERSION
 
 from .base import BaseShardingManager
 from .patch import patched_ds_v3_load_weights
 
+from peft.tuners.tuners_utils import BaseTunerLayer
+import torch.distributed as dist
+from peft.utils.save_and_load import get_peft_model_state_dict
+from peft.utils.other import transpose
+
+from vllm.engine.llm_engine import LLMEngine
+from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
+from vllm.lora.models import LRUCacheLoRAModelManager, LoRAModel
+from vllm.lora.request import LoRARequest
+from vllm.lora.peft_helper import PEFTHelper
+from dataclasses import dataclass, asdict
+from msgspec import Struct, field
+
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
+class TensorLoRARequest(LoRARequest):
+    peft_config:dict = field(default=None)
+    lora_tensors:dict = field(default=None)
+
+class VLLMHijack():
+    @staticmethod
+    def hijack():
+        def hijack__load_adapter(self, lora_request: TensorLoRARequest) -> LoRAModel:
+            """
+            based on vllm.lora.worker_manager.WorkerLoRAManager._load_adapter, support load adapter with lora tensors
+            """
+            try:
+                supported_lora_modules = (
+                    self._adapter_manager.supported_lora_modules)
+                packed_modules_mapping = (
+                    self._adapter_manager.packed_modules_mapping)
+                expected_lora_modules: List[str] = []
+                for module in supported_lora_modules:
+                    if module in packed_modules_mapping:
+                        expected_lora_modules.extend(
+                            packed_modules_mapping[module])
+                    else:
+                        expected_lora_modules.append(module)
+
+                expected_lora_modules = list(set(expected_lora_modules))
+
+                peft_config = lora_request.peft_config
+                lora_tensors = lora_request.lora_tensors
+                peft_helper = PEFTHelper.from_dict(peft_config)
+
+                # Validates the LoRA configuration against requirements before
+                # loading weights, throwing an exception if validation fails.
+                peft_helper.validate_legal(self.lora_config)
+
+                # For some models like Qwen2VL, we need to use hf_to_vllm_mapper
+                # to ensure correct loading of lora weights.
+                model = self._adapter_manager.model
+                hf_to_vllm_mapper = None
+                if (hasattr(model, "hf_to_vllm_mapper")
+                        and model.hf_to_vllm_mapper is not None):
+                    hf_to_vllm_mapper = model.hf_to_vllm_mapper
+
+                lora = self._lora_model_cls.from_lora_tensors(
+                    lora_model_id=lora_request.lora_int_id,
+                    tensors=lora_tensors,
+                    peft_helper=peft_helper,
+                    device="cpu",
+                    dtype=self.lora_config.lora_dtype,
+                    embeddings=None,
+                    target_embedding_padding=self.vocab_size + self.lora_config.lora_extra_vocab_size,
+                    embedding_modules=self.embedding_modules,
+                    embedding_padding_modules=self.embedding_padding_modules,
+                    weights_mapper=hf_to_vllm_mapper
+                )
+            except Exception as e:
+                raise e
+
+            if lora.extra_vocab_size > self.lora_config.lora_extra_vocab_size:
+                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} "
+                                f"is greater than lora_extra_vocab_size "
+                                f"{self.lora_config.lora_extra_vocab_size}.")
+            return lora
+
+        def do_hijack(target_cls, target_method_name, hooking_method):
+            log_print(f"SimonDbg: in monkey patch do_hijack {target_cls=} {target_method_name=}")
+            setattr(target_cls, target_method_name, hooking_method)
+
+        do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
 
 class FSDPVLLMShardingManager(BaseShardingManager):
 
@@ -46,7 +130,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                  inference_engine: LLM,
                  model_config,
                  full_params: bool = False,
-                 device_mesh: DeviceMesh = None):
+                 device_mesh: DeviceMesh = None,
+                 load_format: str = 'dummy_hf',
+                ):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -77,39 +163,56 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+        self.base_sync_done: bool = 'dummy' not in load_format
+        VLLMHijack.hijack()
+
     def __enter__(self):
-        # NOTE: Basically, we only need `torch.cuda.empty_cache()` before vllm wake_up and
-        # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
-        # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory
-        # to speed up memory allocations.
-        #
-        # pytorch: https://pytorch.org/docs/stable/notes/cuda.html#memory-management
-        # vllm: https://github.com/vllm-project/vllm/blob/v0.7.3/vllm/device_allocator/cumem.py#L103
         torch.cuda.empty_cache()
-
+        tac = time.time()
         log_gpu_memory_usage('Before state_dict() in sharding manager memory', logger=logger)
+        peft_config = None
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
-            # the model to sync weights to is a vLLM model (not a peft model), so we need to merge the adapters
+            peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
+            # log_print(f"{peft_config=}")
             lora_params = OrderedDict()
-            with FSDP.summon_full_params(self.module):
-                self.module.merge_adapter()
-                base_model = self.module._fsdp_wrapped_module.base_model.model
-                # don't use model.state_dict() to avoid OOM
-                for name, param in base_model.named_parameters():
-                    if ".lora_" in name:
-                        continue
-                    
-                    clean_name = name.replace(".base_layer.", ".").replace("._fsdp_wrapped_module.",".")
-                    if hasattr(param, 'full_tensor'):
-                        tensor = param.full_tensor().detach().cpu()
+            if isinstance(self.module, FSDP):
+                log_print(f"SimonDbg: <1>. PeftModel with PSDF")
+                with FSDP.summon_full_params(self.module, writeback=False):
+                    if self.base_sync_done:
+                        lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
+                        lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
+                                       for name, param in lora_params.items()}
                     else:
-                        tensor = param.detach().cpu().clone()
-                    lora_params[clean_name] = tensor
-
-            params = lora_params  
+                        model = self.module._fsdp_wrapped_module.base_model.model.to('cpu')
+                        for name, param in model.state_dict().items():
+                            if any(x in name for x in ['_flat_param', 'lora_']):
+                                continue
+                            name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
+                            lora_params[name] = param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
+                torch.cuda.empty_cache()
+            else:
+                log_print(f"SimonDbg: <2>. PeftModel without PSDF")
+                lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
+                if self.base_sync_done:
+                    lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
+                else:
+                    model = self.module._fsdp_wrapped_module.base_model.model.to('cpu')
+                    for name, param in model.state_dict().items():
+                        if any(x in name for x in ['_flat_param', 'lora_']):
+                            continue
+                        name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
+                        lora_params[name] = param.detach().cpu()
+            params = lora_params
+        elif isinstance(self.module, FSDP):
+            log_print(f"SimonDbg: <3>. Not PeftModel with FSDP")
+            with FSDP.summon_full_params(self.module, writeback=False):
+                # params = self.module._fsdp_wrapped_module.base_model.state_dict()
+                params = self.module.state_dict()
         else:
+            log_print(f"SimonDbg: <4>. Not PeftModel without FSDP")
             params = self.module.state_dict()
         log_gpu_memory_usage('After state_dict() in sharding manager memory', logger=logger)
+
         # Copy, not share memory
         load_format = 'hf' if self.full_params else 'dtensor'
 
@@ -124,17 +227,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
 
             # update model params
-            self.update_params(params)
+            self.update_params(params, peft_config=peft_config)
             log_gpu_memory_usage('After sync model weights in sharding manager', logger=logger)
             del params
             torch.cuda.empty_cache()
 
             if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
                 self.inference_engine.wake_up(tags=["kv_cache"])
-
-        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
-            with FSDP.summon_full_params(self.module):
-                self.module.unmerge_adapter()
 
         log_gpu_memory_usage('After del state_dict and empty_cache in sharding manager', logger=logger)
 
@@ -149,6 +248,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
 
+        tic = time.time()
+        log_print(f"FSDPVLLMShardingManager: __enter__ model weight syncing time cost: {tic-tac:.2f}s")
+
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage('Before vllm offload in sharding manager', logger=logger)
         # TODO(ZSL): check this
@@ -158,9 +260,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.sleep(level=1)
         log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
 
-        # self.module.to('cuda')
+        torch.cuda.empty_cache()
+        # if load_format is dummy and lora-fsdp, base model must be synced, actor_model was offloading to avoid OOM, need load back to gpu
+        self.module.to('cuda')
         # if torch.distributed.get_rank() == 0:
-        #     print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
+            # print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         self.module.train()
 
@@ -193,8 +297,34 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
-    def update_params(self, updated_params):
+    def update_params(self, updated_params, peft_config = None):
         model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
+        if peft_config:
+            if self.base_sync_done:
+                log_print(f"SimonDbg: update_params with LoRA") 
+                lora_int_id=int(time.time_ns() // 1_000_000)
+                lora_reqest = TensorLoRARequest(
+                    lora_name=f"{lora_int_id}",
+                    lora_int_id=lora_int_id,
+                    lora_path="simon_lora_path",
+                    peft_config=asdict(peft_config),
+                    lora_tensors=updated_params,
+                )
+                if self.tp_rank == 0:
+                    self.inference_engine.llm_engine.add_lora(lora_reqest)
+                logger.info(f"vLLM load weights, loaded_params: {len(updated_params)}")
+                return
+            else:
+                log_print(f"SimonDbg: update base-model weights")
+                def replace_lora_wrapper(k):
+                    stacked_params = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
+                    if any([k.endswith(f"{s}.weight") for s in stacked_params]):
+                        return k.replace(".weight", ".base_layer.weight")
+                    if any([k.endswith(f"{s}.bias") for s in stacked_params]):
+                        return k.replace(".bias", ".base_layer.bias")
+                    return k
+                updated_params = {replace_lora_wrapper(k): v for k, v in updated_params.items()}
+
         if model.config.architectures[0] in ['DeepseekV2ForCausalLM', 'DeepseekV3ForCausalLM']:
             loaded_params = patched_ds_v3_load_weights(
                 model, ((name, param.full_tensor() if hasattr(param, 'full_tensor') else param)
@@ -202,4 +332,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             loaded_params = model.load_weights(
                 ((name, param.full_tensor() if hasattr(param, 'full_tensor') else param) for name, param in updated_params.items()))
+
+        self.base_sync_done = True
         logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
