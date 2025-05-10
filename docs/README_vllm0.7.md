@@ -1,8 +1,10 @@
 # Upgrading to vllm >= 0.7
 
+Note: verl+vllm 0.8.3 is now stable. Please see ``docs/README_vllm0.8.md`` for upgrade guide.
+
 ## Installation
 
-Note: This version of verl+vllm 0.7+ supports **FSDP** for training and **vLLM** for rollout.
+Note: At time of writing, verl+vllm 0.7.x supports **FSDP** for training and **vLLM** for rollout.
 
 ```
 # Create the conda environment
@@ -68,4 +70,4 @@ VLLM_USE_PRECOMPILED=1 pip install --editable .
 ```
 
 Then you can enable the V1 engine by setting `export VLLM_USE_V1=1`. In some benchmark tests, the V1 engine demonstrates a 1.5x speed improvement over the vLLM V0 engine.
-The stable support of the vLLM V1 engine will come soon.
+The stable support of the vLLM V1 engine is available on verl main.

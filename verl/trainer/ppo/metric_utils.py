@@ -383,20 +383,14 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
                 metric[f"mean@{n_resps}"] = np.mean(var_vals)
 
                 if n_resps > 1:
-                    # n = n_resps
                     metric[f"std@{n_resps}"] = np.std(var_vals)
 
-                    metric[f"best@{n_resps}/mean"] = np.max(var_vals)
-                    metric[f"worst@{n_resps}/mean"] = np.min(var_vals)
-                    if var2vals.get("pred", None) is not None:
-                        vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"])]
-                        metric[f"maj@{n_resps}/mean"] = calc_maj_val(vote_data, vote_key="pred", val_key="val")
-                    # 1 < n < n_resps
                     ns = []
                     n = 2
                     while n < n_resps:
                         ns.append(n)
                         n *= 2
+                    ns.append(n_resps)
 
                     for n in ns:
                         [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(data=var_vals, subset_size=n, reduce_fns=[np.max, np.min], seed=seed)
