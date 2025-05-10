@@ -56,18 +56,6 @@ class ResourcePool:
         nested_local_rank_list = [[i for i in range(local_world_size)] for local_world_size in self._store]
         return [item for row in nested_local_rank_list for item in row]
 
-    @classmethod
-    def with_mixin(cls, *mixins):
-        """
-        Mixin a collection of MIXIN classes into the current class.
-        """
-        mixin_names = "".join(m.__name__ for m in mixins)
-        name = f"{cls.__name__}With{mixin_names}" if mixin_names else cls.__name__
-
-        # order: all mixins first, then the original class
-        bases = mixins + (cls,)
-        return type(name, bases, {})
-
 
 class ClassWithInitArgs:
     """
@@ -218,15 +206,3 @@ class WorkerGroup:
                     raise ValueError(f"Fail to set method_name {method_name}") from e
 
         return method_names
-
-    @classmethod
-    def with_mixin(cls, *mixins):
-        """
-        Mixin a collection of MIXIN classes into the current class.
-        """
-        mixin_names = "".join(m.__name__ for m in mixins)
-        name = f"{cls.__name__}With{mixin_names}" if mixin_names else cls.__name__
-
-        # order: all mixins first, then the original class
-        bases = mixins + (cls,)
-        return type(name, bases, {})
