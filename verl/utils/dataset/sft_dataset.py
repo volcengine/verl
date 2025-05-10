@@ -45,6 +45,7 @@ class SFTDataset(Dataset):
         response_dict_keys = config.get("response_dict_keys", None)
         max_length = config.get("max_length", 1024)
         truncation = config.get("truncation", "error")
+        custom_chat_template = config.get('custom_chat_template', None)
 
         assert truncation in ["error", "left", "right"]
         self.truncation = truncation
@@ -54,7 +55,7 @@ class SFTDataset(Dataset):
 
         self.parquet_files = parquet_files
         if isinstance(tokenizer, str):
-            tokenizer = hf_tokenizer(tokenizer)
+            tokenizer = hf_tokenizer(tokenizer, custom_chat_template=custom_chat_template)
         self.tokenizer: PreTrainedTokenizer = tokenizer
 
         self.prompt_key = prompt_key if isinstance(prompt_key, (tuple, list)) else [prompt_key]
