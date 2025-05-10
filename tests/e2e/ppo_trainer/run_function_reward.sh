@@ -64,7 +64,7 @@ EOF
     rm -rf "${output_file}"
 fi
 
-exp_name="$(basename "${MODEL_ID,,}")-function-reward-minimal"
+exp_name="${VERL_EXP_NAME:-$(basename "${MODEL_ID,,}")-function-reward-minimal}"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator="${ADV_ESTIMATOR}" \
