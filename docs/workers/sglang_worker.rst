@@ -10,18 +10,18 @@ Introduction
 ------------
 `SGLang <https://github.com/sgl-project/sglang>`_ is an open-source state-of-the-art inference service engine, fully adopted by xAI to support all inference needs of Grok during research and serving processes.
 
-Currently, verl fully supports using SGLang as the inference engine during the rollout phase. As a rollout engine, SGLang provides the same feature coverage as vLLM., including memory saving and multi-node rollout features. After installing verl and SGLang, simply add ``actor_rollout_ref.rollout.name=sglang`` at startup to seamlessly switch between the two inference frameworks.
+Currently, verl fully supports using SGLang as the inference engine during the rollout phase. As a rollout engine, SGLang provides the same feature coverage as vLLM., including memory saving and multi-node rollout features. After installing verl and SGLang, simply add ``actor_rollout_ref.rollout.name=sglang`` at startup script to seamlessly switch between the two inference frameworks.
 
 In addition, the SGLang team is actively working on supporting features such as Multi-Turn Agentic RL, VLM RLHF, Server-Based RLHF, and Partial Rollout. You can track the related development progress in the `Tracking Roadmap <https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/74>`_.
 
 Installation
 ------------
-First, follow the requirements outlined in `Install SGLang as rollout backend <https://verl.readthedocs.io/en/latest/start/install.html#install-sglang-as-rollout-backend>`_ for installation, and ensure that the version requirements are met. Generally, using the latest `SGLang <https://github.com/sgl-project/sglang>`_ from the main branch will allow stable training startup without needing to target a specific version.
+Please always follow the following command to install SGLang with verl. 
 
 .. code-block:: bash
-
-    # Currently 0.4.5, subject to updates at any time, please refer to the latest version
-    pip install "sglang[all]>=0.4.5" --find-links https://flashinfer.ai/whl/cu124/torch2.5/flashinfer-python
+    pip install --upgrade pip
+    # Currently 0.4.6.post1, subject to updates at any time, please refer to the latest version specified in `setup.py`
+    pip install -e ".[sglang]"
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
 -------------------------------------------------------------------------
@@ -37,6 +37,7 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
 
 .. code-block:: bash
 
+    export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=True
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
         data.train_files=$HOME/data/gsm8k/train.parquet \
         data.val_files=$HOME/data/gsm8k/test.parquet \
@@ -69,6 +70,51 @@ We use Qwen/Qwen2-7B-Instruct on the gsm8k dataset for a simple test.
         trainer.save_freq=-1 \
         trainer.test_freq=10 \
         trainer.total_epochs=15 2>&1 | tee verl_demo.log
+
+Why export SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK?
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. ``verl`` initializes a ``SGLangRollout`` module during rollout, which is used to evaluate/generate samples.
+
+2. ``SGLangRollout`` will initialize ``VerlEngine``, and further initialize a ``torch.distributed.DeviceMesh``, used to support Tensor Parallel (TP).
+
+3. ``DeviceMesh.init()`` internally checks the free GPU memory of all participating devices. If the difference is too large (more than ~10%), it directly reports an error to avoid initialization failures or deadlocks.
+
+Why might there be inconsistent GPU memory?
+"""""""""""""""""""""""""""""""""""""""""""
+
+**1. Ray Distributed Actor loads the model at different times**
+
+``verl`` uses Ray-based multi-process, multi-GPU concurrent training. Each ``WorkerDict`` may be called at different times:
+
+.. code-block:: python
+
+    self.rollout = SGLangRollout(...)
+
+Different workers initialize the model at different times → different memory usage.
+
+**2. Delayed initialization causes memory bias**
+
+Some workers start model loading/inference (e.g., ``generate_sequences()``, ``compute_log_prob()``) earlier than others.  
+Early workers already use up GPU memory → late workers still have empty memory → memory difference appears.
+
+**3. SGLang's TP init uses "all-device broadcast", but there's no uniform release timing**
+
+Although ``SGLangRollout`` may only involve subset of GPUs, its ``VerlEngine`` initialization calls ``torch.distributed.init_process_group()`` and broadcasts weights, so:
+
+- Non-rollout GPUs also join the communication.
+- Later on, ``DeviceMesh`` init will fail due to "inconsistent memory".
+
+**4. Different FSDP/TP loading behaviors also lead to mismatch**
+
+If using:
+
+.. code-block:: bash
+
+    actor.fsdp_config.param_offload=True  
+    ref.fsdp_config.param_offload=True
+
+Then some workers keep params on CPU while others already sharded to GPU → leads to asymmetric memory layout.
 
 Using SGLang as the Inference Backend for PPO Training Across Multiple Machines
 ------------------------------------------------------------------------------

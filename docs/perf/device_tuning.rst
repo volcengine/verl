@@ -48,7 +48,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - 2*H800
       - fsdp
       - vllm0.8.2
-      - `qwen2-7b_grpo_2_h800_fsdp_vllm <../../examples/tuning/7b/qwen2-7b_grpo_2_h800_fsdp_vllm.sh>`_
+      - `qwen2-7b_grpo_2_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/7b/qwen2-7b_grpo_2_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
       
 
@@ -73,21 +73,33 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - 4*H800
       - fsdp
       - vllm0.8.2
-      - `qwen2-14b_grpo_4_h800_fsdp_vllm <../../examples/tuning/14b/qwen2-14b_grpo_4_h800_fsdp_vllm.sh>`_
+      - `qwen2-14b_grpo_4_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/14b/qwen2-14b_grpo_4_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
 
 
 32B
 ~~~
 
-.. table::
-   :widths: auto
-
-   ====== ====== ====== ======== ====== ====== ======
-   tag    model  task   resource train  infer  link
-   ====== ====== ====== ======== ====== ====== ======
-   \      \      \        \      \      \
-   ====== ====== ====== ======== ====== ====== ======
+.. list-table::
+    :widths: auto
+    :header-rows: 1
+    
+    * - Tag
+      - Model
+      - Task
+      - Resource
+      - Train
+      - Infer
+      - Link
+      - Contributor
+    * - MIN
+      - Qwen2-32B
+      - GRPO
+      - 8*H20
+      - megatron
+      - vllm0.8.2
+      - `qwen2-32b_grpo_8_h20_megatron_vllm <https://github.com/volcengine/verl/tree/main/examples/tuning/32b/qwen2_32B_grpo_8_h20_megatron_vllm.sh>`_
+      - `Xiangyongan <xiangyongan@bytedance.com>`_
 
 70B
 ~~~
@@ -110,7 +122,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - 32*H20
       - fsdp
       - vllm0.8.2
-      - `qwen2-70b_grpo_32_h20_fsdp_vllm <../../examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
+      - `qwen2-70b_grpo_32_h20_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/70b/qwen2-70b_grpo_32_h20_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
     * - MIN
       - Qwen2-70B
@@ -118,7 +130,7 @@ a PR and include a screenshot from Wandb or other verifiable evidence.
       - 32*H800
       - fsdp
       - vllm0.8.3
-      - `qwen2-70b_grpo_32_h800_fsdp_vllm <../../examples/tuning/70b/qwen2-70b_grpo_32_h800_fsdp_vllm.sh>`_
+      - `qwen2-70b_grpo_32_h800_fsdp_vllm <https://github.com/volcengine/verl/blob/main/examples/tuning/70b/qwen2-70b_grpo_32_h800_fsdp_vllm.sh>`_
       - `Xiangyongan <xiangyongan@bytedance.com>`_
 
 405B

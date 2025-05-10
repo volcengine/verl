@@ -22,7 +22,8 @@ Data
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
      shuffle: True
-     filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
+     filter_overlong_prompts: False
+     filter_overlong_prompts_workers: 1
      truncation: error
      image_key: images
      custom_cls:
@@ -42,7 +43,7 @@ Data
   left-padded to this length. An error will be reported if the length is
   too long
 - ``data.max_response_length``: Maximum response length. Rollout in RL
-  algorithms (e.g. PPO) generates up to this length
+  algorithms (e.g. PPO) generates up to this length
 - ``data.train_batch_size``: Batch size sampled for one training
   iteration of different RL algorithms.
 - ``data.return_raw_input_ids``: Whether to return the original
@@ -53,9 +54,10 @@ Data
   chat_templates are different, this flag needs to be set
 - ``data.return_raw_chat``:
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
-- ``data.filter_overlong_prompts``: Default don't filter. You can filter for small-scale dataset. 
-  For large-scale dataset, filtering overlong prompts could be timeconsuming. 
-  You should disable this and set ``truncation='left``
+- ``data.filter_overlong_prompts``: Default don't filter.
+- ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
+  overlong prompts could be timeconsuming. You cat set the ``filter_overlong_prompts_workers``
+  to use multiprocessing for speed up. Default to 1.
 - ``data.truncation``: Truncate the input_ids or prompt length if they
   exceed max_prompt_length. Default is 'error', not allow exceed the
   max_prompt_length. The users should increase the max_prompt_length if
@@ -89,6 +91,7 @@ Actor/Rollout/Reference Policy
       external_lib: null
       override_config: { }
       enable_gradient_checkpointing: False
+      trust_remote_code: False
       use_remove_padding: False
     actor:
       strategy: fsdp  # This is for backward-compatibility
@@ -162,6 +165,13 @@ Actor/Rollout/Reference Policy
         swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
       # number of responses (i.e. num sample times)
       n: 1 # > 1 for grpo, rloo
+      val_kwargs:
+        # sampling parameters for validation
+        top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+        top_p: 1.0
+        temperature: 0
+        n: 1
+        do_sample: False # default eager for validation
 
 **Common config for actor, rollout and reference model**
 
@@ -177,6 +187,8 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
+  a remote code model
 
 **Actor model**
 
@@ -268,29 +280,37 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   - ``temperature``, ``top_k``, ``top_p`` and others: Sampling
     parameters in ``SamplingParams``.
 
-- ``dtype``: Rollout model parameters type. This should be align with
+- ``actor_rollout_ref.rollout.dtype``: Rollout model parameters type. This should be align with
   the actor model parameter type in FSDP/Megatron backend.
 
-- ``gpu_memory_utilization``: The proportion of the remaining GPU memory
+- ``actor_rollout_ref.rollout.gpu_memory_utilization``: The proportion of the remaining GPU memory
   allocated for kv cache after other models have initialized when using
   vllm.
 
-- ``tensor_model_parallel_size``: TP size for rollout. Only effective
+- ``actor_rollout_ref.rollout.tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.
 
-- ``actor_rollout_ref.ref.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
+- ``actor_rollout_ref.rollout.log_prob_micro_batch_size``: [Will be deprecate, use log_prob_micro_batch_size_per_gpu]
   The batch size for one forward pass in the computation of ``log_prob``. The value represent the global num.
 
-- ``log_prob_micro_batch_size_per_gpu``: Micro batch size per gpu (The batch size for
+- ``actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu``: Micro batch size per gpu (The batch size for
   one forward pass) for recalculating ``log_prob``. The value represent the local num per gpu.
 
-- ``do_sample``: Whether to sample. If set to False, the rollout model
-  will perform greedy sampling. We disable ``do_sample`` during
-  validation.
+- ``actor_rollout_ref.rollout.do_sample``: Whether to sample during training rollout. If set to False, the rollout model
+  will perform greedy sampling.
+
+- ``actor_rollout_ref.rollout.val_kwargs```: Sampling parameters used specifically during validation.
+  - ``top_k``: Top-k sampling parameter. Default to -1 for vLLM rollout or 0 for HF rollout.
+  - ``top_p``: Top-p sampling parameter. Default is 1.0 (disabled).
+  - ``temperature``: Sampling temperature. Default is 0 (deterministic greedy).
+  - ``n``: Number of responses to generate during validation. Default is 1.
+  - ``do_sample``: Whether to use sampling during validation. Default is False for
+  deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
+  (top_k, top_p, temperature) to control the sampling behavior.
 
 - ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
   - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - Positive integer, e.g., ``32 `` means 32 GB.
+  - Positive integer, e.g., ``32`` means 32 GB.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
@@ -341,6 +361,7 @@ Reward Model
        input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
        path: ~/models/Anomy-RM-v0.1
        external_lib: ${actor_rollout_ref.model.external_lib}
+       trust_remote_code: False
        fsdp_config:
          min_num_params: 0
          param_offload: False
@@ -362,6 +383,8 @@ Reward Model
   - ``path``: RM's HDFS path or local path. Note that RM only supports
     AutoModelForSequenceClassification. Other model types need to define
     their own RewardModelWorker and pass it from the code.
+  - ``trust_remote_code``: Whether to enable loading a remote code model,
+    default to False.
 - ``reward_model.reward_manager``:  Reward Manager. This defines the mechanism
   of computing rule-based reward and handling different reward sources. Default
   is ``naive``. If all verification functions are multiprocessing-safe, the reward

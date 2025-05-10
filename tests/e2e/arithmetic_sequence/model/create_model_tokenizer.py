@@ -15,28 +15,30 @@
 Create a random model and tokenizer for PPO training
 """
 
-import torch
 import os
-from transformers import AutoModelForCausalLM, LlamaConfig, AutoTokenizer
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 
 from tests.e2e.envs.digit_completion import CharTokenizer
 
 tokenizer = CharTokenizer(
-    characters=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', ':'],
+    characters=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ",", ":"],
     model_max_length=2048,
-    chat_template=
-    "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% set role = message['role'] %}{{ message['content'] }}{% endfor %}{% if add_generation_prompt %}{{ sep_token }}{% endif %}"
+    chat_template="{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% set role = message['role'] %}{{ message['content'] }}{% endfor %}{% if add_generation_prompt %}{{ sep_token }}{% endif %}",  # noqa: E501
 )
 
-config = LlamaConfig(vocab_size=(tokenizer.vocab_size + 16 - 1) // 16 * 16,
-                     hidden_size=128,
-                     intermediate_size=344,
-                     num_hidden_layers=4,
-                     num_attention_heads=4,
-                     num_key_value_heads=4,
-                     pad_token_id=tokenizer.pad_token_id,
-                     bos_token_id=tokenizer.bos_token_id,
-                     eos_token_id=tokenizer.eos_token_id)
+config = LlamaConfig(
+    vocab_size=(tokenizer.vocab_size + 16 - 1) // 16 * 16,
+    hidden_size=128,
+    intermediate_size=344,
+    num_hidden_layers=4,
+    num_attention_heads=4,
+    num_key_value_heads=4,
+    pad_token_id=tokenizer.pad_token_id,
+    bos_token_id=tokenizer.bos_token_id,
+    eos_token_id=tokenizer.eos_token_id,
+)
 
 model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.bfloat16)
 
@@ -50,12 +52,7 @@ tokenizer.save_pretrained(tokenizer_folder)
 
 load_tokenizer = AutoTokenizer.from_pretrained(tokenizer_folder)
 
-chat = [{'role': 'user', 'content': '1,0:2,3'}]
+chat = [{"role": "user", "content": "1,0:2,3"}]
 
-load_tokenizer.padding_side = 'left'
-print(
-    load_tokenizer.apply_chat_template(chat,
-                                       tokenize=True,
-                                       add_generation_prompt=True,
-                                       max_length=10,
-                                       padding='max_length'))
+load_tokenizer.padding_side = "left"
+print(load_tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True, max_length=10, padding="max_length"))

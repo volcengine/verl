@@ -3,8 +3,11 @@
 > Open-Source Algorithm Implementation & Expriement Running: [Yuxuan Tong](https://tongyx361.github.io/), [Guangming Sheng](https://hk.linkedin.com/in/guangming-sheng-b50640211)
 
 > [!IMPORTANT]
+>
 > **🔥 News!!!**
-> - [2025/03] We published the training record of [an early version of DAPO (w/o Token-level PG Loss & Dynamic Sampling)](./run_dapo_early_qwen2.5_32b.sh), achieving 44% on AIME 2024, in [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl?nw=u7n2j5sht28).
+>
+> - [2025/04] We reproduced the results of two versions of DAPO ([Full](./run_dapo_qwen2.5_32b.sh) & [w/o Dynamic Sampling](./run_dapo_wo_ds_qwen2.5_32b.sh)), achieving 52% and 50% on AIME 2024 respectively, based on [the latest codebase on `gm-tyx/puffin/main`](https://github.com/volcengine/verl/tree/gm-tyx/puffin/main/recipe/dapo). Please check the details in [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/workspace?nw=wmb4qxfht0n).
+> - [2025/03] We published the training record of [an early version of DAPO (w/o Token-level PG Loss & Dynamic Sampling)](./run_dapo_early_qwen2.5_32b.sh), achieving 44% on AIME 2024, in [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/workspace?nw=wmb4qxfht0n).
 
 🏠 [Homepage](https://dapo-sia.github.io/) | 📝 [Paper](https://dapo-sia.github.io/static/pdf/dapo_paper.pdf) | 🤗 [Datasets&Models@HF](https://huggingface.co/collections/BytedTsinghua-SIA/dapo-67d7f1517ee33c8aed059da0) | 🐱 [Code@GitHub](https://github.com/volcengine/verl/tree/gm-tyx/puffin/main/recipe/dapo) | 🐱 [Repo@GitHub](https://github.com/BytedTsinghua-SIA/DAPO)
 
@@ -13,6 +16,13 @@
 > ![dapo-main-result](https://dapo-sia.github.io/static/images/score.png)
 
 ## Quickstart
+
+0. (For reproduction) Checkout to the commit:
+
+```bash
+git fetch origin gm-tyx/puffin/main
+git checkout f7e13f5
+```
 
 1. Prepare the datasets **on the Ray cluster**:
 
@@ -33,10 +43,11 @@ bash recipe/dapo/run_dapo_qwen2.5_32b.sh
 
 ## Reproduction Runs
 
-| Setup | AIME 2024 Acc. | Training Script | Training Record |
-|-------|----------------------|-----------------|-----------------|
-| DAPO w/o Token-level PG Loss & Dynamic Sampling | 44% | [run_dapo_early_qwen2.5_32b.sh](./run_dapo_early_qwen2.5_32b.sh) | [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl?nw=u7n2j5sht28) |
-| DAPO | 50% | [run_dapo_qwen2.5_32b.sh](./run_dapo_qwen2.5_32b.sh) | W&B (Coming soon) |
+| Setup                                        | AIME 2024 Acc. | Training Script                                                  | Training Record                                                                           |
+| -------------------------------------------- | -------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| DAPO w/o Token-level Loss & Dynamic Sampling | 44%            | [run_dapo_early_qwen2.5_32b.sh](./run_dapo_early_qwen2.5_32b.sh) | [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/workspace?nw=wmb4qxfht0n) |
+| DAPO w/o Dynamic Sampling                    | 50%            | [run_dapo_wo_ds_qwen2.5_32b.sh](./run_dapo_wo_ds_qwen2.5_32b.sh) | [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/workspace?nw=wmb4qxfht0n) |
+| DAPO                                         | 52%            | [run_dapo_qwen2.5_32b.sh](./run_dapo_qwen2.5_32b.sh)             | [W&B](https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/workspace?nw=wmb4qxfht0n) |
 
 ## Configuration
 
@@ -104,7 +115,7 @@ else:
     batch = batch[:traj_bsz]
 ```
 
-### Flexible Loss Aggregation Mode (-> Token-level Policy Gradient Loss)
+### Flexible Loss Aggregation Mode (-> Token-level Loss)
 
 An example configuration:
 
@@ -121,13 +132,13 @@ Core relevant code:
 
 ```python
 if loss_agg_mode == "token-mean":
-    pg_loss = verl_F.masked_mean(pg_losses, eos_mask)
+    loss = verl_F.masked_mean(loss_mat, loss_mask)
 elif loss_agg_mode == "seq-mean-token-sum":
-    pg_loss = torch.sum(pg_losses * eos_mask, dim=-1) / torch.sum(eos_mask, dim=-1)
-    pg_loss = torch.mean(pg_loss)
+    seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
+    loss = torch.mean(seq_losses)  # seq-mean
 elif loss_agg_mode == "seq-mean-token-mean":
-    pg_loss = torch.sum(pg_losses * eos_mask, dim=-1) / torch.sum(eos_mask, dim=-1)
-    pg_loss = torch.mean(pg_loss)
+    seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / torch.sum(loss_mask, dim=-1)  # token-mean
+    loss = torch.mean(seq_losses)  # seq-mean
 else:
     raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 ```
@@ -140,7 +151,7 @@ An example configuration:
 data:
   max_response_length: 20480 # 16384 + 4096
 reward_model:
-  overlong_buffer: 
+  overlong_buffer:
     enable: True
     len: 4096
     penalty_factor: 1.0

@@ -27,7 +27,6 @@ from transformers.tokenization_utils import AddedToken, PreTrainedTokenizer
 
 
 class CharTokenizer(PreTrainedTokenizer):
-
     def __init__(self, characters: Sequence[str], model_max_length: int, chat_template, **kwargs):
         """Character tokenizer for Hugging Face transformers.
 
@@ -47,10 +46,10 @@ class CharTokenizer(PreTrainedTokenizer):
 
             model_max_length (int): Model maximum sequence length.
         """
-        eos_token_str = 'E'
-        sep_token_str = 'S'
-        pad_token_str = 'P'
-        unk_token_str = 'U'
+        eos_token_str = "E"
+        sep_token_str = "S"
+        pad_token_str = "P"
+        unk_token_str = "U"
 
         self.characters = characters
         self.model_max_length = model_max_length
@@ -64,9 +63,7 @@ class CharTokenizer(PreTrainedTokenizer):
             eos_token_str: 1,
             pad_token_str: 2,
             unk_token_str: 3,
-            **{
-                ch: i + 4 for i, ch in enumerate(characters)
-            },
+            **{ch: i + 4 for i, ch in enumerate(characters)},
         }
         self._vocab_int_to_str = {v: k for k, v in self._vocab_str_to_int.items()}
 
@@ -101,9 +98,7 @@ class CharTokenizer(PreTrainedTokenizer):
     def convert_tokens_to_string(self, tokens):
         return "".join(tokens)
 
-    def build_inputs_with_special_tokens(self,
-                                         token_ids_0: List[int],
-                                         token_ids_1: Optional[List[int]] = None) -> List[int]:
+    def build_inputs_with_special_tokens(self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None) -> List[int]:
         sep = [self.sep_token_id]
         cls = [self.cls_token_id]
         result = cls + token_ids_0 + sep
@@ -133,11 +128,11 @@ class CharTokenizer(PreTrainedTokenizer):
         return {
             "char_ords": [ord(ch) for ch in self.characters],
             "model_max_length": self.model_max_length,
-            "chat_template": self.chat_template
+            "chat_template": self.chat_template,
         }
 
     @classmethod
-    def from_config(cls, config: Dict) -> "DigitCompletionTokenizer":
+    def from_config(cls, config: Dict):
         cfg = {}
         cfg["characters"] = [chr(i) for i in config["char_ords"]]
         cfg["model_max_length"] = config["model_max_length"]

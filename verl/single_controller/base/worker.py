@@ -14,10 +14,14 @@
 """
 the class for Worker
 """
+
 import os
 import socket
 from dataclasses import dataclass
-from .decorator import register, Dispatch, Execute
+
+import ray
+
+from .decorator import Dispatch, Execute, register
 
 
 @dataclass
@@ -37,12 +41,11 @@ class DistGlobalInfo:
 
 
 class WorkerHelper:
-
     def _get_node_ip(self):
-
         def get_node_ip_by_sdk():
             if os.getenv("WG_BACKEND", None) == "ray":
                 import ray
+
                 return ray._private.services.get_node_ip_address()
             else:
                 raise NotImplementedError("WG_BACKEND now just support ray mode.")
@@ -57,7 +60,7 @@ class WorkerHelper:
 
     def _get_free_port(self):
         with socket.socket() as sock:
-            sock.bind(('', 0))
+            sock.bind(("", 0))
             return sock.getsockname()[1]
 
     def get_availale_master_addr_port(self):
@@ -69,7 +72,13 @@ class WorkerHelper:
 
 class WorkerMeta:
     keys = [
-        "WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"
+        "WORLD_SIZE",
+        "RANK",
+        "LOCAL_WORLD_SIZE",
+        "LOCAL_RANK",
+        "MASTER_ADDR",
+        "MASTER_PORT",
+        "CUDA_VISIBLE_DEVICES",
     ]
 
     def __init__(self, store) -> None:
@@ -83,11 +92,13 @@ class WorkerMeta:
 class Worker(WorkerHelper):
     """A (distributed) worker."""
 
+    fused_worker_attr_name = "fused_worker_dict"
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
 
         # note that here we use int to distinguish
-        disable_worker_init = int(os.environ.get('DISABLE_WORKER_INIT', 0))
+        disable_worker_init = int(os.environ.get("DISABLE_WORKER_INIT", 0))
         if disable_worker_init:
             return instance
 
@@ -95,7 +106,7 @@ class Worker(WorkerHelper):
         worker_group_prefix = os.environ.get("WG_PREFIX", None)
 
         # when decorator @ray.remote applies, __new__ will be called while we don't want to apply _configure_before_init
-        if None not in [rank, worker_group_prefix] and 'ActorClass(' not in cls.__name__:
+        if None not in [rank, worker_group_prefix] and "ActorClass(" not in cls.__name__:
             instance._configure_before_init(f"{worker_group_prefix}_register_center", int(rank))
 
         return instance
@@ -112,29 +123,32 @@ class Worker(WorkerHelper):
 
             if os.getenv("WG_BACKEND", None) == "ray":
                 from verl.single_controller.base.register_center.ray import create_worker_group_register_center
-                self.register_center = create_worker_group_register_center(name=register_center_name,
-                                                                           info=rank_zero_info)
+
+                self.register_center = create_worker_group_register_center(name=register_center_name, info=rank_zero_info)
 
             os.environ.update(rank_zero_info)
+        else:
+            self.register_center = ray.get_actor(register_center_name)
+
+        # set worker info for node affinity scheduling
+        ray.get(self.register_center.set_worker_info.remote(rank, ray.get_runtime_context().get_node_id()))
 
     def __init__(self, cuda_visible_devices=None) -> None:
-        # construct a meta from envrionment variable. Note that the import must be inside the class because it is executed remotely
+        # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
 
-        ###
-        # [SUPPORT AMD: torch]
         import torch
-        ###
+        from packaging import version
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
-            os.environ['CUDA_VISIBLE_DEVICES'] = os.environ.get('ROCR_VISIBLE_DEVICES')
-            os.environ['LOCAL_RANK'] = os.environ.get('RAY_LOCAL_RANK')
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
+            os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("ROCR_VISIBLE_DEVICES")
+            os.environ["LOCAL_RANK"] = os.environ.get("RAY_LOCAL_RANK")
         ###
 
-        world_size = int(os.environ['WORLD_SIZE'])
-        rank = int(os.environ['RANK'])
+        world_size = int(os.environ["WORLD_SIZE"])
+        rank = int(os.environ["RANK"])
         self._rank = rank
         self._world_size = world_size
 
@@ -146,36 +160,35 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
-            self.local_rank = int(os.environ['LOCAL_RANK'])
-        ###
-
-        ###
-        # [SUPPORT AMD: torch]
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
+            self.local_rank = int(os.environ["LOCAL_RANK"])
             cuda_visible_devices = str(local_rank)
         ###
 
         store = {
-            '_world_size': world_size,
-            '_rank': rank,
-            '_local_world_size': local_world_size,
-            '_local_rank': local_rank,
-            '_master_addr': master_addr,
-            '_master_port': master_port
+            "_world_size": world_size,
+            "_rank": rank,
+            "_local_world_size": local_world_size,
+            "_local_rank": local_rank,
+            "_master_addr": master_addr,
+            "_master_port": master_port,
         }
         if cuda_visible_devices is not None:
-            store['_cuda_visible_devices'] = cuda_visible_devices
+            store["_cuda_visible_devices"] = cuda_visible_devices
 
         meta = WorkerMeta(store=store)
         self._configure_with_meta(meta=meta)
 
         ###
         # [SUPPORT AMD: torch]
-        # torch.cuda.set_device(local_rank)
-        if "AMD" in torch.cuda.get_device_name():
+        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             torch.cuda.set_device(int(cuda_visible_devices))
         ###
+
+        self.fused_worker_dict = {}
+
+    def get_fused_worker_by_name(self, worker_name: str):
+        return self.fused_worker_dict.get(worker_name, None)
 
     def _configure_with_meta(self, meta: WorkerMeta):
         """
@@ -189,14 +202,14 @@ class Worker(WorkerHelper):
             if val is not None:
                 # print(f"set {key} to {val}")
                 os.environ[key] = str(val)
-        os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace(
-            "]", "") if self._master_addr else ""
+        os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
 
     def get_master_addr_port(self):
         return self._master_addr, self._master_port
 
     def get_cuda_visible_devices(self):
         import os
+
         cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
         return cuda_visible_devices
 

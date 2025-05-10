@@ -2,7 +2,7 @@
 
 ## Installation
 
-Note: This version of veRL+vLLM 0.8+ supports **FSDP** for training and **vLLM** for rollout.
+Note: This version of verl+vLLM 0.8+ supports **FSDP** for training and **vLLM** for rollout.
 
 ```bash
 # Create the conda environment
@@ -22,7 +22,7 @@ pip3 install flash-attn --no-build-isolation
 
 ```
 
-We have a pre-built docker image for veRL+vLLM 0.8.3. You can direct import it with the following command:
+We have a pre-built docker image for verl+vLLM 0.8.3. You can direct import it with the following command:
 
 ```bash
 docker pull hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.3-flashinfer0.2.2-cxx11abi0
@@ -30,7 +30,7 @@ docker pull hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.3-flashinfer0.2.2-cxx11abi0
 
 ## Features
 
-vLLM 0.8+ supports cuda graph and V1 engine by default in veRL. To enable these features, remember to add the following lines to the bash script:
+vLLM 0.8+ supports cuda graph and V1 engine by default in verl. To enable these features, remember to add the following lines to the bash script:
 
 ```bash
 actor_rollout_ref.rollout.enforce_eager=False \
@@ -40,7 +40,8 @@ actor_rollout_ref.rollout.free_cache_engine=False \
 and also **remove** the environment variable if it exists:
 
 ```bash
-export VLLM_ATTENTION_BACKEND=XFORMERS
+# If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
+# export VLLM_ATTENTION_BACKEND=XFORMERS
 ```
 
 ## Notes

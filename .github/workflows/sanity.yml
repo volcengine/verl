@@ -6,14 +6,11 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/sanity.yml
+      - v0.*
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
@@ -24,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
@@ -46,9 +43,12 @@ jobs:
       - name: Run sanity test
         run: |
           pytest -s -x tests/sanity
-      - name: Run utility test
-        run: |
-          pytest -s -x tests/utility
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .
+      - name: Assert naming convention
+        run: |
+          if grep -rIn --exclude-dir=.git --exclude-dir=.github --exclude-dir=venv --exclude-dir=__pycache__ 'veRL' .; then
+            echo "Please use verl instead of veRL in the codebase"
+            exit 1
+          fi
