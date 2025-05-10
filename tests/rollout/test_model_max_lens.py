@@ -12,21 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from omegaconf import DictConfig
-from omegaconf import OmegaConf
-from transformers import AutoConfig, AutoTokenizer
 import torch
 import torch.distributed
-from verl.workers.rollout.base import BaseRollout
-from vllm.distributed import parallel_state as vllm_ps
+from omegaconf import DictConfig, OmegaConf
+from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm.distributed import parallel_state as vllm_ps
+
 from verl.third_party.vllm import vllm_version
+from verl.workers.rollout.base import BaseRollout
 
 
 class vLLMRollout(BaseRollout):
-
-    def __init__(self, model_path: str, config: DictConfig, tokenizer,
-                 model_hf_config, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -38,42 +36,35 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), \
-            "disable CUDA graph (enforce_eager = False) if free cache engine"
+        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
-        tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
-        max_num_batched_tokens = self.config.get('max_num_batched_tokens',
-                                                 8192)
+        tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
+        max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
 
-        if kwargs.get('train_tp', None) is not None:
+        if kwargs.get("train_tp", None) is not None:
             # deployed with megatron
             import os
-            os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
-            os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
-            train_tp = kwargs.get('train_tp', None)
+
+            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
+            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
+            train_tp = kwargs.get("train_tp", None)
             num_tp_per_train_tp = train_tp // tensor_parallel_size
-            vllm_ps.initialize_parallel_state(
-                tensor_model_parallel_size=tensor_parallel_size,
-                num_tp_per_train_tp=num_tp_per_train_tp)
+            vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
         # before fixing the hf config model context window assertion
         # expected behavior: if the model use rope scaling yarn in its config,
         # it will still raise error since this assertion only checks the `max_position_embeddings` in the HF config
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
-            "model context length should be greater than total sequence length"
+        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
         # after fixing
         # expect behavior: if the model uses yarn position embeddings, it will pass the assertion
         # since it checks the rope scaling factor (if any) to calculate the effective max position embeddings
         rope_scaling_factor = 1.0
-        if hasattr(
-                model_hf_config,
-                'rope_scaling') and model_hf_config.rope_scaling is not None:
+        if hasattr(model_hf_config, "rope_scaling") and model_hf_config.rope_scaling is not None:
             # check if the type is yarn
             rope_scaling = model_hf_config.rope_scaling
             rope_type = rope_scaling.get("rope_type", rope_scaling.get("type"))
-            if rope_type == 'yarn':
+            if rope_type == "yarn":
                 rope_scaling_factor = rope_scaling.get("factor", 1.0)
-        assert model_hf_config.max_position_embeddings * rope_scaling_factor >= config.prompt_length + config.response_length, \
-            "model context length should be greater than total sequence length"
+        assert model_hf_config.max_position_embeddings * rope_scaling_factor >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
 
         self.inference_engine = LLM(
             model=model_path,
@@ -101,8 +92,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # # we may detokenize the result all together later
-        if vllm_version != '0.3.1':
-            kwargs['detokenize'] = False
+        if vllm_version != "0.3.1":
+            kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -126,22 +117,24 @@ def test_vllm_rollout_with_yarn_position_embeddings():
     Test the vLLM rollout with yarn position embeddings.
     """
 
-    config = OmegaConf.create({
-        'model_path': "OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN",
-        'prompt_length': 32768,
-        'response_length': 512,
-        'dtype': 'bfloat16',
-        'enforce_eager': False,
-        'gpu_memory_utilization': 0.9,
-        'enable_chunked_prefill': True,
-        'free_cache_engine': False,
-        'disable_log_stats': True,
-    })
+    config = OmegaConf.create(
+        {
+            "model_path": "OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN",
+            "prompt_length": 32768,
+            "response_length": 512,
+            "dtype": "bfloat16",
+            "enforce_eager": False,
+            "gpu_memory_utilization": 0.9,
+            "enable_chunked_prefill": True,
+            "free_cache_engine": False,
+            "disable_log_stats": True,
+        }
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(config.model_path)
     model_hf_config = AutoConfig.from_pretrained(config.model_path)
 
-    rollout = vLLMRollout(
+    vLLMRollout(
         model_path=config.model_path,
         config=config,
         tokenizer=tokenizer,
@@ -151,5 +144,6 @@ def test_vllm_rollout_with_yarn_position_embeddings():
 
 if __name__ == "__main__":
     import os
-    os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
+
+    os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     test_vllm_rollout_with_yarn_position_embeddings()
