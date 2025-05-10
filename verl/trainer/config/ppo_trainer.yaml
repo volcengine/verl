@@ -27,6 +27,7 @@ actor_rollout_ref:
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: True
+    enable_activation_offload: False
     use_remove_padding: False
     use_liger: False
     trust_remote_code: False
@@ -147,6 +148,7 @@ critic:
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: True
+    enable_activation_offload: False
     use_remove_padding: False
     trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
     fsdp_config:
