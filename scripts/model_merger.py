@@ -113,7 +113,7 @@ def test_fsdp_state_dict(
         collected_dtype = collected_state_dict[key].dtype
         assert original_dtype == collected_dtype, f"Dtype mismatch for key '{key}': original {original_dtype} vs collected {collected_dtype}"
 
-        torch.testing.assert_close(original_state_dict[key], collected_state_dict[key], atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(original_state_dict[key], collected_state_dict[key], atol=1e-6, rtol=1e-6)
 
     print("FSDP checks passed: The merged state_dict matches the hf model saved by FSDPCheckpointManager.")
     return True
