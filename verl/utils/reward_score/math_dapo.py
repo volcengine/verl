@@ -14,8 +14,8 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 import re
-import signal
 from typing import Optional
+
 
 def last_boxed_only_string(string: str) -> Optional[str]:
     """Extract the last LaTeX boxed expression from a string.
