@@ -39,7 +39,7 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config):
+    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config, tokenizer=None):
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config
@@ -49,7 +49,16 @@ class MegatronWorker(Worker):
 
         # Step 1: initialize the tokenizer
         self.local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(self.local_path)
+        try:
+            self.tokenizer = hf_tokenizer(self.local_path)
+        except OSError as err:
+            # If the model path doesn't contain a tokenizer, we use the tokenizer path specified in the config
+            if isinstance(tokenizer, str):
+                self.tokenizer = hf_tokenizer(copy_to_local(tokenizer))
+            elif tokenizer is not None:
+                self.tokenizer = tokenizer
+            else:
+                raise ValueError(f"Cannot find tokenizer in {model_path} and no tokenizer path is specified in the config.") from err
 
         # Step 2: get the hf
         hf_config = AutoConfig.from_pretrained(self.local_path)
