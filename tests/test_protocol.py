@@ -284,7 +284,7 @@ def test_seqlen_balancing():
     attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
-    micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
+    micro_batches, _, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
     batch = torch.cat(micro_batches)
     micro_bsz_idx = []
     for idx in micro_bsz_idx_lst:

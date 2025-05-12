@@ -1291,7 +1291,7 @@ class RewardModelWorker(Worker):
             use_dynamic_bsz = self.config.use_dynamic_bsz
             if use_dynamic_bsz:
                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
+                micro_batches, _, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
             else:
                 micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
             output = []
