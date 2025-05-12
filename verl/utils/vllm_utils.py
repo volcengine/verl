@@ -12,18 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering unsupported issues.
+SUPPORTED_MOE_MODELS = []
 
-from vllm.model_executor.models.deepseek_v2 import (DeepseekV2ForCausalLM,
-                                                    DeepseekV3ForCausalLM)
-from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+try:
+    from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
+    SUPPORTED_MOE_MODELS.append(DeepseekV2ForCausalLM)
+    SUPPORTED_MOE_MODELS.append(DeepseekV3ForCausalLM)
+except ImportError:
+    pass
 
-model_types = [Qwen2MoeForCausalLM, DeepseekV2ForCausalLM, DeepseekV3ForCausalLM]
+try:
+    from vllm.model_executor.models.mixtral import MixtralForCausalLM
+    SUPPORTED_MOE_MODELS.append(MixtralForCausalLM)
+except ImportError:
+    pass
+
+try:
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+    SUPPORTED_MOE_MODELS.append(Qwen2MoeForCausalLM)
+except ImportError:
+    pass
 
 try:
     from vllm.model_executor.models.qwen3_moe import Qwen3MoeForCausalLM
-    model_types.append(Qwen3MoeForCausalLM)
+    SUPPORTED_MOE_MODELS.append(Qwen3MoeForCausalLM)
 except ImportError:
     pass
+
 
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
@@ -42,11 +58,20 @@ def patch_vllm_moe_model_weight_loader(model):
     # (False, 'model.layers.0.post_attention_layernorm.weight') use default
     # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
     # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
- 
-    if not isinstance(model, tuple(model_types)):
+
+    # Define MLP attribute mapping for different model types
+    MLP_ATTR_MAPPING = {
+        MixtralForCausalLM: "block_sparse_moe",
+    }
+    DEFAULT_MLP_ATTR = "mlp"
+
+    if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)):
         return
+
     for layer in model.model.layers:
-        mlp = layer.mlp
+        mlp_attr = MLP_ATTR_MAPPING.get(type(model), DEFAULT_MLP_ATTR)
+        mlp = getattr(layer, mlp_attr)
+
         param_dict = dict(mlp.named_parameters())
         for name, param in param_dict.items():
             if "w13_weight" in name or "w2_weight" in name:

@@ -87,6 +87,7 @@ actor_rollout_ref:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     strategy: megatron
+    use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
       tensor_model_parallel_size: 1
@@ -146,6 +147,11 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+    multi_turn: 
+      enable: False  # should set rollout.name to sglang_async if True
+      max_turns: null  # null for no limit (default max_length // 3)
+      tool_config_path: null  # null for no tool
+      format: chatml  # chatml, more formats will be supported in the future
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}

@@ -26,6 +26,7 @@ from tensordict import TensorDict
 from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
+from transformers import PreTrainedTokenizer
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -247,10 +248,10 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     pad a 2D tensors (e.g. responses, logprobs) in the last dim to max_seq_length.
     input shape: [bs, seq_length]
     output shape: [bs, max_seq_length]
-    (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     """
     if tensors.shape[-1] >= max_seq_len:
         return tensors
+    # (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
     return F.pad(tensors, pad_tuple, "constant", pad_token_id)
 
@@ -263,8 +264,18 @@ def postprocess_data(
     left_pad=True,
     truncation="error",
 ):
-    """
-    input_data is the output from tokenizer.
+    """Process tokenizer outputs to consistent shapes via padding/truncation.
+
+    Args:
+        input_ids: Token indices [batch_size, seq_len]
+        attention_mask: Mask [batch_size, seq_len]
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: "left", "right" or "error"
+
+    Returns:
+        (input_ids, attention_mask) padded/truncated to max_length
     """
     assert truncation in ["left", "right", "error"]
     assert input_ids.ndim == 2
@@ -287,6 +298,27 @@ def postprocess_data(
             raise NotImplementedError(f"Unknown truncation method {truncation}")
 
     return input_ids, attention_mask
+
+
+def tokenize_and_postprocess_data(prompt: str, tokenizer: PreTrainedTokenizer, max_length: int, pad_token_id: int, left_pad=True, truncation="error"):
+    """Tokenize text and process outputs to consistent tensor shapes.
+
+    Args:
+        prompt: Input text to tokenize
+        tokenizer: HuggingFace tokenizer instance
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: Truncation strategy ("left"/"right"/"error")
+
+    Returns:
+        Tuple of (input_ids, attention_mask) from postprocess_data
+    """
+    input_data = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+    input_ids = input_data["input_ids"]
+    attention_mask = input_data["attention_mask"]
+
+    return postprocess_data(input_ids, attention_mask, max_length, pad_token_id, left_pad, truncation)
 
 
 def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
@@ -566,3 +598,68 @@ def check_cuda_is_available():
         raise RuntimeError("CUDA must be initialized before importing this module.")
 
     yield
+
+
+def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=True, compute_std=True):
+    """Compute distributed statistics across all processes.
+
+    Args:
+        local_tensor: Tensor containing local values
+        compute_max: Include maximum value calculation
+        compute_min: Include minimum value calculation
+        compute_std: Include standard deviation calculation
+
+    Returns:
+        Tuple containing (mean, max, min, std) in this order. None for disabled metrics.
+    """
+    # Sum the local tensor across all processes
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+
+    if compute_max:
+        local_max = torch.max(local_tensor)
+        torch.distributed.all_reduce(local_max, op=torch.distributed.ReduceOp.MAX)
+    else:
+        local_max = None
+
+    if compute_min:
+        local_min = torch.min(local_tensor)
+        torch.distributed.all_reduce(local_min, op=torch.distributed.ReduceOp.MIN)
+    else:
+        local_min = None
+
+    if compute_std:
+        square_diff = torch.sum(torch.pow(local_tensor - global_mean, 2))
+        torch.distributed.all_reduce(square_diff, op=torch.distributed.ReduceOp.SUM)
+        global_std = torch.sqrt(square_diff / (local_num - 1))
+    else:
+        global_std = None
+
+    return global_mean, local_max, local_min, global_std
+
+
+def distributed_masked_mean(local_tensor, local_mask):
+    """Compute global mean of non-masked elements across distributed processes.
+
+    Args:
+        local_tensor (torch.Tensor): Input tensor with local values
+        local_mask (torch.Tensor): Binary mask (1=valid, 0=ignore) matching local_tensor shape
+
+    Returns:
+        torch.Tensor: Global mean of all valid elements across processes
+    """
+    local_tensor = local_tensor * local_mask
+
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.sum(local_mask)
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+    return global_mean

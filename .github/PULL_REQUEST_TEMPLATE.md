@@ -1,27 +1,45 @@
-# What does this PR do?
+### Checklist Before Starting
 
-Add one-line overview of what this PR aims to achieve or accomplish. 
+- [ ] Search for similar PR(s).
 
-# ChangeLog:
+### What does this PR do?
 
-- Add specific changes and high-level design in this PR.
+> Add one-line overview of what this PR aims to achieve or accomplish. 
 
-# Usage
+### High-Level Design
 
-- You can add one use example below.
+> Demonstrate the high-level design if this PR is complex.
+
+### Specific Changes
+
+> List the specific changes.
+
+### API
+
+> Demonstrate how the API changes if any.
+
+### Usage Example
+
+> Provide usage example(s) for easier usage.
 
 ```python
 # Add code snippet or script demonstrating how to use this 
 ```
-- For algorithm implementation and new model support, you can add training curve plots and evaluatuion results below. 
 
-## Before submitting
+### Test
 
-- [ ] Did you read the [Contribute Guide](https://github.com/volcengine/verl?tab=readme-ov-file#contribution-guide) and finish the [code format check](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting)? 
-- [ ] Did you make sure to update the documentations with your changes in the [docs](https://github.com/volcengine/verl/tree/main/docs) especially for breaking config etc?
-- [ ] Did you write any test cases if neccessary? Please add CI tests to your new feature.  
+> For changes that can not be tested by CI (e.g., algorithm implementation, new model support), validate by experiment(s) and show results like training curve plots, evaluatuion results, etc.
 
-# Additional Info: 
-- **Issue Number**: Fixes issue # or discussion # if any. 
+### Additional Info.
+
+- **Issue Number**: Fixes issue # or discussion # if any.
 - **Training**: [Note which backend this PR will affect: FSDP, Megatron, both, or none]
 - **Inference**: [Note which backend this PR will affect: vLLM, SGLang, both, or none]
+
+### Checklist Before Submitting
+
+- [ ] Read the [Contribute Guide](https://github.com/volcengine/verl?tab=readme-ov-file#contribution-guide).
+- [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting).
+- [ ] Add `[BREAKING]` to the PR title if it breaks any API.
+- [ ] Update the documentation about your changes in the [docs](https://github.com/volcengine/verl/tree/main/docs).
+- [ ] Add CI test(s) if neccessary.

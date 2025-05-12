@@ -1,9 +1,7 @@
 Welcome to verl's documentation!
 ================================================
 
-.. _hf_arxiv: https://arxiv.org/pdf/2409.19256
-
-verl is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <hf_arxiv>`_ paper.
+verl is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <https://arxiv.org/pdf/2409.19256>`_ paper.
 
 verl is flexible and easy to use with:
 
@@ -62,6 +60,13 @@ verl is fast with:
    examples/gsm8k_example
    examples/multi_modal_example
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Algorithms
+
+   experiment/ppo
+
+
 .. toctree:: 
    :maxdepth: 1
    :caption: PPO Trainer and Workers
@@ -81,12 +86,6 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: Experimental Results
-
-   experiment/ppo
-
-.. toctree::
-   :maxdepth: 1
    :caption: Advance Usage and Extension
 
    advance/placement
@@ -94,12 +93,14 @@ verl is fast with:
    advance/fsdp_extension
    advance/megatron_extension
    advance/checkpoint
+   sglang_multiturn/multiturn.rst
 
 .. toctree::
    :maxdepth: 1
    :caption: API References
 
-   data.rst
+   data
+   api/utils
 
 
 .. toctree::
