@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from turtle import backward, forward
-from typing import Optional, Tuple
+from typing import Tuple
 import torch
 
 
