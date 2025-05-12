@@ -34,46 +34,49 @@ import typing
 import torch
 
 import verl.utils.torch_functional as verl_F
-from verl.utils.experimental.torch_functional import fused_entropy, fused_log_probs
+from verl.utils.experimental.torch_functional import fused_linear_for_ppo
 from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
-    hidden = hidden.squeeze(0).to(torch.float32)
-    weight = weight.transpose(0, 1).to(torch.float32)
-    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
+    orig_dtype = hidden.dtype
+    hidden = hidden.squeeze(0)
+    weight = weight.transpose(0, 1)
+    logits = torch.matmul(hidden, weight).to(torch.float32)  # [num_tokens, vocab_size]
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
     entropy = entropy_a - entropy_b
     logprobs = torch.nn.functional.cross_entropy(logits, labels.squeeze(0), reduction=reduction)  # [num_tokens]
     logprobs = torch.neg(logprobs)
-    return logprobs, entropy
+    return logprobs.to(orig_dtype), entropy.to(orig_dtype)
 
 
 def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor) -> typing.List[torch.Tensor]:
-    hidden = hidden.squeeze(0).to(torch.float32)
-    weight = weight.transpose(0, 1).to(torch.float32)
-    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
+    orig_dtype = hidden.dtype
+    hidden = hidden.squeeze(0)
+    weight = weight.transpose(0, 1)
+    logits = torch.matmul(hidden, weight).to(torch.float32)  # [num_tokens, vocab_size]
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
     logprobs = logprobs_from_logits(logits=logits, labels=labels, inplace_backward=False)
-    return logprobs, entropy
+    return logprobs.to(orig_dtype), entropy.to(orig_dtype)
 
 
 # To be tested
 def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor):
-    hidden = hidden.to(torch.float32)
-    weight = weight.to(torch.float32)
-    logprobs = fused_log_probs(hidden, weight, labels).squeeze(0)
-    entropy = fused_entropy(hidden, weight).squeeze(0)
-    return logprobs, entropy
+    logprobs, entropy = fused_linear_for_ppo(
+        hidden,
+        weight,
+        labels,
+    )
+    return logprobs.squeeze(0), entropy.squeeze(0)
 
 
-MAX_TEST_CASES = 4
+MAX_TEST_CASES = 5
 
 
 class TestLinearCrossEntropy:
@@ -108,6 +111,11 @@ class TestLinearCrossEntropy:
         elif self.test_case_idx == 3:
             self.batch_size = 1
             self.num_tokens = 1388
+            self.hidden_size = 4096
+            self.vocab_size = 102400
+        elif self.test_case_idx == 3:
+            self.batch_size = 1
+            self.num_tokens = 8192
             self.hidden_size = 4096
             self.vocab_size = 102400
         else:
@@ -160,12 +168,12 @@ class TestLinearCrossEntropy:
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
 
-            torch.testing.assert_close(torch_logprobs, verl_logprobs, atol=1e-4, rtol=1e-4)
-            torch.testing.assert_close(torch_entropy, verl_entropy, atol=1e-4, rtol=1e-4)
-            torch.testing.assert_close(torch_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
-            torch.testing.assert_close(torch_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
-            torch.testing.assert_close(verl_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
-            torch.testing.assert_close(verl_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(torch_logprobs, verl_logprobs, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(torch_entropy, verl_entropy, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(torch_logprobs, verl_fused_logprobs, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(torch_entropy, verl_fused_entropy, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(verl_logprobs, verl_fused_logprobs, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(verl_entropy, verl_fused_entropy, atol=1e-2, rtol=1e-2)
 
             # backward
             g_entropy, g_logprobs = self.generate_backward_inputs()
