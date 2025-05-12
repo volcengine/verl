@@ -24,7 +24,7 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 
 
 def test_seqlen_balancing():
-    input_ids = torch.randint(ßlow=0, high=10, size=(20, 100))
+    input_ids = torch.randint(low=0, high=10, size=(20, 100))
 
     attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
