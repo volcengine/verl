@@ -364,7 +364,7 @@ def fused_linear_for_ppo_bwd(
 
     dlogits = dlogits.to(orig_dtype) / temperature
     dhidden_states = dlogits @ vocab_weights
-    dvocab_weights = (dlogits.transpose(-1, -2) @ hidden_states).sum(0)
+    dvocab_weights = (dlogits.t() @ hidden_states)
 
     return dhidden_states, dvocab_weights
 
