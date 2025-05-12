@@ -34,7 +34,7 @@ import typing
 import torch
 
 import verl.utils.torch_functional as verl_F
-from verl.utils.experimental.torch_functional import fused_linear_for_ppo, FusedLinearForPPO
+from verl.utils.experimental.torch_functional import FusedLinearForPPO
 from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
