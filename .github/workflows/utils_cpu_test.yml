@@ -1,4 +1,4 @@
-name: verl_unit_test
+name: utils_cpu_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/verl_unit_test.yml
+      - .github/workflows/utils_cpu_test.yml
       - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  verl_unit_test:
+  utils_cpu_test:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # Increase this timeout value as needed
     strategy:
@@ -43,9 +43,9 @@ jobs:
           pip install -e .[test]
       - name: Running test protocol.py
         run: |
-          cd tests
+          cd tests/workers
           pytest -s -x test_protocol.py
-      - name: running utils tests
+      - name: running utils cpu tests
         run: |
-          cd tests/utils
-          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ --ignore=test_flops_counter.py --ignore=test_torch_functional.py .
+          cd tests/utils/cpu_tests
+          pytest -s -x .

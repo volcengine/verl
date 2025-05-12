@@ -1,4 +1,4 @@
-name: verl_unit_test_gpu
+name: utils_gpu_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/verl_unit_test_gpu.yml
+      - .github/workflows/utils_gpu_test.yml
       - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 jobs:
-  verl_unit_test_gpu:
+  utils_gpu_test:
     runs-on: [L20x8]
     timeout-minutes: 20 # Increase this timeout value as needed
     container:
@@ -41,7 +41,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running utils tests
+      - name: Running utils gpu tests
         run: |
-          cd tests/verl/utils
-          pytest -s -x test_torch_functional.py
+          cd tests/verl/utils/gpu_tests
+          pytest -s -x .
