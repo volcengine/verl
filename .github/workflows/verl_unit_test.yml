@@ -49,3 +49,8 @@ jobs:
         run: |
           cd tests/utils
           pytest -s -x --ignore=dataset/ --ignore=checkpoint/ --ignore=test_flops_counter.py --ignore=test_torch_functional.py .
+          cd -
+      - name: Running trainer tests
+        run: |
+          cd tests/trainer
+          pytest -s -x .
