@@ -1,8 +1,8 @@
 set -x
 
 python3 -m verl.trainer.main_ppo \
-    reward_model.sandbox_fusion_url='https://xxxxxxxxx.apigateway-cn-beijing.volceapi.com/run_code' \
-    reward_model.sandbox_fusion_max_concurrent=128 \
+    reward_model.sandbox_fusion.url='https://xxxxxxxxx.apigateway-cn-beijing.volceapi.com/run_code' \
+    reward_model.sandbox_fusion.max_concurrent=128 \
     reward_model.reward_manager=prime \
     algorithm.adv_estimator=gae \
     data.train_files=$HOME/data/Eurus-2-RL-Data/train.parquet \
