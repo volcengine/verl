@@ -34,43 +34,43 @@ import typing
 import torch
 
 import verl.utils.torch_functional as verl_F
-from verl.utils.experimental.torch_functional import FusedLinearForPPO
+from verl.utils.experimental.torch_functional import fused_linear_for_ppo, FusedLinearForPPO
 from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
-fused_linear_for_ppo = FusedLinearForPPO()
-fused_linear_for_ppo.compile()
+fn = FusedLinearForPPO()
+fn.compile()
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
-    orig_dtype = hidden.dtype
-    hidden = hidden.squeeze(0)
-    weight = weight.transpose(0, 1)
-    logits = torch.matmul(hidden, weight).to(torch.float32)  # [num_tokens, vocab_size]
+    hidden = hidden.squeeze(0).to(torch.float32)
+    weight = weight.transpose(0, 1).to(torch.float32)
+    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
     entropy = entropy_a - entropy_b
     logprobs = torch.nn.functional.cross_entropy(logits, labels.squeeze(0), reduction=reduction)  # [num_tokens]
     logprobs = torch.neg(logprobs)
-    return logprobs.to(orig_dtype), entropy.to(orig_dtype)
+    return logprobs, entropy
 
 
 def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor) -> typing.List[torch.Tensor]:
-    orig_dtype = hidden.dtype
-    hidden = hidden.squeeze(0)
-    weight = weight.transpose(0, 1)
-    logits = torch.matmul(hidden, weight).to(torch.float32)  # [num_tokens, vocab_size]
+    hidden = hidden.squeeze(0).to(torch.float32)
+    weight = weight.transpose(0, 1).to(torch.float32)
+    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
     logprobs = logprobs_from_logits(logits=logits, labels=labels, inplace_backward=False)
-    return logprobs.to(orig_dtype), entropy.to(orig_dtype)
+    return logprobs, entropy
 
 
 # To be tested
 def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor):
-    logprobs, entropy = fused_linear_for_ppo(
+    hidden = hidden.to(torch.float32)
+    weight = weight.to(torch.float32)
+    logprobs, entropy = fn(
         hidden,
         weight,
         labels,
@@ -170,12 +170,12 @@ class TestLinearCrossEntropy:
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
 
-            torch.testing.assert_close(torch_logprobs, verl_logprobs, atol=1e-2, rtol=1e-2)
-            torch.testing.assert_close(torch_entropy, verl_entropy, atol=1e-2, rtol=1e-2)
-            torch.testing.assert_close(torch_logprobs, verl_fused_logprobs, atol=1e-2, rtol=1e-2)
-            torch.testing.assert_close(torch_entropy, verl_fused_entropy, atol=1e-2, rtol=1e-2)
-            torch.testing.assert_close(verl_logprobs, verl_fused_logprobs, atol=1e-2, rtol=1e-2)
-            torch.testing.assert_close(verl_entropy, verl_fused_entropy, atol=1e-2, rtol=1e-2)
+            torch.testing.assert_close(torch_logprobs, verl_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(torch_entropy, verl_entropy, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(torch_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(torch_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
 
             # backward
             g_entropy, g_logprobs = self.generate_backward_inputs()
