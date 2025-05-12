@@ -318,7 +318,7 @@ def fused_log_probs(
     )
 
 
-def fused_entropy_log_probs_fwd(
+def fused_linear_for_ppo_fwd(
     hidden_states: torch.FloatTensor,
     vocab_weights: torch.FloatTensor,
     input_ids: torch.LongTensor,
@@ -339,7 +339,7 @@ def fused_entropy_log_probs_fwd(
     return entropy.to(orig_dtype), token_log_probs.to(orig_dtype)
 
 
-def fused_entropy_log_probs_bwd(
+def fused_linear_for_ppo_bwd(
     dentropy: torch.FloatTensor,
     dlog_probs: torch.FloatTensor,
     hidden_states: torch.FloatTensor,
@@ -370,7 +370,7 @@ def fused_entropy_log_probs_bwd(
     return dhidden_states, dvocab_weights
 
 
-class FusedEntropyLogProbs(torch.autograd.Function):
+class FusedLinearForPPO(torch.autograd.Function):
 
     @staticmethod
     def forward(
@@ -394,32 +394,32 @@ class FusedEntropyLogProbs(torch.autograd.Function):
         T = hidden_states.shape[0]
 
         # Allocate memory for outputs
-        entropy = torch.empty(T, dtype=hidden_states.dtype, device=hidden_states.device)
         log_probs = torch.empty(T, dtype=hidden_states.dtype, device=hidden_states.device)
+        entropy = torch.empty(T, dtype=hidden_states.dtype, device=hidden_states.device)
 
         # Perform forward one chunk at a time
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
 
-            chunk_entropy, chunk_log_probs = fused_entropy_log_probs_fwd(
+            chunk_entropy, chunk_log_probs = fused_linear_for_ppo_fwd(
                 hidden_states=hidden_states[chunk_start:chunk_end],
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
                 temperature=temperature,
             )
-            entropy[chunk_start:chunk_end] = chunk_entropy
             log_probs[chunk_start:chunk_end] = chunk_log_probs
+            entropy[chunk_start:chunk_end] = chunk_entropy
 
         # Cast the output back to the original input dimension
         if orig_ndim == 3:
-            entropy = entropy.view(orig_batch_size, -1)
             log_probs = log_probs.view(orig_batch_size, -1)
+            entropy = entropy.view(orig_batch_size, -1)
 
         ctx.save_for_backward(hidden_states, vocab_weights, input_ids)
         ctx.temperature = temperature
         ctx.chunk_size = chunk_size
 
-        return entropy, log_probs
+        return log_probs, entropy
 
     @staticmethod
     def backward(ctx, dentropy: torch.FloatTensor, dlog_probs: torch.FloatTensor):
@@ -444,7 +444,7 @@ class FusedEntropyLogProbs(torch.autograd.Function):
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
 
-            h, v = fused_entropy_log_probs_bwd(
+            h, v = fused_linear_for_ppo_bwd(
                 dentropy=dentropy[chunk_start:chunk_end],
                 dlog_probs=dlog_probs[chunk_start:chunk_end],
                 hidden_states=hidden_states[chunk_start:chunk_end],
@@ -470,4 +470,4 @@ class FusedEntropyLogProbs(torch.autograd.Function):
         )
 
 
-fused_entropy_log_probs = FusedEntropyLogProbs.apply
+fused_linear_for_ppo = FusedLinearForPPO.apply
