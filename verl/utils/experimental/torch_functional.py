@@ -327,20 +327,19 @@ def fused_linear_for_ppo_fwd(
     orig_dtype = logits.dtype
     logits = logits.to(torch.float32)
 
-    # Slower but more numerically stable to do log_softmax, rather than probs.log()
+    # Slower but more numerically stable to do log_softmax than probs.log()
     probs = logits.softmax(dim=-1)
     log_probs = logits.log_softmax(dim=-1)
 
+    token_log_probs = log_probs.gather(-1, input_ids.unsqueeze(-1)).squeeze(-1)
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
 
-    token_log_probs = log_probs.gather(-1, input_ids.unsqueeze(-1)).squeeze(-1)
-
-    return entropy.to(orig_dtype), token_log_probs.to(orig_dtype)
+    return token_log_probs.to(orig_dtype), entropy.to(orig_dtype)
 
 
 def fused_linear_for_ppo_bwd(
-    dentropy: torch.FloatTensor,
     dlog_probs: torch.FloatTensor,
+    dentropy: torch.FloatTensor,
     hidden_states: torch.FloatTensor,
     vocab_weights: torch.FloatTensor,
     input_ids: torch.LongTensor,
@@ -350,19 +349,21 @@ def fused_linear_for_ppo_bwd(
     orig_dtype = logits.dtype
     logits = logits.to(torch.float32)
 
-    # Slower but more numerically stable to do log_softmax, rather than probs.log()
+    # Slower but more numerically stable to do log_softmax than probs.log()
     probs = logits.softmax(dim=-1)
     log_probs = logits.log_softmax(dim=-1)
 
-    # Gradient from entropy
-    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
-    dlogits = probs * (log_probs + entropy.unsqueeze(-1)) * (-dentropy.unsqueeze(-1))
-
     # Gradient from log_probs
     one_hot_input = torch.zeros_like(logits).scatter_(-1, input_ids.unsqueeze(-1), 1)
-    dlogits += dlog_probs.to(torch.float32).unsqueeze(-1) * (one_hot_input - probs)
+    dlogits_log_probs = dlog_probs.to(torch.float32).unsqueeze(-1) * (one_hot_input - probs)
 
+    # Gradient from entropy
+    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
+    dlogits_entropy = probs * (log_probs + entropy.unsqueeze(-1)) * (-dentropy.unsqueeze(-1))
+
+    dlogits = dlogits_log_probs + dlogits_entropy
     dlogits = dlogits.to(orig_dtype) / temperature
+
     dhidden_states = dlogits @ vocab_weights
     dvocab_weights = (dlogits.t() @ hidden_states)
 
@@ -400,7 +401,7 @@ class FusedLinearForPPO(torch.autograd.Function):
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
 
-            chunk_entropy, chunk_log_probs = fused_linear_for_ppo_fwd(
+            chunk_log_probs, chunk_entropy = fused_linear_for_ppo_fwd(
                 hidden_states=hidden_states[chunk_start:chunk_end],
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
@@ -421,7 +422,7 @@ class FusedLinearForPPO(torch.autograd.Function):
         return log_probs, entropy
 
     @staticmethod
-    def backward(ctx, dentropy: torch.FloatTensor, dlog_probs: torch.FloatTensor):
+    def backward(ctx, dlog_probs: torch.FloatTensor, dentropy: torch.FloatTensor):
         hidden_states, vocab_weights, input_ids = ctx.saved_tensors
         temperature = ctx.temperature
         chunk_size = ctx.chunk_size
@@ -430,8 +431,8 @@ class FusedLinearForPPO(torch.autograd.Function):
         orig_ndim = dentropy.ndim + 1
         if orig_ndim == 3:
             orig_batch_size = dentropy.shape[0]
-            dentropy = dentropy.flatten()
             dlog_probs = dlog_probs.flatten()
+            dentropy = dentropy.flatten()
 
         T = hidden_states.shape[0]
 
@@ -444,8 +445,8 @@ class FusedLinearForPPO(torch.autograd.Function):
             chunk_end = min(chunk_start + chunk_size, T)
 
             h, v = fused_linear_for_ppo_bwd(
-                dentropy=dentropy[chunk_start:chunk_end],
                 dlog_probs=dlog_probs[chunk_start:chunk_end],
+                dentropy=dentropy[chunk_start:chunk_end],
                 hidden_states=hidden_states[chunk_start:chunk_end],
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
