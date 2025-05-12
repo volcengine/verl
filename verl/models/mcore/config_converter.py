@@ -176,10 +176,15 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         batch_p2p_comm=batch_p2p_comm,
         sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
         attention_backend=AttnBackend.flash,
+        # ?
+        attention_softmax_in_fp32=False,
+        persist_layer_norm=True,
+        bias_dropout_fusion=True,
+        distribute_saved_activations=False,
+        cp_comm_type='p2p',
         # moe specific
         moe_token_dispatcher_type="alltoall",
         # qwen specific
-        moe_router_pre_softmax=True,
         add_qkv_bias=True,
         rotary_base=hf_config.rope_theta,
         rotary_scaling_factor=1.0,
