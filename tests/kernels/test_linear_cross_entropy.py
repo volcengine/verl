@@ -64,12 +64,20 @@ def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels
 
 # To be tested
 def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor):
+    hidden = hidden.to(torch.float32)
+    weight = weight.to(torch.float32)
     logprobs = fused_log_probs(hidden, weight, labels)
     entropy = fused_entropy(hidden, weight)
     return logprobs, entropy
 
 
+MAX_TEST_CASES = 4
+
+
 class TestLinearCrossEntropy:
+    def __init__(self, test_case_idx: int) -> None:
+        self.test_case_idx = test_case_idx
+
     def cleanup(self):
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
@@ -79,11 +87,29 @@ class TestLinearCrossEntropy:
         torch.cuda.synchronize()
 
     def generate_hyper(self):
-        self.batch_size = 1
-        self.num_tokens = 80
-        self.hidden_size = 4096
-        self.vocab_size = 152064
         self.dtype = torch.bfloat16
+        if self.test_case_idx == 0:
+            self.batch_size = 1
+            self.num_tokens = 1937
+            self.hidden_size = 3584
+            self.vocab_size = 152064
+        elif self.test_case_idx == 1:
+            self.batch_size = 1
+            self.num_tokens = 2169
+            self.hidden_size = 896
+            self.vocab_size = 151936
+        elif self.test_case_idx == 2:
+            self.batch_size = 1
+            self.num_tokens = 1530
+            self.hidden_size = 2048
+            self.vocab_size = 32256
+        elif self.test_case_idx == 3:
+            self.batch_size = 1
+            self.num_tokens = 1388
+            self.hidden_size = 4096
+            self.vocab_size = 102400
+        else:
+            raise ValueError(f"Invalid test case index: {test_case_idx}")
 
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
@@ -211,7 +237,9 @@ class TestLinearCrossEntropy:
 
 
 if __name__ == "__main__":
-    test = TestLinearCrossEntropy()
+    for test_case_idx in range(MAX_TEST_CASES):
+        print(f"[INFO] Running test case {test_case_idx}")
+        test = TestLinearCrossEntropy(test_case_idx)
 
-    test.verify_correctness()
-    test.check_storage_all()
+        test.verify_correctness()
+        test.check_storage_all()
