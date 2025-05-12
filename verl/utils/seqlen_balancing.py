@@ -213,8 +213,20 @@ def ceildiv(a, b):
 
 
 def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
-    """Split the batch into a list of micro_batches, where the max_token_len is smaller than max_token_len
-    and the number of valid tokens in each micro batch is well balanced.
+    """
+    Split a batch into micro-batches by total token count, with optional DP sync and padding.
+
+    Args:
+        batch (TensorDict): must include "attention_mask" (B*S); other fields are sliced similarly.
+        max_token_len (int): max sum of attention_mask per micro-batch.
+        dp_group (optional): torch.distributed group for data-parallel sync.
+        same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
+        min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
+
+    Returns:
+        List[TensorDict]: the micro-batches.
+        int: number of micro-batches after splitting/padding.
+        List[List[int]]: index lists mapping each micro-batch back to original positions.
     """
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
