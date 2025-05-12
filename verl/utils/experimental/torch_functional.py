@@ -370,7 +370,7 @@ def fused_linear_for_ppo_bwd(
     return dhidden_states, dvocab_weights
 
 
-class FusedLinearForPPO(torch.autograd.Function):
+class FusedLinearForPPOFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(
@@ -470,4 +470,24 @@ class FusedLinearForPPO(torch.autograd.Function):
         )
 
 
-fused_linear_for_ppo = FusedLinearForPPO.apply
+class FusedLinearForPPO(torch.nn.Module):
+
+    def __init__(self, chunk_size: int = 512):
+        super().__init__()
+
+        self.chunk_size = chunk_size
+
+    def forward(
+        self,
+        hidden_states: torch.FloatTensor,
+        vocab_weights: torch.FloatTensor,
+        input_ids: torch.LongTensor,
+        temperature: float = 1.0,
+    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        return FusedLinearForPPOFunction.apply(
+            hidden_states,
+            vocab_weights,
+            input_ids,
+            temperature,
+            self.chunk_size,
+        )

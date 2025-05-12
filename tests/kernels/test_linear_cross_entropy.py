@@ -34,10 +34,12 @@ import typing
 import torch
 
 import verl.utils.torch_functional as verl_F
-from verl.utils.experimental.torch_functional import fused_linear_for_ppo
+from verl.utils.experimental.torch_functional import FusedLinearForPPO
 from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
+fused_linear_for_ppo = FusedLinearForPPO()
+fused_linear_for_ppo.compile()
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
