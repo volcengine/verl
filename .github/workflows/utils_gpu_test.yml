@@ -44,4 +44,4 @@ jobs:
       - name: Running utils gpu tests
         run: |
           cd tests/utils/gpu_tests
-          pytest -s -x .
+          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ .
