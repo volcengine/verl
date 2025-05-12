@@ -41,6 +41,7 @@ compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
+    hidden = hidden.squeeze(0)
     logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32))  # [num_tokens, vocab_size]
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
@@ -52,6 +53,7 @@ def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.
 
 
 def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
+    hidden = hidden.squeeze(0)
     logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32))  # [num_tokens, vocab_size]
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
@@ -77,13 +79,14 @@ class TestLinearCrossEntropy:
         torch.cuda.synchronize()
 
     def generate_hyper(self):
+        self.batch_size = 1
         self.num_tokens = 80
         self.hidden_size = 4096
         self.vocab_size = 152064
         self.dtype = torch.bfloat16
 
     def generate_forward_inputs(self):
-        hidden = torch.empty((self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
+        hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
         weight = torch.empty((self.hidden_size, self.vocab_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
         labels = torch.randint(0, self.vocab_size, (self.num_tokens,), device="cuda")
         return hidden, weight, labels
@@ -124,7 +127,7 @@ class TestLinearCrossEntropy:
             verl_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(hidden, weight, labels, "none")
+            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(hidden, weight, labels)
             end_event.record()
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
