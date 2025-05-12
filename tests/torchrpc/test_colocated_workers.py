@@ -66,11 +66,14 @@ def test_colocated_workers():
     cls_dict = {"actor": actor_cls, "critic": critic_cls}
     cls_with_init = create_colocated_worker_cls(cls_dict)
     wg_dict = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=cls_with_init)
+    spawn_wg = wg_dict.spawn(prefix_set=cls_dict.keys())
 
+    colocated_actor_wg = spawn_wg["actor"]
+    colocated_critic_wg = spawn_wg["critic"]
 
+    actor_output = colocated_actor_wg.add(data)
+    critic_output = colocated_critic_wg.sub(data)
 
-    actor_output = wg_dict.actor_add(data)
-    critic_output = wg_dict.critic_sub(data)
     torch.testing.assert_close(expected_actor_output.batch, actor_output.batch, atol=0, rtol=0)
     torch.testing.assert_close(expected_critic_output.batch, critic_output.batch, atol=0, rtol=0)
 

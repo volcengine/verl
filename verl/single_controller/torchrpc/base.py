@@ -14,8 +14,10 @@
 
 import os
 import torch
+from copy import deepcopy
 import socket
 from typing import List, Dict, Any
+from unittest.mock import patch
 
 import torch.distributed.rpc as rpc
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
@@ -89,8 +91,13 @@ class TorchRPCWorkerGroup(WorkerGroup):
                  **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.cls_with_init = cls_with_init
+        # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
+        self.fused_worker_used = cls_with_init.fused_worker_used
+        # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
+        self.sub_cls_name = ""
+        self._attrs_with_rrefs = ['_workers', 'resource_pool']
 
-        if worker_rrefs is not None:
+        if worker_rrefs is not None and (not self.fused_worker_used):
             # _is_init_with_detached_workers -> resource_pool is None
             assert self._is_init_with_detached_workers
             self._workers = worker_rrefs
@@ -105,6 +112,9 @@ class TorchRPCWorkerGroup(WorkerGroup):
 
         if cls_with_init is not None:
             self._bind_worker_method(self.cls_with_init.cls, func_generator)
+
+        self.wg_dict = None
+        self.method_names = []
 
     def _is_worker_alive(self, worker):
         return True # TODO
@@ -143,8 +153,42 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 worker = cls_with_init(resource, [resource.gpus[local_rank]] if use_gpu else [])
                 self._workers.append(worker)
 
+    def __deepcopy__(self, memo):
+        new_obj = self.__class__.__new__(self.__class__)
+        memo[id(self)] = new_obj
+
+        for key, value in self.__dict__.items():
+            if key in self._attrs_with_rrefs:
+                new_obj.__dict__[key] = value
+            else:
+                new_obj.__dict__[key] = deepcopy(value, memo)
+        
+        return new_obj
+
+    def spawn(self, prefix_set):
+        wg_dict = dict()
+        for key in prefix_set:
+            new_wg = deepcopy(self)
+            new_wg._bind_worker_method(self.cls_with_init.cls.raw_cls_dict[key], func_generator)
+            new_wg.sub_cls_name = key
+            wg_dict[key] = new_wg
+        return wg_dict
+
+    def fuse(self, prefix_set):
+        if self.wg_dict is None:
+            self.wg_dict = self.spawn(prefix_set)
+        for role_name, role_wg in self.wg_dict.items():
+            setattr(self, role_name, role_wg)
+        self.method_names = self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
+
+    def _execute_remote_single_worker(self, worker, method_name: str, *args, **kwargs):
+        if self.fused_worker_used and method_name not in self.method_names:
+            return call_remote_actor(worker, self.fused_worker_execute_fn_name, (f"{self.sub_cls_name}_fwmn_{method_name}",) + args, kwargs)
+        # fused worker not used
+        return call_remote_actor(worker, method_name, args, kwargs)
+
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
-        return call_remote_actor(self._workers[0], method_name, args, kwargs)
+        return self._execute_remote_single_worker(self._workers[0], method_name, *args, **kwargs)
 
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
         return self.execute_rank_zero_async(method_name, *args, **kwargs).to_here()
@@ -160,10 +204,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 for i in range(length):
                     sliced_args = tuple(arg[i] for arg in args)
                     sliced_kwargs = {k: v[i] for k, v in kwargs.items()}
-                    result.append(call_remote_actor(self._workers[i], method_name, sliced_args, sliced_kwargs))
+                    result.append(self._execute_remote_single_worker(self._workers[i], method_name, *sliced_args, **sliced_kwargs))
                 return result
 
-        return [call_remote_actor(worker, method_name, args, kwargs) for worker in self._workers]
+        return [self._execute_remote_single_worker(worker, method_name, *args, **kwargs) for worker in self._workers]
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
         ret = self.execute_all_async(method_name, *args, **kwargs)
@@ -171,45 +215,6 @@ class TorchRPCWorkerGroup(WorkerGroup):
 
     def execute_all(self, method_name: str, *args, **kwargs):
         return self.execute_all_async(method_name, *args, **kwargs)
-
-from verl.single_controller.base.decorator import MAGIC_ATTR
-from verl.single_controller.ray.base import _bind_workers_method_to_parent
-
-def create_colocated_worker_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]):
-    """
-    This function should return a class instance that delegates the calls to every 
-    cls in cls_dict
-    """
-    cls_dict = {}
-    init_args_dict = {}
-    worker_cls = None
-    for key, cls in class_dict.items():
-        if worker_cls == None:
-            worker_cls = cls.cls.__base__
-        else:
-            assert worker_cls == cls.cls.__base__, \
-                'the worker class should be the same when share the same process'
-        cls_dict[key] = cls.cls
-        init_args_dict[key] = {'args': cls.args, 'kwargs': cls.kwargs}
-
-    assert cls_dict.keys() == init_args_dict.keys()
-
-    # TODO: create a class with customizable name
-    class WorkerDict(worker_cls):
-
-        def __init__(self):
-            super().__init__()
-            self.worker_dict = {}
-            for key, user_defined_cls in cls_dict.items():
-                self.worker_dict[key] = user_defined_cls(*init_args_dict[key].get('args', ()),
-                                                         **init_args_dict[key].get('kwargs', {}))
-
-    # now monkey-patch the methods from inner class to WorkerDict
-    for key, user_defined_cls in cls_dict.items():
-        _bind_workers_method_to_parent(WorkerDict, key, user_defined_cls)
-
-    remote_cls = TorchRPCClassWithInitArgs(cls=WorkerDict)
-    return remote_cls
 
 def torchrpc_remote(torchrpc_func):
     def wrapper():
@@ -221,3 +226,94 @@ def torchrpc_remote(torchrpc_func):
             torchrpc_func()
         rpc.shutdown()
     return wrapper
+
+
+FusedWorkerCLSName = "FusedWorker"
+
+
+def create_colocated_worker_raw_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]):
+    """
+    This function returns a FusedWorker class.
+
+    `FusedWorker.{class_name}` -> FusedClass
+        Use `class_name` as a param to directly access the underlying class.
+
+    `FusedWorker._fuw_execute("{class_name}_fwmn_{method_name}", *args, **kwargs)`
+        First param must be "{class_name}_fwmn_{method_name}" in order to access `method_name`
+        of underlying class `{class_name}`.
+
+    `FusedWorker.fused_worker_dict` -> {"class_name": FusedClass}
+        Stores all underlying classes.
+
+    `FusedClass.fused_worker_dict` -> {"class_name": FusedClass}
+        The same as `FusedWorker.fused_worker_dict`, enables underlying class to access other
+        underlying classes.
+    """
+    raw_cls_dict = {cls_name: cia.cls for cls_name, cia in class_dict.items()}
+    init_args_dict = {cls_name: cia.args for cls_name, cia in class_dict.items()}
+    init_kwargs_dict = {cls_name: cia.kwargs for cls_name, cia in class_dict.items()}
+    cls_names = list(class_dict.keys())
+
+    # FusedWorker_Actor_Critic
+    class_name_renamed = "_".join([FusedWorkerCLSName] + cls_names)
+
+    class FusedWorker(Worker):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.cls_names = cls_names
+            self.raw_cls_dict = raw_cls_dict
+            self.init_args_dict = init_args_dict
+            self.init_kwargs_dict = init_kwargs_dict
+
+            for cls_name, udc, ud_args, ud_kwargs in zip(self.cls_names, self.raw_cls_dict.values(), self.init_args_dict.values(), self.init_kwargs_dict.values()):
+                with patch.dict(os.environ, {"DISABLE_WORKER_INIT": "1"}):
+                    udc._get_ray_actor_cls_name = lambda x, name_renamed=class_name_renamed: name_renamed
+                    udc._get_ray_method_prefix = lambda x, name_prefixed=cls_name: f"{name_prefixed}_"
+                    # cls_name = "actor", "critic", udc = ActorWorker, CriticWorker
+                    self.fused_worker_dict[cls_name] = udc(*ud_args, **ud_kwargs)
+                    setattr(self, cls_name, self.fused_worker_dict[cls_name])
+
+            # injecting fused_worker to each sub worker so they can be aware of existence of each other
+            for _, worker in self.fused_worker_dict.items():
+                setattr(worker, Worker.fused_worker_attr_name, self.fused_worker_dict)
+
+        def _fuw_execute(self, method_name: str, *args, **kwargs):
+            # for fused_worker, method_name is in a form of "{cls_name}_fwmn_{method_name}"
+            # where fwmn stands "fused worker method name"
+            names = method_name.split("_fwmn_")
+            cls_name = names[0]
+            method_name = names[1]
+
+            print(f"executing {cls_name}'s {method_name}")
+            assert cls_name in self.fused_worker_dict, f"calling {cls_name}'s {method_name}, but {cls_name} not in fused_worker_dict"
+            udc_method = getattr(self.fused_worker_dict[cls_name], method_name)
+            return udc_method(*args, **kwargs)
+
+    renamed_fused_worker_cls = type(class_name_renamed, (FusedWorker,), {})
+    renamed_fused_worker_cls.is_fused_worker = True
+    renamed_fused_worker_cls.raw_cls_dict = raw_cls_dict
+
+    return renamed_fused_worker_cls
+
+
+def create_colocated_worker_cls(class_dict: dict[str, TorchRPCClassWithInitArgs]):
+    """
+    This function returns a RayClassWithInitArgs instance of FusedWorker, which is an replacement
+    of `create_colocated_worker_cls`. WorkerGroup constructed using this class will be a colocated
+    WorkerGroup, which will be referenced as `ColocateWorkerGroup` below.
+
+    `ColocateWorkerGroup.spawn(prefix_set)`
+        returns a dict of WorkerGroup {"class_name": WorkerGroup}, WorkerGroup in this dict will
+        have methods of underlying class `class_name` attached.
+
+    `ColocateWorkerGroup.fuse(prefix_set)`
+        After executing this function, `ColocateWorkerGroup.{class_name}` will return WorkerGroup
+        with methods of underlying class `class_name` attached.
+    """
+    raw_colocated_worker_cls = create_colocated_worker_raw_cls(class_dict)
+
+    remote_cls = raw_colocated_worker_cls
+    cia = TorchRPCClassWithInitArgs(cls=remote_cls)
+    cia.fused_worker_used = True
+
+    return cia
