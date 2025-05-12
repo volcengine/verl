@@ -41,8 +41,9 @@ compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
-    hidden = hidden.squeeze(0)
-    logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32))  # [num_tokens, vocab_size]
+    hidden = hidden.squeeze(0).to(torch.float32)
+    weight = weight.transpose(0, 1).to(torch.float32)
+    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
@@ -53,8 +54,9 @@ def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.
 
 
 def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
-    hidden = hidden.squeeze(0)
-    logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32))  # [num_tokens, vocab_size]
+    hidden = hidden.squeeze(0).to(torch.float32)
+    weight = weight.transpose(0, 1).to(torch.float32)
+    logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -113,7 +115,7 @@ class TestLinearCrossEntropy:
 
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
-        weight = torch.empty((self.hidden_size, self.vocab_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
+        weight = torch.empty((self.vocab_size, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
         labels = torch.randint(0, self.vocab_size, (self.num_tokens,), device="cuda")
         return hidden, weight, labels
 
