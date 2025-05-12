@@ -87,6 +87,7 @@ actor_rollout_ref:
       contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
   ref:
     strategy: megatron
+    use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
     megatron:
       param_offload: False
       tensor_model_parallel_size: 1
