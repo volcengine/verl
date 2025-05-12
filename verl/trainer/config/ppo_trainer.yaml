@@ -29,8 +29,7 @@ actor_rollout_ref:
     enable_gradient_checkpointing: True
     use_remove_padding: False
     use_liger: False
-    return_last_hidden_state: False
-    use_fused_loss: False
+    use_fused_kernels: False
     trust_remote_code: False
   actor:
     strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
@@ -127,7 +126,7 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
-    multi_turn: 
+    multi_turn:
       enable: False  # should set rollout.name to sglang_async if True
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool

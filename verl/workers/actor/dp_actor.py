@@ -53,13 +53,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
         print(f"Actor use_remove_padding={self.use_remove_padding}")
-        self.return_last_hidden_state = self.config.get("return_last_hidden_state", False)
-        print(f"Actor return_last_hidden_state={self.return_last_hidden_state}")
-        self.use_fused_loss = self.config.get("use_fused_loss", False)
-        print(f"Actor use_fused_loss={self.use_fused_loss}")
-
-        if self.use_fused_loss:
-            assert self.return_last_hidden_state, "Unable to use `use_fused_loss` without `return_last_hidden_state`"
+        self.use_fused_kernels = self.config.get("use_fused_kernels", False)
+        print(f"Actor use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
@@ -128,7 +123,7 @@ class DataParallelPPOActor(BasePPOActor):
                     use_cache=False,
                 )  # prevent model thinks we are generating
 
-                if self.use_fused_loss:
+                if self.use_fused_kernels:
                     from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
 
                     hidden_states = output.last_hidden_state
@@ -148,7 +143,7 @@ class DataParallelPPOActor(BasePPOActor):
                         ).squeeze(0)
 
                 else:
-                    if self.return_last_hidden_state:
+                    if self.use_fused_kernels:
                         hidden_states = output.last_hidden_state
                         logits = self.actor_module.lm_head(hidden_states)
                         logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
@@ -217,7 +212,7 @@ class DataParallelPPOActor(BasePPOActor):
                     use_cache=False,
                 )  # prevent model thinks we are generating
 
-                if self.use_fused_loss:
+                if self.use_fused_kernels:
                     from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
 
                     hidden_states = output.last_hidden_state
@@ -236,7 +231,7 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                 else:
-                    if self.return_last_hidden_state:
+                    if self.use_fused_kernels:
                         hidden_states = output.last_hidden_state
                         logits = self.actor_module.lm_head(hidden_states)
                     else:
