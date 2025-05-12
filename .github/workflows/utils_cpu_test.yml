@@ -49,3 +49,7 @@ jobs:
         run: |
           cd tests/utils/cpu_tests
           pytest -s -x .
+      - name: Running trainer tests
+        run: |
+          cd tests/trainer
+          pytest -s -x .

@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import os
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from verl.utils.reward_score import gsm8k
@@ -74,26 +73,22 @@ class Gsm8kTool(BaseTool):
         }
         return instance_id
 
-    async def execute(self, instance_id: str, parameters: str, **kwargs) -> Tuple[str, float, dict]:
-        try:
-            _parameters = json.loads(parameters)
-        except json.JSONDecodeError:
-            _parameters = {}
-        if isinstance(_parameters, dict):
-            answer = _parameters.get("answer", "")
-            if not isinstance(answer, str):
-                answer = str(answer)
-        else:
-            answer = ""
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+        answer = parameters.get("answer", "")
+        if not isinstance(answer, str):
+            answer = str(answer)
+
         if answer.startswith("#### "):
             self._instance_dict[instance_id]["response"] = answer
         else:
             self._instance_dict[instance_id]["response"] = "#### " + answer
+
         reward = await self.calc_reward(instance_id)
         # penalty for non improved answer submission
         tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
         self._instance_dict[instance_id]["reward"] = reward
+
         return f"Current parsed {answer=} {reward=}", tool_reward, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:

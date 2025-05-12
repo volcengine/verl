@@ -29,6 +29,11 @@ on:
       - "examples/data_preprocess/gsm8k.py"
       - "tests/e2e/run_prime.sh"
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 # Declare permissions just read content.
 permissions:
   contents: read
@@ -36,7 +41,7 @@ permissions:
 jobs:
   e2e_prime:
     runs-on: [L20x8]
-    timeout-minutes: 40 # Increase this timeout value as needed
+    timeout-minutes: 50 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
