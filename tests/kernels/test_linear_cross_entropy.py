@@ -48,19 +48,19 @@ def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
     entropy = entropy_a - entropy_b
-    logprobs = torch.nn.functional.cross_entropy(logits, labels, reduction=reduction)  # [num_tokens]
+    logprobs = torch.nn.functional.cross_entropy(logits, labels.squeeze(0), reduction=reduction)  # [num_tokens]
     logprobs = torch.neg(logprobs)
     return logprobs, entropy
 
 
-def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
+def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor) -> typing.List[torch.Tensor]:
     hidden = hidden.squeeze(0).to(torch.float32)
     weight = weight.transpose(0, 1).to(torch.float32)
     logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-    logprobs = logprobs_from_logits(logits=logits, labels=labels)
+    logprobs = logprobs_from_logits(logits=logits, labels=labels, inplace_backward=False)
     return logprobs, entropy
 
 
@@ -68,8 +68,8 @@ def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels
 def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor):
     hidden = hidden.to(torch.float32)
     weight = weight.to(torch.float32)
-    logprobs = fused_log_probs(hidden, weight, labels)
-    entropy = fused_entropy(hidden, weight)
+    logprobs = fused_log_probs(hidden, weight, labels).squeeze(0)
+    entropy = fused_entropy(hidden, weight).squeeze(0)
     return logprobs, entropy
 
 
@@ -116,7 +116,7 @@ class TestLinearCrossEntropy:
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
         weight = torch.empty((self.vocab_size, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
-        labels = torch.randint(0, self.vocab_size, (self.num_tokens,), device="cuda")
+        labels = torch.randint(0, self.vocab_size, (self.batch_size, self.num_tokens), device="cuda")
         return hidden, weight, labels
 
     def generate_backward_inputs(self):
@@ -212,14 +212,14 @@ class TestLinearCrossEntropy:
         print(f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms")
         print(f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms")
 
-    def check_storage(self, method_name, run_forward, reduction="none"):
+    def check_storage(self, method_name, run_forward):
         self.cleanup()
         self.generate_hyper()
 
         hidden, weight, labels = self.generate_forward_inputs()
 
         torch.cuda.reset_peak_memory_stats()
-        (logprobs, entropy) = run_forward(hidden, weight, labels, reduction)
+        (logprobs, entropy) = run_forward(hidden, weight, labels)
         torch.cuda.synchronize()
         torch_max_memory = torch.cuda.max_memory_allocated() / 1024 / 1024
         print(f"[INFO]: {method_name} Forward pass peak memory: {torch_max_memory:.2f} MB")
