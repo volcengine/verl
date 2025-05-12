@@ -50,10 +50,12 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
-    reduce_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.metric import (
+    reduce_metrics,
+)
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
@@ -710,7 +712,6 @@ class RayPPOTrainer:
         # Instead, directly pass different resource pool to different worker groups.
         # See https://github.com/volcengine/verl/blob/master/examples/ray/tutorial.ipynb for more information.
         all_wg = {}
-        self.wg_dicts = []
         wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
         if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
             wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
@@ -720,8 +721,6 @@ class RayPPOTrainer:
             wg_dict = self.ray_worker_group_cls(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls, **wg_kwargs)
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
-            # keep the referece of WorkerDict to support ray >= 2.31. Ref: https://github.com/ray-project/ray/pull/45699
-            self.wg_dicts.append(wg_dict)
 
         if self.use_critic:
             self.critic_wg = all_wg["critic"]
@@ -844,57 +843,61 @@ class RayPPOTrainer:
         global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
-    def log_token_lengths(self, data, step):
-        """
-        Log average token lengths for positive and negative responses.
-        
-        Args:
-            data: DataProto containing batch data
-            step: Current training step
-        """
-        if not self.config.trainer.get('track_token_lengths', False):
+    def maybe_log_token_lengths(self, data, step, metrics=None):
+        """Log average token lengths for positive and negative responses."""
+        if not self.config.trainer.get("track_token_lengths", False):
             return
-            
-        threshold = self.config.trainer.get('positive_reward_threshold', 0.5)
-        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'token_length')
-        
-        # Extract rewards and responses
-        rewards = data.batch['acc'].cpu().tolist()
-        responses = data.batch['responses']
-        attention_mask = data.batch['attention_mask']
-        prompt_len = data.batch['prompts'].shape[-1]
+
+        threshold = self.config.trainer.get("positive_reward_threshold", 0.5)
+        tag_prefix = self.config.trainer.get("token_length_tag_prefix", "token_length")
+
+        try:
+            if "acc" in data.batch:
+                rewards = data.batch["acc"].cpu().tolist()
+            elif "token_level_scores" in data.batch:
+                rewards = data.batch["token_level_scores"].sum(-1).cpu().tolist()
+            else:
+                print("Warning: Cannot track token lengths - no reward information found")
+                return
+        except Exception as e:
+            print(f"Warning: Error computing rewards for token length tracking: {e}")
+            return
+
+        responses = data.batch["responses"]
+        attention_mask = data.batch["attention_mask"]
+        prompt_len = data.batch["prompts"].shape[-1]
         valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
-        
-        # Categorize as positive or negative based on reward threshold
+
         positive_tokens = []
         negative_tokens = []
-        
+
         for i, reward in enumerate(rewards):
             length = valid_response_lengths[i].item()
             response_tokens = responses[i][:length].tolist()
-            
+
             if reward > threshold:
                 positive_tokens.append(response_tokens)
             else:
                 negative_tokens.append(response_tokens)
-        
-        # Calculate average lengths
+
         pos_avg_len = 0
         neg_avg_len = 0
-        
+
         if positive_tokens:
             pos_avg_len = sum(len(tokens) for tokens in positive_tokens) / len(positive_tokens)
-        
+
         if negative_tokens:
             neg_avg_len = sum(len(tokens) for tokens in negative_tokens) / len(negative_tokens)
-        
-        log_dict = {
-            f"{tag_prefix}/positive_avg_token_length": pos_avg_len,
-            f"{tag_prefix}/negative_avg_token_length": neg_avg_len
-        }
-        
-        if hasattr(self, 'tracker') and self.tracker:
+
+        log_dict = {f"{tag_prefix}/positive_avg_token_length": pos_avg_len, f"{tag_prefix}/negative_avg_token_length": neg_avg_len}
+
+        if metrics is not None:
+            metrics.update(log_dict)
+
+        if hasattr(self, "tracker") and self.tracker:
             self.tracker.log(log_dict, step=step)
+
+        return log_dict
 
     def fit(self):
         """
@@ -1043,9 +1046,12 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
-                        self.log_token_lengths(batch, self.global_steps)
+                        batch.batch["acc"] = batch.batch["token_level_scores"].sum(-1)
+
+                        self.maybe_log_token_lengths(batch, self.global_steps, metrics)
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
+
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 

@@ -29,6 +29,7 @@ actor_rollout_ref:
     enable_gradient_checkpointing: True
     use_remove_padding: False
     use_liger: False
+    trust_remote_code: False
   actor:
     strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -147,6 +148,7 @@ critic:
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: True
     use_remove_padding: False
+    trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
     fsdp_config:
       param_offload: False
       optimizer_offload: False
@@ -180,6 +182,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
+    trust_remote_code: False
     fsdp_config:
       wrap_policy:
         min_num_params: 0

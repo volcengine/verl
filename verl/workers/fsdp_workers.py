@@ -357,7 +357,7 @@ class ActorRolloutRefWorker(Worker):
             # TODO: a sharding manager that do nothing?
 
         elif rollout_name == "vllm":
-            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMAsyncRollout, vLLMRollout
+            from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
@@ -368,8 +368,11 @@ class ActorRolloutRefWorker(Worker):
                     config=self.config.rollout,
                     tokenizer=self.tokenizer,
                     model_hf_config=self.actor_model_config,
+                    trust_remote_code=trust_remote_code,
                 )
             elif vllm_mode == "spmd":
+                from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+
                 vllm_rollout_cls = vLLMRollout if self.config.rollout.mode == "sync" else vLLMAsyncRollout
                 rollout = vllm_rollout_cls(
                     model_path=local_path,
@@ -399,7 +402,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
-            # SGLang's model_runner would check CUDA device capability. However, due to veRL's setting,
+            # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
             # the main process of ray can not find any CUDA device, which would potentially lead to:
             # "RuntimeError: No CUDA GPUs are available".
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
@@ -414,6 +417,7 @@ class ActorRolloutRefWorker(Worker):
                 config=self.config.rollout,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
+                trust_remote_code=trust_remote_code,
             )
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
@@ -439,6 +443,7 @@ class ActorRolloutRefWorker(Worker):
                 config=self.config.rollout,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
+                trust_remote_code=trust_remote_code,
             )
             log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)
 
@@ -784,8 +789,7 @@ class CriticWorker(Worker):
 
         from transformers import AutoConfig, AutoModelForTokenClassification
 
-        trust_remote_code = False
-        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=config.model.get("trust_remote_code", False))
         critic_model_config.num_labels = 1
 
         init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh)
@@ -799,7 +803,7 @@ class CriticWorker(Worker):
                 torch_dtype=torch_dtype,
                 config=critic_model_config,
                 attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
+                trust_remote_code=config.model.get("trust_remote_code", False),
             )
 
             use_remove_padding = config.model.get("use_remove_padding", False)

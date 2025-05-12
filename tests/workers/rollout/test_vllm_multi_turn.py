@@ -21,7 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 from openai.types.chat.chat_completion import ChatCompletion
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse, ErrorResponse
 
-from tests.rollout.async_rollout_utils import init_async_rollout_manager
+from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
 from verl.protocol import DataProto
 
 
@@ -55,7 +55,7 @@ def test_vllm_multi_turn(config):
 
     # =========================== 1. Init rollout manager ===========================
     model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
-    worker_groups, async_rollout_manager = init_async_rollout_manager(config)
+    async_rollout_manager = init_async_rollout_manager(config)
 
     # test sleep and wake_up
     async_rollout_manager.sleep()
@@ -145,7 +145,7 @@ async def test_vllm_streaming_response(config):
     )
 
     model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
-    worker_groups, async_rollout_manager = init_async_rollout_manager(config)
+    async_rollout_manager = init_async_rollout_manager(config)
     async_llm_server = async_rollout_manager.async_llm_servers[0]
 
     # non-streaming request

@@ -131,7 +131,7 @@ class RMDataset(Dataset):
         rejected_input_ids, rejected_attention_mask = self._pad_to_length(rejected_input_ids, rejected_attention_mask)
 
         input_ids = torch.stack((chosen_input_ids, rejected_input_ids), dim=0)
-        attention_mask = torch.stack((rejected_input_ids, rejected_attention_mask), dim=0)
+        attention_mask = torch.stack((chosen_attention_mask, rejected_attention_mask), dim=0)
 
         return {
             "input_ids": input_ids,
