@@ -43,5 +43,5 @@ jobs:
           pip install -e .[test]
       - name: Running utils gpu tests
         run: |
-          cd tests/verl/utils/gpu_tests
+          cd tests/utils/gpu_tests
           pytest -s -x .
