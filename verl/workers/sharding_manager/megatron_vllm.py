@@ -356,6 +356,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # lazy load tensor for full model
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+            if self.model_config.tie_word_embeddings and ("output_layers" in name):
+                print("[WARNING] Current model sharing word and embedding weights, skip output layer conversio")
+                continue
             if cur_pp_rank == pp_rank:
                 try:
                     cur_name, cur_tensor = next(gen_func)
