@@ -113,7 +113,7 @@ class TestLinearCrossEntropy:
             self.num_tokens = 1388
             self.hidden_size = 4096
             self.vocab_size = 102400
-        elif self.test_case_idx == 3:
+        elif self.test_case_idx == 4:
             self.batch_size = 1
             self.num_tokens = 8192
             self.hidden_size = 4096
@@ -247,9 +247,13 @@ class TestLinearCrossEntropy:
 
 
 if __name__ == "__main__":
+    # torch.cuda.memory._record_memory_history()
+
     for test_case_idx in range(MAX_TEST_CASES):
         print(f"[INFO] Running test case {test_case_idx}")
         test = TestLinearCrossEntropy(test_case_idx)
 
         test.verify_correctness()
         test.check_storage_all()
+
+    # torch.cuda.memory._dump_snapshot("test_linear_cross_entropy.pkl")
