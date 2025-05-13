@@ -182,11 +182,11 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp > infer tp
         run: |
           ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=2 INFER_TP=1 MODEL_ID=Qwen/Qwen3-0.6B-Base bash tests/e2e/run_ppo_trainer_megatron.sh
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=2 INFER_TP=1 MODEL_ID=Qwen/Qwen2.5-1.5B bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) with  train tp < infer tp
         run: |
           ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=1 INFER_TP=2 MODEL_ID=Qwen/Qwen3-0.6B-Base bash tests/e2e/run_ppo_trainer_megatron.sh
+          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=1 INFER_TP=2 MODEL_ID=Qwen/Qwen2.5-1.5B bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: clean up
         run: |
           rm -rf checkpoints
