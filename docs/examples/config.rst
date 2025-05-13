@@ -97,6 +97,7 @@ Actor/Rollout/Reference Policy
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
+      enable_activation_offload: False
       trust_remote_code: False
       use_remove_padding: False
     actor:
@@ -197,6 +198,8 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
+  activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
 
