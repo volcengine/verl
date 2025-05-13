@@ -69,10 +69,8 @@ async def _query_openai_async(client: AsyncOpenAI, sequence_str: str, config) ->
                     return 0
                 continue  # Retry the request
         except Exception as e:
-            print(f"Error querying OpenAI API: {e}")
             retry_count += 1
             if retry_count >= max_retries:
-                print("Max retries reached. Returning default score.")
                 return config['default_score']
             continue  # Retry the request
 
