@@ -541,3 +541,41 @@ if __name__ == "__main__":
     # Verify metadata count and status of the first case
     assert len(metadata_list) == concurrency_level
     assert metadata_list[0]["status"] == "timeout"
+
+
+@pytest.mark.skipif(skip_condition, reason=skip_reason)
+def test_fn_name_success_single_case():
+    """Tests successful execution for a single test case with fn_name.
+    from livecodebench/code_generation_lite test 510
+    """
+    generation_code = """
+class Solution:
+    def occurrencesOfElement(self, nums: List[int], queries: List[int], x: int) -> List[int]:
+        positions = defaultdict(list)
+        for idx, num in enumerate(nums):
+            positions[num].append(idx)
+
+        x_positions = positions[x]
+        answer = []
+        for k in queries:
+            if k > len(x_positions):
+                answer.append(-1)
+            else:
+                answer.append(x_positions[k-1])
+        return answer
+"""
+    in_outs = {
+        "fn_name": "occurrencesOfElement",
+        "inputs": ["[1, 3, 1, 7]\n[1, 3, 2, 4]\n1", "[1, 2, 3]\n[10]\n5"],
+        "outputs": ["[0, -1, 2, -1]", "[-1]"],
+    }
+
+    # Use a short timeout for fast tests
+    results, metadata_list = check_correctness(SANDBOX_URL, in_outs, generation_code, timeout=5)
+    # from verl.utils.reward_score.prime_code import apps_check_correctness
+    # results, metadata_list = apps_check_correctness(in_outs=in_outs, generation=generation_code, timeout=50000, debug=True)
+
+    assert results == [True, True]
+    assert "error" not in metadata_list[0]
+    assert metadata_list[0].get("status") != "compilation error"
+    assert metadata_list[0].get("status") != "runtime error"

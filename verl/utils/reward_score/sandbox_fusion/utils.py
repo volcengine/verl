@@ -125,21 +125,122 @@ def call_sandbox_api(sandbox_fusion_url: str, code: str, stdin: str, compile_tim
     return None, last_error.replace(log_prefix, "API Call Failed: ") if last_error else "API Call Failed after retries"
 
 
-def _process_single_case(case_index: int, stdin_data: Any, expected_output: Any, sandbox_fusion_url: str, generation: str, timeout: int, language: str, concurrent_semaphore: Optional[threading.Semaphore] = None) -> Tuple[int, Dict[str, Any]]:
+def _process_single_case(case_index: int, stdin_data: Any, expected_output: Any, sandbox_fusion_url: str, generation: str, timeout: int, language: str, concurrent_semaphore: Optional[threading.Semaphore] = None, fn_name: Optional[str] = None) -> Tuple[int, Dict[str, Any]]:
     """Helper function to process a single test case."""
     api_response = None
     error_msg = None
     logger.info(f"Processing test case {case_index + 1}.")
+
+    current_generation_code = generation
+
+    if fn_name and language == "python":
+        # Wrapper assumes stdin_data is a JSON string for function arguments.
+        wrapper_code = f"""
+import traceback
+from string import *
+from re import *
+from datetime import *
+from collections import *
+from heapq import *
+from bisect import *
+from copy import *
+from math import *
+from random import *
+from statistics import *
+from itertools import *
+from functools import *
+from operator import *
+from io import *
+from sys import *
+from json import *
+from builtins import *
+from typing import *
+import string
+import re
+import datetime
+import collections
+import heapq
+import bisect
+import copy
+import math
+import random
+import statistics
+import itertools
+import functools
+import operator
+import io
+import sys
+import json
+
+# === User's Original Code START ===
+{generation}
+# === User's Original Code END ===
+
+_SANDBOX_FN_NAME = "{fn_name}"
+
+def _execute_user_function():
+    # --- Input Parsing ---
+    _raw_input_str = sys.stdin.read()
+    _args = []
+    if _raw_input_str.strip(): # If there's input
+        try:
+            _args = [json.loads(line) for line in _raw_input_str.split('\\n')]
+        except json.JSONDecodeError as _je:
+            sys.stderr.write(f"WrapperError: Invalid JSON input for '{{_SANDBOX_FN_NAME}}': {{_je}}\\nInput was: {{_raw_input_str[:200]}}\\n")
+            return None, True # result, error_occurred
+
+    # --- Function Location and Execution ---
+    try:
+        _target_callable = None
+        # Try global scope first
+        if _SANDBOX_FN_NAME in globals():
+            _target_callable = globals()[_SANDBOX_FN_NAME]
+        # Else, if 'Solution' class exists, try to get its method
+        elif 'Solution' in globals():
+            _Solution_class = globals()['Solution']
+            # Attempt to instantiate and get method.
+            # Errors (e.g., Solution not a class, instantiation fails, method missing)
+            # will be caught by the broad except block below.
+            _solution_instance = _Solution_class() 
+            _target_callable = getattr(_solution_instance, _SANDBOX_FN_NAME)
+        
+        if not _target_callable:
+            sys.stderr.write(f"WrapperError: Function or method '{{_SANDBOX_FN_NAME}}' not found.\\n")
+            return None, True # result, error_occurred
+
+        _fn_result = _target_callable(*_args)
+        return _fn_result, False # result, no_error
+    except Exception: # Catches errors from Solution instantiation, getattr, or function call
+        sys.stderr.write(f"Error during setup or execution of '{{_SANDBOX_FN_NAME}}':\\n{{traceback.format_exc()}}\\n")
+        return None, True # result, error_occurred
+
+if __name__ == '__main__':
+    _result, _error_occurred = _execute_user_function()
+
+    if not _error_occurred:
+        # Serialize result to stdout
+        if isinstance(_result, (dict, list, tuple)) or _result is None or isinstance(_result, bool):
+            print(json.dumps(_result))
+        elif isinstance(_result, (int, float, str)):
+            print(str(_result)) # Ensure string conversion for print
+        else:
+            # For other types, default to string representation.
+            print(str(_result))
+    # Optional: To explicitly exit with an error code if the sandbox relies on it
+    # else:
+    #    sys.exit(1) 
+"""
+        current_generation_code = wrapper_code
 
     try:
         if concurrent_semaphore:
             # logger.debug(f"Case {case_index + 1}: Attempting to acquire semaphore.")
             with concurrent_semaphore:
                 # logger.debug(f"Case {case_index + 1}: Semaphore acquired. Calling API.")
-                api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=generation, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
+                api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=current_generation_code, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
             # logger.debug(f"Case {case_index + 1}: Semaphore released.")
         else:
-            api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=generation, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
+            api_response, error_msg = call_sandbox_api(sandbox_fusion_url=sandbox_fusion_url, code=current_generation_code, stdin=str(stdin_data), compile_timeout=timeout, run_timeout=timeout, language=language)
     except Exception as e:
         error_msg = f"API Request Exception during check_correctness for case {case_index + 1}: {e}"
         logger.error(f"Case {case_index + 1}: {error_msg}")
@@ -291,6 +392,7 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
 
     inputs = in_outs["inputs"]
     expected_outputs = in_outs["outputs"]
+    fn_name = in_outs.get("fn_name")
     num_cases = len(inputs)
     results = [None] * num_cases  # Initialize with placeholders
     metadata_list = [None] * num_cases  # Initialize with placeholders
@@ -309,7 +411,7 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
     # max_workers is limited by sandbox_fusion_max_concurrent from concurrent_semaphore
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(32, os.cpu_count() * 5)) as executor:
         # Submit all tasks, passing the concurrent_semaphore to _process_single_case
-        future_to_index = {executor.submit(_process_single_case, i, stdin_data, expected_outputs[i], sandbox_fusion_url, generation, timeout, language, concurrent_semaphore): i for i, stdin_data in enumerate(inputs)}
+        future_to_index = {executor.submit(_process_single_case, i, stdin_data, expected_outputs[i], sandbox_fusion_url, generation, timeout, language, concurrent_semaphore, fn_name): i for i, stdin_data in enumerate(inputs)}
 
         # Process results as they complete
         for future in concurrent.futures.as_completed(future_to_index):
