@@ -1,0 +1,10 @@
+api_key: sk-bu6GTEtgqeTb2UQkD95fD3B04d2a48488f1a8b3395Ff667e
+api_base: https://api3.apifans.com/v1
+max_retries: 3
+scoring_prompt: Score the response based on the reference from range 1 - 5. Embrace your score with \\bold{}.
+tokenizer: False
+apply_chat_template: False
+model_name: gpt-4o-mini
+max_tokens: 32
+temperature: 0.7
+default_score: -1
