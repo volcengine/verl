@@ -2,7 +2,7 @@ api_key: null
 api_base: null
 max_retries: 3
 scoring_prompt: Score the response based on the reference from range 1 - 5. Embrace your score with \\bold{}.
-tokenizer: False
+tokenizer: null
 apply_chat_template: False
 model_name: gpt-4o-mini
 max_tokens: 32
