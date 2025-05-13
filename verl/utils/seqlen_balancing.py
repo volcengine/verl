@@ -227,6 +227,9 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
         List[TensorDict]: the micro-batches.
         List[List[int]]: index lists mapping each micro-batch back to original positions.
     """
+    # this is per local micro_bsz
+    max_seq_len = batch["attention_mask"].shape[-1]
+    assert max_token_len >= max_seq_len, f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
     # NOTE: num_microbatches <= batch_size, so take the min of this two.
