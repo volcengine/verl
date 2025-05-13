@@ -1,3 +1,16 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import multiprocessing
 import os
 import time
@@ -228,20 +241,18 @@ else:
 
 @patch("verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api")
 def test_unit_concurrency_order(mock_call_sandbox_api):
-    """单元测试：验证并发执行时结果顺序是否正确"""
     sandbox_url = "mock_url"
     generation = "print(input())"
     language = "python"
     timeout = 5
     in_outs = {"inputs": ["input1", "input2", "input3"], "outputs": ["output1", "output2", "output3"]}
 
-    # 模拟 call_sandbox_api 的行为，故意让第二个调用延迟返回
     def side_effect(*args, **kwargs):
         stdin = kwargs.get("stdin")
         if stdin == "input1":
             return ({"status": "Success", "run_result": {"status": "Finished", "stdout": "output1", "return_code": 0}}, None)
         elif stdin == "input2":
-            time.sleep(0.1)  # 模拟延迟
+            time.sleep(0.1)
             return ({"status": "Success", "run_result": {"status": "Finished", "stdout": "output2", "return_code": 0}}, None)
         elif stdin == "input3":
             return ({"status": "Success", "run_result": {"status": "Finished", "stdout": "output3", "return_code": 0}}, None)
@@ -252,9 +263,7 @@ def test_unit_concurrency_order(mock_call_sandbox_api):
 
     results, metadata_list = check_correctness(sandbox_url, in_outs, generation, timeout, language)
 
-    # 验证结果列表的顺序是否与输入顺序一致
     assert results == [True, True, True]
-    # 验证元数据列表的顺序和内容
     assert len(metadata_list) == 3
     assert metadata_list[0]["case_index"] == 0
     assert metadata_list[0]["status"] == "success"
@@ -262,20 +271,17 @@ def test_unit_concurrency_order(mock_call_sandbox_api):
     assert metadata_list[1]["status"] == "success"
     assert metadata_list[2]["case_index"] == 2
     assert metadata_list[2]["status"] == "success"
-    # 验证 mock 被调用了三次
     assert mock_call_sandbox_api.call_count == 3
 
 
 @patch("verl.utils.reward_score.sandbox_fusion.utils.call_sandbox_api")
 def test_unit_api_timeout_error_concurrent(mock_call_sandbox_api):
-    """单元测试：验证并发执行中某个 API 调用超时失败"""
     sandbox_url = "mock_url"
     generation = "print(input())"
     language = "python"
     timeout = 5
     in_outs = {"inputs": ["input1", "input2_timeout", "input3"], "outputs": ["output1", "output2", "output3"]}
 
-    # 模拟 call_sandbox_api 的行为，让第二个调用返回 API 错误
     api_error_message = "API Call Failed: Gateway Timeout (504) on attempt 3/3"
 
     def side_effect(*args, **kwargs):
@@ -283,7 +289,7 @@ def test_unit_api_timeout_error_concurrent(mock_call_sandbox_api):
         if stdin == "input1":
             return ({"status": "Success", "run_result": {"status": "Finished", "stdout": "output1", "return_code": 0}}, None)
         elif stdin == "input2_timeout":
-            return (None, api_error_message)  # 模拟 API 调用失败
+            return (None, api_error_message)
         elif stdin == "input3":
             return ({"status": "Success", "run_result": {"status": "Finished", "stdout": "output3", "return_code": 0}}, None)
         else:
@@ -293,15 +299,12 @@ def test_unit_api_timeout_error_concurrent(mock_call_sandbox_api):
 
     results, metadata_list = check_correctness(sandbox_url, in_outs, generation, timeout, language)
 
-    # 验证结果列表，API 超时应用例返回 -1
     assert results == [True, -1, True]
-    # 验证元数据列表
     assert len(metadata_list) == 3
     assert metadata_list[0]["status"] == "success"
     assert metadata_list[1]["status"] == "api_error"
     assert metadata_list[1]["api_request_error"] == api_error_message
     assert metadata_list[2]["status"] == "success"
-    # 验证 mock 被调用了三次
     assert mock_call_sandbox_api.call_count == 3
 
 

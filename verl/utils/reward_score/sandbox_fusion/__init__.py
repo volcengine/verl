@@ -1,3 +1,16 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import json
 import logging
 import traceback
@@ -5,11 +18,9 @@ import traceback
 from .utils import check_correctness
 
 """
-Verify code correctness using the sandbox_fusion FaaS service provided by public clouds. Public clouds covered by testing include:
-- volcengine.com
-
-sandbox_fusion comes from https://bytedance.github.io/SandboxFusion/
-
+Verify code correctness using the Sandbox Fusion (https://github.com/bytedance/SandboxFusion).
+You can either deploy the sandbox_fusion service yourself or use the
+FaaS service provided by public cloud, eg: volcengine.com.
 """
 logger = logging.getLogger(__name__)
 
@@ -19,7 +30,7 @@ def compute_score(sandbox_fusion_url, concurrent_semaphore, completion, test_cas
     Computes the code score using the remote sandbox API.
 
     Args:
-        sandbox_fusion_url: The URL of the sandbox_fusion service, eg: "https://xxxxxxxxxxxx.apigateway-cn-beijing.volceapi.com/run_code"
+        sandbox_fusion_url: The URL of the sandbox_fusion service, eg: "https://<your service endpoint>/run_code"
 
         completion: The completion string containing the code.
         test_cases: JSON string or dictionary containing "inputs" and "outputs".
