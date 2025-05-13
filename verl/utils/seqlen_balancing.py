@@ -255,7 +255,7 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
 
         micro_batches.append(curr_micro_batch)
 
-    return micro_batches, num_micro_batches, micro_bsz_idx
+    return micro_batches, micro_bsz_idx
 
 
 def get_reverse_idx(idx_map):

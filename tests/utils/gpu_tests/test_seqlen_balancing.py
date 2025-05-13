@@ -27,7 +27,7 @@ def test_seqlen_balancing():
     attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
     data = {"input_ids": input_ids, "attention_mask": attention_mask}
     dataproto = DataProto.from_single_dict(data)
-    micro_batches, _, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
+    micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
     batch = torch.cat(micro_batches)
     micro_bsz_idx = []
     for idx in micro_bsz_idx_lst:
@@ -62,7 +62,7 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
     batch = proto.batch
 
     # 3) call rearrange_micro_batches with one of the two params under test
-    micros, num_mb, idx_lst = rearrange_micro_batches(
+    micros, idx_lst = rearrange_micro_batches(
         batch,
         max_token_len=max_token_len,
         dp_group=dist.group.WORLD,
@@ -77,17 +77,17 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
 
     if min_mb is not None:
         expected = max(local, min_mb)
-        assert num_mb == expected
+        assert len(micros) == expected
     if use_same_dp:
         # gather all local_counts
         counts = [torch.zeros(1, device=f"cuda:{rank}") for _ in range(world_size)]
         counts[rank].fill_(local)
         dist.all_gather(counts, counts[rank])
         expected = max(int(c.item()) for c in counts)
-        assert num_mb == expected
+        assert len(micros) == expected
     else:
         # if neither, we get the local natural count
-        assert num_mb == local
+        assert len(micros) == local
 
     # 5) reconstruction sanity: concat→reverse_idx→orig
     flat = torch.cat(micros, dim=0)
