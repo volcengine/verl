@@ -107,7 +107,18 @@ class vLLMRollout(BaseRollout):
             else:
                 vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
+        # handle rope scaling
+        rope_scaling_factor = 1.0
+        if hasattr(model_hf_config, 'rope_scaling') and model_hf_config.rope_scaling is not None:
+            # check if the type is yarn
+            rope_scaling = model_hf_config.rope_scaling
+            rope_type = rope_scaling.get("rope_type", rope_scaling.get("type"))
+            if rope_type == 'yarn':
+                rope_scaling_factor = rope_scaling.get("factor", 1.0)
+
+        assert model_hf_config.max_position_embeddings * rope_scaling_factor >= config.prompt_length + config.response_length, (
+            "model context length should be greater than total sequence length"
+        )
 
         max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
