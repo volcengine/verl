@@ -153,7 +153,7 @@ def fold_batch_dim(data: "DataProto", new_batch_size):
     for key, val in non_tensor.items():
         non_tensor[key] = np.reshape(val, newshape=(new_batch_size, -1, *val.shape[1:]))
 
-    return DataProto(batch=tensor, non_tensor_batch=non_tensor, meta_info=data.meta_info)
+    return type(data)(batch=tensor, non_tensor_batch=non_tensor, meta_info=data.meta_info)
 
 
 def unfold_batch_dim(data: "DataProto", batch_dims=2):
@@ -172,7 +172,7 @@ def unfold_batch_dim(data: "DataProto", batch_dims=2):
     for key, val in non_tensor.items():
         non_tensor_new[key] = np.reshape(val, newshape=(batch_size, *val.shape[batch_dims:]))
 
-    return DataProto(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
+    return type(data)(batch=tensor, non_tensor_batch=non_tensor_new, meta_info=data.meta_info)
 
 
 def collate_fn(x: list["DataProtoItem"]):
@@ -252,7 +252,7 @@ class DataProto:
             non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
             return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
 
-        # Case 4: Unsupported type
+        # # Case 4: Unsupported type
         else:
             raise TypeError(f"Indexing with {type(item)} is not supported")
 
@@ -424,7 +424,7 @@ class DataProto:
         if deepcopy:
             sub_meta_info = copy.deepcopy(sub_meta_info)
 
-        return DataProto(batch=sub_batch, non_tensor_batch=non_tensor_batch, meta_info=sub_meta_info)
+        return type(self)(batch=sub_batch, non_tensor_batch=non_tensor_batch, meta_info=sub_meta_info)
 
     def select_idxs(self, idxs):
         """
@@ -460,7 +460,7 @@ class DataProto:
         for key, val in self.non_tensor_batch.items():
             selected_non_tensor[key] = val[idxs_np]
 
-        return DataProto(batch=selected_batch, non_tensor_batch=selected_non_tensor, meta_info=self.meta_info)
+        return type(self)(batch=selected_batch, non_tensor_batch=selected_non_tensor, meta_info=self.meta_info)
 
     def slice(self, start=None, end=None, step=None):
         """
@@ -506,7 +506,7 @@ class DataProto:
             sliced_non_tensor[key] = val[slice_obj]
 
         # Return a new DataProto object
-        return DataProto(batch=sliced_batch, non_tensor_batch=sliced_non_tensor, meta_info=self.meta_info)
+        return type(self)(batch=sliced_batch, non_tensor_batch=sliced_non_tensor, meta_info=self.meta_info)
 
     def pop(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None) -> "DataProto":
         """Pop a subset of the DataProto via `batch_keys` and `meta_info_keys`
@@ -676,7 +676,7 @@ class DataProto:
 
         output = []
         for i in range(chunks):
-            output.append(DataProto(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
+            output.append(type(self)(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
 
         return output
 
@@ -700,7 +700,8 @@ class DataProto:
         for key, val in non_tensor_batch.items():
             non_tensor_batch[key] = np.concatenate(val, axis=0)
 
-        return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
+        cls = type(data[0]) if len(data) > 0 else DataProto
+        return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
 
     def reorder(self, indices):
         """
@@ -743,7 +744,7 @@ class DataProto:
             else:
                 repeated_non_tensor_batch[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
 
-        return DataProto(
+        return type(self)(
             batch=repeated_batch,
             non_tensor_batch=repeated_non_tensor_batch,
             meta_info=self.meta_info,
