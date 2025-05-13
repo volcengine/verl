@@ -24,9 +24,16 @@ verl currently supports two rollout backends: vLLM and TGI (with SGLang support 
 
 Below are key factors for tuning vLLM-based rollout. Before tuning, we recommend setting ``actor_rollout_ref.rollout.disable_log_stats=False`` so that rollout statistics are logged.
 
-- Increase ``gpu_memory_utilization``. The vLLM pre-allocates GPU KVCache by using gpu_memory_utilization% of the remaining memory. 
+- Increase ``gpu_memory_utilization``.
+
+  - For vLLM v0.5.4 and v0.6.3, the vLLM pre-allocates GPU KVCache by using gpu_memory_utilization of the **remaining** memory. 
+  - For vLLM v0.7.0 and later, the vLLM instance will only use gpu_memory_utilization of the **total** memory.
+  - For SGLang, it's the fraction of the free GPU memory used for **static** memory like model weights and KV cache. However, the remaining (1-gpu_memory_utilization) will also be used during inference.
+
   However, if model parameters and optimizer states are not offloaded, using too high a fraction can lead to OOM. 
   A value between 0.5 and 0.7 often strikes a good balance between high throughput and avoiding OOM.
+
+  Note: since the definition of ``gpu_memory_utilization`` varies across inference engines, a value that works well for one engine may cause OOM for another.
 
 - Adjust ``max_num_seqs`` or ``max_num_batched_tokens``.
   If the GPU cache utilization is relatively low in the log, increase ``max_num_seqs`` or ``max_num_batched_tokens`` 
