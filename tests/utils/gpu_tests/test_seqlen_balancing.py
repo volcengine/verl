@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from verl import DataProto
 from verl.utils.model import create_random_mask
-from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.utils.seqlen_balancing import ceildiv, get_reverse_idx, rearrange_micro_batches
 
 
 def test_seqlen_balancing():
@@ -40,7 +38,7 @@ def test_seqlen_balancing():
     torch.testing.assert_close(new_batch, dataproto.batch)
 
 
-def _worker(rank, world_size, init_method, max_token_len, min_mb, use_same_dp):
+def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
     # 1) init process group & CUDA
     torch.cuda.set_device(rank)
     dist.init_process_group(
@@ -73,21 +71,23 @@ def _worker(rank, world_size, init_method, max_token_len, min_mb, use_same_dp):
     )
 
     # 4) check the enforced counts
+    seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
+    total_seqlen = seq_len_effective.sum().item()
+    local = min(len(seq_len_effective), ceildiv(total_seqlen, max_token_len))
+
     if min_mb is not None:
-        # must at least min_mb on every rank
-        assert num_mb == min_mb
-    elif use_same_dp:
-        # everyone padded up to global max of local ceil(token_count/max_token_len)
-        local_count = math.ceil((batch["attention_mask"].numel()) / max_token_len)
+        expected = max(local, min_mb)
+        assert num_mb == expected
+    if use_same_dp:
         # gather all local_counts
         counts = [torch.zeros(1, device=f"cuda:{rank}") for _ in range(world_size)]
-        counts[rank].fill_(local_count)
+        counts[rank].fill_(local)
         dist.all_gather(counts, counts[rank])
         expected = max(int(c.item()) for c in counts)
         assert num_mb == expected
     else:
         # if neither, we get the local natural count
-        assert num_mb == math.ceil(batch["attention_mask"].numel() / max_token_len)
+        assert num_mb == local
 
     # 5) reconstruction sanity: concat→reverse_idx→orig
     flat = torch.cat(micros, dim=0)
@@ -111,7 +111,7 @@ def test_seqlen_balancing_distributed_params(tmp_path):
     # test min_num_micro_batch only
     mp.spawn(
         _worker,
-        args=(world_size, init_method, 300, 4, False),
+        args=(world_size, init_method, 300, False, 4),
         nprocs=world_size,
         join=True,
     )
@@ -119,7 +119,7 @@ def test_seqlen_balancing_distributed_params(tmp_path):
     # test same_micro_num_in_dp only
     mp.spawn(
         _worker,
-        args=(world_size, init_method, 300, None, True),
+        args=(world_size, init_method, 300, True, None),
         nprocs=world_size,
         join=True,
     )
