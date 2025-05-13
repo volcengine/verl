@@ -469,13 +469,9 @@ class RayPPOTrainer:
             sampler=train_sampler,
         )
 
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
-        if val_batch_size is None:
-            val_batch_size = len(self.val_dataset)
-
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
-            batch_size=val_batch_size,
+            batch_size=len(self.val_dataset),
             num_workers=self.config.data.get("dataloader_num_workers", 8),
             shuffle=False,
             drop_last=False,
