@@ -490,6 +490,26 @@ class ActivationHandler:
 
 
 def enable_activation_offloading(model, strategy, enable_ckpt=False):
+    """
+    Enable activation offloading for the model. It groups activations by TransformerLayer and offloads activation
+    groups asynchronously. This means that the offloading of the i-th activation group and the computation of the i+1-th
+    activation group happen at the same time, and there are at most two activation groups in GPU memory.
+
+    Args:
+        model: the model to enable activation offloading
+        strategy: the training strategy of the model, such as "fsdp"
+        enable_ckpt: whether activation checkpointing(also called gradient checkpointing) has been enabled for the model
+
+    Note:
+        For best efficiency, activation offloading is usually combined with activation checkpointing. However, this
+        implementation of activation offloading is conflicted with the implementation of activation checkpointing in
+        some training strategies. This function resolves this conflict, and therefore requires the "strategy" and
+        "enable_ckpt" arguments.
+
+    Returns:
+
+    """
+
     assert strategy == "fsdp", "activation offloading only supports fsdp strategy"
     layers = []
 
