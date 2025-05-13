@@ -7,9 +7,7 @@ class Node:
     def __init__(self, name):
         self.name = name
         self.local_actor_manager_rref = rpc.remote(self.name, LocalActorManager)
-        # self.dispatched_resources = []
-        # TODO: 初始化获取可用资源
-        self.gpus = [0, 1, 2, 3, 4, 5, 6, 7]
+        self.gpus = call_remote_actor(self.local_actor_manager_rref, 'visible_gpus', (), {}).to_here()
 
     def dispatch(self, gpu) -> 'NodeResource':
         assert len(self.gpus) >= gpu
@@ -17,12 +15,10 @@ class Node:
         gpus = self.gpus[:gpu]
         self.gpus = self.gpus[gpu:]
         ret = NodeResource(self, gpus)
-        # self.dispatched_resources.append(ret)
         return ret
 
     def recycle(self, resource: 'NodeResource'):
         self.gpus.extend(resource.gpus)
-        # self.dispatched_resources.remove(resource)
 
 
 class NodeResource:

@@ -47,6 +47,15 @@ class LocalActorManager:
     def run(self, method_name, args, kwargs):
         method = getattr(self, method_name)
         return method(*args, **kwargs)
+    
+    def visible_gpus(self):
+        cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+        if cuda_visible_devices is None:
+            import torch
+            return list(range(torch.cuda.device_count()))
+        else:
+            return [int(i) for i in cuda_visible_devices.split(',')]
+
 
 def _call_local_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
     actor = actor_rref.local_value()
