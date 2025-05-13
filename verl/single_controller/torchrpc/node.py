@@ -4,6 +4,23 @@ import torch.distributed.rpc as rpc
 from verl.single_controller.torchrpc.utils import LocalActorManager, call_remote_actor
 
 class Node:
+    """
+    Dispatch GPU resources on a node
+
+    Should be created by `NodeManager`.
+
+    Args:
+        - name: name of the node
+    
+    Members:
+        - name: name of the node
+        - local_actor_manager_rref: RRef of LocalActorManager on the node
+        - gpus: currently available gpus on the node
+
+    Methods:
+        - `dispatch(gpu)`: dispatch `gpu` gpus on the node. dispatched gpus will be removed from `self.gpus`.
+        - `recycle(resource)`: recycle `resource` on the node, adding gpus of `resource` back to `self.gpus`.
+    """
     def __init__(self, name):
         self.name = name
         self.local_actor_manager_rref = rpc.remote(self.name, LocalActorManager)
@@ -18,10 +35,23 @@ class Node:
         return ret
 
     def recycle(self, resource: 'NodeResource'):
+        assert resource.node == self
         self.gpus.extend(resource.gpus)
 
 
 class NodeResource:
+    """
+    Resource on a node. Should be created by `Node.dispatch`.
+    Create remote actors on the resource using `create_actor`.
+
+    Members:
+        - node: node of the resource
+        - gpus: gpus of the resource
+        - actors: list of RRef of actors created on the resource
+
+    Methods:
+        - `create_actor(cls, args, kwargs, env_vars, gpus)`: create an actor of `cls` on the resource.
+    """
     def __init__(self, node: Node, gpus: List[int]):
         self.node = node
         self.gpus = gpus
@@ -34,10 +64,19 @@ class NodeResource:
         return rref
 
     def __del__(self):
+        for actor in self.actors:
+            call_remote_actor(actor, '__del__', (), {})
         self.node.recycle(self)
 
 
 class NodeManager:
+    """
+    Should be created on MASTER node to manage all remote nodes.
+
+    Methods:
+        - `init()`: initialize the node manager. Should be called on MASTER node.
+        - `dispatch(gpu)`: dispatch `gpu` gpus on a node.
+    """
     def __init__(self):
         self._initiated = False
     
@@ -48,7 +87,7 @@ class NodeManager:
             self.nodes = [Node(f'torchrpc_worker{i}') for i in range(world_size)]
 
     def dispatch(self, gpu) -> NodeResource:
-        # TODO: CPU only下全部派给一个node
+        # TODO: CPU only下不应该全部派给一个node
         ret = None
         for node in self.nodes:
             if len(node.gpus) >= gpu:
