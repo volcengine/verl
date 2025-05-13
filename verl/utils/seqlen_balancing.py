@@ -225,7 +225,6 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
 
     Returns:
         List[TensorDict]: the micro-batches.
-        int: number of micro-batches after splitting/padding.
         List[List[int]]: index lists mapping each micro-batch back to original positions.
     """
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
