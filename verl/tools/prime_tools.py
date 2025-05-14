@@ -71,7 +71,7 @@ class PrimeTool(BaseTool):
         self._instance_dict[instance_id] = {
             "response": "",
             "ground_truth": ground_truth,
-            "reward": 0.0,
+            "reward": [],
         }
         print(f"self._instance_dict: {self._instance_dict}, prime_tools create are called")
         return instance_id
@@ -85,7 +85,8 @@ class PrimeTool(BaseTool):
         # penalty for non improved answer submission
         # tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
-        self._instance_dict[instance_id]["reward"] = result
+        print(f"self._instance_dict: {self._instance_dict}, prime_tools execute are called")
+        self._instance_dict[instance_id]["reward"].append(result.strip())
 
         return result, result, {}
 
@@ -113,12 +114,10 @@ class PrimeTool(BaseTool):
 
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
-        # return prime_code.compute_score(
-        #         self._instance_dict[instance_id]["response"],
-        #         self._instance_dict[instance_id]["ground_truth"], 
-        #         continuous=True
-        #     )
-        return 0.0
+        # this code only called as a cumulation reward, so we return the sandbox result
+        # only for unit test to do any kind of verification
+        print(f"self._instance_dict: {self._instance_dict}, prime_tools calc_reward are called")
+        return self._instance_dict[instance_id]["reward"]
 
     async def release(self, instance_id: str, **kwargs) -> None:
         del self._instance_dict[instance_id]
