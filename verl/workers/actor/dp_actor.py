@@ -70,8 +70,8 @@ class DataParallelPPOActor(BasePPOActor):
 
             self.fused_linear_for_ppo = FusedLinearForPPO()
 
-            if self.config.get("use_torch_compile", True):
-                self.fused_linear_for_ppo.compile(dynamic=True)
+            # if self.config.get("use_torch_compile", True):
+            #     self.fused_linear_for_ppo.compile(dynamic=True)
 
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -136,13 +136,11 @@ class DataParallelPPOActor(BasePPOActor):
                     vocab_weights = self.actor_module.lm_head.weight
 
                     log_probs, entropy_rmpad = self.fused_linear_for_ppo(
-                        hidden_states=hidden_states,
+                        hidden_states=hidden_states.squeeze(0),
                         vocab_weights=vocab_weights,
                         input_ids=input_ids_rmpad_rolled,
                         temperature=temperature,
                     )
-                    log_probs = log_probs.squeeze(0)
-                    entropy_rmpad = entropy_rmpad.squeeze(0)
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
