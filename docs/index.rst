@@ -93,6 +93,7 @@ verl is fast with:
    advance/fsdp_extension
    advance/megatron_extension
    advance/checkpoint
+   advance/rope
    sglang_multiturn/multiturn.rst
 
 .. toctree::
