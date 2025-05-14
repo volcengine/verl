@@ -121,7 +121,6 @@ class ResourcePoolManager:
         return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
 
     def _check_resource_available(self):
-        return
         node_available_gpus = {node.name: len(node.gpus) for node in node_manager.nodes}
 
         # check total required gpus can be satisfied
