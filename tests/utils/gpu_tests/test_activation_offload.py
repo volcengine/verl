@@ -25,10 +25,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.distributed import initialize_global_process_group
-from verl.utils.fsdp_utils import get_fsdp_wrap_policy
+from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2, get_fsdp_wrap_policy
 
 
-def test_fsdp_activation_offloading():
+def test_fsdp_activation_offloading(strategy="fsdp"):
     _, _, world_size = initialize_global_process_group()
     device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=("dp",))
 
@@ -42,7 +42,15 @@ def test_fsdp_activation_offloading():
     # Wrap model with FSDP
     mixed_precision = MixedPrecision(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
 
-    model = FSDP(model, use_orig_params=False, device_id=torch.cuda.current_device(), sharding_strategy=ShardingStrategy.FULL_SHARD, mixed_precision=mixed_precision, device_mesh=device_mesh, auto_wrap_policy=get_fsdp_wrap_policy(module=model))
+    if strategy == "fsdp":
+        model = FSDP(model, use_orig_params=False, device_id=torch.cuda.current_device(), sharding_strategy=ShardingStrategy.FULL_SHARD, mixed_precision=mixed_precision, device_mesh=device_mesh, auto_wrap_policy=get_fsdp_wrap_policy(module=model))
+    else:
+        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        fsdp_kwargs = {
+            "mesh": device_mesh,
+            "mp_policy": mp_policy,
+        }
+        apply_fsdp2(model, fsdp_kwargs, {})
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
@@ -106,7 +114,7 @@ def test_fsdp_activation_offloading():
 
     # Step 4: Verify outputs match
     torch.testing.assert_close(logits_without_offloading, logits_with_offloading, atol=0.0, rtol=0.0)
-    print("Activaiton offloading test passed!")
+    print(f"Activaiton offloading for {strategy} test passed!")
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -115,4 +123,5 @@ def test_fsdp_activation_offloading():
 
 
 if __name__ == "__main__":
-    test_fsdp_activation_offloading()
+    strategy = os.environ.get("STRATEGY", "fsdp")
+    test_fsdp_activation_offloading(strategy=strategy)
