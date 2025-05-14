@@ -147,8 +147,12 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         T = hidden_states.shape[0]
 
         # Allocate memory for outputs
-        dhidden_states = torch.zeros_like(hidden_states)
-        dvocab_weights = torch.zeros_like(vocab_weights)
+        dhidden_states = None
+        if hidden_states.requires_grad:
+            dhidden_states = torch.zeros_like(hidden_states)
+        dvocab_weights = None
+        if vocab_weights.requires_grad:
+            dvocab_weights = torch.zeros_like(vocab_weights)
 
         # Perform backward one chunk at a time
         for chunk_start in range(0, T, chunk_size):
@@ -169,8 +173,10 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
                 temperature=temperature,
             )
 
-            dhidden_states[chunk_start:chunk_end] += h
-            dvocab_weights += v
+            if hidden_states.requires_grad:
+                dhidden_states[chunk_start:chunk_end] += h
+            if vocab_weights.requires_grad:
+                dvocab_weights += v
 
         # Cast the output back to the original input dimension
         if orig_ndim == 3:
