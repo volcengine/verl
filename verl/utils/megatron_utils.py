@@ -526,7 +526,8 @@ def convert_megatron_model_to_transformers_model(
                 else:
                     new_params[f"model.layers.{layer_number}.self_attn.qkv_proj.{param_type}"] = param
         elif component == "q_layernorm" or component == "k_layernorm":
-            new_params[f"model.layers.{layer_number}.self_attn.{component.replace("layer", "")}.weight"] = param
+            hf_component = component.replace("layer", "")
+            new_params[f"model.layers.{layer_number}.self_attn.{hf_component}.weight"] = param
         else:
             assert isinstance(param, list) and len(param) == 3
             assert param_type == "weight" or param_type == "bias"
