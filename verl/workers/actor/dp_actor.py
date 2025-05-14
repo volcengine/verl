@@ -70,6 +70,7 @@ class DataParallelPPOActor(BasePPOActor):
 
             self.fused_linear_for_ppo = FusedLinearForPPO()
 
+            # FusedLinearForPPO has an error when compiled, disable for now
             # if self.config.get("use_torch_compile", True):
             #     self.fused_linear_for_ppo.compile(dynamic=True)
 
