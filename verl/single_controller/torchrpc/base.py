@@ -35,18 +35,29 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
     return func
 
 
-def _get_node_ip():
-    # TODO: 暂时没找到TorchRPC相关API，使用环境变量
-    host_ip = os.getenv("MY_HOST_IP", None)
-    return host_ip
-
-def _get_free_port():
+def _get_available_master_addr_port():
+    if "TORCHRPC_ADDR" in os.environ:
+        addr = os.environ["TORCHRPC_ADDR"]
         with socket.socket() as sock:
             sock.bind(("", 0))
-            return sock.getsockname()[1]
-        
-def _get_available_master_addr_port():
-    return _get_node_ip(), str(_get_free_port())
+            return addr, sock.getsockname()[1]
+    master_addr = os.environ["MASTER_ADDR"]
+    master_port = os.environ["MASTER_PORT"]
+    addr_info = socket.getaddrinfo(
+        master_addr,
+        master_port,
+        family=socket.AF_UNSPEC,  # let socket choose the address family
+        type=socket.SOCK_DGRAM,  # use UDP to avoid actually create connection
+    )
+    for family, _, _, _, sockaddr in addr_info:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as s:
+                s.connect(sockaddr[:2])
+                return s.getsockname()[:2]
+        except OSError:
+            continue
+    raise Exception("No route to MASTER thus verl doesn't know which interface to use. Please set TORCHRPC_ADDR manually on each node.")
+
 
 # name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
