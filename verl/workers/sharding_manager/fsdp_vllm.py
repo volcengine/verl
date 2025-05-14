@@ -217,7 +217,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                             if isinstance(submodule, FSDP):
                                 with FSDP.summon_full_params(submodule, writeback=False):
                                     sub_lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module, state_dict=submodule.state_dict())
-                                    sub_lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
+                                    sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
                                         for name, param in sub_lora_params.items()}
                                     lora_params.update(sub_lora_params)
                                     submodule._is_root = False
