@@ -148,6 +148,8 @@ Install dependencies
 
 .. note::
 
+    We recommend to use a fresh new conda environment to install verl and its dependencies.
+
     **Notice that the inference frameworks often strictly limit your pytorch version and will directly override your installed pytorch if not paying enough attention.**
 
     As a countermeasure, it is recommended to install inference frameworks first with the pytorch they needed. For vLLM, if you hope to use your existing pytorch,
@@ -169,9 +171,9 @@ Install dependencies
 
     # Make sure you have activated verl conda env
     # If you need to run with megatron
-    bash env/install.sh
+    bash install/install_vllm_sglang_mcore.sh
     # Or if you simply need to run with FSDP
-    USE_MEGATRON=0 bash env/install.sh
+    USE_MEGATRON=0 bash install/install_vllm_sglang_mcore.sh
 
 
 If you encounter errors in this step, please check the script and manually follow the steps in the script.
@@ -203,7 +205,7 @@ The packages worth checking are:
 - **SGLang**
 - **pyarrow**
 - **tensordict**
-- **nvidia-cudnn-cu12**
+- **nvidia-cudnn-cu12**: For Magetron backend
 
 If you encounter issues about package versions during running verl, please update the outdated ones.
 
