@@ -287,21 +287,16 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.weight_converter = weight_converter
         self.module = module
         # initialize groups for vllm inference
+        self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
-        self.infer_dp_size = vllm_ps.get_data_parallel_world_size()
-        self.infer_dp_rank = vllm_ps.get_data_parallel_rank()
-        self.infer_dp_group = vllm_ps.get_data_parallel_group()
         if vllm_version not in ("0.5.4", "0.6.3"):
             self.infer_tp_group = self.infer_tp_group.device_group
-            self.infer_dp_group = self.infer_dp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
-        self.train_dp_size = mpu.get_data_parallel_world_size()
-        self.train_dp_rank = mpu.get_data_parallel_rank()
-        self.train_dp_group = mpu.get_data_parallel_group()
         self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
         self.train_tp_larger = self.train_tp_size > self.infer_tp_size
 
@@ -520,17 +515,14 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
-        # prompts are identical for each training tp-cp-pp. We all-gather and split for each inference tp
+        # all training ranks are dp, the same as fsdp
         if self.need_tp_reshard:
-            all_gather_data_proto(data, self.train_dp_group)
-            data = data.chunk(chunks=self.infer_dp_size)[self.infer_dp_rank]
+            all_gather_data_proto(data, self.infer_tp_group)
         return data
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # MEGATRON_COMPUTE_PROTO will collect PP+CP+DP group
-        # all gather batch among micro-dp groups
+        # all training ranks are dp, the same as fsdp
         if self.need_tp_reshard:
-            all_gather_data_proto(data, self.infer_tp_group)
-            data = data.chunk(chunks=self.train_dp_size)[self.train_dp_rank]
+            data = data.chunk(chunks=self.infer_tp_size)[self.infer_tp_rank]
         return data
