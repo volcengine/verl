@@ -55,6 +55,8 @@ def compute_score(sandbox_fusion_url, concurrent_semaphore, completion, test_cas
                 first_line, rest = solution.split("\n", 1)
                 if first_line.strip().isalpha():  # Simple check for language name
                     solution = rest
+    else:
+        return 0.0, [{"error": "Invalid completion (missing code block)"}]
 
     try:
         if not isinstance(test_cases, dict):
