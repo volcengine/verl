@@ -26,7 +26,6 @@ from megatron.core import DistributedDataParallel as LocalDDP
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer.module import Float16Module
 from torch import nn
-from torch.distributed import new_group
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 import verl.utils.megatron.tensor_parallel as tp_utils
@@ -287,35 +286,24 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.module = module
-        # initialize micro_dp group for vllm inference
-        global _MICRO_DATA_PARALLEL_GROUP
-        rank = torch.distributed.get_rank()
+        # initialize groups for vllm inference
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
+        self.infer_dp_size = vllm_ps.get_data_parallel_world_size()
+        self.infer_dp_rank = vllm_ps.get_data_parallel_rank()
+        self.infer_dp_group = vllm_ps.get_data_parallel_group()
         if vllm_version not in ("0.5.4", "0.6.3"):
             self.infer_tp_group = self.infer_tp_group.device_group
+            self.infer_dp_group = self.infer_dp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
+        self.train_dp_size = mpu.get_data_parallel_world_size()
+        self.train_dp_rank = mpu.get_data_parallel_rank()
+        self.train_dp_group = mpu.get_data_parallel_group()
         self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
         self.train_tp_larger = self.train_tp_size > self.infer_tp_size
-
-        assert self.train_tp_size % self.infer_tp_size == 0 or self.infer_tp_size % self.train_tp_size == 0
-
-        micro_dp_size = self.train_tp_size // self.infer_tp_size if self.train_tp_larger else self.infer_tp_size // self.train_tp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
-        # The order is smaller_tp - micro_dp
-        larger_tp_size = max(self.infer_tp_size, self.train_tp_size)
-        smaller_tp_size = min(self.infer_tp_size, self.train_tp_size)
-        tp_start_rank = rank - rank % larger_tp_size
-        local_micro_dp_groups = larger_tp_size // micro_dp_size
-        for i in range(smaller_tp_size):
-            ranks = range(tp_start_rank + i, tp_start_rank + larger_tp_size, local_micro_dp_groups)
-            if rank in ranks:
-                group = new_group(ranks=ranks, use_local_synchronization=True)
-                _MICRO_DATA_PARALLEL_GROUP = group
-                print(f"rank: {rank}, ranks: {ranks}")
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         """
@@ -327,15 +315,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -466,21 +446,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
         """
-        For each param, if it is a tp-splited param, we all-gather from train
-        tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
+        For each param, if it is a tp-splited param, we all-gather from train tp group
         """
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
@@ -549,75 +520,17 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
-        # prompts are identical for each training tp. We select for each inference tp
-        micro_dp_size = get_micro_data_parallel_world_size()
+        # prompts are identical for each training tp-cp-pp. We all-gather and split for each inference tp
         if self.need_tp_reshard:
-            if self.train_tp_larger:
-                local_prompts = data.chunk(chunks=micro_dp_size)
-                data = local_prompts[get_micro_data_parallel_rank()]
-            else:
-                all_gather_data_proto(data, get_micro_data_parallel_group())
+            all_gather_data_proto(data, self.train_dp_group)
+            data = data.chunk(chunks=self.infer_dp_size)[self.infer_dp_rank]
         return data
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # MEGATRON_PP_AS_DP_PROTO will collect PP+CP+DP group
+        # MEGATRON_COMPUTE_PROTO will collect PP+CP+DP group
         # all gather batch among micro-dp groups
-        micro_dp_size = get_micro_data_parallel_world_size()
         if self.need_tp_reshard:
-            if not self.train_tp_larger:
-                data = data.chunk(chunks=micro_dp_size)[get_micro_data_parallel_rank()]
-            all_gather_data_proto(data, self.train_tp_group)
+            all_gather_data_proto(data, self.infer_tp_group)
+            data = data.chunk(chunks=self.train_dp_size)[self.train_dp_rank]
         return data
-
-
-"""
-Micro Data parallel group
-
-Different with HybridFlow article's Figure 8
-(https://arxiv.org/abs/2409.19256),
-Current implementation reconsiders the problem of train tp and infer tp resharding process,
-and only when pre/post-processing data (no need in weights transfer).
-
-Also different with FSDP, actually micro data parallel is helpful in megatron training to 
-reduce the communication cost and make it easier to understand the resharding process.
-
-To be short here, we use 2 examples to show how micro data parallel works.
-
-1) Train TP is larger than Infer TP
-
-|  Train Ranks  |  Infer Ranks  |
-|0|1|2|3|4|5|6|7|      0|1      |
-|0|1|2|3|4|5|6|7|      2|3      |
-|0|1|2|3|4|5|6|7|      4|5      |
-|0|1|2|3|4|5|6|7|      6|7      |
-
-One line means one TP group. As we need Infer TP ranks to be same in preprocess and 
-Train TP rank 0 to have whole results in postprocess.
-So its more convinient to set micro data parallel groups as:
-
-| micro data parallel groups |
-|          0|2|4|6           |
-|          1|3|5|7           |
-
-need to split in preprocess and all-gather in postprocess
-
-2) Train TP is smaller than Infer TP
-
-The micro data parallel is the same as above,
-but need to all-gather in preprocess and split+all-gather in postprocess
-
-"""
-
-
-def get_micro_data_parallel_group():
-    assert _MICRO_DATA_PARALLEL_GROUP is not None
-    return _MICRO_DATA_PARALLEL_GROUP
-
-
-def get_micro_data_parallel_world_size():
-    return torch.distributed.get_world_size(group=get_micro_data_parallel_group())
-
-
-def get_micro_data_parallel_rank():
-    return torch.distributed.get_rank(group=get_micro_data_parallel_group())
