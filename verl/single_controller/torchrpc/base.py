@@ -42,7 +42,7 @@ def _get_available_master_addr_port():
         addr = os.environ["TORCHRPC_ADDR"]
         with socket.socket() as sock:
             sock.bind(("", 0))
-            return addr, sock.getsockname()[1]
+            return addr, str(sock.getsockname()[1])
     master_addr = os.environ["MASTER_ADDR"]
     master_port = os.environ["MASTER_PORT"]
     addr_info = socket.getaddrinfo(
@@ -55,7 +55,8 @@ def _get_available_master_addr_port():
         try:
             with socket.socket(family, socket.SOCK_DGRAM) as s:
                 s.connect(sockaddr[:2])
-                return s.getsockname()[:2]
+                sockname = s.getsockname()
+                return sockname[0], str(sockname[1])
         except OSError:
             continue
     raise Exception("No route to MASTER thus verl doesn't know which interface to use. Please set TORCHRPC_ADDR manually on each node.")
@@ -273,7 +274,6 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, TorchRPCClassWithInitA
             cls_name = names[0]
             method_name = names[1]
 
-            print(f"executing {cls_name}'s {method_name}")
             assert cls_name in self.fused_worker_dict, f"calling {cls_name}'s {method_name}, but {cls_name} not in fused_worker_dict"
             udc_method = getattr(self.fused_worker_dict[cls_name], method_name)
             return udc_method(*args, **kwargs)
