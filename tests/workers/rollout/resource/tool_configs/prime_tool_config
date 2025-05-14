@@ -1,7 +1,7 @@
 tools:
   - class_name: "verl.tools.prime_tools.PrimeTool"
     config: {
-      "sandbox_fusion_url": "https://sd04qmtd8e6v9i08l9l00.apigateway-cn-beijing.volceapi.com/run_code"
+      "sandbox_fusion_url": "https:/XXX.com/run_code"
     }
     tool_schema:
       type: "function"
