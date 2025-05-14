@@ -169,9 +169,9 @@ Install dependencies
 
     # Make sure you have activated verl conda env
     # If you need to run with megatron
-    bash install.sh
+    bash env/install.sh
     # Or if you simply need to run with FSDP
-    USE_MEGATRON=0 bash install.sh
+    USE_MEGATRON=0 bash env/install.sh
 
 
 If you encounter errors in this step, please check the script and manually follow the steps in the script.
