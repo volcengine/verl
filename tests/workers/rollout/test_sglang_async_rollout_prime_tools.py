@@ -225,6 +225,12 @@ class TestRolloutWithTools:
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
         assert output_req.reward_scores == {'calc_prime_reward': 0.0}
         assert rollout._handle_engine_call.call_count == 3
+        assert len(output_req.messages) == 6 # user + 3*assistant + 2*tool_call
+        code_counter =0
+        for msg in output_req.messages:
+            if msg.role == "tool":
+                code_counter+=1
+        assert code_counter == 2
         # we should only have two message, one for prompt, second for response.
         # assert len(output_req.messages) == 2
         # assert output_req.messages[1] == Message(

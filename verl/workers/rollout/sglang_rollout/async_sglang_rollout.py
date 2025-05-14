@@ -467,6 +467,9 @@ class AsyncSGLangRollout(BaseRollout):
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
                     print(f"parsed_tool_calls: {parsed_tool_calls}")
+                    '''
+                    parsed_tool_calls: [OpenAIFunctionToolCall(id='0', type='function', function=OpenAIFunctionCallSchema(name='calc_prime_reward', arguments={'code': 'M = 100\nS = 94\nE = 57\nM_S = 73\nM_E = 24\nS_E = 27\nM_S_E = 22\n\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\nstudents_neither = 152 - total_in_any\nprint(students_neither)', 'language': 'python'}))]
+                    '''
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
@@ -509,7 +512,6 @@ class AsyncSGLangRollout(BaseRollout):
                             normed_content = content
                             tool_calls = []
                         parsed_tool_calls = []
-                        pytest.set_trace()
                         for tool_call in tool_calls:
                             function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(OpenAIFunctionParsedSchema(name=tool_call.name, arguments=tool_call.parameters))
                             # Drop the tool call if its arguments has decode error

@@ -47,12 +47,12 @@ class PrimeTool(BaseTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "answer": {
+                        "code": {
                             "type": "string",
                             "description": "code needs to be execute and grad",
                         },
                     },
-                    "required": ["answer"],
+                    "required": ["code"],
                 },
             }
         })
@@ -75,19 +75,21 @@ class PrimeTool(BaseTool):
         return instance_id
 
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
-        answer = parameters.get("answer", "")
-        if not isinstance(answer, str):
-            answer = str(answer)
+        code = parameters.get("code", "")
+        if not isinstance(code, str):
+            code = str(code)
 
-        reward = await self.calc_reward(instance_id)
+        result = await self.execute_code(instance_id,code)
         # penalty for non improved answer submission
-        tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
+        # tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
-        self._instance_dict[instance_id]["reward"] = reward
+        self._instance_dict[instance_id]["reward"] = result
 
-        return f"Current parsed {answer=} {reward=}", tool_reward, {}
+        return result, result, {}
 
-    async def calc_reward(self, instance_id: str, **kwargs) -> float:
+    async def execute_code(self,instance_id,code):
+        return instance_id+code+'10'
+    async def calc_reward(self, instance_id: str, **kwargs) -> str:
         # return prime_code.compute_score(
         #         self._instance_dict[instance_id]["response"],
         #         self._instance_dict[instance_id]["ground_truth"], 
