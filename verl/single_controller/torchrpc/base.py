@@ -61,7 +61,6 @@ def _get_available_master_addr_port():
     raise Exception("No route to MASTER thus verl doesn't know which interface to use. Please set TORCHRPC_ADDR manually on each node.")
 
 
-# name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
     def __init__(
         self,
@@ -96,7 +95,7 @@ class TorchRPCClassWithInitArgs(ClassWithInitArgs):
 
 
 class TorchRPCWorkerGroup(WorkerGroup):
-    def __init__(self, resource_pool: TorchRPCResourcePool = None, cls_with_init: TorchRPCClassWithInitArgs = None, bin_pack: bool = True, worker_rrefs=None, **kwargs) -> None:
+    def __init__(self, resource_pool: TorchRPCResourcePool = None, cls_with_init: TorchRPCClassWithInitArgs = None, **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.cls_with_init = cls_with_init
         # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
@@ -105,16 +104,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
         self.sub_cls_name = ""
         self._attrs_with_rrefs = ["_workers", "resource_pool"]
 
-        if worker_rrefs is not None and (not self.fused_worker_used):
-            # _is_init_with_detached_workers -> resource_pool is None
-            assert self._is_init_with_detached_workers
-            self._workers = worker_rrefs
-
-        if self._is_init_with_detached_workers:
-            # 我们有 detached worker吗？
-            self._init_with_detached_workers(worker_rrefs=worker_rrefs)
-        else:
-            self._init_with_resource_pool(resource_pool=resource_pool, cls_with_init=cls_with_init, bin_pack=bin_pack)
+        self._init_with_resource_pool(resource_pool=resource_pool, cls_with_init=cls_with_init)
 
         if cls_with_init is not None:
             self._bind_worker_method(self.cls_with_init.cls, func_generator)
@@ -125,10 +115,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
     def _is_worker_alive(self, worker):
         return True  # TODO
 
-    def _init_with_detached_workers(self, worker_names):
-        raise NotImplementedError  # TODO
-
-    def _init_with_resource_pool(self, resource_pool, cls_with_init, bin_pack):
+    def _init_with_resource_pool(self, resource_pool, cls_with_init):
         use_gpu = resource_pool.use_gpu
 
         resources = resource_pool.get_resources()

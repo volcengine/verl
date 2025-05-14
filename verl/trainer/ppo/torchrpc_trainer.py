@@ -40,8 +40,9 @@ from tqdm import tqdm
 from verl import DataProto
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
-from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, rref_to_here
 from verl.single_controller.torchrpc.base import create_colocated_worker_cls
+from verl.single_controller.torchrpc.node import node_manager
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -57,7 +58,6 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.rollout.async_server import AsyncLLMServerManager
-from verl.single_controller.torchrpc.node import node_manager
 
 WorkerType = Type[Worker]
 
@@ -984,7 +984,7 @@ class TorchRPCPPOTrainer:
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
                         if self.config.reward_model.launch_reward_fn_async:
-                            reward_tensor, reward_extra_infos_dict = future_reward.to_here()
+                            reward_tensor, reward_extra_infos_dict = rref_to_here(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
                         print(f"{list(reward_extra_infos_dict.keys())=}")
