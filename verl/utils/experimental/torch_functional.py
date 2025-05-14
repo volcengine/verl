@@ -98,8 +98,9 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         T = hidden_states.shape[0]
 
         # Allocate memory for outputs
-        log_probs = torch.empty(T, dtype=hidden_states.dtype, device=hidden_states.device)
-        entropy = torch.empty(T, dtype=hidden_states.dtype, device=hidden_states.device)
+        output_requires_grad = hidden_states.requires_grad or vocab_weights.requires_grad
+        log_probs = hidden_states.new_zeros(T, requires_grad=output_requires_grad)
+        entropy = hidden_states.new_zeros(T, requires_grad=output_requires_grad)
 
         # Perform forward one chunk at a time
         for chunk_start in range(0, T, chunk_size):
