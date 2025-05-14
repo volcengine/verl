@@ -39,7 +39,7 @@ from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 fused_linear_for_ppo = FusedLinearForPPO()
-fused_linear_for_ppo.compile()
+fused_linear_for_ppo.compile(dynamic=True)
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
