@@ -25,6 +25,8 @@ from typing import Any, Optional
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from verl.utils.fsdp_utils import FSDPModule as FSDP2
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -469,9 +471,9 @@ class ActivationHandler:
         if isinstance(ret, tuple):
             binded_tensor = ret[0]
         binded_tensor = self._sync_func(binded_tensor)
-        final_ret = (binded_tensor,)
+        final_ret = binded_tensor
         if isinstance(ret, tuple):
-            final_ret += ret[1:]
+            final_ret = (final_ret,) + ret[1:]
         return final_ret
 
     def wrap_module_forward_method(self, module):
@@ -510,15 +512,21 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
 
     """
 
-    assert strategy == "fsdp", "activation offloading only supports fsdp strategy"
+    assert strategy == "fsdp" or strategy == "fsdp2", "activation offloading only supports fsdp strategy"
     layers = []
 
     def get_layers(module):
         for name, child in module.named_children():
-            if isinstance(child, FSDP):
-                layers.append(child)
-            else:  # avoid nested
+            if not isinstance(child, (FSDP, FSDP2)):
                 get_layers(child)
+            else:
+                wrapped_module = child
+                if isinstance(child, FSDP):
+                    wrapped_module = child._fsdp_wrapped_module
+                # In some cases, torch.nn.Embedding is wrapped with FSDP alone. However, the activation
+                # size of torch.nn.Embedding is small, so it's not necessary to offload it.
+                if not isinstance(wrapped_module, torch.nn.Embedding):
+                    layers.append(child)
 
     get_layers(model)
     if len(layers) < 3:
@@ -537,4 +545,7 @@ def enable_activation_offloading(model, strategy, enable_ckpt=False):
 
     handler = ActivationHandler(context, sync_func, tensor_filter, enable_ckpt)
     for layer in layers:
-        handler.wrap_module_forward_method(layer._fsdp_wrapped_module)
+        module = layer
+        if isinstance(layer, FSDP):
+            module = module._fsdp_wrapped_module
+        handler.wrap_module_forward_method(module)
