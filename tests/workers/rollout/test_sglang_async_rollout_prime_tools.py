@@ -31,6 +31,8 @@ class TestRolloutWithTools:
         tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
     
+
+    # we only need this for tokenizer
     @pytest.fixture
     def qwen_model_config(self):
         local_model_path = "Qwen/Qwen2.5-0.5B"
@@ -45,7 +47,7 @@ class TestRolloutWithTools:
         '''
 
         expect_turn_0 = '''
-        Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion principle for three sets says that the total number of students taking at least one of the classes is equal to the sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in all three classes. Then, subtract that total from the overall number of students to get those not taking any of the three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure accuracy.\n\n<tool_call>[{"arguments": {"code": "M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)", "language": "python"}, "name": "calc_prime_reward"}]</tool_call>\n
+        Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion principle for three sets says that the total number of students taking at least one of the classes is equal to the sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in all three classes. Then, subtract that total from the overall number of students to get those not taking any of the three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure accuracy.\n\n<tool_call>[{"arguments": {"code": "M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)", "language": "python"}, "name": "calc_code_result"}]</tool_call>\n
         '''
 
         tool_return_0 = '''
@@ -53,7 +55,7 @@ class TestRolloutWithTools:
         '''
 
         expect_turn_1 = '''
-        \nThe code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English: 24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science: 94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n\n<tool_call>[{"arguments": {"code": "only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)", "language": "python"}, "name": "calc_prime_reward"}]</tool_call>\n
+        \nThe code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English: 24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science: 94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n\n<tool_call>[{"arguments": {"code": "only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)", "language": "python"}, "name": "calc_code_result"}]</tool_call>\n
         '''
 
         tool_return_1 = '''
@@ -101,7 +103,7 @@ class TestRolloutWithTools:
         )
         messages = np.asarray(preencode_prompts)
         tools_kwargs = np.array([{
-                    "calc_prime_reward": {
+                    "calc_code_result": {
                         "create_kwargs": {"ground_truth": "test-solution-str"},
                     },
                 }],dtype=object)
@@ -117,9 +119,9 @@ class TestRolloutWithTools:
         print(prime_rollout_config)
         rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) == 1
-        assert "calc_prime_reward" in rollout._tool_map.keys()
+        assert "calc_code_result" in rollout._tool_map.keys()
         from verl.tools.prime_tools import PrimeTool
-        assert isinstance(rollout._tool_map["calc_prime_reward"],PrimeTool)
+        assert isinstance(rollout._tool_map["calc_code_result"],PrimeTool)
         assert rollout._tool_call_parser_type == "qwen25"
     
 
@@ -135,14 +137,14 @@ class TestRolloutWithTools:
             OpenAIFunctionToolSchema(
                 type="function",
                 function=OpenAIFunctionSchema(
-                    name="calc_prime_reward",
-                    description="A tool for calculating the reward of prime. (1.0 if parsed answer is correct, 0.0 if parsed answer is incorrect or not correctly parsed)",
+                    name="calc_code_result",
+                    description="A tool for executing code.",
                     parameters=OpenAIFunctionParametersSchema(
                         type="object",
                         properties={
                             "code": OpenAIFunctionPropertySchema(
                                 type="string",
-                                description="The model's answer to the prime problem, must be a code",
+                                description="The code to execute.",
                                 enum=None,
                             )
                         },
@@ -181,7 +183,7 @@ class TestRolloutWithTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {'calc_prime_reward': 0.0}
+        assert output_req.reward_scores == {'calc_code_result': 0.0}
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -223,7 +225,7 @@ class TestRolloutWithTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {'calc_prime_reward': 0.0}
+        assert output_req.reward_scores == {'calc_code_result': 0.0}
         assert rollout._handle_engine_call.call_count == 3
         assert len(output_req.messages) == 6 # user + 3*assistant + 2*tool_call
         code_counter =0

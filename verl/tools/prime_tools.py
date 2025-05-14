@@ -19,6 +19,7 @@ from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from verl.utils.reward_score import prime_code
+from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case, call_sandbox_api
 
 from .base_tool import BaseTool
 from .schemas import OpenAIFunctionToolSchema
@@ -42,7 +43,7 @@ class PrimeTool(BaseTool):
         _tool_schema = OpenAIFunctionToolSchema.model_validate({
             "type": "function",
             "function": {
-                "name": "calc_prime_reward",
+                "name": "calc_code_result",
                 "description": "A tool for calculating the reward of prime",
                 "parameters": {
                     "type": "object",
@@ -59,6 +60,7 @@ class PrimeTool(BaseTool):
         """
         super().__init__(config, tool_schema)
         self._instance_dict = {}
+        self.sandbox_fusion_url = config.get("sandbox_fusion_url","URL_ADDRESSxxxx.apigateway-cn-beijing.volceapi.com/run_code")
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
@@ -88,7 +90,28 @@ class PrimeTool(BaseTool):
         return result, result, {}
 
     async def execute_code(self,instance_id,code):
-        return instance_id+code+'10'
+        '''
+            _process_single_case(
+            case_index: int,
+            stdin_data: Any,
+            expected_output: Any,
+            sandbox_fusion_url: str,
+            generation: str,
+            timeout: int,
+            language: str
+        )
+        '''
+        # TODO make this into asyncio format: 
+        result_status, metadata  = _process_single_case(0, None, None,self.sandbox_fusion_url, code, 30, "python")
+        # we should always expect this since we don't have correct answer
+        if metadata["run_status"] == "Finished":
+            actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+            print("actual_output from sandbox fusion: ",actual_output)
+            return actual_output
+        else:
+            return "no stdout here"
+
+
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         # return prime_code.compute_score(
         #         self._instance_dict[instance_id]["response"],

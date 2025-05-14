@@ -1,15 +1,17 @@
 tools:
   - class_name: "verl.tools.prime_tools.PrimeTool"
-    config: {}
+    config: {
+      "sandbox_fusion_url": "https://sd04qmtd8e6v9i08l9l00.apigateway-cn-beijing.volceapi.com/run_code"
+    }
     tool_schema:
       type: "function"
       function:
-        name: "calc_prime_reward"
-        description: "A tool for calculating the reward of prime. (1.0 if parsed answer is correct, 0.0 if parsed answer is incorrect or not correctly parsed)"
+        name: "calc_code_result"
+        description: "A tool for executing code."
         parameters:
           type: "object"
           properties:
             code:
               type: "string"
-              description: "The model's answer to the prime problem, must be a code"
+              description: "The code to execute."
           required: ["code"]
