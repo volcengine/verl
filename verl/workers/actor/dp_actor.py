@@ -65,6 +65,14 @@ class DataParallelPPOActor(BasePPOActor):
             else verl_F.entropy_from_logits
         )
 
+        if self.use_fused_kernels:
+            from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
+            self.fused_linear_for_ppo = FusedLinearForPPO()
+
+            if self.config.get("use_torch_compile", True):
+                self.fused_linear_for_ppo.compile(dynamic=True)
+
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -124,31 +132,20 @@ class DataParallelPPOActor(BasePPOActor):
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
-
                     hidden_states = output.last_hidden_state
                     vocab_weights = self.actor_module.lm_head.weight
 
-                    log_probs = fused_log_probs(
+                    log_probs, entropy_rmpad = self.fused_linear_for_ppo(
                         hidden_states=hidden_states,
                         vocab_weights=vocab_weights,
-                        input_ids=input_ids_rmpad_rolled[None],
+                        input_ids=input_ids_rmpad_rolled,
                         temperature=temperature,
-                    ).squeeze(0)
-                    if calculate_entropy:
-                        entropy_rmpad = fused_entropy(
-                            hidden_states=hidden_states,
-                            vocab_weights=vocab_weights,
-                            temperature=temperature,
-                        ).squeeze(0)
+                    )
+                    log_probs = log_probs.squeeze(0)
+                    entropy_rmpad = entropy_rmpad.squeeze(0)
 
                 else:
-                    if self.use_fused_kernels:
-                        hidden_states = output.last_hidden_state
-                        logits = self.actor_module.lm_head(hidden_states)
-                        logits_rmpad = logits.squeeze(0)  # (total_nnz, vocab_size)
-                    else:
-                        logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+                    logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
                     # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
@@ -213,29 +210,18 @@ class DataParallelPPOActor(BasePPOActor):
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    from verl.utils.experimental.torch_functional import fused_log_probs, fused_entropy
-
                     hidden_states = output.last_hidden_state
                     vocab_weights = self.actor_module.lm_head.weight
 
-                    log_probs = fused_log_probs(
-                        hidden_states=hidden_states,
+                    log_probs, entropy = self.fused_linear_for_ppo(
+                        hidden_states=hidden_states[:, -response_length - 1 : -1, :],
                         vocab_weights=vocab_weights,
                         input_ids=micro_batch["responses"],
                         temperature=temperature,
                     )
-                    entropy = fused_entropy(
-                        hidden_states=hidden_states,
-                        vocab_weights=vocab_weights,
-                        temperature=temperature,
-                    )
 
                 else:
-                    if self.use_fused_kernels:
-                        hidden_states = output.last_hidden_state
-                        logits = self.actor_module.lm_head(hidden_states)
-                    else:
-                        logits = output.logits
+                    logits = output.logits
 
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
