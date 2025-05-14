@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple
+from typing import Optional, Tuple
 import torch
 
 
@@ -37,8 +37,8 @@ def _fused_linear_for_ppo_fwd(
 
 
 def _fused_linear_for_ppo_bwd(
-    dlog_probs: torch.FloatTensor,
-    dentropy: torch.FloatTensor,
+    dlog_probs: Optional[torch.FloatTensor],
+    dentropy: Optional[torch.FloatTensor],
     hidden_states: torch.FloatTensor,
     vocab_weights: torch.FloatTensor,
     input_ids: torch.LongTensor,
@@ -48,19 +48,21 @@ def _fused_linear_for_ppo_bwd(
     orig_dtype = logits.dtype
     logits = logits.to(torch.float32)
 
-    # Slower but more numerically stable to do log_softmax than probs.log()
     probs = logits.softmax(dim=-1)
-    log_probs = logits.log_softmax(dim=-1)
+
+    dlogits = 0
 
     # Gradient from log_probs
-    one_hot_input = torch.zeros_like(logits).scatter_(-1, input_ids.unsqueeze(-1), 1)
-    dlogits_log_probs = dlog_probs.to(torch.float32).unsqueeze(-1) * (one_hot_input - probs)
+    if dlog_probs is not None:
+        one_hot_input = torch.zeros_like(logits).scatter_(-1, input_ids.unsqueeze(-1), 1)
+        dlogits += dlog_probs.to(torch.float32).unsqueeze(-1) * (one_hot_input - probs)
 
     # Gradient from entropy
-    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
-    dlogits_entropy = probs * (log_probs + entropy.unsqueeze(-1)) * (-dentropy.unsqueeze(-1))
+    if dentropy is not None:
+        log_probs = logits.log_softmax(dim=-1)
+        entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
+        dlogits += probs * (log_probs + entropy.unsqueeze(-1)) * (-dentropy.unsqueeze(-1))
 
-    dlogits = dlogits_log_probs + dlogits_entropy
     dlogits = dlogits.to(orig_dtype) / temperature
 
     dhidden_states = dlogits @ vocab_weights
@@ -80,10 +82,13 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         temperature: float = 1.0,
         chunk_size: int = 512,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        ctx.set_materialize_grads(False)
+
         # Cast to a 2D tensor of the shape [T, D] for ease of working
         orig_ndim = hidden_states.ndim
         assert orig_ndim in (2, 3), f"Invalid hidden_states shape, received {hidden_states.shape}"
 
+        orig_batch_size = -1
         if orig_ndim == 3:
             assert input_ids.ndim == 2, f"input_ids shape doesn't match, {hidden_states.shape} {input_ids.shape}"
             orig_batch_size = hidden_states.shape[0]
@@ -115,23 +120,29 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
             entropy = entropy.view(orig_batch_size, -1)
 
         ctx.save_for_backward(hidden_states, vocab_weights, input_ids)
+        ctx.orig_batch_size = orig_batch_size
+        ctx.orig_ndim = orig_ndim
         ctx.temperature = temperature
         ctx.chunk_size = chunk_size
 
         return log_probs, entropy
 
     @staticmethod
-    def backward(ctx, dlog_probs: torch.FloatTensor, dentropy: torch.FloatTensor):
+    def backward(ctx, dlog_probs: Optional[torch.FloatTensor], dentropy: Optional[torch.FloatTensor]):
+        assert dlog_probs is not None or dentropy is not None
+
         hidden_states, vocab_weights, input_ids = ctx.saved_tensors
+        orig_batch_size = ctx.orig_batch_size
+        orig_ndim = ctx.orig_ndim
         temperature = ctx.temperature
         chunk_size = ctx.chunk_size
 
         # Here orig_ndim refers to the orig_ndim of hidden_states
-        orig_ndim = dentropy.ndim + 1
         if orig_ndim == 3:
-            orig_batch_size = dentropy.shape[0]
-            dlog_probs = dlog_probs.flatten()
-            dentropy = dentropy.flatten()
+            if dlog_probs is not None:
+                dlog_probs = dlog_probs.flatten()
+            if dentropy is not None:
+                dentropy = dentropy.flatten()
 
         T = hidden_states.shape[0]
 
@@ -142,10 +153,16 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         # Perform backward one chunk at a time
         for chunk_start in range(0, T, chunk_size):
             chunk_end = min(chunk_start + chunk_size, T)
+            chunk_dlog_probs = None
+            if dlog_probs is not None:
+                chunk_dlog_probs = dlog_probs[chunk_start:chunk_end]
+            chunk_dentropy = None
+            if dentropy is not None:
+                chunk_dentropy = dentropy[chunk_start:chunk_end]
 
             h, v = _fused_linear_for_ppo_bwd(
-                dlog_probs=dlog_probs[chunk_start:chunk_end],
-                dentropy=dentropy[chunk_start:chunk_end],
+                dlog_probs=chunk_dlog_probs,
+                dentropy=chunk_dentropy,
                 hidden_states=hidden_states[chunk_start:chunk_end],
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
