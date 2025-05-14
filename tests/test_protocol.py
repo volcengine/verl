@@ -337,3 +337,40 @@ def test_dataproto_index():
     assert result_list_bool.non_tensor_batch["labels"].shape[0] == sum(idx_list_bool)
     assert np.array_equal(result_list_bool.batch["obs"].cpu().numpy(), obs[idx_list_bool].cpu().numpy())
     assert np.array_equal(result_list_bool.non_tensor_batch["labels"], labels_np[idx_list_bool])
+
+
+def test_old_vs_new_from_single_dict():
+    class CustomProto(DataProto):
+        """Uses the new, fixed from_single_dict."""
+
+        pass
+
+    class OriginProto(DataProto):
+        """Mimics the *old* from_single_dict (always returns a DataProto)."""
+
+        @classmethod
+        def from_single_dict(cls, data, meta_info=None, auto_padding=False):
+            tensors, non_tensors = {}, {}
+            for k, v in data.items():
+                if torch.is_tensor(v):
+                    tensors[k] = v
+                else:
+                    non_tensors[k] = v
+            # always calls DataProto.from_dict, ignoring `cls`
+            return DataProto.from_dict(
+                tensors=tensors,
+                non_tensors=non_tensors,
+                meta_info=meta_info,
+                auto_padding=auto_padding,
+            )
+
+    sample = {"x": torch.tensor([0])}
+
+    orig = OriginProto.from_single_dict(sample)
+    # old behavior: always DataProto, not a CustomOriginProto
+    assert type(orig) is DataProto
+    assert type(orig) is not OriginProto
+
+    cust = CustomProto.from_single_dict(sample)
+    # new behavior: respects subclass
+    assert type(cust) is CustomProto
