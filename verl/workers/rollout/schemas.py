@@ -193,6 +193,7 @@ class AsyncRolloutRequest(BaseModel):
         reward_scores: Dict[str, float],
         finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP,
     ) -> None:
+        print(reward_scores)
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
         self.reward_scores = reward_scores
         self.response_ids = self.input_ids[len(self.prompt_ids) :]

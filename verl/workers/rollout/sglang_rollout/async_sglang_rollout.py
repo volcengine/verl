@@ -24,9 +24,11 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import numpy as np
+import pytest
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
+import torch.distributed
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.function_call_parser import FunctionCallParser
 from sglang.srt.openai_api.protocol import Tool
@@ -110,9 +112,11 @@ class AsyncSGLangRollout(BaseRollout):
                 for tool_config in tools_config.tools:
                     cls_name = tool_config.class_name
                     module_name, class_name = cls_name.rsplit(".", 1)
-
+                    print(f"tool_config: {tool_config},cls_name: {cls_name},module_name: {module_name},class_name: {class_name}")
                     if module_name not in sys.modules:
                         spec = importlib.util.find_spec(module_name)
+                        if spec is None:
+                            raise ValueError(f"Module {module_name} not found")
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[module_name] = module
                         spec.loader.exec_module(module)
@@ -130,6 +134,7 @@ class AsyncSGLangRollout(BaseRollout):
                 return tool_list
 
             tools_config_file = config.multi_turn.tool_config_path
+            print(f"loading tools config from file: {tools_config_file}")
             tools_config = OmegaConf.load(tools_config_file)
             tool_list = initialize_tools(tools_config)
 
@@ -137,11 +142,17 @@ class AsyncSGLangRollout(BaseRollout):
             self._tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
             self._tool_map = {tool.name: tool for tool in tool_list}
             self._tool_call_parser_type = get_tool_call_parser_type(tokenizer)
+            # self._tool_call_parser_type = "pythonic"
             self._sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in self._tool_schemas]
             self._function_call_parser = FunctionCallParser(
                 self._sgl_tools,
                 self._tool_call_parser_type,
             )
+            print(f"self._tool_call_parser_type: {self._tool_call_parser_type}")
+            print(f"self._sgl_tools: {self._sgl_tools}")
+            print(f"self._function_call_parser: {self._function_call_parser}")
+            print(f"_tool_map: {self._tool_map}")
+            print(f"_tool_schemas: {self._tool_schemas}")
         else:
             self._tool_schemas = []
             self._tool_map = {}
@@ -150,19 +161,8 @@ class AsyncSGLangRollout(BaseRollout):
             self._function_call_parser = None
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
-        tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
 
-        if kwargs.get("train_tp", None) is not None:
-            # deployed with megatron
-            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
-            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            train_tp = kwargs.get("train_tp", None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            sglang_ps.initialize_parallel_state(
-                tensor_model_parallel_size=tensor_parallel_size,
-                num_tp_per_train_tp=num_tp_per_train_tp,
-            )
+        self._init_distributed_env(**kwargs)
 
         if not self.config.get("max_model_len", None):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
@@ -173,45 +173,51 @@ class AsyncSGLangRollout(BaseRollout):
         if self.config.multi_turn.max_turns is None:
             self.config.multi_turn.max_turns = self.config.max_model_len // 3
 
-        tp_size = tensor_parallel_size
-        world_size = int(os.getenv("WORLD_SIZE", "-1"))
-
-        # init device mesh
-        device_mesh_kwargs = dict(
-            mesh_shape=(world_size // tp_size, tp_size, 1),
-            mesh_dim_names=["dp", "tp", "pp"],
-        )
-
-        device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
-        # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
-
-        # get tp_rank of this process in this tp group
-        visible_devices = [None] * device_mesh_cpu.size(1)
-
-        dist.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
-
         # initialize the inference engine
+        self._init_inference_engine(trust_remote_code,actor_module)
+        
+        self._init_sampling_params(**kwargs)
+
+        self.tokenizer = tokenizer
+        self.pad_token_id = tokenizer.pad_token_id
+
+
+    def _init_sampling_params(self,**kwargs):
+        kwargs = dict(
+            n=1,
+            max_new_tokens=self.config.response_length,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            repetition_penalty=1.0,
+        )
+        # supporting adding any sampling params from the config file
+        for k in self.config.keys():
+            if hasattr(SamplingParams(), str(k)):
+                kwargs[k] = self.config.get(k)
+        print(f"kwargs: {kwargs}")
+        self.sampling_params = kwargs
+
+    def _init_inference_engine(self,trust_remote_code,actor_module):
         monkey_patch_torch_reductions()
-        nnodes = -(-tp_size // len(visible_devices))
+        nnodes = -(-self.tensor_parallel_size // len(self.visible_devices))
         if nnodes > 1:
             ip = get_ip()
             port = get_open_port() if port is None else port
             [ip, port] = broadcast_pyobj(
                 [ip, port],
                 rank=self._tp_rank,
-                dist_group=device_mesh_cpu.get_group("tp"),
-                src=device_mesh_cpu["tp"].mesh[0].item(),
+                dist_group=self.device_mesh_cpu.get_group("tp"),
+                src=self.device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
             )
             dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
         else:
             dist_init_addr = None
 
-        load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
-        self._device_mesh_cpu = device_mesh_cpu
-        self._tp_rank = device_mesh_cpu["tp"].get_local_rank()
-        self._tp_size = device_mesh_cpu["tp"].size()
+        load_format = "dummy" if self.config.load_format.startswith("dummy") else self.config.load_format
+        self._device_mesh_cpu = self.device_mesh_cpu
+        self._tp_rank = self.device_mesh_cpu["tp"].get_local_rank()
+        self._tp_size = self.device_mesh_cpu["tp"].size()
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
@@ -221,8 +227,8 @@ class AsyncSGLangRollout(BaseRollout):
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             self._engine = Engine(
                 model_path=actor_module,
-                dtype=config.dtype,
-                mem_fraction_static=config.gpu_memory_utilization,
+                dtype=self.config.dtype,
+                mem_fraction_static=self.config.gpu_memory_utilization,
                 enable_memory_saver=True,
                 base_gpu_id=0,
                 gpu_id_step=1,
@@ -250,22 +256,41 @@ class AsyncSGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
 
-        kwargs = dict(
-            n=1,
-            max_new_tokens=config.response_length,
-            presence_penalty=0.0,
-            frequency_penalty=0.0,
-            repetition_penalty=1.0,
-        )
-        # supporting adding any sampling params from the config file
-        for k in config.keys():
-            if hasattr(SamplingParams(), str(k)):
-                kwargs[k] = config.get(k)
-        print(f"kwargs: {kwargs}")
-        self.sampling_params = kwargs
 
-        self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_token_id
+    def _init_distributed_env(self,**kwargs):
+        self.train_tp = kwargs.get("train_tp", None)
+        self.tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
+        assert self.tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
+
+        tp_size = self.tensor_parallel_size
+        world_size = int(os.getenv("WORLD_SIZE", "-1"))
+
+        # init device mesh
+        device_mesh_kwargs = dict(
+            mesh_shape=(world_size // tp_size, tp_size, 1),
+            mesh_dim_names=["dp", "tp", "pp"],
+        )
+
+        self.device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+        # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
+
+        # get tp_rank of this process in this tp group
+        self.visible_devices = [None] * self.device_mesh_cpu.size(1)
+
+        dist.all_gather_object(self.visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self.device_mesh_cpu.get_group("tp"))
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(self.visible_devices)
+
+        if self.train_tp is not None:
+            # deployed with megatron
+            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
+            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
+    
+            num_tp_per_train_tp = self.train_tp // self.tensor_parallel_size
+            sglang_ps.initialize_parallel_state(
+                tensor_model_parallel_size=self.tensor_parallel_size,
+                num_tp_per_train_tp=num_tp_per_train_tp,
+            )
+
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -436,17 +461,12 @@ class AsyncSGLangRollout(BaseRollout):
         current_turns = 0
         while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
-                if _req.tools is not None:
-                    tool_creation_coroutines = []
-                    for tool_schema in _req.tools:
-                        tool = self._tool_map[tool_schema.function.name]
-                        create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
-                        tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
-                    await asyncio.gather(*tool_creation_coroutines)
+                await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
+                    print(f"parsed_tool_calls: {parsed_tool_calls}")
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
@@ -468,41 +488,9 @@ class AsyncSGLangRollout(BaseRollout):
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
-                generation_prompt = _req.get_generation_prompt(self.tokenizer)
-                if not do_sample:
-                    kwargs = dict(
-                        n=1,
-                        presence_penalty=0.0,
-                        frequency_penalty=0.0,
-                        repetition_penalty=1.0,
-                        temperature=0,
-                        top_p=1,
-                        top_k=-1,
-                        ignore_eos=False,
-                        min_new_tokens=0,
-                        max_new_tokens=self.config.response_length,
-                        skip_special_tokens=True,
-                        spaces_between_special_tokens=True,
-                    )
-                elif is_validate:
-                    # TODO: try **
-                    kwargs = {
-                        "top_k": self.config.val_kwargs.top_k,
-                        "top_p": self.config.val_kwargs.top_p,
-                        "temperature": self.config.val_kwargs.temperature,
-                        "n": 1,  # if validate, already repeat in ray_trainer
-                    }
-                if "n" not in kwargs or kwargs["n"] > 1:  # group size is supported in preprocess
-                    kwargs["n"] = 1
-                # users can customize different sampling_params at different run
-                with self.update_sampling_params(**kwargs):
-                    output = await self._engine.async_generate(
-                        prompt=generation_prompt,
-                        sampling_params=self.sampling_params,
-                        return_logprob=False,
-                    )
-
+                output = await self._handle_engine_call(_req,do_sample,is_validate,**kwargs)
                 content = output["text"]
+                print(f"turns: {current_turns}, output: {output}")
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
@@ -521,6 +509,7 @@ class AsyncSGLangRollout(BaseRollout):
                             normed_content = content
                             tool_calls = []
                         parsed_tool_calls = []
+                        pytest.set_trace()
                         for tool_call in tool_calls:
                             function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(OpenAIFunctionParsedSchema(name=tool_call.name, arguments=tool_call.parameters))
                             # Drop the tool call if its arguments has decode error
@@ -566,6 +555,53 @@ class AsyncSGLangRollout(BaseRollout):
         _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
 
         return _req
+
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest,do_sample: bool,is_validate:bool,**kwargs) -> AsyncRolloutRequest:
+        generation_prompt = _req.get_generation_prompt(self.tokenizer)
+        if not do_sample:
+            kwargs = dict(
+                n=1,
+                presence_penalty=0.0,
+                frequency_penalty=0.0,
+                repetition_penalty=1.0,
+                temperature=0,
+                top_p=1,
+                top_k=-1,
+                ignore_eos=False,
+                min_new_tokens=0,
+                max_new_tokens=self.config.response_length,
+                skip_special_tokens=True,
+                spaces_between_special_tokens=True,
+            )
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                "top_k": self.config.val_kwargs.top_k,
+                "top_p": self.config.val_kwargs.top_p,
+                "temperature": self.config.val_kwargs.temperature,
+                "n": 1,  # if validate, already repeat in ray_trainer
+            }
+        if "n" not in kwargs or kwargs["n"] > 1:  # group size is supported in preprocess
+            kwargs["n"] = 1
+        # users can customize different sampling_params at different run
+        with self.update_sampling_params(**kwargs):
+            output = await self._engine.async_generate(
+                prompt=generation_prompt,
+                sampling_params=self.sampling_params,
+                return_logprob=False,
+            )
+        print(output)
+        return output
+
+    async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
+        if _req.tools is not None:
+            tool_creation_coroutines = []
+            for tool_schema in _req.tools:
+                tool = self._tool_map[tool_schema.function.name]
+                create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
+                tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
+                print(f"creation for tools coroutine: {tool.name}")
+            await asyncio.gather(*tool_creation_coroutines)
 
     @GPUMemoryLogger(role="sglang async rollout", logger=logger)
     @torch.no_grad()
@@ -691,7 +727,8 @@ class AsyncSGLangRollout(BaseRollout):
         for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
             for rollout_offset in range(n):
                 if self._tool_schemas:
-                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] if "tools_kwargs" in prompts.non_tensor_batch else {}
+                    print(f"tool_kwags: {_tools_kwargs}")
                     _tool_schemas = []
                     for k in _tools_kwargs.keys():
                         _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
