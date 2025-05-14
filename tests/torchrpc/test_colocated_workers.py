@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import torch
-import torch.distributed.rpc as rpc
 
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.torchrpc import (
-    TorchRPCResourcePool,
     TorchRPCClassWithInitArgs,
+    TorchRPCResourcePool,
     TorchRPCWorkerGroup,
     create_colocated_worker_cls,
     torchrpc_remote,
@@ -47,6 +45,7 @@ class Critic(Worker):
     def sub(self, data: DataProto):
         data.batch["a"] -= self.config["b"]
         return data
+
 
 @torchrpc_remote
 def test_colocated_workers():
@@ -76,6 +75,7 @@ def test_colocated_workers():
 
     torch.testing.assert_close(expected_actor_output.batch, actor_output.batch, atol=0, rtol=0)
     torch.testing.assert_close(expected_critic_output.batch, critic_output.batch, atol=0, rtol=0)
+
 
 if __name__ == "__main__":
     test_colocated_workers()

@@ -57,6 +57,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.rollout.async_server import AsyncLLMServerManager
+from verl.single_controller.torchrpc.node import node_manager
 
 WorkerType = Type[Worker]
 
@@ -120,11 +121,8 @@ class ResourcePoolManager:
         return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
 
     def _check_resource_available(self):
-        # TODO: 检查资源是否足够
         return
-        """Check if the resource pool can be satisfied in this ray cluster."""
-        node_available_resources = ray.state.available_resources_per_node()
-        node_available_gpus = {node: node_info.get("GPU", 0) for node, node_info in node_available_resources.items()}
+        node_available_gpus = {node.name: len(node.gpus) for node in node_manager.nodes}
 
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())

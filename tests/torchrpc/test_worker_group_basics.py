@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import torch
-import torch.distributed.rpc as rpc
 
 from verl.single_controller.base.decorator import Dispatch, Execute, collect_all_to_all, register
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCResourcePool, TorchRPCClassWithInitArgs, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
-from verl.single_controller.torchrpc.node import NodeManager
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
+
 
 def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
     """
@@ -34,6 +32,7 @@ def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
         for i in range(worker_group.world_size - 2):
             v.append(v[i % 2])
     return args, kwargs
+
 
 class TestActor(Worker):
     def __init__(self, x) -> None:
@@ -59,19 +58,19 @@ class TestActor(Worker):
     def foo_custom(self, x, y):
         return self._x + y + x
 
+
 def add_one(data):
     data = data.to("cuda")
     data += 1
     data = data.to("cpu")
     return data
 
+
 @torchrpc_remote
 def test_basics():
-    resource_pool = TorchRPCResourcePool([2,2], use_gpu=True)
+    resource_pool = TorchRPCResourcePool([2, 2], use_gpu=True)
     class_with_args = TorchRPCClassWithInitArgs(cls=TestActor, x=2)
-    worker_group = TorchRPCWorkerGroup(
-        resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic"
-    )
+    worker_group = TorchRPCWorkerGroup(resource_pool=resource_pool, cls_with_init=class_with_args, name_prefix="worker_group_basic")
 
     output = worker_group.execute_all_sync("foo", y=3)
     assert output == [5, 5, 5, 5]
@@ -95,6 +94,7 @@ def test_basics():
 
     output_ref = worker_group.foo_rank_zero(x=1, y=2)
     assert output_ref == 5
+
 
 if __name__ == "__main__":
     test_basics()

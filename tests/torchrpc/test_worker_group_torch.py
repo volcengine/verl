@@ -17,13 +17,12 @@ import os
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["NCCL_DEBUG"] = "WARN"
 
-import ray
 import torch
 import torch.distributed
-import torch.distributed.rpc as rpc
 
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, rref_to_here, torchrpc_remote
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, torchrpc_remote
+
 
 class TestAllGatherActor(Worker):
     def __init__(self, size) -> None:
@@ -47,9 +46,7 @@ class TestAllGatherActor(Worker):
 
     def all_gather(self):
         world_size = self._world_size
-        output = torch.zeros(
-            size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
-        )
+        output = torch.zeros(size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device)
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
         return output.to("cpu")
 
@@ -65,11 +62,10 @@ class TestAllGatherActorV2(Worker):
 
     def all_gather(self):
         world_size = self._world_size
-        output = torch.zeros(
-            size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device
-        )
+        output = torch.zeros(size=(self.tensor.shape[0] * world_size,), dtype=self.tensor.dtype, device=self.tensor.device)
         torch.distributed.all_gather_into_tensor(output, self.tensor, async_op=False)
         return output.to("cpu")
+
 
 @torchrpc_remote
 def test_all_gather_torch():
@@ -89,6 +85,7 @@ def test_all_gather_torch():
     output = output[0].cpu()
     print(output)
     assert torch.all(output == torch.tensor([0, 0, 1, 1, 2, 2, 3, 3], dtype=torch.int64))
+
 
 @torchrpc_remote
 def test_all_gather_torch_v2():

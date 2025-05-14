@@ -13,16 +13,17 @@
 # limitations under the License.
 
 import os
-import torch
-from copy import deepcopy
 import socket
-from typing import List, Dict, Any
+from copy import deepcopy
+from typing import Any, Dict, List
 from unittest.mock import patch
 
 import torch.distributed.rpc as rpc
-from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
-from verl.single_controller.torchrpc.node import node_manager, NodeResource
+
+from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
+from verl.single_controller.torchrpc.node import NodeResource, node_manager
 from verl.single_controller.torchrpc.utils import call_remote_actor, rref_to_here
+
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
     def func(*args, **kwargs):
@@ -32,6 +33,7 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
             output = rref_to_here(output)
         output = collect_fn(self, output)
         return output
+
     return func
 
 
@@ -61,11 +63,12 @@ def _get_available_master_addr_port():
 
 # name_prefix & detached 未实现
 class TorchRPCResourcePool(ResourcePool):
-    def __init__(self,
-                 process_on_nodes: List[int] = None,
-                 use_gpu: bool = True,
-                 max_colocate_count: int = 5,
-                ) -> None:
+    def __init__(
+        self,
+        process_on_nodes: List[int] = None,
+        use_gpu: bool = True,
+        max_colocate_count: int = 5,
+    ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
         self.resources = None
@@ -73,11 +76,12 @@ class TorchRPCResourcePool(ResourcePool):
     def get_resources(self):
         if self.resources is not None:
             return self.resources
-        
+
         self.resources = []
         for process_count in self._store:
             self.resources.append(node_manager.dispatch(process_count if self.use_gpu else 0))
         return self.resources
+
 
 class TorchRPCClassWithInitArgs(ClassWithInitArgs):
     def __init__(self, cls, *args, **kwargs) -> None:
@@ -87,26 +91,19 @@ class TorchRPCClassWithInitArgs(ClassWithInitArgs):
     def update_env_vars(self, env_vars: Dict):
         self.env_vars.update(env_vars)
 
-    def __call__(self,
-                 resource: NodeResource,
-                 gpus: List[int]
-                ) -> Any:
+    def __call__(self, resource: NodeResource, gpus: List[int]) -> Any:
         return resource.create_actor(self.cls, self.args, self.kwargs, self.env_vars, gpus)
 
+
 class TorchRPCWorkerGroup(WorkerGroup):
-    def __init__(self,
-                 resource_pool: TorchRPCResourcePool = None,
-                 cls_with_init: TorchRPCClassWithInitArgs = None,
-                 bin_pack: bool = True,
-                 worker_rrefs=None,
-                 **kwargs) -> None:
+    def __init__(self, resource_pool: TorchRPCResourcePool = None, cls_with_init: TorchRPCClassWithInitArgs = None, bin_pack: bool = True, worker_rrefs=None, **kwargs) -> None:
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.cls_with_init = cls_with_init
         # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
         self.fused_worker_used = cls_with_init.fused_worker_used
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
         self.sub_cls_name = ""
-        self._attrs_with_rrefs = ['_workers', 'resource_pool']
+        self._attrs_with_rrefs = ["_workers", "resource_pool"]
 
         if worker_rrefs is not None and (not self.fused_worker_used):
             # _is_init_with_detached_workers -> resource_pool is None
@@ -117,9 +114,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
             # 我们有 detached worker吗？
             self._init_with_detached_workers(worker_rrefs=worker_rrefs)
         else:
-            self._init_with_resource_pool(resource_pool=resource_pool,
-                                          cls_with_init=cls_with_init,
-                                          bin_pack=bin_pack)
+            self._init_with_resource_pool(resource_pool=resource_pool, cls_with_init=cls_with_init, bin_pack=bin_pack)
 
         if cls_with_init is not None:
             self._bind_worker_method(self.cls_with_init.cls, func_generator)
@@ -128,10 +123,10 @@ class TorchRPCWorkerGroup(WorkerGroup):
         self.method_names = []
 
     def _is_worker_alive(self, worker):
-        return True # TODO
+        return True  # TODO
 
     def _init_with_detached_workers(self, worker_names):
-        raise NotImplementedError # TODO
+        raise NotImplementedError  # TODO
 
     def _init_with_resource_pool(self, resource_pool, cls_with_init, bin_pack):
         use_gpu = resource_pool.use_gpu
@@ -144,21 +139,15 @@ class TorchRPCWorkerGroup(WorkerGroup):
             local_world_size = resource_pool.store[idx]
             for local_rank in range(local_world_size):
                 rank += 1
-                
+
                 # we pass in environment variable at option so that Worker can use environment variable to set
-                env_vars = {
-                    'WORLD_SIZE': str(self._world_size),
-                    'RANK': str(rank),
-                    'WG_BACKEND': 'torchrpc',
-                    'LOCAL_WORLD_SIZE': str(local_world_size),
-                    'LOCAL_RANK': str(local_rank)
-                }
+                env_vars = {"WORLD_SIZE": str(self._world_size), "RANK": str(rank), "WG_BACKEND": "torchrpc", "LOCAL_WORLD_SIZE": str(local_world_size), "LOCAL_RANK": str(local_rank)}
 
                 if rank == 0:
                     self._master_addr, self._master_port = rpc.remote(resource.node.name, _get_available_master_addr_port).to_here()
 
-                env_vars['MASTER_ADDR'] = self._master_addr
-                env_vars['MASTER_PORT'] = self._master_port
+                env_vars["MASTER_ADDR"] = self._master_addr
+                env_vars["MASTER_PORT"] = self._master_port
 
                 cls_with_init.update_env_vars(env_vars)
                 worker = cls_with_init(resource, [resource.gpus[local_rank]] if use_gpu else [])
@@ -173,7 +162,7 @@ class TorchRPCWorkerGroup(WorkerGroup):
                 new_obj.__dict__[key] = value
             else:
                 new_obj.__dict__[key] = deepcopy(value, memo)
-        
+
         return new_obj
 
     def spawn(self, prefix_set):
@@ -227,15 +216,17 @@ class TorchRPCWorkerGroup(WorkerGroup):
     def execute_all(self, method_name: str, *args, **kwargs):
         return self.execute_all_async(method_name, *args, **kwargs)
 
+
 def torchrpc_remote(torchrpc_func):
     def wrapper():
-        rank = int(os.environ.get('TORCHRPC_RANK'))
-        world_size = int(os.environ.get('TORCHRPC_WORLD_SIZE'))
-        rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=['uv']))
+        rank = int(os.environ.get("TORCHRPC_RANK"))
+        world_size = int(os.environ.get("TORCHRPC_WORLD_SIZE"))
+        rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=["uv"]))
         if rank == 0:
             node_manager.init()
             torchrpc_func()
         rpc.shutdown()
+
     return wrapper
 
 

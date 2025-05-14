@@ -15,10 +15,8 @@
 In this test, we instantiate a data parallel worker with 8 GPUs
 """
 
-import os
 import tensordict
 import torch
-import torch.distributed.rpc as rpc
 from codetiming import Timer
 from torch import distributed as dist
 
@@ -40,6 +38,7 @@ class DummyWorker(Worker):
         if tensordict.__version__ >= "0.5.0":
             data.batch = data.batch.consolidate()
         return data
+
 
 @torchrpc_remote
 def test_data_transfer():
@@ -70,7 +69,6 @@ def test_data_transfer():
         if tensordict.__version__ >= "0.5.0":
             data_list[i].batch = data_list[i].batch.consolidate()
 
-
     with Timer(name="launch", initial_text=True):
         output_ref = wg.do_nothing(data_list)
 
@@ -85,6 +83,7 @@ def test_data_transfer():
                 output_data.batch[key],
                 key,
             )
+
 
 if __name__ == "__main__":
     test_data_transfer()

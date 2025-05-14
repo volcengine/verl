@@ -22,8 +22,8 @@ import torch
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.trainer.ppo.torchrpc_trainer import TorchRPCPPOTrainer
 from verl.single_controller.torchrpc import torchrpc_remote
+from verl.trainer.ppo.torchrpc_trainer import TorchRPCPPOTrainer
 from verl.utils.fs import copy_to_local
 
 
@@ -78,6 +78,7 @@ def make_reward_function(tokenizer, num_examine):
             return reward_tensor
 
     return arithmetic_sequence_reward_function
+
 
 @torchrpc_remote
 @hydra.main(config_path="../../../../verl/trainer/config", config_name="ppo_trainer", version_base=None)

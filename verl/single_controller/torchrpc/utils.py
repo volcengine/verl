@@ -1,9 +1,10 @@
-import os
-import torch.distributed.rpc as rpc
 import multiprocessing as mp
+import os
 import threading
-import cloudpickle
 from typing import List, Union
+
+import cloudpickle
+import torch.distributed.rpc as rpc
 
 
 def _local_actor_runner(pickled_args, input_queue, output_queue):
@@ -32,6 +33,7 @@ def _local_actor_runner(pickled_args, input_queue, output_queue):
         result = method(*args, **kwargs)
         output_queue.put(result)
 
+
 class LocalActor:
     """
     An actor of cls that runs in a seperate subprocess.
@@ -45,9 +47,10 @@ class LocalActor:
     Methods:
         - `run(method_name, args, kwargs)`: run `cls.method_name(*args, **kwargs)` on the worker in the subprocess.
     """
+
     def __init__(self, cls, args, kwargs, env_vars):
         self.running_lock = threading.Lock()
-        ctx = mp.get_context('spawn')
+        ctx = mp.get_context("spawn")
         self.input_queue = ctx.Queue()
         self.output_queue = ctx.Queue()
         # set daemon=True to make sure the subprocess is killed when the main process exits
@@ -55,13 +58,14 @@ class LocalActor:
         self.process.start()
 
     def run(self, method_name, args, kwargs):
-        if method_name == '__del__':
+        if method_name == "__del__":
             self.process.kill()
             return
         # only one job can be submitted at a time
         with self.running_lock:
             self.input_queue.put(cloudpickle.dumps((method_name, args, kwargs)))
             return self.output_queue.get()
+
 
 class LocalActorManager:
     """
@@ -75,6 +79,7 @@ class LocalActorManager:
         - `run(method_name, args, kwargs)`: run `self.method_name(*args, **kwargs)`.
                                             this enables LocalActorManager to be called using the same way of LocalActor.
     """
+
     def __init__(self):
         self.lock = threading.Lock()
 
@@ -86,14 +91,15 @@ class LocalActorManager:
             if original_cuda_visible_devices is not None:
                 os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible_devices
         return actor
-    
+
     def visible_gpus(self) -> List[int]:
         cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
         if cuda_visible_devices is None:
             import torch
+
             return list(range(torch.cuda.device_count()))
         else:
-            return [int(i) for i in cuda_visible_devices.split(',')]
+            return [int(i) for i in cuda_visible_devices.split(",")]
 
 
 def _call_local_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
@@ -108,6 +114,7 @@ def _call_local_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
     else:
         return getattr(actor, method_name)(*args, **kwargs)
 
+
 def call_remote_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
     """
     Run `actor.method_name(*args, **kwargs)` on the remote actor.
@@ -118,6 +125,7 @@ def call_remote_actor(actor_rref: rpc.RRef, method_name, args, kwargs):
         - args: arguments for the method
     """
     return rpc.remote(actor_rref.owner(), _call_local_actor, args=(actor_rref, method_name, args, kwargs))
+
 
 def rref_to_here(x: Union[rpc.RRef, List[rpc.RRef]]):
     """

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.torchrpc.base import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, torchrpc_remote
@@ -52,7 +51,7 @@ def test():
     del ref_wg
 
     del resource_pool
-    
+
     # test single-node-multi-partition
     print("test single-node-multi-partition")
     rm_resource_pool = TorchRPCResourcePool([4], use_gpu=True)
@@ -70,6 +69,7 @@ def test():
     # assert critic_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(8)]
     assert rm_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4)]
     assert ref_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4, 8)]
+
 
 if __name__ == "__main__":
     test()

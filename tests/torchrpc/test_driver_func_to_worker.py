@@ -14,14 +14,12 @@
 
 import os
 
-import ray
 import torch
-import torch.distributed.rpc as rpc
 from tensordict import TensorDict
 
 from verl import DataProto
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.torchrpc import TorchRPCWorkerGroup, TorchRPCClassWithInitArgs, TorchRPCResourcePool, torchrpc_remote
+from verl.single_controller.torchrpc import TorchRPCClassWithInitArgs, TorchRPCResourcePool, TorchRPCWorkerGroup, torchrpc_remote
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["NCCL_DEBUG"] = "WARN"
@@ -42,12 +40,9 @@ def get_aux_metrics(self, test_proto):
     decode_count = []
     for i in range(sequence_ids.size(0)):
         decode_count.append(len(sequence_ids[i].tolist()))
-    ret_proto = DataProto(
-        batch=TensorDict(
-            {"sequence_ids": sequence_ids, "decode_count": torch.tensor(decode_count)}, batch_size=sequence_ids.size(0)
-        )
-    )
+    ret_proto = DataProto(batch=TensorDict({"sequence_ids": sequence_ids, "decode_count": torch.tensor(decode_count)}, batch_size=sequence_ids.size(0)))
     return ret_proto
+
 
 @torchrpc_remote
 def test():
@@ -76,6 +71,7 @@ def test():
     ret_proto2 = get_aux_metrics(hs, test_proto)
 
     torch.testing.assert_close(ret_proto1.batch["decode_count"], ret_proto2.batch["decode_count"])
+
 
 if __name__ == "__main__":
     test()
