@@ -205,30 +205,30 @@ class DataParallelPPOCritic(BasePPOCritic):
                 self.critic_optimizer.zero_grad()
 
                 for data in micro_batches:
-                    # Support all devices
+                    #Support all devices
                     if isinstance(data, DataProto):
                         data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
                     else:
                         data = data.to(torch.cuda.current_device())  # critic device is cpu when using offload
-                    responses = data["responses"]
-                    attention_mask = data["attention_mask"]
-                    values = data["values"]
-                    returns = data["returns"]
+                    input_ids = data['input_ids']
+                    responses = data['responses']
+                    attention_mask = data['attention_mask']
+                    position_ids = data['position_ids']
+                    values = data['values']
+                    returns = data['returns']
                     response_length = responses.size(1)
 
-                    response_mask = attention_mask[:, -response_length - 1 : -1]
+                    response_mask = attention_mask[:, -response_length - 1:-1]
 
                     vpreds = self._forward_micro_batch(data)
 
                     # assert not torch.any(torch.isnan(vpreds)).item()
 
-                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(
-                        vpreds=vpreds,
-                        values=values,
-                        returns=returns,
-                        response_mask=response_mask,
-                        cliprange_value=self.config.cliprange_value,
-                    )
+                    vf_loss, vf_clipfrac = core_algos.compute_value_loss(vpreds=vpreds,
+                                                                         values=values,
+                                                                         returns=returns,
+                                                                         response_mask=response_mask,
+                                                                         cliprange_value=self.config.cliprange_value)
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
                         loss = vf_loss * (len(data) / self.config.ppo_mini_batch_size)
@@ -238,15 +238,15 @@ class DataParallelPPOCritic(BasePPOCritic):
                     loss.backward()
 
                     data = {
-                        "critic/vf_loss": vf_loss.detach().item(),
-                        "critic/vf_clipfrac": vf_clipfrac.detach().item(),
-                        "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
+                        'critic/vf_loss': vf_loss.detach().item(),
+                        'critic/vf_clipfrac': vf_clipfrac.detach().item(),
+                        'critic/vpred_mean': masked_mean(vpreds, response_mask).detach().item(),
                     }
 
                     append_to_dict(metrics, data)
 
                 grad_norm = self._optimizer_step()
-                data = {"critic/grad_norm": grad_norm.detach().item()}
+                data = {'critic/grad_norm': grad_norm.detach().item()}
                 append_to_dict(metrics, data)
         self.critic_optimizer.zero_grad()
         return metrics

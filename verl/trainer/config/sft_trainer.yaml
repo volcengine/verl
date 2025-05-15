@@ -1,7 +1,8 @@
 data:
   train_batch_size: 256
+  val_batch_size: 4 
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
-  micro_batch_size_per_gpu: 4  # this is also val batch size
+  micro_batch_size_per_gpu: 4  
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
   # Single-turn settings
@@ -41,6 +42,7 @@ optim:
   warmup_steps_ratio: 0.1
   clip_grad: 1.0
   lr_scheduler: cosine
+  bwd_hook: False
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:

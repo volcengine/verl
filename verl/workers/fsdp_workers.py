@@ -24,9 +24,10 @@ import psutil
 import torch
 import torch.distributed
 from codetiming import Timer
+from torch.distributed.device_mesh import init_device_mesh
+import verl.utils.torch_functional as verl_F
 from omegaconf import DictConfig, open_dict
 from torch.distributed.device_mesh import init_device_mesh
-
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.single_controller.base import Worker
@@ -265,6 +266,7 @@ class ActorRolloutRefWorker(Worker):
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
+        
         fsdp_strategy = self.config.actor.strategy
         if fsdp_strategy == "fsdp":
             actor_module_fsdp = FSDP(
@@ -306,19 +308,17 @@ class ActorRolloutRefWorker(Worker):
         log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
 
         # TODO: add more optimizer args into config
-        if role == "actor" and optim_config is not None:
-            from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
-
-            actor_optimizer = optim.AdamW(
-                actor_module_fsdp.parameters(),
-                lr=optim_config.lr,
-                betas=optim_config.get("betas", (0.9, 0.999)),
-                weight_decay=optim_config.get("weight_decay", 1e-2),
-            )
+        if role == 'actor' and optim_config is not None:
+            from verl.utils.torch_functional import get_constant_schedule_with_warmup
+            actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
+                                          lr=optim_config.lr,
+                                          betas=optim_config.get('betas', (0.9, 0.999)),
+                                          weight_decay=optim_config.get('weight_decay', 1e-2))
 
             total_steps = optim_config.get("total_training_steps", 0)
             num_warmup_steps = int(optim_config.get("lr_warmup_steps", -1))
             warmup_style = optim_config.get("warmup_style", "constant")
+
             if num_warmup_steps < 0:
                 num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -331,8 +331,9 @@ class ActorRolloutRefWorker(Worker):
                 actor_lr_scheduler = get_cosine_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps)
             else:
                 raise NotImplementedError(f"Warmup style {warmup_style} is not supported")
-
+             
             log_gpu_memory_usage(f"After {role} optimizer init", logger=logger)
+
         else:
             actor_optimizer = None
             actor_lr_scheduler = None
@@ -880,16 +881,15 @@ class CriticWorker(Worker):
 
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
-        critic_optimizer = optim.AdamW(
-            critic_module.parameters(),
-            lr=config.optim.lr,
-            betas=config.optim.get("betas", (0.9, 0.999)),
-            weight_decay=config.optim.get("weight_decay", 1e-2),
-        )
-
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))
         warmup_style = config.optim.get("warmup_style", "constant")
+
+        critic_optimizer = optim.AdamW(critic_module.parameters(),
+                                       lr=config.optim.lr,
+                                       betas=config.optim.get('betas', (0.9, 0.999)),
+                                       weight_decay=config.optim.get('weight_decay', 1e-2))
+
         if num_warmup_steps < 0:
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -897,6 +897,7 @@ class CriticWorker(Worker):
         print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
+
 
         if warmup_style == "constant":
             critic_lr_scheduler = get_constant_schedule_with_warmup(optimizer=critic_optimizer, num_warmup_steps=num_warmup_steps)
