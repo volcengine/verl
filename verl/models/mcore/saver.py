@@ -368,7 +368,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
-            if gpt_model_module.config.qk_layernrom:
+            if gpt_model_module.config.qk_layernorm:
                 _broadcast_tensor(
                     sync_layer.self_attention.q_layernorm.weight,
                     f"{layer_name}.self_attn.q_norm.weight",
