@@ -13,10 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple, TypeVar
 from uuid import uuid4
+
+import ray
+import ray.actor
 
 from verl.utils.reward_score import prime_code
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case, call_sandbox_api
@@ -27,6 +31,30 @@ from .schemas import OpenAIFunctionToolSchema
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+T = TypeVar("T")
+
+
+class PoolMode(Enum):
+    ThreadMode = 1
+    ProcessMode = 2
+    
+
+@ray.remote
+class ExecutionWorker:
+    def __init__(self):
+        pass
+    def ping(self):
+        return True
+    def execute(self, fn: Callable[..., T], *fn_args, **fn_kwargs) -> T:
+        return fn(*fn_args, **fn_kwargs)
+
+
+def init_execution_pool(num_workers: int, worker_actor_cls: ray.actor.ActorClass,mode: PoolMode=PoolMode.ThreadMode):
+    if mode == PoolMode.ThreadMode:
+        return worker_actor_cls.options(max_concurrency=num_workers).remote()
+    else:
+        raise NotImplementedError
+        return ray.util.ActorPool([worker_actor_cls.remote() for _ in range(num_workers)])
 
 class PrimeTool(BaseTool):
     """A demo tool for calculating the reward of prime.
@@ -60,6 +88,8 @@ class PrimeTool(BaseTool):
         """
         super().__init__(config, tool_schema)
         self._instance_dict = {}
+        self.num_workers = config.get("num_workers", 2)
+        self.execution_pool = init_execution_pool(num_workers=self.num_workers, worker_actor_cls=ExecutionWorker)
         self.sandbox_fusion_url = config.get("sandbox_fusion_url","URL_ADDRESSxxxx.apigateway-cn-beijing.volceapi.com/run_code")
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
@@ -81,7 +111,7 @@ class PrimeTool(BaseTool):
         if not isinstance(code, str):
             code = str(code)
 
-        result = await self.execute_code(instance_id,code)
+        result = await self.execution_pool.execute.remote(self.execute_code,instance_id,code)
         # penalty for non improved answer submission
         # tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
@@ -90,7 +120,7 @@ class PrimeTool(BaseTool):
 
         return result, result, {}
 
-    async def execute_code(self,instance_id,code):
+    def execute_code(self,instance_id,code):
         '''
             _process_single_case(
             case_index: int,

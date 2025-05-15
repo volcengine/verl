@@ -558,7 +558,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest,do_sample: bool,is_validate:bool,**kwargs) -> AsyncRolloutRequest:
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest,do_sample: bool,is_validate:bool,**kwargs) -> dict:
         generation_prompt = _req.get_generation_prompt(self.tokenizer)
         if not do_sample:
             kwargs = dict(
