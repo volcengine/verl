@@ -740,9 +740,11 @@ class RayPPOTrainer:
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
             self.async_rollout_mode = True
+            scheduler_kwargs = OmegaConf.to_container(self.config.actor_rollout_ref.rollout.get("chat_scheduler_kwargs", OmegaConf.create()))
             self.async_rollout_manager = AsyncLLMServerManager(
                 config=self.config.actor_rollout_ref,
                 worker_group=self.actor_rollout_wg,
+                scheduler_kwargs=scheduler_kwargs,
             )
 
     def _save_checkpoint(self):
