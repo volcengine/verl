@@ -1,0 +1,17 @@
+tools:
+  - class_name: "verl.tools.prime_tools.PrimeTool"
+    config: {
+      "sandbox_fusion_url": "https:/XXX.com/run_code"
+    }
+    tool_schema:
+      type: "function"
+      function:
+        name: "calc_code_result"
+        description: "A tool for executing code."
+        parameters:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+              description: "The code to execute."
+          required: ["code"]
