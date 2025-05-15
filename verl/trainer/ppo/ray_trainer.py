@@ -841,6 +841,65 @@ class RayPPOTrainer:
         global_balance_stats = log_seqlen_unbalance(seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix)
         metrics.update(global_balance_stats)
 
+    def log_token_lengths(self, data, step, metrics=None):
+        """Log average token lengths for positive and negative responses."""
+        if not self.config.trainer.get('track_token_lengths', False):
+            return
+
+        threshold = self.config.trainer.get('positive_reward_threshold', 0.5)
+        tag_prefix = self.config.trainer.get('token_length_tag_prefix', 'token_length')
+
+        try:
+            if 'acc' in data.batch:
+                rewards = data.batch['acc'].cpu().tolist()
+            elif 'token_level_scores' in data.batch:
+                rewards = data.batch['token_level_scores'].sum(-1).cpu().tolist()
+            else:
+                print("Warning: Cannot track token lengths - no reward information found")
+                return
+        except Exception as e:
+            print(f"Warning: Error computing rewards for token length tracking: {e}")
+            return
+            
+        responses = data.batch['responses']
+        attention_mask = data.batch['attention_mask']
+        prompt_len = data.batch['prompts'].shape[-1]
+        valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
+
+        positive_tokens = []
+        negative_tokens = []
+
+        for i, reward in enumerate(rewards):
+            length = valid_response_lengths[i].item()
+            response_tokens = responses[i][:length].tolist()
+
+            if reward > threshold:
+                positive_tokens.append(response_tokens)
+            else:
+                negative_tokens.append(response_tokens)
+
+        pos_avg_len = 0
+        neg_avg_len = 0
+
+        if positive_tokens:
+            pos_avg_len = sum(len(tokens) for tokens in positive_tokens) / len(positive_tokens)
+
+        if negative_tokens:
+            neg_avg_len = sum(len(tokens) for tokens in negative_tokens) / len(negative_tokens)
+
+        log_dict = {
+            f"{tag_prefix}/positive_avg_token_length": pos_avg_len,
+            f"{tag_prefix}/negative_avg_token_length": neg_avg_len
+        }
+
+        if metrics is not None:
+            metrics.update(log_dict)
+
+        if hasattr(self, 'tracker') and self.tracker:
+            self.tracker.log(log_dict, step=step)
+
+        return log_dict
+
     def fit(self):
         """
         The training loop of PPO.
@@ -986,9 +1045,41 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
+                        batch.batch["acc"] = batch.batch["token_level_scores"].sum(-1)
+
+                        token_metrics = self.log_token_lengths(batch, self.global_steps, metrics)
+
                         print(f"{list(reward_extra_infos_dict.keys())=}")
+
                         if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                            for key in ["length_penalty_applied", "length_penalty_alpha", 
+                                        "original_rewards_mean", "penalized_rewards_mean", "penalty_ratio"]:
+                                if key in reward_extra_infos_dict:
+                                    metrics[f"reward/length_penalty/{key}"] = reward_extra_infos_dict[key]
+                            
+                            for key, value in reward_extra_infos_dict.items():
+                                if isinstance(value, (int, float)):  # Scalar values only
+                                    if key not in ["length_penalty_applied", "length_penalty_alpha", 
+                                                "original_rewards_mean", "penalized_rewards_mean", "penalty_ratio"]:
+                                        if "score" in key:
+                                            metrics[f"reward/scores/{key}"] = value
+                                        elif "format" in key:
+                                            metrics[f"reward/format/{key}"] = value
+                                        elif "proof" in key:
+                                            metrics[f"reward/proof/{key}"] = value
+                                        else:
+                                            metrics[f"reward/other/{key}"] = value
+                            
+                            safe_dict = {}
+                            for k, v in reward_extra_infos_dict.items():
+                                if isinstance(v, list) and len(v) == len(batch):
+                                    try:
+                                        safe_dict[k] = np.array(v)
+                                    except Exception as e:
+                                        print(f"Warning: Could not convert reward extra info '{k}' to numpy array: {e}")
+                            
+                            if safe_dict:
+                                batch.non_tensor_batch.update(safe_dict)
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
