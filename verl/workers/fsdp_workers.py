@@ -457,6 +457,7 @@ class ActorRolloutRefWorker(Worker):
                 model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
             )
             log_gpu_memory_usage("After building sharding manager", logger=None)
 
