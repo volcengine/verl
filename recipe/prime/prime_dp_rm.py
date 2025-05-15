@@ -42,8 +42,15 @@ class DataParallelPRIMERewardModel:
         self.reward_optimizer = reward_optimizer
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
         print(f"Reward model use_remove_padding={self.use_remove_padding}")
+        self.use_fused_kernels = self.config.model.get("use_fused_kernels", False)
+        print(f"Reward model use_fused_kernels={self.use_fused_kernels}")
 
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+
+        if self.use_fused_kernels:
+            from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
+            self.fused_linear_for_ppo = FusedLinearForPPO()
 
     def _forward_micro_batch(self, micro_batch, prompt_length):
         input_ids = micro_batch["input_ids"]
@@ -68,22 +75,58 @@ class DataParallelPRIMERewardModel:
             if self.ulysses_sequence_parallel_size > 1:
                 input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, position_ids_rmpad, sp_size=self.ulysses_sequence_parallel_size)
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, self.ulysses_sequence_parallel_size)
+
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)
-            rm_output_logits = self.reward_module(input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids_rmpad, use_cache=False).logits.squeeze(0)  # copied. I don't really know why there is a squeeze
-            rm_log_labels = verl_F.logprobs_from_logits(logits=rm_output_logits, labels=input_ids_rmpad_rolled)
+            output = self.reward_module(
+                input_ids=input_ids_rmpad,
+                attention_mask=None,
+                position_ids=position_ids_rmpad,
+                use_cache=False,
+            )
+
+            if self.use_fused_kernels:
+                hidden_states = output.last_hidden_state
+                vocab_weights = self.reward_module.lm_head.weight
+
+                rm_log_labels, _ = self.fused_linear_for_ppo(
+                    hidden_states=hidden_states.squeeze(0),
+                    vocab_weights=vocab_weights,
+                    input_ids=input_ids_rmpad_rolled,
+                )
+
+            else:
+                rm_output_logits = output.logits.squeeze(0)
+                rm_log_labels = verl_F.logprobs_from_logits(
+                    logits=rm_output_logits,
+                    labels=input_ids_rmpad_rolled,
+                )
+
             if self.ulysses_sequence_parallel_size > 1:
                 rm_log_labels = gather_outpus_and_unpad(rm_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
             rm_log_labels = pad_input(hidden_states=rm_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)[:, -num_actions - 1 : -1]
 
         else:
-            rm_output_logits = self.reward_module(
+            output = self.reward_module(
                 input_ids=micro_batch["input_ids"],
                 attention_mask=micro_batch["attention_mask"],
                 position_ids=micro_batch["position_ids"],
                 use_cache=False,
-            ).logits
-            rm_log_prob = torch.nn.functional.log_softmax(rm_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
-            rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
+            )
+
+            if self.use_fused_kernels:
+                hidden_states = output.last_hidden_state
+                vocab_weights = self.actor_module.lm_head.weight
+
+                rm_log_labels, _ = self.fused_linear_for_ppo.forward(
+                    hidden_states=hidden_states[:, :-1, :],
+                    vocab_weights=vocab_weights,
+                    input_ids=micro_batch["input_ids"][:, 1:],
+                )
+
+            else:
+                rm_output_logits = output.logits
+                rm_log_prob = torch.nn.functional.log_softmax(rm_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
+                rm_log_labels = rm_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
 
         if self.ref_module is not None:
             # do not have to pad again
