@@ -297,7 +297,7 @@ class Qwen2VLCausalLMOutputWithoutLogits(Qwen2VLCausalLMOutputWithPast):
     last_hidden_state: Optional[torch.FloatTensor] = None
 
 
-def foward_without_logits(
+def forward_without_logits(
     self: Qwen2VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -400,9 +400,9 @@ def foward_without_logits(
     hidden_states = outputs[0]
 
     if labels is not None:
-        raise NotImplementedError("foward_without_logits does not support labels")
+        raise NotImplementedError("forward_without_logits does not support labels")
     if not return_dict:
-        raise NotImplementedError("foward_without_logits has to return_dict")
+        raise NotImplementedError("forward_without_logits has to return_dict")
 
     return Qwen2VLCausalLMOutputWithoutLogits(
         last_hidden_state=hidden_states,

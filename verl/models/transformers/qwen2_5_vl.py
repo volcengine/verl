@@ -138,9 +138,9 @@ def forward_without_logits(
     hidden_states = outputs[0]
 
     if labels is not None:
-        raise NotImplementedError("foward_without_logits does not support labels")
+        raise NotImplementedError("forward_without_logits does not support labels")
     if not return_dict:
-        raise NotImplementedError("foward_without_logits has to return_dict")
+        raise NotImplementedError("forward_without_logits has to return_dict")
 
     return Qwen2_5_VLCausalLMOutputWithoutLogits(
         last_hidden_state=hidden_states,
