@@ -180,7 +180,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
                 dvocab_weights += v
 
         # Cast the output back to the original input dimension
-        if orig_ndim == 3:
+        if orig_ndim == 3 and hidden_states.requires_grad:
             hidden_size = hidden_states.shape[-1]
             dhidden_states = dhidden_states.view(orig_batch_size, -1, hidden_size)
 
