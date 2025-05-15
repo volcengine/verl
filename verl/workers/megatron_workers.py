@@ -557,7 +557,7 @@ class CriticWorker(MegatronWorker):
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, tokenizer=self.config.model.tokenizer_path)
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -748,12 +748,12 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, override_model_config):
+    def _build_rm_model(self, model_path, override_model_config, rm_tokenizer=None):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron_utils import get_model
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, tokenizer=rm_tokenizer)
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -818,6 +818,7 @@ class RewardModelWorker(MegatronWorker):
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
             override_model_config=override_model_config,
+            rm_tokenizer=rm_tokenizer,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
