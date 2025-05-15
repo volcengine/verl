@@ -236,9 +236,9 @@ class RLHFDataset(Dataset):
             elif self.truncation == "right":
                 raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
             elif self.truncation == "middle":
-                left_half = raw_prompt_ids[: self.max_prompt_length // 2]
-                right_half = raw_prompt_ids[-self.max_prompt_length // 2 :]
-                raw_prompt_ids = left_half + right_half
+                left_half = self.max_prompt_length // 2
+                right_half = self.max_prompt_length - left_half
+                raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
             elif self.truncation == "error":
                 raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
 
