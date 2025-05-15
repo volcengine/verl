@@ -690,7 +690,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
-            self._engine.tokenizer_manager.flush_cache()
+            self._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch={"messages": np.array(messages), "reward_scores": np.array(reward_scores)})
 
