@@ -115,7 +115,7 @@ class DataParallelPRIMERewardModel:
 
             if self.use_fused_kernels:
                 hidden_states = output.last_hidden_state
-                vocab_weights = self.actor_module.lm_head.weight
+                vocab_weights = self.reward_module.lm_head.weight
 
                 rm_log_labels, _ = self.fused_linear_for_ppo.forward(
                     hidden_states=hidden_states[:, :-1, :],
@@ -132,19 +132,52 @@ class DataParallelPRIMERewardModel:
             # do not have to pad again
             with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 if self.ulysses_sequence_parallel_size > 1 and self.use_remove_padding:
-                    ref_output_logits = self.ref_module(input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids_rmpad, use_cache=False).logits.squeeze(0)
-                    ref_log_labels = verl_F.logprobs_from_logits(logits=ref_output_logits, labels=input_ids_rmpad_rolled)
+                    ref_output = self.ref_module(
+                        input_ids=input_ids_rmpad,
+                        attention_mask=None,
+                        position_ids=position_ids_rmpad,
+                        use_cache=False,
+                    )
+
+                    if self.use_fused_kernels:
+                        hidden_states = ref_output.last_hidden_state
+                        vocab_weights = self.ref_module.lm_head.weight
+
+                        ref_log_labels, _ = self.fused_linear_for_ppo(
+                            hidden_states=hidden_states.squeeze(0),
+                            vocab_weights=vocab_weights,
+                            input_ids=input_ids_rmpad_rolled,
+                        )
+
+                    else:
+                        logits = ref_output.logits.squeeze(0)
+                        ref_log_labels = verl_F.logprobs_from_logits(logits=ref_output_logits, labels=input_ids_rmpad_rolled)
+
                     ref_log_labels = gather_outpus_and_unpad(ref_log_labels, gather_dim=0, unpad_dim=0, padding_size=pad_size)
                     ref_log_labels = pad_input(hidden_states=ref_log_labels.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)[:, -num_actions - 1 : -1]
                 else:
-                    ref_output_logits = self.ref_module(
+                    ref_output = self.ref_module(
                         input_ids=micro_batch["input_ids"],
                         attention_mask=micro_batch["attention_mask"],
                         position_ids=micro_batch["position_ids"],
                         use_cache=False,
-                    ).logits
-                    ref_log_prob = torch.nn.functional.log_softmax(ref_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
-                    ref_log_labels = ref_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
+                    )
+
+                    if self.use_fused_kernels:
+                        hidden_states = ref_output.last_hidden_state
+                        vocab_weights = self.ref_module.lm_head.weight
+
+                        ref_log_labels, _ = self.fused_linear_for_ppo.forward(
+                            hidden_states=hidden_states[:, :-1, :],
+                            vocab_weights=vocab_weights,
+                            input_ids=micro_batch["input_ids"][:, 1:],
+                        )
+
+                    else:
+                        ref_output_logits = ref_output.logits
+                        ref_log_prob = torch.nn.functional.log_softmax(ref_output_logits[:, :-1, :], dim=-1)  # (batch_size, seq_length, vocab_size)
+                        ref_log_labels = ref_log_prob.gather(dim=-1, index=micro_batch["input_ids"][:, 1:].unsqueeze(-1)).squeeze(-1)  # (batch, seq_length)
+
         else:
             ref_log_labels = micro_batch["old_log_probs"]
 
