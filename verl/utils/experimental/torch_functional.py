@@ -207,6 +207,7 @@ class FusedLinearForPPO(torch.nn.Module):
         input_ids: torch.LongTensor,
         temperature: float = 1.0,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        input_ids = input_ids.to(torch.int64)
         return FusedLinearForPPOFunction.apply(
             hidden_states,
             vocab_weights,
