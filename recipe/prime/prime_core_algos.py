@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import torch
+
 import verl
 import verl.utils.torch_functional as verl_F
 
@@ -23,45 +24,41 @@ def compute_rloo_advantage_return(data: verl.DataProto, response_mask: torch.Ten
         reward_tensor = reward_tensor_original.clone()
         reward_tensor[~mask_tensor] = 0
         for start_pos in range(0, reward_tensor.shape[0], n_samples):
-            cur_rewards_mean = torch.cat([
-                reward_tensor[pos:pos + 1][mask_tensor[pos:pos + 1]].mean(dim=0, keepdim=True)
-                for pos in range(start_pos, start_pos + n_samples)
-            ],
-                                         dim=0)
+            cur_rewards_mean = torch.cat(
+                [reward_tensor[pos : pos + 1][mask_tensor[pos : pos + 1]].mean(dim=0, keepdim=True) for pos in range(start_pos, start_pos + n_samples)],
+                dim=0,
+            )
             cur_rewards_sum = cur_rewards_mean.sum()
             cur_reward_baseline = cur_rewards_sum / (n_samples - 1)
-            reward_tensor[start_pos:start_pos + n_samples][
-                mask_tensor[start_pos:start_pos + n_samples]] = \
-                reward_tensor[start_pos:start_pos + n_samples][
-                    mask_tensor[start_pos:start_pos + n_samples]] * (
-                        n_samples / (n_samples - 1)) - cur_reward_baseline
+            reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]] = reward_tensor[start_pos : start_pos + n_samples][mask_tensor[start_pos : start_pos + n_samples]] * (n_samples / (n_samples - 1)) - cur_reward_baseline
 
         return reward_tensor
 
     reward_tensors = []
 
     with torch.no_grad():
-
-        if 'rm_scores' in data.batch.keys() and config.algorithm.reward_dpo_coef != 0.:
-            reward_tensor = data.batch['rm_scores']
+        if "rm_scores" in data.batch.keys() and config.algorithm.reward_dpo_coef != 0.0:
+            reward_tensor = data.batch["rm_scores"]
             reward_mask = response_mask.bool()
 
             reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_dpo_coef)
 
-        if 'acc' in data.batch.keys() and config.algorithm.reward_gt_coef != 0.:
+        if "acc" in data.batch.keys() and config.algorithm.reward_gt_coef != 0.0:
             reward_tensor = torch.zeros_like(response_mask, dtype=torch.float32)
             reward_mask = torch.zeros_like(response_mask, dtype=torch.bool)
 
-            prompt_ids = data.batch['prompts']
+            prompt_ids = data.batch["prompts"]
             prompt_length = prompt_ids.shape[-1]
-            valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(-1)
+            valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(-1)
 
             reward_mask[
                 torch.arange(0, valid_response_length.shape[0], dtype=torch.long, device=valid_response_length.device),
-                valid_response_length - 1] = True
+                valid_response_length - 1,
+            ] = True
             reward_tensor[
                 torch.arange(0, valid_response_length.shape[0], dtype=torch.long, device=valid_response_length.device),
-                valid_response_length - 1] = data.batch['acc']
+                valid_response_length - 1,
+            ] = data.batch["acc"]
 
             reward_tensors.append(masked_rloo(reward_tensor, reward_mask) * config.algorithm.reward_gt_coef)
 
@@ -81,31 +78,28 @@ def compute_ce_dpo_loss_rm(token_level_scores, acc, response_mask, beta):
     return cur_dpo_loss
 
 
-def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_mask, beta, bon_mode='none'):
+def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_mask, beta, bon_mode="none"):
     # we always assume that the BoN size equals n_samples
     # mode1: use acc as rm
     # mode2: use Q as rm
     cur_Q = (token_level_scores * response_mask).sum(dim=1) * beta
     other_Q = torch.zeros_like(cur_Q)
     for i in range(token_level_scores.shape[0]):
-        if acc[i] > 0:
-            Q_chosen = Q_bc[i][acc_bc[i] < acc[i]]
-        else:
-            Q_chosen = Q_bc[i][acc_bc[i] > acc[i]]
+        Q_chosen = Q_bc[i][acc_bc[i] < acc[i]] if acc[i] > 0 else Q_bc[i][acc_bc[i] > acc[i]]
         if len(Q_chosen) > 0:
             other_Q[i] = Q_chosen.mean() * beta
         else:
             other_Q[i] = 0
     dpo_loss = -torch.log(torch.sigmoid((cur_Q - other_Q) * ((acc > 0).float() * 2 - 1)))
-    if bon_mode == 'none':
+    if bon_mode == "none":
         dpo_loss = dpo_loss.mean()
     else:
         weight = torch.zeros_like(dpo_loss)
         n_samples = acc_bc.shape[1]
-        if bon_mode == 'bon_rm':
+        if bon_mode == "bon_rm":
             for i in range(token_level_scores.shape[0]):
                 weight[i] = n_samples * torch.pow((Q_bc[i] * beta <= cur_Q[i]).float().mean(), n_samples - 1)
-        elif bon_mode == 'bon_acc':
+        elif bon_mode == "bon_acc":
             for i in range(token_level_scores.shape[0]):
                 weight[i] = n_samples * torch.pow((acc_bc[i] <= acc[i]).float().mean(), n_samples - 1)
         else:
@@ -118,22 +112,20 @@ def compute_detach_dpo_loss_rm(token_level_scores, acc, Q_bc, acc_bc, response_m
 def compute_dpo_accuracy(token_level_scores, acc, response_mask, n_samples):
     dpo_acc = []
     for start_id in range(0, token_level_scores.shape[0], n_samples):
-        cur_scores = (token_level_scores[start_id:start_id + n_samples] *
-                      response_mask[start_id:start_id + n_samples]).sum(dim=1)
+        cur_scores = (token_level_scores[start_id : start_id + n_samples] * response_mask[start_id : start_id + n_samples]).sum(dim=1)
 
         def get_upper_triangle(tensor_x):
             diff_matrix = tensor_x.unsqueeze(1) - tensor_x.unsqueeze(0)
             upper_tri_indices = torch.triu(torch.ones_like(diff_matrix).bool(), diagonal=1)
             return diff_matrix[upper_tri_indices]
 
-        cur_acc_diff = get_upper_triangle(acc[start_id:start_id + n_samples])  # in range [-1,1]
+        cur_acc_diff = get_upper_triangle(acc[start_id : start_id + n_samples])  # in range [-1,1]
         cur_score_diff = get_upper_triangle(cur_scores)  # in R
         cur_score_prediction = (cur_score_diff > 0).float()  # in [0,1]
         if cur_acc_diff.abs().sum() == 0:
             cur_acc = torch.zeros_like(cur_score_prediction[0]) + 0.5
         else:
-            cur_acc = (((cur_score_diff > 0) == (cur_acc_diff > 0)).float() *
-                       cur_acc_diff.abs()).sum() / cur_acc_diff.abs().sum()
+            cur_acc = (((cur_score_diff > 0) == (cur_acc_diff > 0)).float() * cur_acc_diff.abs()).sum() / cur_acc_diff.abs().sum()
 
         dpo_acc.append(cur_acc.unsqueeze(0))
 

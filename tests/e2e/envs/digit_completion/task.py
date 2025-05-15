@@ -16,7 +16,7 @@
 import numpy as np
 
 
-class DigitCompletion(object):
+class DigitCompletion:
     """
     The implementation of a simple digit completion task.
     The prompt is a sequence of numbers with fixed difference. The task is to complete the next N numbers.
@@ -54,16 +54,14 @@ class DigitCompletion(object):
         self.np_rng = np.random.default_rng(seed=seed)
 
     def __str__(self):
-        return f'Prompt length: {self.prompt_length}. Response length: {self.response_length}, ' \
-               f'Max number: {self.max_number}. Max diff: {self.max_diff}, ' \
-               f'Max number in response: {self.max_num_in_response}'
+        return f"Prompt length: {self.prompt_length}. Response length: {self.response_length}, Max number: {self.max_number}. Max diff: {self.max_diff}, Max number in response: {self.max_num_in_response}"
 
     def get_state(self):
-        return {'rng': self.np_rng}
+        return {"rng": self.np_rng}
 
     def set_state(self, state):
-        assert 'rng' in state, 'rng must be inside state'
-        self.np_rng = state['rng']
+        assert "rng" in state, "rng must be inside state"
+        self.np_rng = state["rng"]
 
     @property
     def prompt_length(self):
@@ -84,7 +82,7 @@ class DigitCompletion(object):
             for diff in range(0, self.max_diff + 1):
                 second_num = self.add(first_num, diff)
                 for num_to_complete in range(self.max_num_in_response + 1):
-                    prompt = str(first_num) + ',' + str(second_num) + f':{self.max_number},{num_to_complete}'
+                    prompt = str(first_num) + "," + str(second_num) + f":{self.max_number},{num_to_complete}"
                     all_prompts.append(prompt)
         return all_prompts
 
@@ -94,7 +92,7 @@ class DigitCompletion(object):
         diff = self.np_rng.integers(self.max_diff + 1)
         second_num = self.add(first_num, diff)
         num_to_complete = self.np_rng.integers(self.max_num_in_response + 1)
-        prompt = str(first_num) + ',' + str(second_num) + f':{self.max_number},{num_to_complete}'
+        prompt = str(first_num) + "," + str(second_num) + f":{self.max_number},{num_to_complete}"
         return prompt
 
     def sample_batch_str_prompts(self, batch_size):
@@ -116,9 +114,9 @@ def compute_position_id_with_mask(mask):
 
 def generate_ground_truth_response(prompt: str):
     """Generate ground truth response given a prompt."""
-    num, info = prompt.split(':')
-    num1, num2 = num.split(',')
-    max_number, num_to_gen = info.split(',')
+    num, info = prompt.split(":")
+    num1, num2 = num.split(",")
+    max_number, num_to_gen = info.split(",")
     num1 = int(num1)
     num2 = int(num2)
     max_number = int(max_number)
@@ -130,11 +128,11 @@ def generate_ground_truth_response(prompt: str):
         curr = (last_num + diff) % max_number
         results.append(str(curr))
         last_num = curr
-    response = ','.join(results)
+    response = ",".join(results)
     return response
 
 
-def compute_reward(prompt: str, response: str, sequence_reward=1.):
+def compute_reward(prompt: str, response: str, sequence_reward=1.0):
     """We compute dense reward here so that we can directly train RL without SFT"""
     response_length = len(response)
     ground_truth_response = generate_ground_truth_response(prompt)
@@ -157,21 +155,21 @@ def compute_reward(prompt: str, response: str, sequence_reward=1.):
             # no matches
             break
 
-    return reward, {'ground_truth_response': ground_truth_response}
+    return reward, {"ground_truth_response": ground_truth_response}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     task = DigitCompletion(max_number=20, max_diff=3, max_num_in_response=5)
     print(task.sample_str_prompts())
 
-    prompt = '7,8:20,0'
-    response = ''
+    prompt = "7,8:20,0"
+    response = ""
     print(compute_reward(prompt, response))
 
-    prompt = '7,8:20,0'
-    response = 'E000'
+    prompt = "7,8:20,0"
+    response = "E000"
     print(compute_reward(prompt, response))
 
-    prompt = '9,10:20,2'
-    response = '11,12,13'
+    prompt = "9,10:20,2"
+    response = "11,12,13"
     print(compute_reward(prompt, response))
