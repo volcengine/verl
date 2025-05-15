@@ -123,7 +123,7 @@ class MegatronPPOCritic(BasePPOCritic):
         data = data.select(batch_keys=select_keys)
         return data.make_iterator(
             mini_batch_size=self.config.ppo_mini_batch_size,
-            epochs=self.config.ppo_epochs,
+            epochs=self.config.epochs,
             seed=self.config.data_loader_seed,
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
