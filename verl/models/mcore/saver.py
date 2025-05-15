@@ -368,7 +368,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
-            if getattr(sync_layer.self_attention, "q_layernorm", None) is not None:
+            if gpt_model_module.config.qk_layernrom:
                 _broadcast_tensor(
                     sync_layer.self_attention.q_layernorm.weight,
                     f"{layer_name}.self_attn.q_norm.weight",
@@ -388,7 +388,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
-            if getattr(sync_layer.self_attention.linear_qkv, "bias", None) is not None and sync_layer.self_attention.linear_qkv.bias.numel() > 0:
+            if gpt_model_module.config.add_qkv_bias:
                 _broadcast_tp_shard_tensor_qkv(
                     sync_layer.self_attention.linear_qkv.bias,
                     f"{layer_name}.self_attn.q_proj.bias",
