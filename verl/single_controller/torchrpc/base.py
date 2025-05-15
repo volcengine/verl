@@ -210,10 +210,12 @@ def torchrpc_remote(torchrpc_func):
         rank = int(os.environ.get("TORCHRPC_RANK"))
         world_size = int(os.environ.get("TORCHRPC_WORLD_SIZE"))
         rpc.init_rpc(f"torchrpc_worker{rank}", rank=rank, world_size=world_size, rpc_backend_options=rpc.TensorPipeRpcBackendOptions(_transports=["uv"]))
-        if rank == 0:
-            node_manager.init()
-            torchrpc_func()
-        rpc.shutdown()
+        try:
+            if rank == 0:
+                node_manager.init()
+                torchrpc_func()
+        finally:
+            rpc.shutdown()
 
     return wrapper
 
