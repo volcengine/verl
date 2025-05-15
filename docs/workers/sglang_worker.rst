@@ -20,7 +20,7 @@ Please always follow the following command to install SGLang with verl.
 
 .. code-block:: bash
     pip install --upgrade pip
-    # Currently 0.4.6.post1, subject to updates at any time, please refer to the latest version specified in `setup.py`
+    # Currently 0.4.6.post4, subject to updates at any time, please refer to the latest version specified in `setup.py`
     pip install -e ".[sglang]"
 
 Using SGLang as the Inference Backend for PPO Training on a Single Machine
