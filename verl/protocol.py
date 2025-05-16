@@ -288,21 +288,27 @@ class DataProto:
             return data
 
     def print_size(self, prefix=""):
-        size_of_tensordict = 0
+        size_of_batch = 0
         for key, tensor in self.batch.items():
-            size_of_tensordict += tensor.element_size() * tensor.numel()
-        size_of_numpy_array = 0
+            size_of_batch += tensor.element_size() * tensor.numel()
+        size_of_non_tensor_batch = 0
         for key, numpy_array in self.non_tensor_batch.items():
-            size_of_numpy_array += numpy_array.nbytes
+            size_of_non_tensor_batch += numpy_array.nbytes
+            # count tensors from "multi_modal_inputs"
+            if key == "multi_modal_inputs" and len(self.non_tensor_batch[key]) > 0:
+                for k in self.non_tensor_batch[key][0].keys():
+                    for mm_input in self.non_tensor_batch[key]:
+                        assert isinstance(mm_input[k], torch.Tensor)
+                        size_of_non_tensor_batch += mm_input[k].element_size() * mm_input[k].numel()
 
-        size_of_numpy_array /= 1024**3
-        size_of_tensordict /= 1024**3
+        size_of_non_tensor_batch /= 1024**3
+        size_of_batch /= 1024**3
 
-        message = f"Size of tensordict: {size_of_tensordict} GB, size of non_tensor_batch: {size_of_numpy_array} GB"
+        message = f"Size of batch: {size_of_batch} GB, size of non_tensor_batch: {size_of_non_tensor_batch} GB"
 
         if prefix:
             message = f"{prefix}, " + message
-        print(message)
+        print(message, flush=True)
 
     def check_consistency(self):
         """Check the consistency of the DataProto. Mainly for batch and non_tensor_batch
