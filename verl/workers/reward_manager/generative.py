@@ -106,7 +106,6 @@ class GenerativeRewardManager:
         data_sources = data.non_tensor_batch["data_source"]
 
         scores = self.verify(data)
-        print(scores)
 
         for i in range(len(data)):
             data_source = data_sources[i]
