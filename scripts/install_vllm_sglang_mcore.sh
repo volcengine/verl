@@ -8,7 +8,7 @@ export MAX_JOBS=32
 echo "1. install inference frameworks and pytorch they need"
 pip install --no-cache-dir "vllm==0.8.4" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
 if [ $USE_SGLANG -eq 1 ]; then
-    pip install --no-deps "sglang[all]>=0.4.5.post3"
+    pip install --no-deps "sglang[all]>=0.4.6.post3"
 fi
 
 

@@ -41,19 +41,20 @@ from transformers import PreTrainedTokenizer
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
-from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
+from verl.tools.schemas import (OpenAIFunctionCallSchema,
+                                OpenAIFunctionParsedSchema,
+                                OpenAIFunctionToolCall)
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.net_utils import is_ipv6
-from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
+from verl.utils.torch_functional import (get_response_mask,
+                                         pad_sequence_to_length)
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.schemas import (
-    AsyncRolloutRequest,
-    AsyncRolloutRequestStateEnum,
-    FinishReasonTypeEnum,
-    Message,
-)
-from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs
+from verl.workers.rollout.schemas import (AsyncRolloutRequest,
+                                          AsyncRolloutRequestStateEnum,
+                                          FinishReasonTypeEnum, Message)
+from verl.workers.rollout.sglang_rollout.sglang_rollout import (
+    _post_process_outputs, _pre_process_inputs)
 
 if TYPE_CHECKING:
     from torch import nn
@@ -191,6 +192,7 @@ class AsyncSGLangRollout(BaseRollout):
         dist.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
 
+        self._rank = device_mesh_cpu["tp"].get_rank()
         # initialize the inference engine
         monkey_patch_torch_reductions()
         nnodes = -(-tp_size // len(visible_devices))
@@ -199,7 +201,7 @@ class AsyncSGLangRollout(BaseRollout):
             port = get_open_port() if port is None else port
             [ip, port] = broadcast_pyobj(
                 [ip, port],
-                rank=self._tp_rank,
+                rank=self._rank,
                 dist_group=device_mesh_cpu.get_group("tp"),
                 src=device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
@@ -371,7 +373,7 @@ class AsyncSGLangRollout(BaseRollout):
             # Most naive implementation, can extract tensor and send via gloo if too slow
             [output] = broadcast_pyobj(
                 data=[output],
-                rank=self._tp_rank,
+                rank=self._rank,
                 dist_group=self._device_mesh_cpu["tp"].get_group(),
                 src=self._device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
@@ -423,7 +425,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None:
-            self._engine.tokenizer_manager.flush_cache()
+            self._engine.flush_cache()
 
         return DataProto(batch=batch)
 
@@ -591,7 +593,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
-            rank=self._tp_rank,
+            rank=self._rank,
             dist_group=self._device_mesh_cpu["tp"].get_group(),
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
             force_cpu_device=False,
@@ -681,7 +683,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
-            self._engine.tokenizer_manager.flush_cache()
+            self._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch={"messages": np.array(messages), "reward_scores": np.array(reward_scores)})
 
