@@ -391,8 +391,6 @@ class AsyncSGLangRollout(BaseRollout):
                 attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
                 position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
                 batch_size = batch_size * self.sampling_params["n"]
-                if "multi_modal_inputs" in non_tensor_batch.keys():
-                    non_tensor_batch["multi_modal_inputs"] = np.repeat(non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0)
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
