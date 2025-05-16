@@ -546,7 +546,7 @@ class MegatronModelMerger(BaseModelMerger):
             else:
                 param_name = megatron_name.replace(m_name, v_name)
                 return param_name
-        return megatron_name  # Return original name if no mapping found
+        return None  # Return None if no mapping found
 
 
 def main():
