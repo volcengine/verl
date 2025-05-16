@@ -191,18 +191,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 if name.startswith(prefix) and "." not in name[len(prefix):]:
                     yield name, submodule
 
-        torch.cuda.empty_cache()
-        tac = time.time()
-        log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
-        if self.offload_param:
-            load_fsdp_model_to_gpu(self.module)
-
-        peft_config = None
-        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
-            peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
+        def __collect_lora_params()->OrderedDict:
+            """
+            collect lora params or full params if base model is not ready in vllm
+            work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
+            """
             lora_params = OrderedDict()
-            if isinstance(self.module, FSDP):
-                log_print(f"SimonDbg: <1>. PeftModel with PSDF")
+            if fsdp_version(self.module) > 0:
                 if self.layered_summon:
                     if not self.base_sync_done:
                         raise ValueError("To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let rollout.load_format=safetensors")
@@ -217,7 +212,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                             prefix = name.replace("_fsdp_wrapped_module.base_model.model.","")
                             if name.endswith('.model') or name.endswith('.layers'):
                                 continue
-                            if isinstance(submodule, FSDP):
+                            if fsdp_version(submodule) > 0:
                                 with FSDP.summon_full_params(submodule, writeback=False):
                                     sub_lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module, state_dict=submodule.state_dict())
                                     sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
@@ -226,36 +221,53 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                                     submodule._is_root = False
                                 torch.cuda.empty_cache()
                 else:
+                    log_print(f"SimonDbg: <1.2>. PeftModel with PSDF and summon_full_params")
                     with FSDP.summon_full_params(self.module, writeback=False):
                         if self.base_sync_done:
                             lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
                             lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
                                         for name, param in lora_params.items()}
                         else:
-                            model = self.module._fsdp_wrapped_module.base_model.model.to('cpu')
+                            model = self.module._fsdp_wrapped_module.base_model.model
+                            orig_dev = 'cpu' if 'cpu' in next(model.parameters()).device else 'cuda'
+                            model = model.to('cpu')
                             for name, param in model.state_dict().items():
                                 if any(x in name for x in ['_flat_param', 'lora_']):
                                     continue
                                 name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
                                 lora_params[name] = param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
+                            model = model.to(orig_dev)
                     torch.cuda.empty_cache()
             else:
                 log_print(f"SimonDbg: <2>. PeftModel without PSDF")
-                lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
                 if self.base_sync_done:
                     lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
                 else:
-                    model = self.module._fsdp_wrapped_module.base_model.model.to('cpu')
+                    model = self.module._fsdp_wrapped_module.base_model.model
+                    orig_dev = 'cpu' if 'cpu' in next(model.parameters()).device else 'cuda'
+                    model = model.to('cpu')
                     for name, param in model.state_dict().items():
                         if any(x in name for x in ['_flat_param', 'lora_']):
                             continue
                         name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
                         lora_params[name] = param.detach().cpu()
-            params = lora_params
+                    model = model.to(orig_dev)
+            return lora_params
+
+        torch.cuda.empty_cache()
+        tac = time.time()
+        log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
+        if self.offload_param:
+            load_fsdp_model_to_gpu(self.module)
+
+        peft_config = None
+        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
+            log_print(f"SimonDbg: <1>. Process PeftModel")
+            peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
+            params = __collect_lora_params()
         elif isinstance(self.module, FSDP):
             log_print(f"SimonDbg: <3>. Not PeftModel with FSDP")
             with FSDP.summon_full_params(self.module, writeback=False):
-                # params = self.module._fsdp_wrapped_module.base_model.state_dict()
                 params = self.module.state_dict()
         else:
             log_print(f"SimonDbg: <4>. Not PeftModel without FSDP")
@@ -309,13 +321,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.inference_engine.offload_model_weights()
         else:
             self.inference_engine.sleep(level=1)
-        log_gpu_memory_usage('After vllm offload in sharding manager', logger=logger)
-
-        torch.cuda.empty_cache()
-        # if load_format is dummy and lora-fsdp, base model must be synced, actor_model was offloading to avoid OOM, need load back to gpu
-        self.module.to('cuda')
-        # if torch.distributed.get_rank() == 0:
-            # print(f'after actor module to cuda in sharding manager memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB')
 
         self.module.train()
 
@@ -366,8 +371,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                     peft_config=asdict(peft_config),
                     lora_tensors=updated_params,
                 )
-                if self.tp_rank == 0:
-                    self.inference_engine.llm_engine.add_lora(lora_reqest)
+                self.inference_engine.llm_engine.add_lora(lora_reqest)
                 logger.info(f"vLLM load weights, loaded_params: {len(updated_params)}")
                 return
             else:
