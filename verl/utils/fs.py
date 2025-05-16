@@ -181,6 +181,7 @@ def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False
         filelock (str): Base name for file lock. Defaults to ".file.lock"
         verbose (bool): Enable copy operation logging. Defaults to False
         always_recopy (bool): Force fresh copy ignoring cache. Defaults to False
+        use_shm (bool): Enable shared memory copy. Defaults to False
 
     Returns:
         str: Local filesystem path to copied resource
