@@ -60,7 +60,7 @@ class MegatronWorker(Worker):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
-        override_config_kwargs.update(override_model_config)
+        override_config_kwargs.update(override_model_config.model_config)
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)

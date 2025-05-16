@@ -24,6 +24,7 @@ actor_rollout_ref:
     path: ~/models/deepseek-llm-7b-chat
     external_lib: null
     override_config:
+      model_config: {}
       moe_config:
         freeze_moe_router: False
     enable_gradient_checkpointing: False
@@ -170,6 +171,7 @@ critic:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config:
+      model_config: {}
       moe_config:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}

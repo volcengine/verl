@@ -90,6 +90,7 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
+        model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
