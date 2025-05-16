@@ -221,7 +221,6 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
-            
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
@@ -260,7 +259,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 weight_converter=weight_converter,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
-        elif self.config.rollout.name == 'sglang':
+        elif self.config.rollout.name == "sglang":
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
@@ -269,22 +268,23 @@ class ActorRolloutRefWorker(MegatronWorker):
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
+
             local_path = copy_to_local(self.config.model.path)
-            log_gpu_memory_usage(f'Before building {self.config.rollout.name} rollout', logger=None)
-            rollout = SGLangRollout(actor_module=local_path,
-                                    config=self.config.rollout,
-                                    tokenizer=self.tokenizer,
-                                    model_hf_config=self.actor_model_config)
-            log_gpu_memory_usage(f'After building {self.config.rollout.name} rollout', logger=None)
+            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
+            rollout = SGLangRollout(actor_module=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config)
+            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
 
             from verl.models.mcore import get_mcore_weight_converter
+
             weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronSGLangShardingManager(actor_module=self.actor.actor_module,
-                                                             inference_engine=rollout.inference_engine,
-                                                             model_config=self.actor_model_config,
-                                                             layer_name_mapping=layer_name_mapping,
-                                                             weight_converter=weight_converter,)
-            log_gpu_memory_usage('After building sharding manager', logger=logger)
+            sharding_manager = MegatronSGLangShardingManager(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout.inference_engine,
+                model_config=self.actor_model_config,
+                layer_name_mapping=layer_name_mapping,
+                weight_converter=weight_converter,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
 
@@ -410,7 +410,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
