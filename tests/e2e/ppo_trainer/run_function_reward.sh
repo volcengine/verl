@@ -33,6 +33,7 @@ TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
 # whether to save hf_model
 SAVE_HF_MODEL=${SAVE_HF_MODEL:-False}
+FSDP_SIZE=${FSDP_SIZE:--1}
 
 if [ "${SAVE_HF_MODEL}" = "True" ]; then
     CHECKPOINT_CONTENTS="['model','hf_model','optimizer','extra']"
@@ -64,7 +65,7 @@ EOF
     rm -rf "${output_file}"
 fi
 
-exp_name="$(basename "${MODEL_ID,,}")-function-reward-minimal"
+exp_name="${VERL_EXP_NAME:-$(basename "${MODEL_ID,,}")-function-reward-minimal}"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator="${ADV_ESTIMATOR}" \
@@ -81,6 +82,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.actor.fsdp_config.param_offload=${ACTOR_FSDP_PARAM_OFFLOAD} \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${ACTOR_FSDP_OPTIMIZER_OFFLOAD} \
+    actor_rollout_ref.actor.fsdp_config.fsdp_size=${FSDP_SIZE} \
     actor_rollout_ref.actor.checkpoint.contents=${CHECKPOINT_CONTENTS} \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL}" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
