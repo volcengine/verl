@@ -33,7 +33,10 @@ def _compute_score(data_source, solution_str, ground_truth,
 
 
 class GenerativeRewardManager:
-
+    """
+    The reward manager using generative reward model, e.g., GPT-4o.
+    """
+    
     def __init__(
         self,
         tokenizer: PreTrainedTokenizer,
