@@ -56,11 +56,11 @@ RUN aria2c --always-resume=true --max-tries=99999 https://developer.download.nvi
     update-alternatives --set cuda /usr/local/cuda-12.4 && \
     rm -rf /usr/local/cuda-12.6
 
-# Install torch-2.6.0+cu124 + vllm-0.8.3
+# Install torch-2.6.0+cu124 + vllm-0.8.5
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
-RUN pip install --no-cache-dir "vllm==0.8.4" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata \
+RUN pip install --no-cache-dir "vllm==0.8.5" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata \
     "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=15.0.0" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
@@ -81,7 +81,7 @@ RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
 
 # Install Sglang
-RUN pip install --no-deps "sglang[all]>=0.4.5.post3"
+RUN pip install --no-deps "sglang[all]>=0.4.6.post4"
 
 # Install cudnn
 RUN aria2c --max-tries=9999 https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb && \
@@ -102,7 +102,7 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
 RUN export NVTE_FRAMEWORK=pytorch && pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
 
 # Install Megatron-LM
-RUN pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_r0.12.0
+RUN pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
 
 # Fix opencv
 RUN pip install opencv-python
