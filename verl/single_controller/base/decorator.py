@@ -35,7 +35,6 @@ def init_predefined_dispatch_mode():
     Dispatch.register("ALL_TO_ALL")
     Dispatch.register("MEGATRON_COMPUTE")
     Dispatch.register("MEGATRON_PP_AS_DP")
-    Dispatch.register("MEGATRON_ALL_DP")
     Dispatch.register("MEGATRON_PP_ONLY")
     Dispatch.register("MEGATRON_COMPUTE_PROTO")
     Dispatch.register("MEGATRON_PP_AS_DP_PROTO")
