@@ -21,24 +21,24 @@ verl x Ascend
 
 | 软件      | 版本         |
 | --------- | ----------- |
-| Python    | >= 3.10     |
+| Python    | == 3.10     |
 | torch     | == 2.5.1    |
 | torch_npu | == 2.5.1rc1 |
-| CANN      | >= 8.1.RC1  |
+| CANN      | == 8.1.RC1  |
 
-1. 为了保证能够正常使用 vLLM，我们建议上述配套软件的安装遵循 vllm-ascend 的安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.3/installation.html>`_。
-2. 为了能够在 ASCEND NPU 上正常使用 flash_attention_2， 我们建议使用 transformers 4.51.0及以上版本，如果版本低于4.51.4,我们推荐源码安装，请使用以下命令。
+1. 使用 vLLM，需遵循 vllm-ascend 的安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.3/installation.html>。
+2. 为了能够在 ASCEND NPU 上正常使能 flash_attention_2， transformers 版本需要大于等于 4.51.4(not released)，因此暂时使用源码安装。
+
+.. code-block:: bash
+    git clone --depth 1 https://github.com/huggingface/transformers.git
+    cd transformers
+    pip install -e .
+
 3. 目前支持 LLM 模型的 GRPO 训练，VLM模型的 GRPO 训练因为 vllm-ascend 的问题将会在后续支持，涉及到的issue为：
 
 https://github.com/vllm-project/vllm-ascend/issues/809
 https://github.com/vllm-project/vllm-ascend/issues/825
 
-.. code-block:: bash
-    git clone --depth 1 https://github.com/huggingface/transformers.git
-    cd transformers
-    git fetch --depth 1 origin aa17cfb4d532239336d2f89e06f01d48387292a3
-    git checkout aa17cfb4d532239336d2f89e06f01d48387292a3
-    pip install -e .
 
 ------
 源码安装
