@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import ray
 from omegaconf import DictConfig
@@ -24,7 +24,7 @@ from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
 
-def init_async_rollout_manager(config: DictConfig, scheduler_kwargs: Dict[str, Any] = None) -> Tuple[Dict[str, RayWorkerGroup], AsyncLLMServerManager]:
+def init_async_rollout_manager(config: DictConfig, scheduler_kwargs: Dict[str, Any] = None) -> AsyncLLMServerManager:
     # make openai client happy
     os.environ["no_proxy"] = ""
     os.environ["http_proxy"] = ""
@@ -51,13 +51,11 @@ def init_async_rollout_manager(config: DictConfig, scheduler_kwargs: Dict[str, A
     resource_pool_to_cls[resource_pool]["actor_rollout"] = actor_rollout_cls
 
     all_wg = {}
-    wg_dicts = []
     for resource_pool, class_dict in resource_pool_to_cls.items():
         worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
         wg_dict = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
         spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
         all_wg.update(spawn_wg)
-        wg_dicts.append(wg_dict)
     actor_rollout_wg = all_wg["actor_rollout"]
     actor_rollout_wg.init_model()
 
@@ -68,4 +66,4 @@ def init_async_rollout_manager(config: DictConfig, scheduler_kwargs: Dict[str, A
         scheduler_kwargs=scheduler_kwargs,
     )
 
-    return all_wg, async_rollout_manager
+    return async_rollout_manager

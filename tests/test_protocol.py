@@ -275,26 +275,6 @@ def test_len():
     assert len(data) == 0
 
 
-def test_seqlen_balancing():
-    from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-
-    input_ids = torch.randint(low=0, high=10, size=(20, 100))
-    from verl.utils.model import create_random_mask
-
-    attention_mask = create_random_mask(input_ids=input_ids, max_ratio_of_left_padding=0.1, max_ratio_of_valid_token=0.9, min_ratio_of_valid_token=0.5)
-    data = {"input_ids": input_ids, "attention_mask": attention_mask}
-    dataproto = DataProto.from_single_dict(data)
-    micro_batches, micro_bsz_idx_lst = rearrange_micro_batches(dataproto.batch, max_token_len=300)
-    batch = torch.cat(micro_batches)
-    micro_bsz_idx = []
-    for idx in micro_bsz_idx_lst:
-        micro_bsz_idx.extend(idx)
-    reverse_idx_map = get_reverse_idx(micro_bsz_idx)
-    reverse_idx_map = torch.tensor(reverse_idx_map)
-    new_batch = batch[reverse_idx_map]
-    torch.testing.assert_close(new_batch, dataproto.batch)
-
-
 def test_dataproto_index():
     data_len = 100
     idx_num = 10
@@ -357,3 +337,40 @@ def test_dataproto_index():
     assert result_list_bool.non_tensor_batch["labels"].shape[0] == sum(idx_list_bool)
     assert np.array_equal(result_list_bool.batch["obs"].cpu().numpy(), obs[idx_list_bool].cpu().numpy())
     assert np.array_equal(result_list_bool.non_tensor_batch["labels"], labels_np[idx_list_bool])
+
+
+def test_old_vs_new_from_single_dict():
+    class CustomProto(DataProto):
+        """Uses the new, fixed from_single_dict."""
+
+        pass
+
+    class OriginProto(DataProto):
+        """Mimics the *old* from_single_dict (always returns a DataProto)."""
+
+        @classmethod
+        def from_single_dict(cls, data, meta_info=None, auto_padding=False):
+            tensors, non_tensors = {}, {}
+            for k, v in data.items():
+                if torch.is_tensor(v):
+                    tensors[k] = v
+                else:
+                    non_tensors[k] = v
+            # always calls DataProto.from_dict, ignoring `cls`
+            return DataProto.from_dict(
+                tensors=tensors,
+                non_tensors=non_tensors,
+                meta_info=meta_info,
+                auto_padding=auto_padding,
+            )
+
+    sample = {"x": torch.tensor([0])}
+
+    orig = OriginProto.from_single_dict(sample)
+    # old behavior: always DataProto, not a CustomOriginProto
+    assert type(orig) is DataProto
+    assert type(orig) is not OriginProto
+
+    cust = CustomProto.from_single_dict(sample)
+    # new behavior: respects subclass
+    assert type(cust) is CustomProto

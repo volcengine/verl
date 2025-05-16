@@ -196,6 +196,8 @@ class ChatCompletionScheduler:
         client = AsyncOpenAI(
             base_url=f"http://{address}/v1",
             api_key="token-abc123",
+            timeout=None,
+            max_retries=0
         )
         return await client.chat.completions.create(**chat_complete_request)
 
