@@ -109,7 +109,7 @@ class SandboxFusionTool(BaseTool):
         _tool_schema = OpenAIFunctionToolSchema.model_validate({
             "type": "function",
             "function": {
-                "name": "calc_code_result",
+                "name": "code_interpreter",
                 "description": "A tool for execute code",
                 "parameters": {
                     "type": "object",
@@ -173,7 +173,6 @@ class SandboxFusionTool(BaseTool):
             language: str
         )
         '''
-        # TODO make this into asyncio format: 
         result_status, metadata  = _process_single_case(0, None, None,self.sandbox_fusion_url, code, 30, "python")
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":

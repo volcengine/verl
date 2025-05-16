@@ -32,13 +32,13 @@ from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLang
 
 sandbox_url = ""
 
-def get_prime_data():
+def get_sandbox_fusion_data():
         prompt = '''
             Solve the following problem step by step. You now have the ability to selectively write executable Python code to enhance your reasoning process. \n\n**user question:**\nThere are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n- 94 students take a Science class \n- 57 students take an English class \n- 73 students take a Math class and a Science class \n- 24 students take a Math class and an English class \n- 27 students take a Science class and an English class \n- 22 students take a Math class and a Science class and an English class\n \nHow many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember to place the final answer in the last part using the format: \n<answer>\n\boxed{'The final answer goes here.'}\n</answer>
         '''
 
         expect_turn_0 = '''
-        Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion principle for three sets says that the total number of students taking at least one of the classes is equal to the sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in all three classes. Then, subtract that total from the overall number of students to get those not taking any of the three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure accuracy.\n\n<tool_call>[{"arguments": {"code": "M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)", "language": "python"}, "name": "calc_code_result"}]</tool_call>\n
+        Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion principle for three sets says that the total number of students taking at least one of the classes is equal to the sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in all three classes. Then, subtract that total from the overall number of students to get those not taking any of the three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure accuracy.\n\n<tool_call>[{"arguments": {"code": "M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)", "language": "python"}, "name": "code_interpreter"}]</tool_call>\n
         '''
 
         tool_return_0 = '''
@@ -46,7 +46,7 @@ def get_prime_data():
         '''
 
         expect_turn_1 = '''
-        \nThe code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English: 24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science: 94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n\n<tool_call>[{"arguments": {"code": "only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)", "language": "python"}, "name": "calc_code_result"}]</tool_call>\n
+        \nThe code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English: 24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science: 94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n\n<tool_call>[{"arguments": {"code": "only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S - only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)", "language": "python"}, "name": "code_interpreter"}]</tool_call>\n
         '''
 
         tool_return_1 = '''
@@ -215,23 +215,23 @@ class TestRolloutWithTools:
         ])
 
     @pytest.fixture
-    def prime_data(self):
-        return get_prime_data()
+    def sandbox_fusion_data(self):
+        return get_sandbox_fusion_data()
 
     @pytest.fixture
-    def prime_rollout_config(self):
+    def sandbox_fusion_rollout_config(self):
         max_prompt_length = 1024
         max_prompt_length = 1024
         max_response_length = 1024
         dtype = "bfloat16"
         tensor_parallel_size = 1
-        tool_path = "./resource/tool_configs/prime_tool_config"
+        tool_path = "./resource/tool_configs/sandbox_fusion_tool_config"
         rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size,tool_path)
         return rollout_config
 
     @pytest.fixture
-    def prime_data_proto(self,prime_data,qwen_tokenizer):
-        preencode_prompts,_,_ = prime_data
+    def sandbox_data_proto(self,sandbox_fusion_data,qwen_tokenizer):
+        preencode_prompts,_,_ = sandbox_fusion_data
         prompts = [qwen_tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True) for message in preencode_prompts]
         input_ids, attention_mask, position_ids = prepare_inputs(qwen_tokenizer, prompts, 1000)
         prompt_dict = TensorDict(
@@ -244,7 +244,7 @@ class TestRolloutWithTools:
         )
         messages = np.asarray(preencode_prompts)
         tools_kwargs = np.array([{
-                    "calc_code_result": {
+                    "code_interpreter": {
                         "create_kwargs": {"ground_truth": "test-solution-str"},
                     },
                 }],dtype=object)
@@ -256,28 +256,28 @@ class TestRolloutWithTools:
     @patch.object(AsyncSGLangRollout, '_init_distributed_env', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_inference_engine', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_sampling_params', return_value=None)
-    def test_tools_registration(self, mock_env,mock_engine,mock_sampling,prime_rollout_config,qwen_tokenizer,qwen_model_config):
-        rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+    def test_tools_registration(self, mock_env,mock_engine,mock_sampling,sandbox_fusion_rollout_config,qwen_tokenizer,qwen_model_config):
+        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         assert len(rollout._tool_schemas) == 1
-        assert "calc_code_result" in rollout._tool_map.keys()
+        assert "code_interpreter" in rollout._tool_map.keys()
         from verl.tools.sandbox_fusion_tools import SandboxFusionTool
-        assert isinstance(rollout._tool_map["calc_code_result"],SandboxFusionTool)
+        assert isinstance(rollout._tool_map["code_interpreter"],SandboxFusionTool)
         assert rollout._tool_call_parser_type == "qwen25"
     
 
     @patch.object(AsyncSGLangRollout, '_init_distributed_env', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_inference_engine', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_sampling_params', return_value=None)
-    def test_rollout_req_creation(self,mock_env,mock_engine,mock_sampling,prime_rollout_config,qwen_tokenizer,qwen_model_config,prime_data_proto):
-        rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        req_list = rollout._preprocess_prompt_to_async_rollout_requests(prime_data_proto,n=1)
+    def test_rollout_req_creation(self,mock_env,mock_engine,mock_sampling,sandbox_fusion_rollout_config,qwen_tokenizer,qwen_model_config,sandbox_data_proto):
+        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        req_list = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto,n=1)
         assert len(req_list) == 1
         assert req_list[0].state == AsyncRolloutRequestStateEnum.PENDING
         assert req_list[0].tools == [
             OpenAIFunctionToolSchema(
                 type="function",
                 function=OpenAIFunctionSchema(
-                    name="calc_code_result",
+                    name="code_interpreter",
                     description="A tool for executing code.",
                     parameters=OpenAIFunctionParametersSchema(
                         type="object",
@@ -299,14 +299,14 @@ class TestRolloutWithTools:
     @patch.object(AsyncSGLangRollout, '_init_distributed_env', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_inference_engine', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_sampling_params', return_value=None)
-    def test_over_size_case(self,mock_env,mock_engine,mock_sampling,prime_rollout_config,qwen_tokenizer,qwen_model_config,prime_data_proto,prime_data):
-        prime_rollout_config.multi_turn.max_turns = 1
-        rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        req = rollout._preprocess_prompt_to_async_rollout_requests(prime_data_proto,n=1)[0]
+    def test_over_size_case(self,mock_env,mock_engine,mock_sampling,sandbox_fusion_rollout_config,qwen_tokenizer,qwen_model_config,sandbox_data_proto,sandbox_fusion_data):
+        sandbox_fusion_rollout_config.multi_turn.max_turns = 1
+        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto,n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
-        _,expect_turn_array,tool_return_array = prime_data
+        _,expect_turn_array,tool_return_array = sandbox_fusion_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         rollout._handle_engine_call=MagicMock()
         future = asyncio.Future()
@@ -323,7 +323,7 @@ class TestRolloutWithTools:
         assert len(output_req_list) == 1
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        assert output_req.reward_scores == {'calc_code_result': []}
+        assert output_req.reward_scores == {'code_interpreter': []}
         # we should only have two message, one for prompt, second for response.
         assert len(output_req.messages) == 2
         assert output_req.messages[1] == Message(
@@ -337,15 +337,15 @@ class TestRolloutWithTools:
     @patch.object(AsyncSGLangRollout, '_init_distributed_env', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_inference_engine', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_sampling_params', return_value=None)
-    def test_tool_call_basic_case(self,mock_env,mock_engine,mock_sampling,prime_rollout_config,qwen_tokenizer,qwen_model_config,prime_data_proto,prime_data):
-        prime_rollout_config.multi_turn.max_turns = 10
-        rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["calc_code_result"].sandbox_fusion_url = sandbox_url
-        req = rollout._preprocess_prompt_to_async_rollout_requests(prime_data_proto,n=1)[0]
+    def test_tool_call_basic_case(self,mock_env,mock_engine,mock_sampling,sandbox_fusion_rollout_config,qwen_tokenizer,qwen_model_config,sandbox_data_proto,sandbox_fusion_data):
+        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
+        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
+        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto,n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
-        _,expect_turn_array,tool_return_array = prime_data
+        _,expect_turn_array,tool_return_array = sandbox_fusion_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         rollout._handle_engine_call=MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
@@ -368,7 +368,7 @@ class TestRolloutWithTools:
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
         # here we verify whether the code sandbox is executed correctly
-        assert output_req.reward_scores == {'calc_code_result': ['3', '149']} 
+        assert output_req.reward_scores == {'code_interpreter': ['3', '149']} 
         assert rollout._handle_engine_call.call_count == 3
         assert len(output_req.messages) == 6 # user + 3*assistant + 2*tool_call
         code_counter =0
@@ -383,17 +383,17 @@ class TestRolloutWithTools:
     @patch.object(AsyncSGLangRollout, '_init_distributed_env', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_inference_engine', return_value=None)
     @patch.object(AsyncSGLangRollout, '_init_sampling_params', return_value=None)
-    def test_tool_call_batch_case(self,mock_env,mock_engine,mock_sampling,prime_rollout_config,qwen_tokenizer,qwen_model_config,prime_data_proto,prime_data):
-        prime_rollout_config.multi_turn.max_turns = 10
-        rollout = AsyncSGLangRollout(actor_module="", config=prime_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["calc_code_result"].sandbox_fusion_url = sandbox_url
-        req = rollout._preprocess_prompt_to_async_rollout_requests(prime_data_proto,n=1)[0]
+    def test_tool_call_batch_case(self,mock_env,mock_engine,mock_sampling,sandbox_fusion_rollout_config,qwen_tokenizer,qwen_model_config,sandbox_data_proto,sandbox_fusion_data):
+        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
+        rollout = AsyncSGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
+        self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
+        req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto,n=1)[0]
         req_nums = 100
         req_list = []
         req_turns_counter = {}
         # this map should a Map[id:List[Futures]]
         req_turns_map ={}
-        _,expect_turn_array,tool_return_array = prime_data
+        _,expect_turn_array,tool_return_array = sandbox_fusion_data
         for i in range(req_nums):
             _temp_req = deepcopy(req)
             _temp_req.batch_data_id = i
@@ -429,7 +429,7 @@ class TestRolloutWithTools:
             for output_req in output_req_list:
                 assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
                 # here we verify whether the code sandbox is executed correctly
-                assert output_req.reward_scores == {'calc_code_result': ['3', '149']} 
+                assert output_req.reward_scores == {'code_interpreter': ['3', '149']} 
                 assert len(output_req.messages) == 6 # user + 3*assistant + 2*tool_call
                 code_counter =0
                 for msg in output_req.messages:

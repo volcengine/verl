@@ -6,7 +6,7 @@ tools:
     tool_schema:
       type: "function"
       function:
-        name: "calc_code_result"
+        name: "code_interpreter"
         description: "A tool for executing code."
         parameters:
           type: "object"
