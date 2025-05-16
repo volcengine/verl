@@ -93,6 +93,7 @@ class DataParallelPRIMERewardModel:
                     vocab_weights=vocab_weights,
                     input_ids=input_ids_rmpad_rolled,
                 )
+                rm_log_labels = rm_log_labels.to(torch.float32)
 
             else:
                 rm_output_logits = output.logits.squeeze(0)
@@ -122,6 +123,7 @@ class DataParallelPRIMERewardModel:
                     vocab_weights=vocab_weights,
                     input_ids=micro_batch["input_ids"][:, 1:],
                 )
+                rm_log_labels = rm_log_labels.to(torch.float32)
 
             else:
                 rm_output_logits = output.logits
@@ -148,6 +150,7 @@ class DataParallelPRIMERewardModel:
                             vocab_weights=vocab_weights,
                             input_ids=input_ids_rmpad_rolled,
                         )
+                        ref_log_labels = ref_log_labels.to(torch.float32)
 
                     else:
                         logits = ref_output.logits.squeeze(0)
@@ -172,6 +175,7 @@ class DataParallelPRIMERewardModel:
                             vocab_weights=vocab_weights,
                             input_ids=micro_batch["input_ids"][:, 1:],
                         )
+                        ref_log_labels = ref_log_labels.to(torch.float32)
 
                     else:
                         ref_output_logits = ref_output.logits
