@@ -86,15 +86,21 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: Advance Usage and Extension
+   :caption: Adding new models
 
-   advance/placement
-   advance/dpo_extension
    advance/fsdp_extension
    advance/megatron_extension
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Advanced Features
+
    advance/checkpoint
    advance/rope
    sglang_multiturn/multiturn.rst
+   advance/placement
+   advance/dpo_extension
+   examples/sandbox_fusion_example
 
 .. toctree::
    :maxdepth: 1
