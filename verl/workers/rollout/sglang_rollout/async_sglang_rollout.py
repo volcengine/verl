@@ -493,7 +493,7 @@ class AsyncSGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
                 output = await self._handle_engine_call(_req,do_sample,is_validate,**kwargs)
                 content = output["text"]
-                print(f"turns: {current_turns}, output: {output}")
+                # print(f"turns: {current_turns}, output: {output}")
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:

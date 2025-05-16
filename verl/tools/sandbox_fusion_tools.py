@@ -16,9 +16,11 @@
 from enum import Enum
 import logging
 import os
+import threading
 from typing import Any, Callable, Optional, Tuple, TypeVar
 from uuid import uuid4
-
+from contextlib import ExitStack
+import time
 import ray
 import ray.actor
 
@@ -39,14 +41,50 @@ class PoolMode(Enum):
     ProcessMode = 2
     
 
+
+@ray.remote(concurrency_groups={"acquire": 1,"release": 10})
+class TokenBucketWorker:
+    def __init__(self, rate_limit: int):
+        self.rate_limit = rate_limit
+        self.current_count = 0
+        self._lock = threading.Lock()
+
+    @ray.method(concurrency_group="acquire")
+    def acquire(self):
+        while(1):
+            with self._lock:
+                if self.current_count < self.rate_limit:
+                    self.current_count += 1
+                    return True
+            #TODO: backoff
+            time.sleep(1)
+
+    @ray.method(concurrency_group="release")
+    def release(self):
+        with self._lock:
+            self.current_count -=1
+
+    def get_current_count(self):
+            return self.current_count
+
+
 @ray.remote
 class ExecutionWorker:
-    def __init__(self):
-        pass
+    def __init__(self,enable_global_rate_limit=True,rate_limit=10):
+        self.rate_limit_worker = self._init_rate_limit(rate_limit) if enable_global_rate_limit else None
+
+    def _init_rate_limit(self,rate_limit):
+        # TODO validation for rate_limit
+        # A Singleton Rate Limitor
+        return TokenBucketWorker.options(name="rate-limiter", get_if_exists=True).remote(rate_limit)
+
     def ping(self):
         return True
     def execute(self, fn: Callable[..., T], *fn_args, **fn_kwargs) -> T:
-        return fn(*fn_args, **fn_kwargs)
+        with ExitStack() as stack:
+            stack.callback(self.rate_limit_worker.release.remote)
+            ray.get(self.rate_limit_worker.acquire.remote())
+            return fn(*fn_args, **fn_kwargs)
 
 
 def init_execution_pool(num_workers: int, worker_actor_cls: ray.actor.ActorClass,mode: PoolMode=PoolMode.ThreadMode):
@@ -56,8 +94,8 @@ def init_execution_pool(num_workers: int, worker_actor_cls: ray.actor.ActorClass
         raise NotImplementedError
         return ray.util.ActorPool([worker_actor_cls.remote() for _ in range(num_workers)])
 
-class PrimeTool(BaseTool):
-    """A demo tool for calculating the reward of prime.
+class SandboxFusionTool(BaseTool):
+    """A tool for executing the code using sanbox fusion image.
 
     - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
     - `create`: create a tool instance for a trajectory.
@@ -72,7 +110,7 @@ class PrimeTool(BaseTool):
             "type": "function",
             "function": {
                 "name": "calc_code_result",
-                "description": "A tool for calculating the reward of prime",
+                "description": "A tool for execute code",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -88,9 +126,12 @@ class PrimeTool(BaseTool):
         """
         super().__init__(config, tool_schema)
         self._instance_dict = {}
-        self.num_workers = config.get("num_workers", 2)
+        self.num_workers = config.get("num_workers", 10)
+        self.rate_limit = config.get("rate_limit", 10)
         self.execution_pool = init_execution_pool(num_workers=self.num_workers, worker_actor_cls=ExecutionWorker)
-        self.sandbox_fusion_url = config.get("sandbox_fusion_url","URL_ADDRESSxxxx.apigateway-cn-beijing.volceapi.com/run_code")
+        self.sandbox_fusion_url = config.get("sandbox_fusion_url","")
+        if self.sandbox_fusion_url == "":
+            raise ValueError("sandbox_fusion_url is not set")
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
@@ -146,7 +187,7 @@ class PrimeTool(BaseTool):
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         # this code only called as a cumulation reward, so we return the sandbox result
         # only for unit test to do any kind of verification
-        print(f"self._instance_dict: {self._instance_dict}, prime_tools calc_reward are called")
+        # print(f"self._instance_dict: {self._instance_dict}, prime_tools calc_reward are called")
         return self._instance_dict[instance_id]["reward"]
 
     async def release(self, instance_id: str, **kwargs) -> None:
