@@ -23,7 +23,9 @@ actor_rollout_ref:
   model:
     path: ~/models/deepseek-llm-7b-chat
     external_lib: null
-    override_config: {}
+    override_config:
+      moe_config:
+        freeze_moe_router: False
     enable_gradient_checkpointing: False
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
@@ -167,7 +169,9 @@ critic:
   model:
     path: ~/models/deepseek-llm-7b-chat
     tokenizer_path: ${actor_rollout_ref.model.path}
-    override_config: {}
+    override_config:
+      moe_config:
+        freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: False
     gradient_checkpointing_kwargs:
