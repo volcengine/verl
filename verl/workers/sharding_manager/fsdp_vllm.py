@@ -63,6 +63,10 @@ class VLLMHijack():
         def hijack__load_adapter(self, lora_request: TensorLoRARequest) -> LoRAModel:
             """
             based on vllm.lora.worker_manager.WorkerLoRAManager._load_adapter, support load adapter with lora tensors
+
+            Reason:
+            VLLM does not support adding LoRA from tensors directly. It only supports adding LoRA via file paths.
+            To synchronize the LoRA tensors of the actor model, we need to find a workaround to enable VLLM to load memory-based LoRA tensors.
             """
             try:
                 supported_lora_modules = (
@@ -117,7 +121,6 @@ class VLLMHijack():
             return lora
 
         def do_hijack(target_cls, target_method_name, hooking_method):
-            log_print(f"SimonDbg: in monkey patch do_hijack {target_cls=} {target_method_name=}")
             setattr(target_cls, target_method_name, hooking_method)
 
         do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
