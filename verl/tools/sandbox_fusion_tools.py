@@ -156,7 +156,7 @@ class SandboxFusionTool(BaseTool):
         # penalty for non improved answer submission
         # tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
-        print(f"self._instance_dict: {self._instance_dict}, prime_tools execute are called")
+        # print(f"self._instance_dict: {self._instance_dict}, prime_tools execute are called")
         self._instance_dict[instance_id]["reward"].append(result.strip())
 
         return result, result, {}
@@ -178,7 +178,7 @@ class SandboxFusionTool(BaseTool):
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
-            print("actual_output from sandbox fusion: ",actual_output)
+            print(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:
             return "no stdout here"
