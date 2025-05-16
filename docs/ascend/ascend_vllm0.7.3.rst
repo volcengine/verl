@@ -1,8 +1,8 @@
 ========
-veRL x Ascend
+verl x Ascend
 ========
 
-我们在 veRL 上增加对华为昇腾设备的支持，在华为昇腾设备上使用 veRL 与在英伟达 GPU 上使用几乎相同。
+我们在 verl 上增加对华为昇腾设备的支持。
 
 =======
 硬件支持
@@ -54,13 +54,11 @@ https://github.com/vllm-project/vllm-ascend/issues/825
 vLLM
 ------
 
-为了保证能够在 veRL 上正常使用 vLLM，需要安装 vLLM Ascend 插件（`vllm-ascend`）。关于在华为昇腾上支持的 vLLM 版本以及和 vLLM Ascend 的配套关系请参考`安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.1rc1/installation.html>`_。
+为了保证能够在 verl 上正常使用 vLLM，需要安装 vLLM Ascend 插件（`vllm-ascend`）。关于在华为昇腾上支持的 vLLM 版本以及和 vLLM Ascend 的配套关系请参考`安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.1rc1/installation.html>`_。
 
 ------
 Ray
 ------
-
-训练脚本提交方式与英伟达 GPU 相同。
 
 ------
 其他第三方库说明
