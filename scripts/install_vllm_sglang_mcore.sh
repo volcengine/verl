@@ -6,9 +6,9 @@ USE_SGLANG=${USE_SGLANG:-1}
 export MAX_JOBS=32
 
 echo "1. install inference frameworks and pytorch they need"
-pip install --no-cache-dir "vllm==0.8.4" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
+pip install --no-cache-dir "vllm==0.8.5" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
 if [ $USE_SGLANG -eq 1 ]; then
-    pip install --no-deps "sglang[all]>=0.4.5.post3"
+    pip install --no-deps "sglang[all]>=0.4.6.post4"
 fi
 
 
@@ -37,7 +37,7 @@ if [ $USE_MEGATRON -eq 1 ]; then
     echo "4. install TransformerEngine and Megatron"
     echo "Notice that TransformerEngine installation can take very long time, please be patient"
     NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
-    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_r0.12.0
+    pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
 
 
 echo "5. May need to fix opencv"
