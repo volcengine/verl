@@ -39,7 +39,6 @@ def init_predefined_dispatch_mode():
     Dispatch.register("MEGATRON_PP_ONLY")
     Dispatch.register("MEGATRON_COMPUTE_PROTO")
     Dispatch.register("MEGATRON_PP_AS_DP_PROTO")
-    Dispatch.register("MEGATRON_ALL_DP_PROTO")
     Dispatch.register("DP_COMPUTE")
     Dispatch.register("DP_COMPUTE_PROTO")
     Dispatch.register("DP_COMPUTE_PROTO_WITH_FUNC")
@@ -295,20 +294,6 @@ def collect_megatron_pp_as_dp(worker_group, output):
     return output_in_dp
 
 
-def dispatch_megatron_all_dp(worker_group, *args, **kwargs):
-    """
-    all ranks in megatron seen as dp.
-    """
-    return dispatch_dp_compute(worker_group, *args, **kwargs)
-
-
-def collect_megatron_all_dp(worker_group, output):
-    """
-    all ranks in megatron seen as dp.
-    """
-    return dispatch_dp_compute(worker_group, output)
-
-
 def collect_megatron_pp_only(worker_group, output):
     """
     Only collect output of megatron pp. This is useful when examine weight names as they are identical in tp/dp
@@ -342,23 +327,6 @@ def collect_megatron_pp_as_dp_data_proto(worker_group, output):
 
     output = collect_megatron_pp_as_dp(worker_group, output)
     return _concat_data_proto_or_future(output)
-
-
-def dispatch_megatron_all_dp_data_proto(worker_group, *args, **kwargs):
-    from verl.single_controller.base.worker_group import WorkerGroup
-
-    assert isinstance(worker_group, WorkerGroup)
-    # Note: enable auto padding for dp compute DatapProto
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(
-        worker_group.world_size,
-        *args,
-        **kwargs,
-    )
-    return splitted_args, splitted_kwargs
-
-
-def collect_megatron_all_dp_data_proto(worker_group, output):
-    return collect_dp_compute_data_proto(worker_group, output)
 
 
 def dispatch_dp_compute(worker_group, *args, **kwargs):
@@ -434,10 +402,6 @@ DISPATCH_MODE_FN_REGISTRY = {
         "dispatch_fn": dispatch_megatron_pp_as_dp,
         "collect_fn": collect_megatron_pp_as_dp,
     },
-    Dispatch.MEGATRON_ALL_DP: {
-        "dispatch_fn": dispatch_megatron_all_dp,
-        "collect_fn": collect_megatron_all_dp,
-    },
     Dispatch.MEGATRON_PP_ONLY: {"dispatch_fn": dispatch_one_to_all, "collect_fn": collect_megatron_pp_only},
     Dispatch.MEGATRON_COMPUTE_PROTO: {
         "dispatch_fn": dispatch_megatron_compute_data_proto,
@@ -446,10 +410,6 @@ DISPATCH_MODE_FN_REGISTRY = {
     Dispatch.MEGATRON_PP_AS_DP_PROTO: {
         "dispatch_fn": dispatch_megatron_pp_as_dp_data_proto,
         "collect_fn": collect_megatron_pp_as_dp_data_proto,
-    },
-    Dispatch.MEGATRON_ALL_DP_PROTO: {
-        "dispatch_fn": dispatch_megatron_all_dp_data_proto,
-        "collect_fn": collect_megatron_all_dp_data_proto,
     },
     Dispatch.DP_COMPUTE: {"dispatch_fn": dispatch_dp_compute, "collect_fn": collect_dp_compute},
     Dispatch.DP_COMPUTE_PROTO: {

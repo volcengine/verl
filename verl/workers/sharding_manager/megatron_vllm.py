@@ -517,7 +517,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
-        # all training ranks are dp, the same as fsdp
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
         all_gather_data_proto(data, self.infer_tp_group)
@@ -525,7 +525,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # all training ranks are dp, the same as fsdp
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
         if self.infer_tp_size == 1:
             return data
         return data.chunk(chunks=self.infer_tp_size)[self.infer_tp_rank]
