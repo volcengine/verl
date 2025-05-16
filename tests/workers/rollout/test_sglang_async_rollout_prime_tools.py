@@ -30,7 +30,7 @@ from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutReques
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 
 
-sandbox_url = "https://sd04qmtd8e6v9i08l9l00.apigateway-cn-beijing.volceapi.com/run_code"
+sandbox_url = ""
 
 def get_prime_data():
         prompt = '''
