@@ -141,6 +141,9 @@ Actor/Rollout/Reference Policy
       ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
     rollout:
       name: vllm
+      mode: sync
+      chat_scheduler: null
+      chat_scheduler_kwargs: { }
       temperature: 1.0
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
       top_p: 1
@@ -274,6 +277,12 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 **Rollout Model**
 
 - ``actor_rollout_ref.rollout.name``: hf/vllm/sglang.
+
+- ``actor_rollout_ref.rollout.mode``: sync/async. sync for ``LLM``, async for ``AsyncLLM``.
+
+- ``actor_rollout_ref.rollout.chat_scheduler``: chat scheduler used for ``async`` mode, e.g ``examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler``.
+
+- ``actor_rollout_ref.rollout.chat_scheduler_kwargs``: kwargs for custom chat scheduler.
 
 - Rollout (Auto-regressive) parameters. The key should be equal to the
   property name in vLLM's ``SamplingParams``.
