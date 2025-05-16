@@ -34,8 +34,13 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import masked_mean
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.critic import BasePPOCritic
+from verl.utils.device import get_device_name, get_torch_device, is_npu_available, is_cuda_available
 
-__all__ = ["DataParallelPPOCritic"]
+
+if is_cuda_available:
+    from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+elif is_npu_available:
+    from transformers.integrations.npu_flash_attention import pad_input, unpad_input, rearrange, index_first_axis
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -50,6 +55,7 @@ class DataParallelPPOCritic(BasePPOCritic):
         print(f"Critic use_remove_padding={self.use_remove_padding}")
 
         self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
+        self.device_name = get_device_name()
 
     def _forward_micro_batch(self, micro_batch):
         response_length = micro_batch["responses"].size(-1)
@@ -58,7 +64,7 @@ class DataParallelPPOCritic(BasePPOCritic):
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -207,9 +213,9 @@ class DataParallelPPOCritic(BasePPOCritic):
                 for data in micro_batches:
                     # Support all devices
                     if isinstance(data, DataProto):
-                        data = {**data.batch.to(torch.cuda.current_device()), **data.non_tensor_batch}
+                        data = {**data.batch.to(get_torch_device().current_device()), **data.non_tensor_batch}
                     else:
-                        data = data.to(torch.cuda.current_device())  # critic device is cpu when using offload
+                        data = data.to(get_torch_device().current_device())  # critic device is cpu when using offload
                     responses = data["responses"]
                     attention_mask = data["attention_mask"]
                     values = data["values"]
