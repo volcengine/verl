@@ -12,7 +12,7 @@ pybind11
 pylatexenc
 ray
 tensordict<0.6
-transformers==4.50.0
+transformers>=4.51.0
 wandb
 mathruler
 torchdata

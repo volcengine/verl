@@ -26,7 +26,6 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     validate_ulysses_config,
 )
-from verl.utils.device import is_cuda_available, is_npu_available
 
 try:
     from transformers.modeling_flash_attention_utils import flash_attn_func, flash_attn_varlen_func
