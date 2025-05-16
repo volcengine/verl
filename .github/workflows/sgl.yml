@@ -68,13 +68,13 @@ jobs:
           pip3 install -e .[test,gpu,sglang] --no-deps
       - name: Test the latest SGLang
         run: |
-          cd tests/rollout
+          cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_spmd.py
       - name: Test the latest SGLang async
         run: |
-          cd tests/rollout
+          cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_spmd.py
       - name: Test the latest SGLang Rollout async with tool
         run: |
-          cd tests/rollout
+          cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_tools.py

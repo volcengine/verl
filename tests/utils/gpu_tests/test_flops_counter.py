@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 import math
-import json
+
+import pytest
+
 from verl.utils.flops_counter import FlopsCounter
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3"}
@@ -28,7 +29,7 @@ class Config:
 
 CONFIG = {
     "llama": {
-        "config": { # llama2-7B
+        "config": {  # llama2-7B
             "model_type": "llama",
             "vocab_size": 32000,
             "hidden_size": 4096,
@@ -44,7 +45,7 @@ CONFIG = {
         "expected_flops_tuple": (153555818250240 / 1e12, 575955114393600 / 1e12),
     },
     "qwen2": {
-        "config": { # Qwen/Qwen2.5-7B-Instruct
+        "config": {  # Qwen/Qwen2.5-7B-Instruct
             "model_type": "qwen2",
             "vocab_size": 152064,
             "hidden_size": 3584,
@@ -60,7 +61,7 @@ CONFIG = {
         "expected_flops_tuple": (170388331954176 / 1e12, 622070178250752 / 1e12),
     },
     "qwen3": {
-        "config": { # Qwen/Qwen3-8B
+        "config": {  # Qwen/Qwen3-8B
             "model_type": "qwen3",
             "vocab_size": 151936,
             "hidden_size": 4096,
@@ -77,7 +78,7 @@ CONFIG = {
         "expected_flops_tuple": (185867930959872 / 1e12, 692924253732864 / 1e12),
     },
     "qwen3_moe": {
-        "config": { # Qwen/Qwen3-30B-A3B-Base
+        "config": {  # Qwen/Qwen3-30B-A3B-Base
             "model_type": "qwen3_moe",
             "hidden_size": 2048,
             "vocab_size": 151936,
@@ -96,7 +97,7 @@ CONFIG = {
         "expected_flops_tuple": (85087060230144 / 1e12, 365944098521088 / 1e12),
     },
     "deepseek_v3": {
-        "config": { # deepseek-ai/DeepSeek-Prover-V2-671B
+        "config": {  # deepseek-ai/DeepSeek-Prover-V2-671B
             "model_type": "deepseek_v3",
             "hidden_size": 7168,
             "vocab_size": 129280,
@@ -112,8 +113,7 @@ CONFIG = {
             "v_head_dim": 128,
             "intermediate_size": 18432,
             "qk_nope_head_dim": 128,
-            "q_lora_rank": 1536
-            
+            "q_lora_rank": 1536,
         },
         "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
         # (1536*7168+128*192*1536+7168*(512+64)+128*(128+128)*512+128*128*7168) = 187105280
@@ -136,6 +136,4 @@ def test_flops_counter(config_type: str):
         # set delta time to 1 to get the flops
         counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
         print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
-        assert math.isclose(
-            counted_flops, expected_flops
-        ), f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+        assert math.isclose(counted_flops, expected_flops), f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"

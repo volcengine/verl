@@ -115,7 +115,8 @@ Actor/Rollout/Reference Policy
         lr: 1e-6
         lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-        min_lr_ratio: null   # only useful for warmup with cosine
+        min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
+        num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
         warmup_style: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
@@ -283,9 +284,13 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.dtype``: Rollout model parameters type. This should be align with
   the actor model parameter type in FSDP/Megatron backend.
 
-- ``actor_rollout_ref.rollout.gpu_memory_utilization``: The proportion of the remaining GPU memory
-  allocated for kv cache after other models have initialized when using
-  vllm.
+- ``actor_rollout_ref.rollout.gpu_memory_utilization``:
+
+  - For vLLM v0.5.4 and v0.6.3: The proportion of the **remaining** GPU memory
+    allocated for kv cache after other models have initialized when using
+    vLLM.
+  - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
+  - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
 
 - ``actor_rollout_ref.rollout.tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.

@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from .schemas import OpenAIFunctionToolSchema
@@ -52,7 +52,7 @@ class BaseTool:
         else:
             return instance_id
 
-    async def execute(self, instance_id: str, parameters: str, **kwargs) -> Tuple[str, float, dict]:
+    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
         """Execute the tool.
 
         Args:
