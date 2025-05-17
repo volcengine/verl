@@ -2,3 +2,7 @@
 	path = third_party/sglang_for_verl
 	url = https://github.com/sgl-project/sglang.git
 	branch = main
+[submodule "sglang_latest"]
+	path = third_party/sglang_latest
+	url = https://github.com/sgl-project/sglang.git
+	branch = main
