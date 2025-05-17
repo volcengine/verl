@@ -135,14 +135,14 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
-    def _build_model_optimizer(self, model_path, optim_config, override_model_config):
+    def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
         self.generation_config = get_generation_config(self.local_path)
 
         def megatron_actor_model_provider(pre_process, post_process):
@@ -303,6 +303,12 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.torch_dtypes import PrecisionType
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        if self._is_actor:
+            override_transformer_config = OmegaConf.to_container(self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+        elif self._is_ref:
+            override_transformer_config = OmegaConf.to_container(self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+        else:
+            override_transformer_config = None
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
@@ -313,6 +319,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_path=self.config.model.path,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
             )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
@@ -341,6 +348,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
             )
             log_gpu_memory_usage("After ref model init", logger=logger)
             self.ref_policy = MegatronPPOActor(
@@ -550,14 +558,14 @@ class CriticWorker(MegatronWorker):
 
         # TODO(sgm): support critic model offload
 
-    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config):
+    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -615,12 +623,14 @@ class CriticWorker(MegatronWorker):
 
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
             optim_config=self.config.optim,
             override_model_config=override_model_config,
+            override_transformer_config=override_transformer_config,
         )
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
@@ -748,12 +758,12 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, override_model_config):
+    def _build_rm_model(self, model_path, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron_utils import get_model
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -803,6 +813,7 @@ class RewardModelWorker(MegatronWorker):
 
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
 
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
@@ -818,6 +829,7 @@ class RewardModelWorker(MegatronWorker):
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
             override_model_config=override_model_config,
+            override_transformer_config=override_transformer_config,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
