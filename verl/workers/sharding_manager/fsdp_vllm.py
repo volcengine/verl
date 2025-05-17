@@ -363,7 +363,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if peft_config:
             if self.base_sync_done:
                 log_print(f"SimonDbg: update_params with LoRA") 
-                lora_int_id=int(time.time_ns() // 1_000_000)
+                lora_int_id=int(time.time_ns())
                 lora_reqest = TensorLoRARequest(
                     lora_name=f"{lora_int_id}",
                     lora_int_id=lora_int_id,
