@@ -1,0 +1,4 @@
+[submodule "sglang_for_verl"]
+	path = third_party/sglang_for_verl
+	url = https://github.com/sgl-project/sglang.git
+	branch = main
