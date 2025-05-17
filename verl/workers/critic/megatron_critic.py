@@ -89,6 +89,7 @@ class MegatronPPOCritic(BasePPOCritic):
     @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
         # data.batch = data.batch.to(self.critic_module.module.device)
+        data.to(torch.cuda.current_device())
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         response_length = responses.size(1)
@@ -130,6 +131,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
     def forward_backward_batch(self, data: DataProto, forward_only=False):
         # broadcast from last pp rank to all other pp ranks
+        data.to(torch.cuda.current_device())
         data.batch = data.batch.contiguous()
         broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
