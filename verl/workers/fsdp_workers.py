@@ -445,9 +445,10 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
             from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
+            local_path = copy_to_local(self.config.model.path)
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
             rollout = AsyncSGLangRollout(
-                actor_module=self.config.model.path,
+                actor_module=local_path,
                 config=self.config.rollout,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
