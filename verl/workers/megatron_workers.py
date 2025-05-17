@@ -310,7 +310,14 @@ class ActorRolloutRefWorker(MegatronWorker):
             from verl.models.mcore import get_mcore_weight_converter
 
             weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
-            sharding_manager = MegatronAsyncSGLangShardingManager(actor_module=self.actor.actor_module, inference_engine=rollout._engine, model_config=self.actor_model_config, layer_name_mapping=layer_name_mapping, weight_converter=weight_converter, device_mesh=rollout_device_mesh)
+            sharding_manager = MegatronAsyncSGLangShardingManager(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout._engine,
+                model_config=self.actor_model_config,
+                layer_name_mapping=layer_name_mapping,
+                weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
+            )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
