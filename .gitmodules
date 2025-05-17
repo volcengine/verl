@@ -6,3 +6,6 @@
 	path = third_party/sglang_latest
 	url = https://github.com/sgl-project/sglang.git
 	branch = main
+[submodule "Megatron-LM_for_verl"]
+	path = third_party/Megatron-LM_for_verl
+	url = https://github.com/NVIDIA/Megatron-LM.git
