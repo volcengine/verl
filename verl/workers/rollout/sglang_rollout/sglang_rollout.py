@@ -146,7 +146,6 @@ class SGLangRollout(BaseRollout):
 
         # get tp_rank of this process in this tp group
         rank = device_mesh_cpu.get_rank()
-        tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
 
         torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
@@ -159,7 +158,7 @@ class SGLangRollout(BaseRollout):
             port = get_open_port() if port is None else port
             [ip, port] = broadcast_pyobj(
                 [ip, port],
-                rank=tp_rank,
+                rank=rank,
                 dist_group=device_mesh_cpu.get_group("tp"),
                 src=device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
