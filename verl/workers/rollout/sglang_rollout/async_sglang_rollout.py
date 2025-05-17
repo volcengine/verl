@@ -33,7 +33,7 @@ from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
 from tensordict import TensorDict
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizer
 
@@ -79,6 +79,7 @@ class AsyncSGLangRollout(BaseRollout):
         model_hf_config,
         port=None,
         trust_remote_code: bool = False,
+        device_mesh: DeviceMesh | None = None,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -92,6 +93,7 @@ class AsyncSGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        self._device_mesh_cpu = device_mesh
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
         self._tool_schemas, self._tool_map, self._tool_call_parser_type, self._sgl_tools, self._function_call_parser = self._initialize_tools(config, tokenizer)
@@ -124,21 +126,22 @@ class AsyncSGLangRollout(BaseRollout):
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
 
         # init device mesh
-        device_mesh_kwargs = dict(
-            mesh_shape=(world_size // tp_size, tp_size, 1),
-            mesh_dim_names=["dp", "tp", "pp"],
-        )
+        if self._device_mesh_cpu is None:
+            device_mesh_kwargs = dict(
+                mesh_shape=(world_size // tp_size, tp_size, 1),
+                mesh_dim_names=["dp", "tp", "pp"],
+            )
 
-        device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
-        self._device_mesh_cpu = device_mesh_cpu
-        self._rank = device_mesh_cpu.get_rank()
-        self._tp_rank = device_mesh_cpu["tp"].get_local_rank()
-        self._tp_size = device_mesh_cpu["tp"].size()
+            self._device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+
+        self._rank = self._device_mesh_cpu.get_rank()
+        self._tp_rank = self._device_mesh_cpu["tp"].get_local_rank()
+        self._tp_size = self._device_mesh_cpu["tp"].size()
 
         # get tp_rank of this process in this tp group
-        visible_devices = [None] * device_mesh_cpu.size(1)
+        visible_devices = [None] * self._device_mesh_cpu.size(1)
 
-        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
+        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp"))
         visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
@@ -150,8 +153,8 @@ class AsyncSGLangRollout(BaseRollout):
             [ip, port] = broadcast_pyobj(
                 [ip, port],
                 rank=self._rank,
-                dist_group=device_mesh_cpu.get_group("tp"),
-                src=device_mesh_cpu["tp"].mesh[0].item(),
+                dist_group=self._device_mesh_cpu.get_group("tp"),
+                src=self._device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
             )
             dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
