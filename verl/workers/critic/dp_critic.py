@@ -160,14 +160,13 @@ class DataParallelPPOCritic(BasePPOCritic):
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         response_length = responses.size(1)
-        values = values * attention_mask[:, -response_length - 1 : -1]
 
         if use_dynamic_bsz:
             indices = list(itertools.chain.from_iterable(indices))
             assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
             revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
             values = values[revert_indices]
-
+        values = values * attention_mask[:, -response_length - 1 : -1]
         return values
 
     @GPUMemoryLogger(role="dp critic", logger=logger)

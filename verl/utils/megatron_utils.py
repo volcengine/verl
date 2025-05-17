@@ -31,9 +31,9 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
 
-from verl.utils.torch_dtypes import PrecisionType
-from verl.utils.model import normalize_model_name
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils.model import normalize_model_name
+from verl.utils.torch_dtypes import PrecisionType
 
 
 def get_model_config(model):
@@ -446,10 +446,10 @@ def convert_megatron_model_to_transformers_model(
         q_shard_list = []
         k_shard_list = []
         v_shard_list = []
-        hidden_size_per_head = config.hidden_size // config.num_attention_heads
+        hidden_size_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
         if config.num_key_value_heads >= tp_size:
-            q_size_tp = config.hidden_size // tp_size
+            q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
             kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
             total_size = q_size_tp + 2 * kv_size_tp
             for i in range(tp_size):
@@ -465,7 +465,7 @@ def convert_megatron_model_to_transformers_model(
                     k_shard_list.append(k_part)
                     v_shard_list.append(v_part)
         else:
-            q_size_tp = config.hidden_size // tp_size
+            q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
             kv_size_tp = hidden_size_per_head
             total_size = q_size_tp + 2 * kv_size_tp
             for i in range(tp_size):
@@ -525,6 +525,9 @@ def convert_megatron_model_to_transformers_model(
                     )
                 else:
                     new_params[f"model.layers.{layer_number}.self_attn.qkv_proj.{param_type}"] = param
+        elif component == "q_layernorm" or component == "k_layernorm":
+            hf_component = component.replace("layer", "")
+            new_params[f"model.layers.{layer_number}.self_attn.{hf_component}.weight"] = param
         else:
             assert isinstance(param, list) and len(param) == 3
             assert param_type == "weight" or param_type == "bias"
