@@ -84,6 +84,7 @@ def test_async_sglang_rollout_w_tool():
         module=fsdp_model,
         inference_engine=rollout._engine,
         model_config=actor_model.config,
+        rollout_config=rollout_config,
         full_params=True,
         device_mesh=inference_device_mesh_cpu,
     )
