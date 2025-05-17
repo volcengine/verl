@@ -22,3 +22,4 @@ wandb
 packaging>=20.0
 uvicorn
 fastapi
+-e ./third_party/pai-megatron-patch/Megatron-LM-250328
