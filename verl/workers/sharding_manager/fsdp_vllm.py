@@ -30,7 +30,7 @@ from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, log_print
-from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu, layered_summon_lora_params
 from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
@@ -186,11 +186,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
-        def __prefix_submodules(module, prefix):
-            for name, submodule in module.named_modules():
-                if name.startswith(prefix) and "." not in name[len(prefix):]:
-                    yield name, submodule
-
         def __collect_lora_params()->OrderedDict:
             """
             collect lora params or full params if base model is not ready in vllm
@@ -202,24 +197,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                     if not self.base_sync_done:
                         raise ValueError("To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let rollout.load_format=safetensors")
                     log_print(f"SimonDbg: <1.1>. PeftModel with PSDF and layered_summon")
-                    prefix_list = [
-                        '_fsdp_wrapped_module.base_model.model.',
-                        '_fsdp_wrapped_module.base_model.model.model.',
-                        '_fsdp_wrapped_module.base_model.model.model.layers.'
-                    ]
-                    for prefix in prefix_list:
-                        for name, submodule in __prefix_submodules(self.module, prefix):
-                            prefix = name.replace("_fsdp_wrapped_module.base_model.model.","")
-                            if name.endswith('.model') or name.endswith('.layers'):
-                                continue
-                            if fsdp_version(submodule) > 0:
-                                with FSDP.summon_full_params(submodule, writeback=False):
-                                    sub_lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module, state_dict=submodule.state_dict())
-                                    sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
-                                        for name, param in sub_lora_params.items()}
-                                    lora_params.update(sub_lora_params)
-                                    submodule._is_root = False
-                                torch.cuda.empty_cache()
+                    lora_params = layered_summon_lora_params(self.module)
                 else:
                     log_print(f"SimonDbg: <1.2>. PeftModel with PSDF and summon_full_params")
                     with FSDP.summon_full_params(self.module, writeback=False):

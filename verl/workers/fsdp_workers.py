@@ -49,6 +49,7 @@ from verl.utils.fsdp_utils import (
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
+    layered_summon_lora_params,
 )
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
@@ -767,9 +768,7 @@ class ActorRolloutRefWorker(Worker):
                 if isinstance(self.actor_module_fsdp, FSDP):
                     self.actor_module_fsdp = self.actor_module_fsdp.cuda()
                     with FSDP.summon_full_params(self.actor_module_fsdp, writeback=False):
-                        lora_params = get_peft_model_state_dict(self.actor_module_fsdp._fsdp_wrapped_module)
-                        lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
-                                       for name, param in lora_params.items()}
+                        lora_params = layered_summon_lora_params(self.actor_module_fsdp)
                         if dist.get_rank() == 0:
                             save_file(lora_params, os.path.join(lora_save_path, "adapter_model.safetensors"))
                             with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding='utf-8') as f:
