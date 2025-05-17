@@ -53,4 +53,8 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+  save_steps: 5
+  max_ckpt_to_keep: 2
+  checkpoint_contents: ["model", "optimizer", "extra"]
+  load_previous_saved_paths: True
 
