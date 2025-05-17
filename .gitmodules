@@ -9,3 +9,7 @@
 [submodule "Megatron-LM_for_verl"]
 	path = third_party/Megatron-LM_for_verl
 	url = https://github.com/NVIDIA/Megatron-LM.git
+[submodule "pai-megatron-patch"]
+	path = third_party/pai-megatron-patch
+	url = https://github.com/alibaba/Pai-Megatron-Patch.git
+	branch = main
