@@ -287,10 +287,13 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py
+      - name: Prepare dist_ckpt of Qwen2.5-0.5B, uneven layer distribution only supports dist_ckpt
+        run: |
+          python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-0.5B --output_path checkpoints/verl-test/qwen2.5-0.5b-megatron
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=14 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=10
+          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=14 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=10 actor_rollout_ref.actor.megatron.use_dist_ckpt=true actor_rollout_ref.actor.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron actor_rollout_ref.ref.megatron.use_dist_ckpt=true actor_rollout_ref.ref.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron critic.megatron.use_dist_ckpt=true critic.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron reward_model.megatron.use_dist_ckpt=true reward_model.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
         run: |
           exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
@@ -328,8 +331,8 @@ jobs:
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
-          python scripts/model_merger.py --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
-          python scripts/model_merger.py --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+          python scripts/model_merger.py test --backend megatron --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
+          python scripts/model_merger.py test --backend megatron --is-value-model --hf_model_path deepseek-ai/deepseek-coder-1.3b-instruct --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
       - name: clean up
         run: |
           rm -rf checkpoints
