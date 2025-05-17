@@ -72,12 +72,19 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     if config is None:
         config = {}
 
-    if config.get("disable", False):
+    # NOTE: This is a temporary workaround to be compatible with the OmegaConf & dataclass. We will remove this once we have make all config in verl from OmegaConf to data class.
+    def _get_attr(attr_name, default_value=None):
+        if hasattr(config, "get"):
+            return config.get(attr_name, default_value)
+        else:
+            return config.__getattribute__(attr_name)
+
+    if _get_attr("disable", False):
         return None
 
     default_transformer_cls_names_to_wrap = getattr(module, "_no_split_modules", None)
-    fsdp_transformer_layer_cls_to_wrap = config.get("transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap)
-    min_num_params = config.get("min_num_params", 0)
+    fsdp_transformer_layer_cls_to_wrap = _get_attr("transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap)
+    min_num_params = _get_attr("min_num_params", 0)
     auto_wrap_policy = None
 
     policies = []
