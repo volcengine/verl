@@ -297,7 +297,7 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         if self._is_actor:
-            override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+            override_transformer_config = OmegaConf.to_container(self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
         elif self._is_ref:
             override_transformer_config = OmegaConf.to_container(self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
         else:
@@ -308,7 +308,12 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
-            self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(model_path=self.config.model.path, optim_config=optim_config, override_model_config=override_model_config, override_transformer_config=override_transformer_config)
+            self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
+                model_path=self.config.model.path,
+                optim_config=optim_config,
+                override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
+            )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
                 log_gpu_memory_usage("After offload actor params and grad during init", logger=logger)
@@ -336,6 +341,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
             )
             log_gpu_memory_usage("After ref model init", logger=logger)
             self.ref_policy = MegatronPPOActor(
