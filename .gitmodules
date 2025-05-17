@@ -11,5 +11,5 @@
 	url = https://github.com/NVIDIA/Megatron-LM.git
 [submodule "pai-megatron-patch"]
 	path = third_party/pai-megatron-patch
-	url = https://github.com/alibaba/Pai-Megatron-Patch.git
+	url = https://github.com/yumc-afk/Pai-Megatron-Patch.git
 	branch = main
