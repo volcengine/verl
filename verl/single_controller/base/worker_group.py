@@ -162,7 +162,8 @@ class WorkerGroup:
 
                 dispatch_mode = attribute["dispatch_mode"]
                 execute_mode = attribute["execute_mode"]
-                blocking = attribute["blocking"]
+                blocking = attribute.get("blocking", None)
+                blocking_v2 = attribute.get("blocking_v2", None)
 
                 # get dispatch fn
                 if isinstance(dispatch_mode, Dispatch):
@@ -197,6 +198,7 @@ class WorkerGroup:
                     collect_fn=collect_fn,
                     execute_fn=execute_fn,
                     blocking=blocking,
+                    blocking_v2=blocking_v2
                 )
 
                 try:
