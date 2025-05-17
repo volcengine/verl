@@ -290,7 +290,7 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          SAVE_FREQ=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=13 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=11
+          SAVE_FREQ=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=14 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=10
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
         run: |
           exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
@@ -324,7 +324,7 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
-          SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_embedding_in_pipeline_split=true +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_loss_in_pipeline_split=true
+          SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct COMMON_VPP=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_embedding_in_pipeline_split=true +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_loss_in_pipeline_split=true
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
