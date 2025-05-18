@@ -66,18 +66,18 @@ def create_prompt_response(min_length=3, max_length=5):
 
     return prompt, final_answer
 
-total_number = 50000
+total_number = 10000
 
 full_output = []
 for _ in range(total_number):
-    output = create_prompt_response(min_length=3, max_length=5)
+    output = create_prompt_response(min_length=10, max_length=20)
     full_output.append(output)
 
 # random reorder
 random.shuffle(full_output)
 
 # split for train and test
-train_split_len = int(0.99 * len(full_output))
+train_split_len = int(0.9 * len(full_output))
 train_outputs = full_output[:train_split_len]
 test_output = full_output[train_split_len:]
 
