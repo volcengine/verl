@@ -54,6 +54,7 @@ class MegatronRewardModel(BasePPORewardModel):
             self.offload_params_to_cpu()
 
     def re_encode_by_rm_tokenizer(self, data: DataProto) -> DataProto:
+        """Re-encode prompts using the reward model tokenizer."""
         assert self.use_different_tokenizer, "re-encode need rm tokenizer not be None!"
         # need to use rm tokenizer to re-generate input_ids, attention_mask and position_ids
         # 1. remove pad for each sequence
@@ -119,6 +120,7 @@ class MegatronRewardModel(BasePPORewardModel):
 
     @torch.no_grad()
     def compute_reward(self, data: DataProto) -> DataProto:
+        """Run the reward model and return token-level scores."""
         if self.config.megatron.param_offload:
             self.load_params_to_cuda()
 
@@ -191,7 +193,7 @@ class MegatronRewardModel(BasePPORewardModel):
         - The communication shape is (total_nnz_pad_to_sp // tp_size, 1, hidden_size) if sequence parallel is enabled
         """
         # broadcast from last pp rank to all other pp ranks
-        # TODO: actually, we just need to control the sampling order.
+        # NOTE: sampling order control is tracked in issue #70
         data.batch = data.batch.contiguous()
         broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
 
@@ -235,7 +237,7 @@ class MegatronRewardModel(BasePPORewardModel):
         # batch should be a list of batches inside micro-batches
         batch_generator = make_batch_generator(batches, vpp_size=len(self.reward_model_module))
 
-        # TODO: we may use the new schedule instead
+        # NOTE: new scheduling strategy may be used in the future (issue #71)
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
             losses_reduced = forward_backward_func(

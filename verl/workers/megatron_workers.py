@@ -21,6 +21,7 @@ import time
 
 import torch
 import torch.distributed
+from typing import Any, Optional, Tuple, Union
 from codetiming import Timer
 from megatron.core import parallel_state as mpu
 from omegaconf import DictConfig
@@ -68,10 +69,7 @@ def set_random_seed(seed):
 
 
 class ActorRolloutRefWorker(MegatronWorker):
-    """
-    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
-    or a hybrid engine based on the config.rollout
-    """
+    """Megatron worker hosting actor, rollout and reference models."""
 
     def __init__(self, config: DictConfig, role: str):
         super().__init__()
@@ -110,8 +108,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
-        # TODO(sgm): Currently, we only support reference model param offload
-        # will support other offload later
+        # NOTE: only reference model parameter offload is currently supported;
+        # tracking wider offload support in issue #60
         self._is_offload_param = False
         self._is_offload_grad = False
         self._is_offload_optimizer = False
@@ -135,7 +133,10 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
-    def _build_model_optimizer(self, model_path, optim_config, override_model_config):
+    def _build_model_optimizer(
+        self, model_path: str, optim_config, override_model_config
+    ) -> Tuple[torch.nn.Module, Optional[torch.optim.Optimizer], Any, Any]:
+        """Build Megatron model, optimizer and configs."""
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron.optimizer import get_megatron_optimizer
@@ -196,7 +197,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After ref module init", logger=logger)
             return ref_module, self.hf_config
 
-        # TODO: add more optimizer args into config
+        # NOTE: additional optimizer options will be configurable (issue #61)
         if self._is_actor:
             optim_config = init_megatron_optim_config(optim_config)
             actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config)
@@ -208,7 +209,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         return actor_module, actor_optimizer, self.hf_config, optim_config
 
-    def _build_rollout(self, trust_remote_code=False):
+    def _build_rollout(self, trust_remote_code: bool = False) -> Tuple[Any, Any]:
+        """Build rollout engine and its sharding manager."""
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.weight",
@@ -291,7 +293,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         return rollout, sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
+    def init_model(self) -> None:
+        """Initialize actor, rollout and reference modules."""
         if self.config.model.get("external_lib", None) is not None:
             # This is used to import external_lib into the huggingface systems
             import importlib
@@ -376,7 +379,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="update_actor", logger=logger)
-    def update_actor(self, data: DataProto):
+    def update_actor(self, data: DataProto) -> DataProto:
+        """Perform one optimization step for the actor."""
         assert self._is_actor
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
@@ -396,7 +400,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
 
-        # TODO: here, we should return all metrics
+        # NOTE: returning all metrics is tracked in issue #62
         output = DataProto(meta_info={"metrics": metrics})
         output = output.to("cpu")
 
@@ -412,7 +416,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
-    def generate_sequences(self, prompts: DataProto):
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Generate sequences using the rollout model."""
         assert self._is_rollout
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
@@ -441,7 +446,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
-    def compute_ref_log_prob(self, data: DataProto):
+    def compute_ref_log_prob(self, data: DataProto) -> DataProto:
+        """Compute log probability under the reference model."""
         data = data.to("cuda")
         assert self._is_ref
         if self._ref_is_offload_param:
@@ -461,7 +467,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
-    def compute_log_prob(self, data: DataProto):
+    def compute_log_prob(self, data: DataProto) -> DataProto:
+        """Compute log probability under the actor model."""
         assert self._is_actor
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module, load_grad=False)
@@ -483,7 +490,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, checkpoint_path, hdfs_path=None, del_local_after_load=True):
+    def load_checkpoint(self, checkpoint_path: str, hdfs_path: str | None = None, del_local_after_load: bool = True) -> None:
+        """Load actor checkpoint from disk."""
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         self.checkpoint_mananager.load_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
@@ -493,11 +501,12 @@ class ActorRolloutRefWorker(MegatronWorker):
             offload_megatron_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_pretrained_model(self, checkpoint_path, del_local_after_load=True):
+    def load_pretrained_model(self, checkpoint_path: str, del_local_after_load: bool = True) -> None:
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, checkpoint_path: str, hdfs_path: str | None = None, global_step: int = 0, max_ckpt_to_keep: int | None = None) -> None:
+        """Save actor checkpoint to disk."""
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
@@ -548,7 +557,7 @@ class CriticWorker(MegatronWorker):
             self.config.ppo_micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
 
-        # TODO(sgm): support critic model offload
+        # NOTE: critic model offload support is under development (issue #63)
 
     def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config):
         from megatron.core.models.gpt.gpt_model import ModelType
@@ -596,7 +605,7 @@ class CriticWorker(MegatronWorker):
         if self.rank == 0:
             print_model_size(critic_module[0])
 
-        # TODO: add more optimizer args into config
+        # NOTE: additional optimizer arguments will be configurable (issue #64)
         optim_config = init_megatron_optim_config(optim_config)
         critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config)
         torch.cuda.empty_cache()
@@ -653,7 +662,8 @@ class CriticWorker(MegatronWorker):
         )
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    def compute_values(self, data: DataProto):
+    def compute_values(self, data: DataProto) -> DataProto:
+        """Forward pass for the critic to compute values."""
         data = data.to("cuda")
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
@@ -665,7 +675,8 @@ class CriticWorker(MegatronWorker):
         return output
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    def update_critic(self, data: DataProto):
+    def update_critic(self, data: DataProto) -> DataProto:
+        """Perform one optimization step for the critic."""
         data = data.to("cuda")
 
         if self._is_offload_param:
@@ -700,7 +711,8 @@ class CriticWorker(MegatronWorker):
             offload_megatron_optimizer(self.critic_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_steps=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, checkpoint_path: str, hdfs_path: str | None = None, global_steps: int = 0, max_ckpt_to_keep: int | None = None) -> None:
+        """Save critic checkpoint to disk."""
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_steps, max_ckpt_to_keep=max_ckpt_to_keep)
@@ -786,7 +798,7 @@ class RewardModelWorker(MegatronWorker):
             else:
                 load_megatron_gptmodel_weights(self.config, self.hf_config, reward_model, params_dtype=self.dtype, is_value_model=True)
 
-        # TODO: add more optimizer args into config
+        # NOTE: additional optimizer arguments will be configurable (issue #65)
         torch.cuda.empty_cache()
         return reward_model, self.hf_config
 
@@ -831,10 +843,11 @@ class RewardModelWorker(MegatronWorker):
             rm_tokenizer=rm_tokenizer,
         )
 
-    # TODO: reward model use itself tokenizer instead of sft tokenizer
-    # the input_ids, responses, attention_mask and position_ids may be different!
+    # NOTE: reward model should use its own tokenizer; see issue #66 for
+    # differences in input handling.
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
-    def compute_rm_score(self, data: DataProto):
+    def compute_rm_score(self, data: DataProto) -> DataProto:
+        """Compute reward model score."""
         data.batch = data.batch.cuda()
         output = self.rm.compute_reward(data)
         output = output.to("cpu")

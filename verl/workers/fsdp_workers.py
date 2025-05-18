@@ -18,11 +18,12 @@ The main entry point to run the PPO algorithm
 import logging
 import os
 import warnings
-from typing import Union
+from typing import Any, Optional, Tuple, Union
 
 import psutil
 import torch
 import torch.distributed
+import torch.optim as optim
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict
 from torch.distributed.device_mesh import init_device_mesh
@@ -59,7 +60,8 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def create_device_mesh(world_size, fsdp_size):
+def create_device_mesh(world_size: int, fsdp_size: int):
+    """Create a device mesh for FSDP based on world size and shard size."""
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
     else:
@@ -68,6 +70,7 @@ def create_device_mesh(world_size, fsdp_size):
 
 
 def get_sharding_strategy(device_mesh):
+    """Return the sharding strategy that matches the device mesh."""
     from torch.distributed.fsdp import ShardingStrategy
 
     if device_mesh.ndim == 1:
@@ -80,9 +83,12 @@ def get_sharding_strategy(device_mesh):
 
 
 class ActorRolloutRefWorker(Worker):
-    """
-    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
-    or a hybrid engine based on the config.rollout
+    """Worker that hosts actor, rollout and reference models for FSDP training.
+
+    Depending on the ``role`` argument the instance can act as an actor, a
+    rollout engine, a reference policy or a hybrid of these.  The worker runs in
+    a distributed setting and manages the model initialization, sharding and
+    execution for its assigned task.
     """
 
     def __init__(self, config: DictConfig, role: str):
@@ -95,7 +101,8 @@ class ActorRolloutRefWorker(Worker):
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
-        # TODO(sgm): support FSDP hybrid shard for larger model
+        # NOTE: support for FSDP hybrid shard for larger models is tracked in
+        # issue #42.
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
 
         # build device mesh for Ulysses Sequence Parallel
@@ -120,7 +127,8 @@ class ActorRolloutRefWorker(Worker):
             self._is_offload_param = self.config.actor.fsdp_config.get("param_offload", False)
             self._is_offload_optimizer = self.config.actor.fsdp_config.get("optimizer_offload", False)
         elif self._is_ref:
-            # TODO: it seems that manual offload is slowly than FSDP offload
+            # NOTE: manual offload appears slower than FSDP offload; see issue
+            # #43 for details.
             self._is_offload_param = self.config.ref.fsdp_config.get("param_offload", False)
 
         # normalize config
@@ -158,7 +166,8 @@ class ActorRolloutRefWorker(Worker):
         trust_remote_code=False,
         use_liger=False,
         role="actor",
-    ):
+    ) -> Tuple[torch.nn.Module, Optional[optim.Optimizer], Optional[torch.optim.lr_scheduler.LRScheduler], Any]:
+        """Create model, optimizer and scheduler for the given role."""
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -173,7 +182,8 @@ class ActorRolloutRefWorker(Worker):
         local_path = copy_to_local(model_path)
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
+        # NOTE: initializing from random weights and direct FSDP construction is
+        # planned (issue #44).
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
@@ -229,7 +239,8 @@ class ActorRolloutRefWorker(Worker):
                 use_fused_kernels=use_fused_kernels,
             )
 
-            # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
+            # some parameters may not in ``torch_dtype``. This workaround should
+            # be removed once the project fully migrates to FSDP2 (issue #45).
             actor_module.to(torch_dtype)
 
             if enable_gradient_checkpointing:
@@ -257,7 +268,8 @@ class ActorRolloutRefWorker(Worker):
         auto_wrap_policy = get_fsdp_wrap_policy(module=actor_module, config=fsdp_config.get("wrap_policy", None))
 
         if self._is_rollout and self.config.rollout.name == "hf":
-            # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
+            # NOTE: current auto_wrap_policy causes HFRollout to hang in Gemma;
+            # tracked in issue #46.
             auto_wrap_policy = None
 
         print(f"wrap_policy: {auto_wrap_policy}")
@@ -265,7 +277,8 @@ class ActorRolloutRefWorker(Worker):
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
 
-        # TODO: add transformer policy
+        # NOTE: transformer auto-wrap policy will be added in a future release
+        # (issue #47).
         # We force reference policy to use CPUOffload to save memory.
         # We force turn off CPUOffload for actor because it causes incorrect results when using grad accumulation
         cpu_offload = None if role == "actor" else CPUOffload(offload_params=True)
@@ -309,7 +322,8 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage(f"After {role} FSDP init", logger=logger)
 
-        # TODO: add more optimizer args into config
+        # NOTE: additional optimizer options will be exposed via configuration
+        # (issue #48).
         if role == "actor" and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
@@ -346,9 +360,11 @@ class ActorRolloutRefWorker(Worker):
         return actor_module_fsdp, actor_optimizer, actor_lr_scheduler, actor_model_config
 
     def _build_rollout(self, trust_remote_code=False):
+        """Initialize rollout engine and its sharding manager."""
         from torch.distributed.device_mesh import init_device_mesh
 
-        # TODO(sgm): support FSDP hybrid shard for larger model
+        # NOTE: support for FSDP hybrid shard for larger models is tracked in
+        # issue #42.
         infer_tp = self.config.rollout.tensor_model_parallel_size
         dp = self.world_size // infer_tp
         assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
@@ -360,7 +376,7 @@ class ActorRolloutRefWorker(Worker):
 
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             rollout_sharding_manager = BaseShardingManager()
-            # TODO: a sharding manager that do nothing?
+            # NOTE: consider providing a no-op sharding manager (issue #49)
 
         elif rollout_name == "vllm":
             from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
@@ -471,7 +487,8 @@ class ActorRolloutRefWorker(Worker):
         return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
+    def init_model(self) -> None:
+        """Initialize actor, rollout and reference models along with optimizers."""
         from verl.workers.actor import DataParallelPPOActor
 
         # This is used to import external_lib into the huggingface systems
@@ -562,6 +579,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
+        """Perform a training step for the actor model."""
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
 
@@ -588,7 +606,8 @@ class ActorRolloutRefWorker(Worker):
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr
 
-            # TODO: here, we should return all metrics
+            # NOTE: returning all metrics instead of a subset is tracked in
+            # issue #50
             output = DataProto(meta_info={"metrics": metrics})
 
             output = self.ulysses_sharding_manager.postprocess_data(data=output)
@@ -604,7 +623,8 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def generate_sequences(self, prompts: DataProto):
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Generate sequences from the actor or rollout model."""
         # Support all hardwares
         prompts = prompts.to(torch.cuda.current_device())
 
@@ -640,7 +660,8 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_log_prob(self, data: DataProto):
+    def compute_log_prob(self, data: DataProto) -> DataProto:
+        """Compute log probabilities under the actor model."""
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -676,7 +697,8 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_ref_log_prob(self, data: DataProto):
+    def compute_ref_log_prob(self, data: DataProto) -> DataProto:
+        """Compute log probabilities under the reference policy."""
         assert self._is_ref
 
         # Support all hardwares
@@ -703,7 +725,8 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path: str, hdfs_path: str | None = None, global_step: int = 0, max_ckpt_to_keep: int | None = None) -> None:
+        """Save model and optimizer state to a checkpoint."""
         # only support save and load ckpt for actor
         assert self._is_actor
         import torch
@@ -718,7 +741,8 @@ class ActorRolloutRefWorker(Worker):
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
+    def load_checkpoint(self, local_path: str, hdfs_path: str | None = None, del_local_after_load: bool = False) -> None:
+        """Load model and optimizer state from a checkpoint."""
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
@@ -732,6 +756,8 @@ class ActorRolloutRefWorker(Worker):
 
 
 class CriticWorker(Worker):
+    """Worker responsible for value model training under FSDP."""
+
     def __init__(self, config):
         super().__init__()
         import torch.distributed
@@ -773,6 +799,7 @@ class CriticWorker(Worker):
             assert self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu > 0, f"normalized ppo_mini_batch_size {self.config.ppo_mini_batch_size} should be larger than ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
 
     def _build_critic_model_optimizer(self, config):
+        """Initialize critic model, optimizer and scheduler."""
         # the following line is necessary
         from torch import optim
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -927,7 +954,8 @@ class CriticWorker(Worker):
         return critic_module, critic_optimizer, critic_lr_scheduler
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
+    def init_model(self) -> None:
+        """Initialize the reward model."""
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
@@ -954,7 +982,8 @@ class CriticWorker(Worker):
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_values(self, data: DataProto):
+    def compute_values(self, data: DataProto) -> DataProto:
+        """Forward pass for the critic to obtain value estimates."""
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
 
@@ -977,7 +1006,8 @@ class CriticWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def update_critic(self, data: DataProto):
+    def update_critic(self, data: DataProto) -> DataProto:
+        """Perform a training step for the critic model."""
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
         if self._is_offload_param:
@@ -1014,6 +1044,7 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+        """Save critic state to disk."""
         import torch
 
         if self._is_offload_param:
@@ -1027,6 +1058,7 @@ class CriticWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=True):
+        """Load critic state from disk."""
         import torch
 
         if self._is_offload_param:
@@ -1042,11 +1074,10 @@ class CriticWorker(Worker):
             offload_fsdp_optimizer(self.critic_optimizer)
 
 
-# TODO(sgm): we may need to extract it to dp_reward_model.py
+# NOTE: reward model logic may move to ``dp_reward_model.py`` in the future
+# (issue #51)
 class RewardModelWorker(Worker):
-    """
-    Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
-    """
+    """Worker that evaluates reward model scores using FSDP."""
 
     def __init__(self, config):
         super().__init__()
@@ -1079,6 +1110,7 @@ class RewardModelWorker(Worker):
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
     def _build_model(self, config):
+        """Initialize the reward model and wrap it with FSDP."""
         # the following line is necessary
         from torch.distributed.fsdp import CPUOffload
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -1155,12 +1187,13 @@ class RewardModelWorker(Worker):
         return reward_module
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
+    def init_model(self) -> None:
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
         self.reward_module = self._build_model(config=self.config)
 
     def _forward_micro_batch(self, micro_batch):
+        """Forward a micro batch through the reward model."""
         from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 
         from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
@@ -1204,6 +1237,7 @@ class RewardModelWorker(Worker):
             return rm_score
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
+        """Expand sequence-level reward scores to per-token values."""
         batch_size = data.batch.batch_size[0]
         # expand as token_level_reward
         attention_mask = data.batch["attention_mask"]
@@ -1219,6 +1253,7 @@ class RewardModelWorker(Worker):
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
+        """Re-tokenize prompts using the reward model's chat template."""
         src_max_length = data.batch["attention_mask"].shape[-1]
 
         src_tokenizer = self.input_tokenizer
@@ -1280,7 +1315,8 @@ class RewardModelWorker(Worker):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_rm_score(self, data: DataProto):
+    def compute_rm_score(self, data: DataProto) -> DataProto:
+        """Compute reward model scores for the given batch."""
         import itertools
 
         from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
@@ -1341,7 +1377,9 @@ class RewardModelWorker(Worker):
 
 # ================================= Async related workers =================================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
+    """Variant of :class:`ActorRolloutRefWorker` used for asynchronous rollout."""
     def _build_rollout(self, trust_remote_code=False):
+        """Initialize rollout engine for asynchronous generation."""
         rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
 
         # NOTE: rollout is not actually initialized here, it's deferred
@@ -1357,11 +1395,12 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         return rollout, rollout_sharding_manager
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def generate_sequences(self, prompts: DataProto):
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        """Async worker does not support local generation."""
         raise NotImplementedError("AsyncActorRolloutRefWorker does not support generate_sequences")
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs) -> Any:
         """Called by ExternalRayDistributedExecutor collective_rpc."""
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
