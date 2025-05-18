@@ -12,8 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Map architecture names to weight loader/saver functions."""
 
-def get_weight_loader(arch: str):
+
+from typing import Callable
+
+
+def get_weight_loader(arch: str) -> Callable:
+    """Return the loader function for the given architecture."""
+
     from verl.models.mcore.loader import load_state_dict_to_megatron_gptmodel
 
     _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY = {
@@ -23,11 +30,19 @@ def get_weight_loader(arch: str):
 
     if arch in _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY[arch]
-    raise ValueError(f"Model architectures {arch} loader are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} loader are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_LOADER_REGISTRY.keys()}"
+    )
 
 
-def get_weight_saver(arch: str):
-    from verl.models.mcore.saver import merge_megatron_ckpt_gptmodel, merge_megatron_ckpt_gptmodel_mixtral, merge_megatron_ckpt_gptmodel_qwen_moe
+def get_weight_saver(arch: str) -> Callable:
+    """Return the saver function for the given architecture."""
+
+    from verl.models.mcore.saver import (
+        merge_megatron_ckpt_gptmodel,
+        merge_megatron_ckpt_gptmodel_mixtral,
+        merge_megatron_ckpt_gptmodel_qwen_moe,
+    )
 
     _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY = {
         "LlamaForCausalLM": merge_megatron_ckpt_gptmodel,
@@ -39,4 +54,6 @@ def get_weight_saver(arch: str):
     }
     if arch in _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY:
         return _MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY[arch]
-    raise ValueError(f"Model architectures {arch} saver are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}")
+    raise ValueError(
+        f"Model architectures {arch} saver are not supported for now. Supported architectures: {_MODEL_WEIGHT_MEGATRON_SAVER_REGISTRY.keys()}"
+    )

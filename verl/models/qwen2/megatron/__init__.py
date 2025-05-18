@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Megatron optimized Qwen2 model classes."""
+
 from .modeling_qwen2_megatron import (
     ParallelQwen2ForCausalLM,
     # rmpad with megatron

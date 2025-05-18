@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Megatron optimized Llama model classes."""
+
 from .modeling_llama_megatron import (
     ParallelLlamaForCausalLM,
     # rmpad with megatron

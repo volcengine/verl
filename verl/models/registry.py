@@ -12,6 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Utilities for resolving Megatron based model classes.
+
+This module maps HuggingFace architecture names to the corresponding
+Megatron-Core implementations shipped with :mod:`verl`.  It exposes helper
+functions that allow the rest of the code base to dynamically import the
+appropriate class given an architecture string.
+"""
+
 import importlib
 from typing import List, Optional, Type
 
@@ -37,8 +45,19 @@ _MODELS = {
 
 # return model class
 class ModelRegistry:
+    """Helper class for obtaining Megatron model implementations."""
+
     @staticmethod
-    def load_model_cls(model_arch: str, value=False) -> Optional[Type[nn.Module]]:
+    def load_model_cls(model_arch: str, value: bool = False) -> Optional[Type[nn.Module]]:
+        """Return the Megatron implementation for ``model_arch``.
+
+        Args:
+            model_arch: The HuggingFace architecture name.
+            value: If ``True`` return the value head implementation.
+
+        Returns:
+            The resolved model class or ``None`` if ``model_arch`` is unknown.
+        """
         if model_arch not in _MODELS:
             return None
 
@@ -55,4 +74,5 @@ class ModelRegistry:
 
     @staticmethod
     def get_supported_archs() -> List[str]:
+        """Return the list of supported architecture names."""
         return list(_MODELS.keys())
