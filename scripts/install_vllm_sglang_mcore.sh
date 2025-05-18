@@ -38,6 +38,7 @@ if [ $USE_MEGATRON -eq 1 ]; then
     echo "Notice that TransformerEngine installation can take very long time, please be patient"
     NVTE_FRAMEWORK=pytorch pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
     pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
+fi
 
 
 echo "5. May need to fix opencv"
@@ -49,5 +50,6 @@ pip install opencv-fixer && \
 if [ $USE_MEGATRON -eq 1 ]; then
     echo "6. Install cudnn python package (avoid being overrided)"
     pip install nvidia-cudnn-cu12==9.8.0.87
+fi
 
 echo "Successfully installed all packages"
