@@ -11,9 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-FSDP PPO Trainer with Ray-based single controller.
-This trainer supports model-agonistic model initialization with huggingface
+"""DAPO PPO trainer implementation.
+
+This module defines :class:`RayDAPOTrainer`, an extension of
+``RayPPOTrainer`` that implements the Dynamic Advantage Policy Optimization
+(DAPO) algorithm. The trainer runs entirely on the driver process and
+uses Ray workers for distributed generation, reward evaluation and model
+updates.
 """
 
 import uuid
@@ -36,16 +40,20 @@ from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, _tim
 
 
 class RayDAPOTrainer(RayPPOTrainer):
-    """
-    Note that this trainer runs on the driver process on a single CPU/GPU node.
+    """DAPO variant of :class:`RayPPOTrainer`.
+
+    The trainer orchestrates rollouts and model updates for the DAPO
+    algorithm.  All coordination happens on the driver process which
+    communicates with Ray workers to perform generation, reward
+    computation and policy optimization.
     """
 
-    def fit(self):
-        """
-        The training loop of PPO.
-        The driver process only need to call the compute functions of the worker group through RPC
-        to construct the PPO dataflow.
-        The light-weight advantage computation is done on the driver process.
+    def fit(self) -> None:
+        """Run the main DAPO training loop.
+
+        The driver coordinates remote workers via RPC calls to perform
+        rollout generation, reward evaluation and policy updates.  All
+        advantage computations run locally on the driver.
         """
         from omegaconf import OmegaConf
 

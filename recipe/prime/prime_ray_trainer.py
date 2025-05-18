@@ -11,9 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-FSDP PPO Trainer with Ray-based single controller.
-This trainer supports model-agonistic model initialization with huggingface
+"""PRIME trainer built on :class:`RayPPOTrainer`.
+
+The trainer implements the PRIME algorithm for reinforcement learning with
+large language models.  It reuses the Ray-based single controller
+infrastructure and customizes the data loading and training loop to suit
+PRIME's objectives.
 """
 
 import os
@@ -21,6 +24,7 @@ import statistics
 import uuid
 from copy import deepcopy
 from pprint import pprint
+from typing import Any
 
 import numpy as np
 import torch
@@ -31,14 +35,31 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, Role, WorkerType, _timer
-from verl.utils.metric import reduce_metrics
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.metric import reduce_metrics
 
 from . import prime_core_algos
 
 
-def compute_advantage(data: DataProto, adv_estimator, config):
+def compute_advantage(data: DataProto, adv_estimator: str, config) -> DataProto:
+    """Calculate advantages and returns for PRIME training.
+
+    Parameters
+    ----------
+    data:
+        Batch containing rollout responses and masks.
+    adv_estimator:
+        Name of the advantage estimator to use. Only ``"rloo"`` is supported.
+    config:
+        Trainer configuration object providing algorithm parameters.
+
+    Returns
+    -------
+    DataProto
+        The input batch enriched with ``advantages`` and ``returns`` tensors.
+    """
+
     if adv_estimator == "rloo":
         responses = data.batch["responses"]
         response_length = responses.size(-1)
@@ -52,7 +73,8 @@ def compute_advantage(data: DataProto, adv_estimator, config):
     return data
 
 
-def compute_data_metrics(batch, use_critic=True):
+def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict:
+    """Aggregate statistics over advantages, returns and sequence lengths."""
     advantages = batch.batch["advantages"]
     returns = batch.batch["returns"]
 
@@ -111,14 +133,16 @@ def compute_data_metrics(batch, use_critic=True):
     return metrics
 
 
-def compute_response_mask(data: DataProto):
+def compute_response_mask(data: DataProto) -> torch.Tensor:
+    """Return the attention mask corresponding to the response tokens."""
     responses = data.batch["responses"]
     response_length = responses.size(1)
     attention_mask = data.batch["attention_mask"]
     return attention_mask[:, -response_length:]
 
 
-def compute_timing_metrics(batch, timing_raw):
+def compute_timing_metrics(batch: DataProto, timing_raw: dict) -> dict:
+    """Compute per-token timing statistics for different pipeline stages."""
     response_info = _compute_response_info(batch)
     num_prompt_tokens = torch.sum(response_info["prompt_length"]).item()
     num_response_tokens = torch.sum(response_info["response_length"]).item()
@@ -136,22 +160,25 @@ def compute_timing_metrics(batch, timing_raw):
 
 
 class RayPRIMETrainer(RayPPOTrainer):
-    """
-    Note that this trainer runs on the driver process on a single CPU/GPU node.
+    """Trainer implementing the PRIME algorithm.
+
+    All heavy computation is delegated to Ray workers while this driver
+    process coordinates data loading, rollouts and policy updates.
     """
 
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
         self,
-        config,
+        config: Any,
         tokenizer,
         role_worker_mapping: dict[Role, WorkerType],
         resource_pool_manager: ResourcePoolManager,
         ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
         reward_fn=None,
         val_reward_fn=None,
-    ):
+    ) -> None:
+        """Initialize the PRIME trainer with dataset and worker information."""
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
         super().__init__(
@@ -221,6 +248,7 @@ class RayPRIMETrainer(RayPPOTrainer):
             self.config.critic.optim.total_training_steps = total_training_steps
 
     def _save_checkpoint(self):
+        """Persist actor and reward model states to disk."""
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
         print(f"local_global_step_folder: {local_global_step_folder}")
@@ -254,6 +282,7 @@ class RayPRIMETrainer(RayPPOTrainer):
             f.write(str(self.global_steps))
 
     def _load_checkpoint(self):
+        """Load model and dataloader state from the latest checkpoint."""
         if self.config.trainer.resume_mode == "disable":
             return 0
 
@@ -302,12 +331,8 @@ class RayPRIMETrainer(RayPPOTrainer):
         if isinstance(self.train_dataloader.dataset, RLHFDataset):
             self.train_dataloader.dataset.resume_dataset_state()
 
-    def fit(self):
-        """
-        The training loop of PPO.
-        The driver process only need to call the compute functions of the worker group through RPC to
-        construct the PPO dataflow. The light-weight advantage computation is done on the driver process.
-        """
+    def fit(self) -> None:
+        """Run the PRIME training loop coordinating remote workers."""
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking

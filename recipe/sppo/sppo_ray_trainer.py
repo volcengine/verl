@@ -13,15 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-FSDP PPO Trainer with Ray-based single controller.
-This trainer supports model-agonistic model initialization with huggingface
+"""Self-Play PPO trainer implementation.
+
+The module provides :class:`RaySPPOTrainer`, a variant of ``RayPPOTrainer``
+designed for Self-Play Proximal Policy Optimization (SPPO).  It orchestrates
+rollouts and policy updates using Ray workers while running the control flow on
+the driver process.
 """
 
 import uuid
 from copy import deepcopy
 from pprint import pprint
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import ray
@@ -57,24 +60,46 @@ def softmean(x: torch.Tensor, beta: float, dim: int = -1, keepdim: bool = False)
     return (lse - log_n) / beta_t
 
 
-def compute_advantage(data: DataProto, beta=1.0):
-    rewards = data.batch["token_level_rewards"].sum(axis=-1)  # (bs, )
-    s_mean = softmean(rewards, beta, keepdim=True)  # (bs, )
-    rewards = rewards - s_mean  # (bs, )
-    data.batch["seq_level_rewards"] = rewards  # (bs, )
+def compute_advantage(data: DataProto, beta: float = 1.0) -> DataProto:
+    """Compute sequence-level rewards for SPPO.
+
+    Rewards from each token are summed and normalized using ``softmean`` to
+    produce a per-sequence score.  The resulting values are stored in the
+    ``seq_level_rewards`` field of ``data``.
+
+    Parameters
+    ----------
+    data:
+        Batch of rollout data.
+    beta:
+        Temperature for the soft-mean operation.
+
+    Returns
+    -------
+    DataProto
+        Updated batch containing ``seq_level_rewards``.
+    """
+
+    rewards = data.batch["token_level_rewards"].sum(axis=-1)
+    s_mean = softmean(rewards, beta, keepdim=True)
+    rewards = rewards - s_mean
+    data.batch["seq_level_rewards"] = rewards
     return data
 
 
 class RaySPPOTrainer(RayPPOTrainer):
-    """
-    Note that this trainer runs on the driver process on a single CPU/GPU node.
+    """Self-play variant of :class:`RayPPOTrainer`.
+
+    All algorithmic control remains on the driver while workers perform
+    rollout generation and reward model evaluation.  The trainer
+    implements the SPPO objective and advantage estimation.
     """
 
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
         self,
-        config,
+        config: Any,
         tokenizer,
         role_worker_mapping: dict[Role, WorkerType],
         resource_pool_manager: ResourcePoolManager,
@@ -86,7 +111,36 @@ class RaySPPOTrainer(RayPPOTrainer):
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-    ):
+    ) -> None:
+        """Initialize the SPPO trainer.
+
+        Parameters
+        ----------
+        config:
+            Hydra configuration for the experiment.
+        tokenizer:
+            Tokenizer used for decoding rollouts.
+        role_worker_mapping:
+            Mapping from worker roles to concrete worker types.
+        resource_pool_manager:
+            Manages Ray resource pools for the workers.
+        ray_worker_group_cls:
+            Implementation of ``RayWorkerGroup`` to launch workers.
+        processor:
+            Optional preprocessing callable applied to prompts.
+        reward_fn:
+            Callable computing rewards from a :class:`DataProto` batch.
+        val_reward_fn:
+            Optional reward function used during validation.
+        train_dataset:
+            Optional dataset providing training prompts.
+        val_dataset:
+            Optional dataset providing validation prompts.
+        collate_fn:
+            Data collation function.
+        train_sampler:
+            Sampler used for the training dataloader.
+        """
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -116,12 +170,12 @@ class RaySPPOTrainer(RayPPOTrainer):
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
-    def fit(self):
-        """
-        The training loop of PPO.
-        The driver process only need to call the compute functions of the
-        worker group through RPC to construct the PPO dataflow.
-        The light-weight advantage computation is done on the driver process.
+    def fit(self) -> None:
+        """Execute the SPPO training loop.
+
+        Remote workers are invoked via RPC to generate rollouts, compute
+        rewards and perform model updates while the driver coordinates the
+        overall loop and computes advantages locally.
         """
         from omegaconf import OmegaConf
 
