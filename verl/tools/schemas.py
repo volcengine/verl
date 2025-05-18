@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Literal
+import json
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -56,9 +57,31 @@ class OpenAIFunctionParsedSchema(BaseModel):
     arguments: str  # JSON string
 
 
+class OpenAIFunctionCallSchema(BaseModel):
+    """The parsed schema of a tool in OpenAI format."""
+
+    name: str
+    arguments: dict[str, Any]
+
+    @staticmethod
+    def from_openai_function_parsed_schema(parsed_schema: OpenAIFunctionParsedSchema) -> tuple["OpenAIFunctionCallSchema", bool]:
+        has_decode_error = False
+        try:
+            arguments = json.loads(parsed_schema.arguments)
+        except json.JSONDecodeError:
+            arguments = {}
+            has_decode_error = True
+        # If the arguments is not a dict, it means the arguments is not a valid JSON string
+        if not isinstance(arguments, dict):
+            arguments = {}
+            has_decode_error = True
+
+        return OpenAIFunctionCallSchema(name=parsed_schema.name, arguments=arguments), has_decode_error
+
+
 class OpenAIFunctionToolCall(BaseModel):
     """The tool call in OpenAI format."""
 
     id: str
     type: Literal["function"] = "function"
-    function: OpenAIFunctionParsedSchema
+    function: OpenAIFunctionCallSchema
