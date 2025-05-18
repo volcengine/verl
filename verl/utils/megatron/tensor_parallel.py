@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from megatron.core import ModelParallelConfig
 
 
-def update_kwargs_with_config(dictionary: Dict, config: ModelParallelConfig):
+def update_kwargs_with_config(dictionary: Dict, config: "ModelParallelConfig"):
     dictionary["config"] = config
     return dictionary
 
