@@ -141,7 +141,7 @@ actor_rollout_ref:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
     # number of responses (i.e. num sample times)
-    n: 1
+    n: 1 # > 1 for grpo
     engine_kwargs: # inference engine parameters
       swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
     val_kwargs:
@@ -151,7 +151,7 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
-    multi_turn: 
+    multi_turn:
       enable: False  # should set rollout.name to sglang_async if True
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool

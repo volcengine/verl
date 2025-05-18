@@ -29,6 +29,7 @@ from torch.distributed import new_group
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 
+from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.megatron_utils import per_tensor_generator
 
@@ -58,7 +59,15 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 class MegatronSGLangShardingManager(BaseShardingManager):
-    def __init__(self, actor_module: nn.ModuleList, inference_engine: VerlEngine, model_config, layer_name_mapping, weight_converter, device_mesh: DeviceMesh = None):
+    def __init__(
+        self,
+        actor_module: nn.ModuleList,
+        inference_engine: VerlEngine,
+        model_config,
+        layer_name_mapping,
+        weight_converter,
+        device_mesh: DeviceMesh | None = None,
+    ):
         from megatron.core import parallel_state as mpu
 
         self.actor_module = actor_module
@@ -133,6 +142,21 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     def release_memory(self):
         self.inference_engine.release_memory_occupation()
+
+    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
+    def preprocess_data(self, data: DataProto) -> DataProto:
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
+        return data
+
+    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
+    def postprocess_data(self, data: DataProto) -> DataProto:
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
 
 
 class MegatronAsyncSGLangShardingManager(MegatronSGLangShardingManager):
