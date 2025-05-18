@@ -274,6 +274,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         actor_module: nn.ModuleList,
         inference_engine: LLM,
         model_config,
+        transformer_config,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         module: AllGatherPPModel = None,
@@ -283,6 +284,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.module = module
@@ -307,7 +309,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         from megatron.core import parallel_state as mpu
 
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
         all_gather_group = self.train_tp_group
@@ -341,7 +342,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers)
+                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, self.transformer_config)
             else:
                 cur_tensor, cur_name = None, None
 

@@ -55,6 +55,12 @@ RM_VPP=${RM_VPP:-$COMMON_VPP}
 RM_CP=${RM_CP:-$COMMON_CP}
 RM_TP=${RM_TP:-$TRAIN_TP}
 
+CHECKPOINT_CONTENTS=['model','hf_model','optimizer','extra']
+SKIP_SAVE_HF_MODEL=${SKIP_SAVE_HF_MODEL:-0}
+if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
+    CHECKPOINT_CONTENTS=['model','optimizer','extra']
+fi
+
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
 python3 -m verl.trainer.main_ppo --config-path=config \
@@ -97,7 +103,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.megatron.virtual_pipeline_model_parallel_size=$CRITIC_VPP \
     critic.megatron.context_parallel_size=$CRITIC_CP \
     critic.megatron.tensor_model_parallel_size=$CRITIC_TP \
-    critic.checkpoint.contents=['model','hf_model','optimizer','extra'] \
+    critic.checkpoint.contents=$CHECKPOINT_CONTENTS \
     reward_model.enable=True \
     reward_model.model.path="${MODEL_PATH}" \
     reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \

@@ -247,6 +247,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
