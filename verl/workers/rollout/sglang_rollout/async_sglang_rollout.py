@@ -166,7 +166,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         if not self.config.get("max_model_len", None):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
-        assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
+        assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length):
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
         assert model_hf_config.max_position_embeddings >= self.config.max_model_len, "model context length should be greater than total sequence length"
         # currently max_turns stand for max number of tool calls
@@ -266,6 +266,10 @@ class AsyncSGLangRollout(BaseRollout):
 
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
+
+    @property
+    def inference_engine(self) -> Engine:
+        return self._engine
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -605,7 +609,7 @@ class AsyncSGLangRollout(BaseRollout):
         reward_scores = []
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
-            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), f"""Request {req.request_id} has different length of 
+            assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), f"""Request {req.request_id} has different length of
                 {len(req.input_ids)=}, {len(req.attention_mask)=}, {len(req.position_ids)=}, {len(req.loss_mask)=}"""
             error_message_lines = [
                 f"""Request {req.request_id} has input_ids length {len(req.input_ids)}
@@ -623,7 +627,7 @@ class AsyncSGLangRollout(BaseRollout):
             response_ids.append(torch.tensor(req.response_ids, dtype=torch.int, device=tgt_device))
             if len(req.response_ids) > self.config.response_length:
                 print(
-                    f"""{req.request_id=} has response_ids length {len(req.response_ids)} 
+                    f"""{req.request_id=} has response_ids length {len(req.response_ids)}
                     greater than max_response_len {self.config.response_length},\n{req=}"""
                 )
             prompt_attention_mask.append(torch.tensor(req.prompt_attention_mask, dtype=torch.int, device=tgt_device))

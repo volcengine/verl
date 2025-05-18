@@ -285,6 +285,41 @@ class ActorRolloutRefWorker(MegatronWorker):
                 weight_converter=weight_converter,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
+        elif self.config.rollout.name == "custom":
+            from verl.utils.import_utils import load_extern_type
+
+            rollout_cls = load_extern_type(
+                file_path=self.config.rollout.custom_cls.path,
+                type_name=self.config.rollout.custom_cls.rollout_name,
+            )
+            sharding_manager_cls = load_extern_type(
+                file_path=self.config.rollout.custom_cls.path,
+                type_name=self.config.rollout.custom_cls.sharding_manager_name,
+            )
+            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
+
+            rollout = rollout_cls(
+                model_path=local_path,
+                actor_module=self.actor_module,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
+            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
+
+            sharding_manager = sharding_manager_cls(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout.inference_engine,
+                model_config=self.actor_model_config,
+                full_params="hf" in self.config.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
+                layer_name_mapping=layer_name_mapping,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
 

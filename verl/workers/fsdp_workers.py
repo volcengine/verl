@@ -51,7 +51,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
 )
 from verl.models.transformers.monkey_patch import apply_monkey_patch
-from verl.utils.import_utils import import_external_libs
+from verl.utils.import_utils import import_external_libs, load_extern_type
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -358,7 +358,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout import HFRollout
             from verl.workers.sharding_manager.base import BaseShardingManager
 
-            rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
+            rollout = HFRollout(actor_module=self.actor_module_fsdp, config=self.config.rollout)
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
 
@@ -395,7 +395,7 @@ class ActorRolloutRefWorker(Worker):
             if torch.distributed.get_world_size() == 1:
                 self.config.rollout.load_format = "dummy_hf"
             rollout_sharding_manager = FSDPVLLMShardingManager(
-                module=self.actor_module_fsdp,
+                actor_module=self.actor_module_fsdp,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
@@ -458,6 +458,38 @@ class ActorRolloutRefWorker(Worker):
             rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
                 module=self.actor_module_fsdp,
                 inference_engine=rollout._engine,
+                model_config=self.actor_model_config,
+                full_params="hf" in self.config.rollout.load_format,
+                device_mesh=rollout_device_mesh,
+                offload_param=self._is_offload_param,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=None)
+
+        elif rollout_name == "custom":
+            rollout_cls = load_extern_type(
+                file_path=self.config.rollout.custom_cls.path,
+                type_name=self.config.rollout.custom_cls.rollout_name,
+            )
+            sharding_manager_cls = load_extern_type(
+                file_path=self.config.rollout.custom_cls.path,
+                type_name=self.config.rollout.custom_cls.sharding_manager_name,
+            )
+            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
+
+            rollout = rollout_cls(
+                model_path=local_path,
+                actor_module=self.actor_module_fsdp,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                device_mesh=rollout_device_mesh,
+                trust_remote_code=trust_remote_code,
+            )
+            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)
+
+            rollout_sharding_manager = sharding_manager_cls(
+                actor_module=self.actor_module_fsdp,
+                inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 full_params="hf" in self.config.rollout.load_format,
                 device_mesh=rollout_device_mesh,

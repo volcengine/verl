@@ -17,8 +17,8 @@ data:
   image_key: images
   video_key: videos
   custom_cls:
-      path: null
-      name: null
+    path: null
+    name: null
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -132,6 +132,10 @@ actor_rollout_ref:
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
       format: chatml  # chatml, more formats will be supported in the future
+    custom_cls:
+      path: null
+      rollout_name: null
+      sharding_manager_name: null
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
