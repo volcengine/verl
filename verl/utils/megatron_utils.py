@@ -411,7 +411,7 @@ def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=Tru
     tp_rank = mpu.get_tensor_model_parallel_rank()
     cp_rank = mpu.get_context_parallel_rank()
     dp_rank = mpu.get_data_parallel_rank()
-    # TODO: support ep
+    # TODO: add expert parallel rank to file name (issue #125)
     return os.path.join(checkpoint_path, "optim", f"distrib_optim_pp{pp_rank}_tp{tp_rank}_cp{cp_rank}_dp{dp_rank}.pt")
 
 
@@ -631,9 +631,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     train_params: training parameters
     infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from micro_dp_group
     model_config: huggingface model_config
-    TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
-    definition so that it is model-agnostic. If the model doesn't implement this function, 
-    we can throw an error to force user disable TP HybridEngine.
+    TODO: refactor to a model-specific hook (see issue #126).
     """
     from megatron.core import mpu
 

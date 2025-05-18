@@ -38,7 +38,7 @@ class SFTDataset(Dataset):
         config (OmegaConf): the data config
     """
 
-    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config):
+    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config) -> None:
         prompt_key = config.get("prompt_key", "prompt")
         prompt_dict_keys = config.get("prompt_dict_keys", None)
         response_key = config.get("response_key", "response")
@@ -67,11 +67,13 @@ class SFTDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
-    def _download(self):
+    def _download(self) -> None:
+        """Copy parquet files to a local path."""
         for i, parquet_file in enumerate(self.parquet_files):
             self.parquet_files[i] = copy_to_local(parquet_file, verbose=True)
 
-    def _read_files_and_tokenize(self):
+    def _read_files_and_tokenize(self) -> None:
+        """Load parquet files into memory and tokenize prompts."""
         def series_to_item(ls):
             import numpy
             import pandas
@@ -107,9 +109,12 @@ class SFTDataset(Dataset):
         self.responses = self.responses.tolist()
 
     def __len__(self):
+        """Return dataset size."""
+
         return len(self.prompts)
 
     def __getitem__(self, item):
+        """Return one tokenized prompt/response pair."""
         tokenizer = self.tokenizer
 
         prompt = self.prompts[item]

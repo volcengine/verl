@@ -21,6 +21,8 @@ from qwen_vl_utils import fetch_image, fetch_video
 
 
 def process_image(image: Union[dict, Image.Image]) -> Image.Image:
+    """Normalize an image specification into a PIL ``Image``."""
+
     if isinstance(image, Image.Image):
         return image.convert("RGB")
 
@@ -66,10 +68,7 @@ def process_video(
     fps_min_frames: Optional[int] = None,
     fps_max_frames: Optional[int] = None,
 ) -> torch.Tensor:
-    """Converts a video dict into a [n_frames, 3, H, W] tensor
-
-    Add video sample FPS in a future MR
-    """
+    """Convert a video description into a ``[T, 3, H, W]`` tensor."""
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError(VIDEO_FORMAT_HELP)

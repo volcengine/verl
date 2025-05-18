@@ -31,7 +31,7 @@ class MultiTurnSFTDataset(Dataset):
     Dataset for multi-turn conversations where each assistant response should be trained
     """
 
-    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config=None):
+    def __init__(self, parquet_files: Union[str, List[str]], tokenizer, config=None) -> None:
         # Set defaults and extract parameters from config if provided
         config = config or {}
         self.truncation = config.get("truncation", "error")
@@ -53,11 +53,13 @@ class MultiTurnSFTDataset(Dataset):
         self._download()
         self._read_files_and_process()
 
-    def _download(self):
+    def _download(self) -> None:
+        """Copy dataset files from HDFS to local storage."""
         for i, parquet_file in enumerate(self.parquet_files):
             self.parquet_files[i] = copy_local_path_from_hdfs(parquet_file, verbose=True)
 
-    def _read_files_and_process(self):
+    def _read_files_and_process(self) -> None:
+        """Load conversation data and extract message lists."""
         def series_to_item(ls):
             import numpy
             import pandas
@@ -76,9 +78,12 @@ class MultiTurnSFTDataset(Dataset):
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
 
     def __len__(self):
+        """Return dataset size."""
+
         return len(self.messages)
 
     def __getitem__(self, item):
+        """Return one tokenized conversation."""
         tokenizer = self.tokenizer
         messages = self.messages[item]
 

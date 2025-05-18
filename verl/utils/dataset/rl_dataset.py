@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def collate_fn(data_list: list[dict]) -> dict:
-    """Collate a batch of data."""
+    """Merge a list of dataset entries into a single mini-batch."""
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 
@@ -56,9 +56,7 @@ def collate_fn(data_list: list[dict]) -> dict:
 
 
 class RLHFDataset(Dataset):
-    """
-    We assume the dataset contains a column that contains prompts and other information
-    """
+    """Dataset for RLHF prompts and optional multimodal data."""
 
     def __init__(
         self,
@@ -66,7 +64,7 @@ class RLHFDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
-    ):
+    ) -> None:
         if not isinstance(data_files, (List, ListConfig)):
             data_files = [data_files]
 
@@ -94,14 +92,16 @@ class RLHFDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
-    def _download(self, use_origin_parquet=False):
+    def _download(self, use_origin_parquet: bool = False) -> None:
+        """Download parquet files from HDFS if necessary."""
         from verl.utils.fs import copy_to_local
 
         data_files = self.data_files if not use_origin_parquet else self.original_data_files
         for i, parquet_file in enumerate(data_files):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
 
-    def _read_files_and_tokenize(self):
+    def _read_files_and_tokenize(self) -> None:
+        """Load parquet files and tokenize prompts."""
         dataframes = []
         for parquet_file in self.data_files:
             # read parquet files and cache
@@ -123,7 +123,8 @@ class RLHFDataset(Dataset):
 
             print(f"filter dataset len: {len(self.dataframe)}")
 
-    def resume_dataset_state(self):
+    def resume_dataset_state(self) -> None:
+        """Reload dataset files if ``__getstate__`` was used for checkpointing."""
         self.serialize_dataset = not hasattr(self, "original_data_files")
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
@@ -133,9 +134,13 @@ class RLHFDataset(Dataset):
             print(r"old dataloader ckpt file is used, please train from scratch for better ckpt performance")
 
     def __len__(self):
+        """Return the number of samples in the dataset."""
+
         return len(self.dataframe)
 
     def _build_messages(self, example: dict):
+        """Convert raw prompt entry to a list of chat messages."""
+
         messages: list = example.pop(self.prompt_key)
 
         if self.image_key in example or self.video_key in example:
@@ -155,9 +160,8 @@ class RLHFDataset(Dataset):
         return messages
 
     def __getitem__(self, item):
-        """
-        Note that we also return the raw_input_ids so that it can be combined with other chat template
-        """
+        """Return one processed training example."""
+        # We also return ``raw_prompt_ids`` so the caller can mix with other templates
         row_dict: dict = self.dataframe[item]
         messages = self._build_messages(row_dict)
         model_inputs = {}
@@ -258,6 +262,8 @@ class RLHFDataset(Dataset):
         return row_dict
 
     def __getstate__(self):
+        """Support pickling by dropping the cached dataframe when needed."""
+
         if not self.serialize_dataset:
             state = self.__dict__.copy()
 

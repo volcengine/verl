@@ -22,7 +22,8 @@ from torch.utils.data import Dataset
 from verl.utils import hf_tokenizer
 
 
-def download_files_distributed(download_fn):
+def download_files_distributed(download_fn) -> None:
+    """Execute ``download_fn`` on rank 0 and barrier for others."""
     import torch.distributed
 
     if torch.distributed.is_initialized():
@@ -37,6 +38,7 @@ def download_files_distributed(download_fn):
 
 
 class RMDataset(Dataset):
+    """Pairwise reward modeling dataset."""
     def __init__(
         self,
         parquet_files: Union[str, List[str]],
@@ -47,7 +49,7 @@ class RMDataset(Dataset):
         max_length=1024,
         add_eos=True,
         cache_dir="~/.cache/verl/rm",
-    ):
+    ) -> None:
         if not isinstance(parquet_files, List):
             parquet_files = [parquet_files]
 
@@ -67,7 +69,8 @@ class RMDataset(Dataset):
         self._download()
         self._read_files_and_tokenize()
 
-    def _download(self):
+    def _download(self) -> None:
+        """Download dataset files from HDFS if required."""
         def _download_files():
             from verl.utils.fs import copy, is_non_local
 
@@ -82,7 +85,8 @@ class RMDataset(Dataset):
 
         download_files_distributed(_download_files)
 
-    def _read_files_and_tokenize(self):
+    def _read_files_and_tokenize(self) -> None:
+        """Read parquet files and tokenize prompt/response pairs."""
         dataframes = []
         for parquet_file in self.parquet_files:
             # read parquet files and cache
@@ -93,10 +97,13 @@ class RMDataset(Dataset):
         self.chosen_responses = self.dataframe[self.chosen_key].tolist()
         self.rejected_responses = self.dataframe[self.rejected_key].tolist()
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of prompt pairs in the dataset."""
+
         return len(self.prompts)
 
-    def _pad_to_length(self, input_ids, attention_mask):
+    def _pad_to_length(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pad or truncate sequences to ``self.max_length``."""
         curr_length = input_ids.shape[-1]
 
         if curr_length < self.max_length:
@@ -108,7 +115,8 @@ class RMDataset(Dataset):
 
         return input_ids, attention_mask
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: int) -> dict:
+        """Return one training pair as tensors."""
         prompt = self.prompts[item]
         chosen_response = self.chosen_responses[item]
         rejected_response = self.rejected_responses[item]

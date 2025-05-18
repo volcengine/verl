@@ -31,11 +31,15 @@ __all__ = ["copy", "exists", "makedirs"]
 _HDFS_PREFIX = "hdfs://"
 
 
-def is_non_local(path):
+def is_non_local(path: str) -> bool:
+    """Return ``True`` if the path should be treated as non-local (HDFS)."""
+
     return path.startswith(_HDFS_PREFIX)
 
 
 def md5_encode(path: str) -> str:
+    """Return the MD5 hex digest for ``path``."""
+
     return hashlib.md5(path.encode()).hexdigest()
 
 
@@ -60,7 +64,9 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def _record_directory_structure(folder_path):
+def _record_directory_structure(folder_path: str) -> str:
+    """Write out the directory tree under ``folder_path`` for later validation."""
+
     record_file = os.path.join(folder_path, ".directory_record.txt")
     with open(record_file, "w") as f:
         for root, dirs, files in os.walk(folder_path):
@@ -74,10 +80,12 @@ def _record_directory_structure(folder_path):
     return record_file
 
 
-def _check_directory_structure(folder_path, record_file):
+def _check_directory_structure(folder_path: str, record_file: str) -> bool:
+    """Return ``True`` if ``folder_path`` matches the recorded directory layout."""
+
     if not os.path.exists(record_file):
         return False
-    existing_entries = set()
+    existing_entries: set[str] = set()
     for root, dirs, files in os.walk(folder_path):
         for dir_name in dirs:
             relative_dir = os.path.relpath(os.path.join(root, dir_name), folder_path)
@@ -107,8 +115,14 @@ def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False
     return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
 
 
-def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
-    """Deprecated. Please use copy_to_local instead."""
+def copy_local_path_from_hdfs(
+    src: str,
+    cache_dir: str | None = None,
+    filelock: str = ".file.lock",
+    verbose: bool = False,
+    always_recopy: bool = False,
+) -> str:
+    """Legacy helper for ``copy_to_local`` retaining backwards compatibility."""
     from filelock import FileLock
 
     assert src[-1] != "/", f"Make sure the last char in src is not / because it will cause error. Got {src}"

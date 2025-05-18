@@ -18,8 +18,18 @@ from transformers import PretrainedConfig
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
 
 
-def get_device_flops(unit="T"):
-    def unit_convert(number, level):
+def get_device_flops(unit: str = "T") -> float:
+    """Return theoretical FLOPS of the current CUDA device.
+
+    Args:
+        unit: Unit to convert the FLOPS to. Defaults to ``"T"`` (TFLOPS).
+
+    Returns:
+        The device FLOPS converted to the requested unit. ``float('inf')`` is
+        returned for unknown GPU types.
+    """
+
+    def unit_convert(number: float, level: str) -> float:
         units = ["B", "K", "M", "G", "T", "P"]
         if number <= 0:
             return number
@@ -30,7 +40,7 @@ def get_device_flops(unit="T"):
         return number
 
     device_name = torch.cuda.get_device_name()
-    flops = float("inf")  # INF flops for unkown gpu type
+    flops = float("inf")  # INF flops for unknown GPU type
 
     if "MI300X" in device_name:
         flops = 1336e12
@@ -75,10 +85,16 @@ class FlopsCounter:
         }
         self.config = config
 
-    def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
-        return 0
+    def _estimate_unknown_flops(
+        self, tokens_sum: int, batch_seqlens: list[int], delta_time: float
+    ) -> float:
+        """Fallback FLOPS estimation used when model type is unknown."""
 
-    def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
+        return 0.0
+
+    def _estimate_qwen2_flops(
+        self, tokens_sum: int, batch_seqlens: list[int], delta_time: float
+    ) -> float:
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
@@ -112,7 +128,9 @@ class FlopsCounter:
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
         return flops_achieved
 
-    def _estimate_deepseek_v3_flops(self, tokens_sum, batch_seqlens, delta_time):
+    def _estimate_deepseek_v3_flops(
+        self, tokens_sum: int, batch_seqlens: list[int], delta_time: float
+    ) -> float:
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         moe_intermediate_size = self.config.moe_intermediate_size
@@ -158,7 +176,9 @@ class FlopsCounter:
 
         return flops_achieved
 
-    def _estimate_qwen3_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
+    def _estimate_qwen3_moe_flops(
+        self, tokens_sum: int, batch_seqlens: list[int], delta_time: float
+    ) -> float:
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size
         num_hidden_layers = self.config.num_hidden_layers
@@ -195,7 +215,9 @@ class FlopsCounter:
         return flops_achieved
 
 
-    def estimate_flops(self, batch_seqlens, delta_time):
+    def estimate_flops(
+        self, batch_seqlens: list[int], delta_time: float
+    ) -> tuple[float, float]:
         """
         Estimate the FLOPS based on the number of valid tokens in the current batch and the time taken.
 

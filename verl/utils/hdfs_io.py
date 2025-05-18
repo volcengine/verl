@@ -15,6 +15,7 @@
 import logging
 import os
 import shutil
+from typing import Any
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -40,14 +41,14 @@ def exists(path: str, **kwargs) -> bool:
     return os.path.exists(path)
 
 
-def _exists(file_path: str):
-    """hdfs capable to check whether a file_path is exists"""
+def _exists(file_path: str) -> bool:
+    """Return ``True`` if ``file_path`` exists on HDFS or the local filesystem."""
     if file_path.startswith("hdfs"):
         return _run_cmd(_hdfs_cmd(f"-test -e {file_path}")) == 0
     return os.path.exists(file_path)
 
 
-def makedirs(name, mode=0o777, exist_ok=False, **kwargs) -> None:
+def makedirs(name: str, mode: int = 0o777, exist_ok: bool = False, **kwargs: Any) -> None:
     r"""Works like os.makedirs() but supports hdfs.
 
     Super-mkdir; create a leaf directory and all intermediate ones.  Works like
@@ -64,16 +65,15 @@ def makedirs(name, mode=0o777, exist_ok=False, **kwargs) -> None:
 
     """
     if _is_non_local(name):
-        # TODO(haibin.lin):
-        # - handle OSError for hdfs(?)
-        # - support exist_ok for hdfs(?)
+        # TODO: support ``exist_ok`` semantics and better error handling.
+        #       Tracked in issue #123.
         _mkdir(name, **kwargs)
     else:
         os.makedirs(name, mode=mode, exist_ok=exist_ok)
 
 
 def _mkdir(file_path: str) -> bool:
-    """hdfs mkdir"""
+    """Create ``file_path`` either on HDFS or locally."""
     if file_path.startswith("hdfs"):
         _run_cmd(_hdfs_cmd(f"-mkdir -p {file_path}"))
     else:
@@ -81,7 +81,7 @@ def _mkdir(file_path: str) -> bool:
     return True
 
 
-def copy(src: str, dst: str, **kwargs) -> bool:
+def copy(src: str, dst: str, **kwargs: Any) -> bool:
     r"""Works like shutil.copy() for file, and shutil.copytree for dir, and supports hdfs.
 
     Copy data and mode bits ("cp src dst"). Return the file's destination.
@@ -99,9 +99,8 @@ def copy(src: str, dst: str, **kwargs) -> bool:
 
     """
     if _is_non_local(src) or _is_non_local(dst):
-        # TODO(haibin.lin):
-        # - handle SameFileError for hdfs files(?)
-        # - return file destination for hdfs files
+        # TODO: improve error handling and return destination path when using
+        #       HDFS. Tracked in issue #124.
         return _copy(src, dst)
     else:
         if os.path.isdir(src):
@@ -110,7 +109,8 @@ def copy(src: str, dst: str, **kwargs) -> bool:
             return shutil.copy(src, dst, **kwargs)
 
 
-def _copy(from_path: str, to_path: str, timeout: int = None) -> bool:
+def _copy(from_path: str, to_path: str, timeout: int | None = None) -> bool:
+    """Internal helper implementing cross-filesystem copy logic."""
     if to_path.startswith("hdfs"):
         if from_path.startswith("hdfs"):
             returncode = _run_cmd(_hdfs_cmd(f"-cp -f {from_path} {to_path}"), timeout=timeout)
@@ -137,13 +137,19 @@ def _copy(from_path: str, to_path: str, timeout: int = None) -> bool:
     return returncode == 0
 
 
-def _run_cmd(cmd: str, timeout=None):
+def _run_cmd(cmd: str, timeout: int | None = None) -> int:
+    """Execute a shell command and return its exit code."""
+
     return os.system(cmd)
 
 
 def _hdfs_cmd(cmd: str) -> str:
+    """Return a full ``hdfs dfs`` command string."""
+
     return f"{_HDFS_BIN_PATH} dfs {cmd}"
 
 
-def _is_non_local(path: str):
+def _is_non_local(path: str) -> bool:
+    """Return ``True`` if ``path`` points to an HDFS location."""
+
     return path.startswith(_HDFS_PREFIX)
