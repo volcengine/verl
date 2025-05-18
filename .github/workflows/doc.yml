@@ -57,8 +57,13 @@ jobs:
           path: docs/_build/html
 
       - name: Deploy Pages
-        uses: actions/deploy-pages@v1
+        if: github.event_name == 'pull_request'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/_build/html
+          destination_dir: pr-${{ github.event.number }}
 
       - name: Show published URL
         run: |
-          echo "📖 Docs are live at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo "📖 Docs are live at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.number }}/"
