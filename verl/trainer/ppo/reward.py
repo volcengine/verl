@@ -18,11 +18,14 @@ from functools import partial
 
 import ray
 
+from typing import Any, Callable, Optional
+
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 
 
-def get_custom_reward_fn(config):
+def get_custom_reward_fn(config: Any) -> Optional[Callable]:
+    """Load a user defined reward function from a Python file."""
     import importlib.util
     import sys
 
@@ -44,7 +47,9 @@ def get_custom_reward_fn(config):
 
     function_name = reward_fn_config.get("name")
     if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
+        raise AttributeError(
+            f"Reward function '{function_name}' not found in '{file_path}'."
+        )
 
     print(f"using customized reward function '{function_name}' from '{file_path}'")
     raw_fn = getattr(module, function_name)
@@ -57,7 +62,10 @@ def get_custom_reward_fn(config):
     return wrapped_fn
 
 
-def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
+def load_reward_manager(
+    config: Any, tokenizer: Any, num_examine: int, **reward_kwargs: Any
+):
+    """Instantiate a reward manager based on the configuration."""
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     if reward_manager_name == "naive":
         from verl.workers.reward_manager import NaiveRewardManager
@@ -86,8 +94,14 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
         if sandbox_url:
             sandbox_manager = multiprocessing.Manager()
-            _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
+            _concurrent_semaphore = sandbox_manager.Semaphore(
+                sandbox_config.get("max_concurrent", 64)
+            )
+            final_compute_score = partial(
+                _default_compute_score,
+                sandbox_fusion_url=sandbox_url,
+                concurrent_semaphore=_concurrent_semaphore,
+            )
         else:
             final_compute_score = _default_compute_score
 
@@ -100,7 +114,7 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
     )
 
 
-def compute_reward(data: DataProto, reward_fn):
+def compute_reward(data: DataProto, reward_fn: Callable) -> tuple[Any, dict]:
     """
     Compute reward for a batch of data.
     Args:
@@ -122,10 +136,11 @@ def compute_reward(data: DataProto, reward_fn):
 
 
 @ray.remote(num_cpus=1)
-def compute_reward_async(data: DataProto, config, tokenizer):
-    """
-    Load the reward manager and compute the reward for a batch of data.
-    This is meant to be run in a separate Ray worker.
-    """
-    reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
+def compute_reward_async(
+    data: DataProto, config: Any, tokenizer: Any
+) -> tuple[Any, dict]:
+    """Compute rewards inside a remote Ray worker."""
+    reward_fn = load_reward_manager(
+        config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+    )
     return compute_reward(data, reward_fn)

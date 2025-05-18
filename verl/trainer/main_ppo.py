@@ -11,8 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
+"""Entry point for PPO training using :class:`~verl.trainer.ppo.ray_trainer.RayPPOTrainer`.
+
+This module provides a thin wrapper around :class:`RayPPOTrainer` that sets up
+the runtime environment and launches the trainer inside a Ray task.  It is
+intended to be invoked via ``python -m verl.trainer.main_ppo`` and is
+compatible with Hydra configuration files under ``verl/trainer/config``.
 """
 
 import os
@@ -24,7 +28,27 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
 
-def get_custom_reward_fn(config):
+from typing import Any, Callable, Optional
+
+
+def get_custom_reward_fn(config: Any) -> Optional[Callable]:
+    """Load a custom reward function defined by the given config.
+
+    The configuration should contain ``custom_reward_function.path`` pointing to
+    a Python file and ``custom_reward_function.name`` specifying the callable
+    inside that file.
+
+    Parameters
+    ----------
+    config:
+        Hydra configuration object that may contain ``custom_reward_function``.
+
+    Returns
+    -------
+    Callable | None
+        The loaded reward function or ``None`` if no custom reward function is
+        specified.
+    """
     import importlib.util
     import sys
 
@@ -46,7 +70,9 @@ def get_custom_reward_fn(config):
 
     function_name = reward_fn_config.get("name")
     if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
+        raise AttributeError(
+            f"Reward function '{function_name}' not found in '{file_path}'."
+        )
 
     print(f"using customized reward function '{function_name}' from '{file_path}'")
     raw_fn = getattr(module, function_name)
@@ -60,15 +86,23 @@ def get_custom_reward_fn(config):
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
-def main(config):
+def main(config: Any) -> None:
+    """Hydra entry point used when executing this module as a script."""
     run_ppo(config)
 
 
-def run_ppo(config) -> None:
+def run_ppo(config: Any) -> None:
+    """Launch a Ray cluster if needed and execute PPO training."""
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}},
+            runtime_env={
+                "env_vars": {
+                    "TOKENIZERS_PARALLELISM": "true",
+                    "NCCL_DEBUG": "WARN",
+                    "VLLM_LOGGING_LEVEL": "WARN",
+                }
+            },
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -78,7 +112,10 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
-    def run(self, config):
+    """Wrapper class executed on a Ray worker to start the PPO trainer."""
+
+    def run(self, config: Any) -> None:
+        """Instantiate tokenizer, create workers and run training."""
         # print initial config
         from pprint import pprint
 
@@ -86,7 +123,9 @@ class TaskRunner:
 
         from verl.utils.fs import copy_to_local
 
-        pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
+        pprint(
+            OmegaConf.to_container(config, resolve=True)
+        )  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
 
         # download the checkpoint from hdfs
@@ -97,21 +136,34 @@ class TaskRunner:
 
         trust_remote_code = config.data.get("trust_remote_code", False)
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
+        processor = hf_processor(
+            local_path, use_fast=True
+        )  # used for multimodal LLM, could be none
 
         # define worker classes
         if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
             assert config.critic.strategy in ["fsdp", "fsdp2"]
             from verl.single_controller.ray import RayWorkerGroup
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import (
+                ActorRolloutRefWorker,
+                AsyncActorRolloutRefWorker,
+                CriticWorker,
+            )
 
-            actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.workers.megatron_workers import (
+                ActorRolloutRefWorker,
+                CriticWorker,
+            )
 
             actor_rollout_cls = ActorRolloutRefWorker
             ray_worker_group_cls = NVMegatronRayWorkerGroup
@@ -152,18 +204,32 @@ class TaskRunner:
             mapping[Role.RewardModel] = global_pool_id
 
         # use reference model
-        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+        if (
+            config.algorithm.use_kl_in_reward
+            or config.actor_rollout_ref.actor.use_kl_loss
+        ):
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
-        reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
+        reward_fn = load_reward_manager(
+            config,
+            tokenizer,
+            num_examine=0,
+            **config.reward_model.get("reward_kwargs", {}),
+        )
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
-        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+        resource_pool_manager = ResourcePoolManager(
+            resource_pool_spec=resource_pool_spec, mapping=mapping
+        )
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(
+            config.data.train_files, config.data, tokenizer, processor
+        )
+        val_dataset = create_rl_dataset(
+            config.data.val_files, config.data, tokenizer, processor
+        )
         train_sampler = create_rl_sampler(config.data, train_dataset)
         trainer = RayPPOTrainer(
             config=config,
@@ -183,27 +249,50 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
-    """Create a dataset.
+from typing import Sequence
 
-    Arguments:
-        data_config: The data config.
-        tokenizer (Tokenizer): The tokenizer.
-        processor (Processor): The processor.
 
-    Returns:
-        dataset (Dataset): The dataset.
+def create_rl_dataset(
+    data_paths: Sequence[str],
+    data_config: Any,
+    tokenizer: Any,
+    processor: Any,
+) -> "Dataset":
+    """Instantiate the RL dataset used for PPO training.
+
+    Parameters
+    ----------
+    data_paths:
+        Sequence of parquet files containing training data.
+    data_config:
+        Hydra configuration for the dataset.
+    tokenizer:
+        Tokenizer instance used to process text.
+    processor:
+        Optional processor for multimodal inputs.
+
+    Returns
+    -------
+    Dataset
+        A dataset object ready to be wrapped by a DataLoader.
     """
     from torch.utils.data import Dataset
 
     from verl.utils.dataset.rl_dataset import RLHFDataset
 
-    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
+    if (
+        "custom_cls" in data_config
+        and data_config.custom_cls.get("path", None) is not None
+    ):
         from verl.utils.import_utils import load_extern_type
 
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        dataset_cls = load_extern_type(
+            data_config.custom_cls.path, data_config.custom_cls.name
+        )
         if not issubclass(dataset_cls, Dataset):
-            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+            raise TypeError(
+                f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
+            )
     else:
         dataset_cls = RLHFDataset
     print(f"Using dataset class: {dataset_cls.__name__}")
@@ -218,15 +307,20 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     return dataset
 
 
-def create_rl_sampler(data_config, dataset):
-    """Create a sampler for the dataset.
+def create_rl_sampler(data_config: Any, dataset: "Dataset") -> "Sampler":
+    """Create a sampler for the RL dataset.
 
-    Arguments:
-        data_config: The data config.
-        dataset (Dataset): The dataset.
+    Parameters
+    ----------
+    data_config:
+        Configuration object controlling shuffling and seeds.
+    dataset:
+        Dataset instance produced by :func:`create_rl_dataset`.
 
-    Returns:
-        sampler (Sampler): The sampler.
+    Returns
+    -------
+    Sampler
+        PyTorch sampler used by the DataLoader.
     """
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
@@ -235,7 +329,9 @@ def create_rl_sampler(data_config, dataset):
     if data_config.shuffle:
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
-        sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+        sampler = RandomSampler(
+            data_source=dataset, generator=train_dataloader_generator
+        )
     else:
         sampler = SequentialSampler(data_source=dataset)
 
