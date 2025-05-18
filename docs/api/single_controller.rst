@@ -11,19 +11,19 @@ Core APIs
 ~~~~~~~~~~~~~~~~~
 
 .. autoclass:: verl.single_controller.Worker
-   :members: __init__, __new__, get_master_addr_port, get_cuda_visible_devices, world_size, rank, execute_with_func_generator, execute_func_rank_zero
+   :members: __init__, __new__, get_master_addr_port, get_cuda_visible_devices, world_size, rank
 
 .. autoclass:: verl.single_controller.WorkerGroup
-   :members: __init__, start_worker_aliveness_check, world_size
+   :members: __init__,  world_size
 
 .. autoclass:: verl.single_controller.ClassWithInitArgs
    :members: __init__, __call__
 
 .. autoclass:: verl.single_controller.ResourcePool
-   :members: __init__, add_note, world_size, __call__, store, local_world_size_list, local_rank_list
+   :members: __init__, world_size, local_world_size_list, local_rank_list
 
 .. automodule:: verl.single_controller.ray
-   :members: RayWorkerGroup, create_colocated_worker_cls, create_colocated_worker_cls_fused
+   :members: RayWorkerGroup, create_colocated_worker_cls
 
 .. autoclass:: verl.single_controller.ray.megatron.NVMegatronRayWorkerGroup
    :members: __init__
