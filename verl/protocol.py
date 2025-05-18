@@ -22,7 +22,8 @@ import logging
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List, Union, Iterable, Sequence, Tuple, Optional
+from typing import Union as TypingUnion
 
 import numpy as np
 import pandas as pd
@@ -38,6 +39,9 @@ from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
 
 __all__ = ["DataProto", "union_tensor_dict"]
+
+# Types used for indexing operations.
+IndexType = TypingUnion[int, slice, Sequence[int], np.ndarray, torch.Tensor]
 
 with contextlib.suppress(Exception):
     tensordict.set_lazy_legacy(False).set()
@@ -66,15 +70,19 @@ class DataProtoConfig(metaclass=_DataProtoConfigMeta):
 _padding_size_key = "_padding_size_key_x123d"
 
 
-def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int):
-    """Pad a DataProto to size divisible by size_divisor
+def pad_dataproto_to_divisor(data: "DataProto", size_divisor: int) -> tuple["DataProto", int]:
+    """Pad a :class:`DataProto` so its length becomes a multiple of ``size_divisor``.
 
     Args:
-        size_divisor (int): size divisor
+        data (DataProto): Input data whose first dimension represents the batch
+            size. Each tensor in ``data.batch`` is expected to have shape
+            ``(batch_size, ...)``.
+        size_divisor (int): The divisor that the final batch size should be
+            divisible by.
 
     Returns:
-        data: (DataProto): the padded DataProto
-        pad_size (int)
+        Tuple[DataProto, int]: The padded :class:`DataProto` and the number of
+            padded examples that were appended.
     """
     assert isinstance(data, DataProto), "data must be a DataProto"
     if len(data) % size_divisor != 0:
@@ -112,13 +120,33 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
-def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def union_numpy_dict(
+    tensor_dict1: dict[str, np.ndarray],
+    tensor_dict2: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Merge two dictionaries whose values are :class:`numpy.ndarray`.
+
+    The arrays contained in both dictionaries are expected to share the same
+    leading (batch) dimension and will be checked for equality when keys
+    overlap.
+
+    Args:
+        tensor_dict1: The dictionary to update in-place.
+        tensor_dict2: Additional values that will be merged into
+            ``tensor_dict1``.
+
+    Returns:
+        dict[str, np.ndarray]: The updated ``tensor_dict1``.
+    """
+
     for key, val in tensor_dict2.items():
         if key in tensor_dict1:
             assert isinstance(tensor_dict2[key], np.ndarray)
             assert isinstance(tensor_dict1[key], np.ndarray)
             # to properly deal with nan and object type
-            assert pd.DataFrame(tensor_dict2[key]).equals(pd.DataFrame(tensor_dict1[key])), f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
+            assert pd.DataFrame(tensor_dict2[key]).equals(
+                pd.DataFrame(tensor_dict1[key])
+            ), f"{key} in tensor_dict1 and tensor_dict2 are not the same object"
         tensor_dict1[key] = val
 
     return tensor_dict1
@@ -198,11 +226,13 @@ class DataProtoItem:
 
 @dataclass
 class DataProto:
-    """
-    A DataProto is a data structure that aims to provide a standard protocol for data exchange between functions.
-    It contains a batch (TensorDict) and a meta_info (Dict). The batch is a TensorDict https://pytorch.org/tensordict/.
-    TensorDict allows you to manipulate a dictionary of Tensors like a single Tensor. Ideally, the tensors with the
-    same batch size should be put inside batch.
+    """Container for batched tensor and non-tensor data.
+
+    ``batch`` is a :class:`TensorDict` whose values are PyTorch tensors. Each
+    tensor must have the same first dimension which represents the batch size.
+    ``non_tensor_batch`` stores objects such as numpy arrays with the leading
+    dimension also equal to ``batch_size``. ``meta_info`` is arbitrary metadata
+    shared across the batch.
     """
 
     batch: TensorDict = None
@@ -213,16 +243,17 @@ class DataProto:
         # perform necessary checking
         self.check_consistency()
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples contained in this :class:`DataProto`."""
+
         if self.batch is not None:
             return self.batch.batch_size[0]
-        elif self.non_tensor_batch is not None and len(self.non_tensor_batch) > 0:
+        if self.non_tensor_batch is not None and len(self.non_tensor_batch) > 0:
             random_key = list(self.non_tensor_batch.keys())[0]
             return self.non_tensor_batch[random_key].shape[0]
-        else:
-            return 0
+        return 0
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: IndexType) -> Union["DataProto", "DataProtoItem"]:
         """
         Enhanced indexing for DataProto objects.
 
@@ -256,7 +287,7 @@ class DataProto:
         else:
             raise TypeError(f"Indexing with {type(item)} is not supported")
 
-    def __getstate__(self):
+    def __getstate__(self) -> Tuple[bytes, Dict, Dict]:
         import io
 
         buffer = io.BytesIO()
@@ -267,7 +298,7 @@ class DataProto:
         buffer_bytes = buffer.getvalue()
         return buffer_bytes, self.non_tensor_batch, self.meta_info
 
-    def __setstate__(self, data):
+    def __setstate__(self, data: Tuple[bytes, Dict, Dict]) -> None:
         import io
 
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
@@ -277,17 +308,21 @@ class DataProto:
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
 
-    def save_to_disk(self, filepath):
+    def save_to_disk(self, filepath: str) -> None:
+        """Serialize this :class:`DataProto` to ``filepath`` using pickle."""
         with open(filepath, "wb") as f:
             pickle.dump(self, f)
 
     @staticmethod
-    def load_from_disk(filepath) -> "DataProto":
+    def load_from_disk(filepath: str) -> "DataProto":
+        """Load a :class:`DataProto` object saved via :meth:`save_to_disk`."""
         with open(filepath, "rb") as f:
             data = pickle.load(f)
             return data
 
-    def print_size(self, prefix=""):
+    def print_size(self, prefix: str = "") -> None:
+        """Print human-readable memory usage of this :class:`DataProto`."""
+
         size_of_tensordict = 0
         for key, tensor in self.batch.items():
             size_of_tensordict += tensor.element_size() * tensor.numel()
@@ -304,10 +339,8 @@ class DataProto:
             message = f"{prefix}, " + message
         print(message)
 
-    def check_consistency(self):
-        """Check the consistency of the DataProto. Mainly for batch and non_tensor_batch
-        We expose this function as a public one so that user can call themselves directly
-        """
+    def check_consistency(self) -> None:
+        """Validate that tensor and non-tensor batches share the same batch size."""
         if self.batch is not None:
             assert len(self.batch.batch_size) == 1, "only support num_batch_dims=1"
 
@@ -325,8 +358,13 @@ class DataProto:
                 assert val.shape[0] == batch_size, f"key {key} length {len(val)} is not equal to batch size {batch_size}"
 
     @classmethod
-    def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None, auto_padding=False):
-        """Create a DataProto from a dict of tensors and non_tensors"""
+    def from_single_dict(
+        cls,
+        data: Dict[str, TypingUnion[torch.Tensor, np.ndarray]],
+        meta_info: Optional[Dict] = None,
+        auto_padding: bool = False,
+    ) -> "DataProto":
+        """Create a :class:`DataProto` from a mixed dictionary of tensors and arrays."""
         tensors = {}
         non_tensors = {}
 
@@ -341,8 +379,17 @@ class DataProto:
         return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
     @classmethod
-    def from_dict(cls, tensors: Dict[str, torch.Tensor], non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
-        """Create a DataProto from a dict of tensors. This assumes that
+    def from_dict(
+        cls,
+        tensors: Dict[str, torch.Tensor],
+        non_tensors: Optional[Dict[str, Iterable]] = None,
+        meta_info: Optional[Dict] = None,
+        num_batch_dims: int = 1,
+        auto_padding: bool = False,
+    ) -> "DataProto":
+        """Create a :class:`DataProto` from a dictionary of tensors.
+
+        This assumes that
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
         """
@@ -377,7 +424,7 @@ class DataProto:
             meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
-    def to(self, device) -> "DataProto":
+    def to(self, device: TypingUnion[torch.device, str]) -> "DataProto":
         """move the batch to device
 
         Args:
@@ -391,7 +438,13 @@ class DataProto:
             self.batch = self.batch.to(device)
         return self
 
-    def select(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None, deepcopy=False) -> "DataProto":
+    def select(
+        self,
+        batch_keys: Optional[Sequence[str]] = None,
+        non_tensor_batch_keys: Optional[Sequence[str]] = None,
+        meta_info_keys: Optional[Sequence[str]] = None,
+        deepcopy: bool = False,
+    ) -> "DataProto":
         """Select a subset of the DataProto via batch_keys and meta_info_keys
 
         Args:
@@ -426,7 +479,7 @@ class DataProto:
 
         return type(self)(batch=sub_batch, non_tensor_batch=non_tensor_batch, meta_info=sub_meta_info)
 
-    def select_idxs(self, idxs):
+    def select_idxs(self, idxs: IndexType) -> "DataProto":
         """
         Select specific indices from the DataProto.
 
@@ -462,7 +515,12 @@ class DataProto:
 
         return type(self)(batch=selected_batch, non_tensor_batch=selected_non_tensor, meta_info=self.meta_info)
 
-    def slice(self, start=None, end=None, step=None):
+    def slice(
+        self,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        step: Optional[int] = None,
+    ) -> "DataProto":
         """
         Slice the DataProto and return a new DataProto object.
         This is an improved version of direct slicing which returns a DataProtoItem.
@@ -508,7 +566,12 @@ class DataProto:
         # Return a new DataProto object
         return type(self)(batch=sliced_batch, non_tensor_batch=sliced_non_tensor, meta_info=self.meta_info)
 
-    def pop(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None) -> "DataProto":
+    def pop(
+        self,
+        batch_keys: TypingUnion[Sequence[str], str, None] = None,
+        non_tensor_batch_keys: Optional[Sequence[str]] = None,
+        meta_info_keys: Optional[Sequence[str]] = None,
+    ) -> "DataProto":
         """Pop a subset of the DataProto via `batch_keys` and `meta_info_keys`
 
         Args:
@@ -540,7 +603,11 @@ class DataProto:
             meta_info[key] = self.meta_info.pop(key)
         return DataProto.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info)
 
-    def rename(self, old_keys=None, new_keys=None) -> "DataProto":
+    def rename(
+        self,
+        old_keys: TypingUnion[Sequence[str], str, None] = None,
+        new_keys: TypingUnion[Sequence[str], str, None] = None,
+    ) -> "DataProto":
         """
         Note that this function only rename the key in the batch
         """
@@ -584,7 +651,13 @@ class DataProto:
         self.meta_info = union_two_dict(self.meta_info, other.meta_info)
         return self
 
-    def make_iterator(self, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
+    def make_iterator(
+        self,
+        mini_batch_size: int,
+        epochs: int,
+        seed: Optional[int] = None,
+        dataloader_kwargs: Optional[Dict] = None,
+    ) -> Iterable["DataProto"]:
         r"""Make an iterator from the DataProto. This is built upon that TensorDict can be used as a normal Pytorch
         dataset. See https://pytorch.org/tensordict/tutorials/data_fashion for more details.
 
@@ -619,7 +692,7 @@ class DataProto:
 
         return iter(get_data())
 
-    def is_padding_enabled(self):
+    def is_padding_enabled(self) -> bool:
         """
         Check if padding is enabled for the DataProto.
         Returns:
@@ -628,7 +701,7 @@ class DataProto:
         dataproto_specific_padding = self.meta_info.get(DataProtoConfig.auto_padding_key, False)
         return dataproto_specific_padding or DataProtoConfig.auto_padding
 
-    def padding(self, padding_size, padding_candidate=""):
+    def padding(self, padding_size: int, padding_candidate: str = "") -> None:
         """Pad the DataProto by concating with padding_candidate.repeat(padding_size)
 
         Args:
@@ -703,7 +776,7 @@ class DataProto:
         cls = type(data[0]) if len(data) > 0 else DataProto
         return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
 
-    def reorder(self, indices):
+    def reorder(self, indices: torch.Tensor) -> None:
         """
         Note that this operation is in-place
         """
@@ -711,7 +784,7 @@ class DataProto:
         self.batch = self.batch[indices]
         self.non_tensor_batch = {key: val[indices_np] for key, val in self.non_tensor_batch.items()}
 
-    def repeat(self, repeat_times=2, interleave=True):
+    def repeat(self, repeat_times: int = 2, interleave: bool = True) -> "DataProto":
         """
         Repeat the batch data a specified number of times.
 
