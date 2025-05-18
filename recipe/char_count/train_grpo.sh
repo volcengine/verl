@@ -8,7 +8,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=$HOME/data/char_count/rl/test.parquet \
     data.train_batch_size=256 \
     data.max_prompt_length=64 \
-    data.max_response_length=192 \
+    data.max_response_length=128 \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
     actor_rollout_ref.model.path=$HOME/experiments/char_count/models/sft/global_step_557 \

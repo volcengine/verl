@@ -9,60 +9,69 @@ The word set comes from shakespeare
 import os.path
 import random
 
-with open('/home/chi/experiments/char_count/input.txt', 'r') as f:
-    words = f.read()
-
-# 25670 unique word
-word_set = list(set(words.split()))
-
 prompt_template = 'How many {} are there in word {}?'
 
+def generate_random_char():
+    return chr(97 + random.randint(0, 25))
 
-def create_prompt_response(word):
-    char_set = set(word)
-    char_lst = list(word)
-    # TODO: add chars not in char_set
+def create_prompt_response(min_length=3, max_length=5):
+    # randomly generate a length
+    word_length = random.randint(min_length, max_length)
+    # randomly generate a target count number. This makes the target number
+    target_count_number = random.randint(1, word_length)
 
-    output = []
+    char_lst = []
+    # generate the word
+    # step 1: generate the target word
+    target_char = generate_random_char()
 
-    for target_char in char_set:
-        prompt = prompt_template.format(target_char, word)
-        final_answer = []
-        answer = f'Let count the number of {target_char} in {word} step by step.'
+    for _ in range(target_count_number):
+        char_lst.append(target_char)
 
-        final_answer.append(answer)
-        # cot
-        number = 0
-        for i, char in enumerate(char_lst):
-            cot = f'The #{i + 1} char in {word} is {char}, which is '
+    # step 2: generate other words
+    for _ in range(word_length - target_count_number):
+        while True:
+            char = generate_random_char()
             if char != target_char:
-                cot += 'not '
-            else:
-                number += 1
-            cot += f'equal to {target_char}.'
+                char_lst.append(char)
+                break
 
-            final_answer.append(cot)
+    # step 3: random permute char_lst
+    random.shuffle(char_lst)
 
-        conclusion = f'Thus, in total, there are \\boxed{{{number}}} {target_char} in {word}.'
 
-        final_answer.append(conclusion)
+    word = '-'.join(char_lst)
 
-        final_answer = '\n'.join(final_answer)
+    prompt = prompt_template.format(target_char, word)
+    final_answer = []
 
-        output.append((prompt, final_answer))
+    # cot
+    number = 0
+    for i, char in enumerate(char_lst):
+        cot = f'{char}'
+        if char != target_char:
+            cot += ' != '
+        else:
+            cot += ' = '
+            number += 1
+        cot += f'{target_char}.'
 
-    return output
+        final_answer.append(cot)
 
+    conclusion = f'\\boxed{{{number}}} {target_char} in {word}.'
+
+    final_answer.append(conclusion)
+
+    final_answer = '\n'.join(final_answer)
+
+    return prompt, final_answer
+
+total_number = 50000
 
 full_output = []
-for word in word_set:
-    # normalize word
-    word = ''.join([i for i in word if i.isalpha()])
-    if len(word) > 15:
-        print(f'Ignore word {word}')
-        continue
-    output = create_prompt_response(word)
-    full_output.extend(output)
+for _ in range(total_number):
+    output = create_prompt_response(min_length=3, max_length=5)
+    full_output.append(output)
 
 # random reorder
 random.shuffle(full_output)
