@@ -12,6 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""Pydantic models describing OpenAI function-calling tool schemas."""
+
 import json
 from typing import Any, Literal
 
@@ -19,7 +22,7 @@ from pydantic import BaseModel
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
-    """The schema of a parameter in OpenAI format."""
+    """Schema describing a single function argument."""
 
     type: str
     description: str | None = None
@@ -27,7 +30,7 @@ class OpenAIFunctionPropertySchema(BaseModel):
 
 
 class OpenAIFunctionParametersSchema(BaseModel):
-    """The schema of parameters in OpenAI format."""
+    """Collection of parameters for an OpenAI function."""
 
     type: str
     properties: dict[str, OpenAIFunctionPropertySchema]
@@ -35,7 +38,7 @@ class OpenAIFunctionParametersSchema(BaseModel):
 
 
 class OpenAIFunctionSchema(BaseModel):
-    """The schema of a function in OpenAI format."""
+    """Metadata describing a callable tool function."""
 
     name: str
     description: str
@@ -44,27 +47,32 @@ class OpenAIFunctionSchema(BaseModel):
 
 
 class OpenAIFunctionToolSchema(BaseModel):
-    """The schema of a tool in OpenAI format."""
+    """Schema for registering a tool as an OpenAI function."""
 
     type: str
     function: OpenAIFunctionSchema
 
 
 class OpenAIFunctionParsedSchema(BaseModel):
-    """The parsed schema of a tool in OpenAI format."""
+    """Model holding the raw tool call as returned by the model."""
 
     name: str
     arguments: str  # JSON string
 
 
 class OpenAIFunctionCallSchema(BaseModel):
-    """The parsed schema of a tool in OpenAI format."""
+    """Validated representation of a tool call."""
 
     name: str
     arguments: dict[str, Any]
 
     @staticmethod
     def from_openai_function_parsed_schema(parsed_schema: OpenAIFunctionParsedSchema) -> tuple["OpenAIFunctionCallSchema", bool]:
+        """Convert a parsed schema to a validated call object.
+
+        Returns the constructed :class:`OpenAIFunctionCallSchema` and a boolean
+        indicating whether decoding the ``arguments`` field failed.
+        """
         has_decode_error = False
         try:
             arguments = json.loads(parsed_schema.arguments)
@@ -80,7 +88,7 @@ class OpenAIFunctionCallSchema(BaseModel):
 
 
 class OpenAIFunctionToolCall(BaseModel):
-    """The tool call in OpenAI format."""
+    """Concrete invocation of a registered tool."""
 
     id: str
     type: Literal["function"] = "function"

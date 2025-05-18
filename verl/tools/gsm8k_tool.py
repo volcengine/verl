@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Tool for evaluating GSM8K-style arithmetic answers during RL training."""
+
 import logging
 import os
 from typing import Any, Optional, Tuple
@@ -28,42 +30,46 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class Gsm8kTool(BaseTool):
-    """A demo tool for calculating the reward of gsm8k.
+    """Tool for evaluating GSM8K-style arithmetic answers during RL training.
 
-    - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
-    - `create`: create a tool instance for a trajectory.
-    - `execute`: execute the tool.
-    - `calc_reward`: calculate the reward respect to tool state.
-    - `release`: release the tool instance.
+    The tool exposes a single function ``calc_gsm8k_reward`` which accepts an
+    ``answer`` string and returns a reward score by comparing it against the
+    provided ground truth.
     """
 
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
-        """
-        _tool_schema = OpenAIFunctionToolSchema.model_validate({
-            "type": "function",
-            "function": {
-                "name": "calc_gsm8k_reward",
-                "description": "A tool for calculating the reward of gsm8k",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "answer": {
-                            "type": "string",
-                            "description": "The answer to the question",
+        """Initialise the tool and prepare the instance registry."""
+
+        _tool_schema = OpenAIFunctionToolSchema.model_validate(
+            {
+                "type": "function",
+                "function": {
+                    "name": "calc_gsm8k_reward",
+                    "description": "A tool for calculating the reward of gsm8k",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "answer": {
+                                "type": "string",
+                                "description": "The answer to the question",
+                            },
                         },
+                        "required": ["answer"],
                     },
-                    "required": ["answer"],
                 },
             }
-        })
-        """
+        )
         super().__init__(config, tool_schema)
         self._instance_dict = {}
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
+        """Return the OpenAI schema describing this tool."""
+
         return self.tool_schema
 
     async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+        """Create a new tool instance for a single question."""
+
         if instance_id is None:
             instance_id = str(uuid4())
         self._instance_dict[instance_id] = {
@@ -74,6 +80,8 @@ class Gsm8kTool(BaseTool):
         return instance_id
 
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+        """Process an answer and compute its incremental reward."""
+
         answer = parameters.get("answer", "")
         if not isinstance(answer, str):
             answer = str(answer)
@@ -92,6 +100,8 @@ class Gsm8kTool(BaseTool):
         return f"Current parsed {answer=} {reward=}", tool_reward, {}
 
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
+        """Return the GSM8K reward for the stored answer."""
+
         return gsm8k.compute_score(
             self._instance_dict[instance_id]["response"],
             self._instance_dict[instance_id]["ground_truth"],
@@ -101,4 +111,6 @@ class Gsm8kTool(BaseTool):
         )
 
     async def release(self, instance_id: str, **kwargs) -> None:
+        """Remove the stored state for ``instance_id``."""
+
         del self._instance_dict[instance_id]
