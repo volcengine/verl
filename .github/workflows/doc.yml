@@ -50,7 +50,7 @@ jobs:
           make html
 
       - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           path: doc/_build/html
 
