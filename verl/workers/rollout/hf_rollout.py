@@ -36,10 +36,10 @@ __all__ = ["HFRollout"]
 
 
 class HFRollout(BaseRollout):
-    def __init__(self, module: nn.Module, config):
+    def __init__(self, actor_module: nn.Module, config):
         super().__init__()
         self.config = config
-        self.module = module
+        self.module = actor_module
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         batch_size = prompts.batch.batch_size[0]
