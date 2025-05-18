@@ -262,7 +262,7 @@ jobs:
           ray stop --force
           SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 SKIP_SAVE_HF_MODEL=1 bash tests/e2e/run_ppo_trainer_megatron.sh +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=14 +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=10 actor_rollout_ref.actor.megatron.use_dist_checkpointing=true actor_rollout_ref.actor.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron actor_rollout_ref.ref.megatron.use_dist_checkpointing=true actor_rollout_ref.ref.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron critic.megatron.use_dist_checkpointing=true critic.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron reward_model.megatron.use_dist_checkpointing=true reward_model.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-0.5b-megatron
           cp checkpoints checkpoints-dut
-          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 SKIP_SAVE_HF_MODEL=1 bash tests/e2e/run_ppo_trainer_megatron.sh
+          SAVE_FREQ=1 COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
         run: |
           exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
