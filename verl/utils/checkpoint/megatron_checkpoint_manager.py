@@ -21,10 +21,12 @@ import torch
 import torch.distributed
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
+from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
 from verl.utils.fs import is_non_local
 from verl.utils.megatron_utils import (
+    get_hf_config_and_tokenizer_checkpoint_path,
     get_hf_model_checkpoint_path,
     get_model_checkpoint_path,
     get_optimizer_checkpoint_path,
@@ -240,10 +242,21 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
             print(f"Saving sharded model checkpoint to {local_path}")
             model_ckpt_path = get_model_checkpoint_path(local_path)
-            hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
+            hf_config_and_tokenizer_path = get_hf_config_and_tokenizer_checkpoint_path(local_path)
             ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
             torch.save(state_dicts, os.path.join(ckpt_name))
-            self.processing_class.save_pretrained(hf_model_ckpt_path)  # tokenizer will be saved to hf_model_ckpt_path
+
+            if self.rank == 0:
+                self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
+                self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
+                if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
+                    try:
+                        generation_config = GenerationConfig.from_pretrained(self.hf_config.name_or_path)
+                        generation_config.save_pretrained(hf_config_and_tokenizer_path)
+                    except Exception:
+                        # if the generation config isn't available, we don't save it
+                        pass
+
             print(f"Saved checkpoint to {model_ckpt_path}")
             if hdfs_path is not None:
                 print(f"Uploading checkpoint to {hdfs_path}")
@@ -285,6 +298,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
                         model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
                 model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
+                self.processing_class.save_pretrained(hf_model_ckpt_path)
+
                 if hdfs_path is not None:
                     print(f"Uploading checkpoint to {hdfs_path}")
                     from verl.utils import hdfs_io
