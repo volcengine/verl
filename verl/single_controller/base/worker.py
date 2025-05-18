@@ -11,8 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-the class for Worker
+"""Base Worker implementation.
+
+Workers encapsulate the actual computation executed on remote processes. Methods
+decorated with :func:`~verl.single_controller.base.decorator.register` can be
+called via a :class:`~verl.single_controller.base.worker_group.WorkerGroup` and
+dispatched according to :class:`~verl.single_controller.base.decorator.Dispatch`
+rules.
 """
 
 import os
@@ -42,7 +47,7 @@ class DistGlobalInfo:
 
 
 class WorkerHelper:
-    def _get_node_ip(self):
+    def _get_node_ip(self) -> str:
         def get_node_ip_by_sdk():
             if os.getenv("WG_BACKEND", None) == "ray":
                 import ray
@@ -59,21 +64,26 @@ class WorkerHelper:
         host_ip = host_ip_by_env or host_ip_by_sdk
         return host_ip
 
-    def _get_free_port(self):
+    def _get_free_port(self) -> int:
         with socket.socket() as sock:
             sock.bind(("", 0))
             return sock.getsockname()[1]
 
-    def get_availale_master_addr_port(self):
+    def get_availale_master_addr_port(self) -> tuple[str, str]:
         return self._get_node_ip(), str(self._get_free_port())
 
-    def _get_pid(self):
+    def _get_pid(self) -> int:
         return os.getpid()
 
 
 # we assume that in each WorkerGroup, there is a Master Worker
 class Worker(WorkerHelper):
-    """A (distributed) worker."""
+    """Base class for all remote workers.
+
+    Subclasses implement the actual computation logic.  Methods decorated with
+    :func:`register` can be invoked through a :class:`WorkerGroup` which handles
+    dispatch and result collection.
+    """
 
     fused_worker_attr_name = "fused_worker_dict"
 
@@ -174,10 +184,11 @@ class Worker(WorkerHelper):
 
         self.fused_worker_dict = {}
 
-    def get_fused_worker_by_name(self, worker_name: str):
+    def get_fused_worker_by_name(self, worker_name: str) -> object | None:
+        """Return a fused worker by name if available."""
         return self.fused_worker_dict.get(worker_name, None)
 
-    def _configure_with_store(self, store: Dict):
+    def _configure_with_store(self, store: Dict) -> None:
         """
         This function should only be called inside by WorkerGroup
         """
@@ -191,10 +202,10 @@ class Worker(WorkerHelper):
                 os.environ[key] = str(val)
         os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
 
-    def get_master_addr_port(self):
+    def get_master_addr_port(self) -> tuple[str, str]:
         return self._master_addr, self._master_port
 
-    def get_cuda_visible_devices(self):
+    def get_cuda_visible_devices(self) -> str:
         import os
 
         cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Ray WorkerGroup variants aware of Megatron parallelism."""
+
 from typing import Dict, Optional
 
 import ray
@@ -58,7 +60,7 @@ class MegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
         self._megatron_rank_info: DistRankInfo = self.execute_all_sync(method_name="get_megatron_rank_info")
         self._megatron_global_info: DistGlobalInfo = ray.get(self.execute_rank_zero_async(method_name="get_megatron_global_info"))
 
-    def init_megatron(self, default_megatron_kwargs: Optional[Dict] = None):
+    def init_megatron(self, default_megatron_kwargs: Optional[Dict] = None) -> None:
         # after super, we will call init of each worker
         if not self._is_init_with_detached_workers:
             # only init_megatron if the WorkerGroup is created from scratch

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Ray-specific worker group and resource implementations."""
+
 import logging
 import os
 import time
@@ -40,7 +42,16 @@ def get_random_string(length: int) -> str:
     return "".join(random.choice(letters_digits) for _ in range(length))
 
 
-def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
+def func_generator(
+    self,
+    method_name: str,
+    dispatch_fn,
+    collect_fn,
+    execute_fn,
+    blocking: bool,
+) -> callable:
+    """Generate a bound method used to call remote workers."""
+
     def func(*args, **kwargs):
         args, kwargs = dispatch_fn(self, *args, **kwargs)
         padding_count = kwargs.pop(_padding_size_key, 0)

@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Worker implementation backed by Megatron-Core."""
+
 from verl.single_controller.base.worker import DistGlobalInfo, DistRankInfo, Worker
 
 
 class MegatronWorker(Worker):
-    def __init__(self, cuda_visible_devices=None) -> None:
+    """Worker that initializes Megatron parallel context."""
+
+    def __init__(self, cuda_visible_devices: str | None = None) -> None:
         super().__init__(cuda_visible_devices)
 
-    def get_megatron_global_info(self):
+    def get_megatron_global_info(self) -> DistGlobalInfo:
         from megatron.core import parallel_state as mpu
 
         tp_size = mpu.get_tensor_model_parallel_world_size()
@@ -29,7 +33,7 @@ class MegatronWorker(Worker):
         info = DistGlobalInfo(tp_size=tp_size, dp_size=dp_size, pp_size=pp_size, cp_size=cp_size)
         return info
 
-    def get_megatron_rank_info(self):
+    def get_megatron_rank_info(self) -> DistRankInfo:
         from megatron.core import parallel_state as mpu
 
         tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -39,7 +43,7 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config):
+    def _init_hf_config_and_tf_config(self, model_path: str, dtype, override_model_config) -> None:
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config

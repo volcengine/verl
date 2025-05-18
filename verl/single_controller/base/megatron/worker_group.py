@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""WorkerGroup implementation aware of Megatron parallel ranks."""
+
 from typing import Dict
 
 from verl.single_controller.base import ResourcePool, WorkerGroup
@@ -20,12 +22,14 @@ from .worker import DistGlobalInfo, DistRankInfo
 
 
 class MegatronWorkerGroup(WorkerGroup):
+    """WorkerGroup that manages workers initialized with Megatron."""
+
     def __init__(self, resource_pool: ResourcePool, **kwargs):
         super().__init__(resource_pool=resource_pool, **kwargs)
         self._megatron_rank_info = None
         self._megatron_global_info: DistGlobalInfo = None
 
-    def init_megatron(self, default_megatron_kwargs: Dict = None):
+    def init_megatron(self, default_megatron_kwargs: Dict | None = None) -> None:
         raise NotImplementedError("MegatronWorkerGroup.init_megatron should be overwritten")
 
     def get_megatron_rank_info(self, rank: int) -> DistRankInfo:

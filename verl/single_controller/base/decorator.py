@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Helpers for dispatching method calls across workers.
+
+This module defines the :class:`Dispatch` and :class:`Execute` enumerations that
+describe how a worker method should be executed within a
+:class:`~verl.single_controller.base.worker_group.WorkerGroup`.  The
+``register`` decorator attaches these attributes to functions so that the worker
+group knows how to route the call.  It is primarily used by backends such as Ray
+to implement remote procedure dispatch.
+"""
+
 import inspect
 from functools import wraps
 from types import FunctionType
@@ -25,6 +35,14 @@ MAGIC_ATTR = "attrs_3141562937"
 
 
 class Dispatch(DynamicEnum):
+    """Enumeration describing how method arguments are distributed.
+
+    The dispatch mode controls how the input arguments are sharded or
+    broadcast to individual workers.  Custom dispatch functions can be
+    registered, but common modes such as ``RANK_ZERO`` or ``ALL_TO_ALL`` are
+    predefined.
+    """
+
     _registry = {}
     _next_value = 0
 
@@ -47,6 +65,8 @@ def init_predefined_dispatch_mode():
 
 
 class Execute(DynamicEnum):
+    """Enumeration controlling which workers execute a method."""
+
     _registry = {}
     _next_value = 0
 
@@ -489,7 +509,32 @@ def _materialize_futures(*args, **kwargs):
     return new_args, kwargs
 
 
-def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocking=True, materialize_futures=True):
+def register(
+    dispatch_mode: Dispatch = Dispatch.ALL_TO_ALL,
+    execute_mode: Execute = Execute.ALL,
+    blocking: bool = True,
+    materialize_futures: bool = True,
+) -> callable:
+    """Decorator to register a worker method for remote execution.
+
+    Parameters
+    ----------
+    dispatch_mode:
+        Defines how the inputs are dispatched to workers. See :class:`Dispatch`.
+    execute_mode:
+        Determines which workers will execute the method. See :class:`Execute`.
+    blocking:
+        If ``True`` the call blocks until results are collected.
+    materialize_futures:
+        If ``True`` any :class:`~verl.protocol.DataProtoFuture` arguments are
+        materialized before invocation.
+
+    Returns
+    -------
+    callable
+        Wrapped function with dispatch metadata attached.
+    """
+
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 

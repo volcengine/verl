@@ -12,6 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Base worker interfaces used by single controller.
+
+This module exposes the :class:`~verl.single_controller.base.worker.Worker` and
+related classes used to construct and manage distributed worker processes. They
+serve as the minimal API that concrete backends (e.g. Ray) build upon.
+"""
+
 from .worker import Worker
 from .worker_group import ClassWithInitArgs, ResourcePool, WorkerGroup
 

@@ -11,9 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-the class of WorkerGroup
-"""
+"""Classes for grouping and managing remote workers."""
 
 import logging
 import signal
@@ -25,7 +23,7 @@ from .decorator import MAGIC_ATTR, Dispatch, get_predefined_dispatch_fn, get_pre
 
 
 class ResourcePool:
-    """The resource pool with meta info such as world_size."""
+    """Simple container describing available worker resources."""
 
     def __init__(self, process_on_nodes=None, max_colocate_count: int = 10, n_gpus_per_node=8) -> None:
         if process_on_nodes is None:
@@ -34,7 +32,8 @@ class ResourcePool:
         self.max_colocate_count = max_colocate_count
         self.n_gpus_per_node = n_gpus_per_node  # this is left for future huawei GPU that contains 16 GPUs per node
 
-    def add_node(self, process_count):
+    def add_node(self, process_count: int) -> None:
+        """Add a node with ``process_count`` worker slots."""
         self._store.append(process_count)
 
     @property
@@ -42,10 +41,11 @@ class ResourcePool:
         return sum(self._store)
 
     def __call__(self) -> Any:
+        """Return the internal representation of the resource pool."""
         return self._store
 
     @property
-    def store(self):
+    def store(self) -> List[int]:
         return self._store
 
     def local_world_size_list(self) -> List[int]:
@@ -58,10 +58,7 @@ class ResourcePool:
 
 
 class ClassWithInitArgs:
-    """
-    This class stores a class constructor and the args/kwargs to construct the class.
-    It is used to instantiate the remote class.
-    """
+    """Wrapper storing constructor arguments for remote workers."""
 
     def __init__(self, cls, *args, **kwargs) -> None:
         self.cls = cls
@@ -77,6 +74,7 @@ class ClassWithInitArgs:
     #     self.kwargs[key] = value
 
     def __call__(self) -> Any:
+        """Instantiate the stored class with provided arguments."""
         return self.cls(*self.args, **self.kwargs)
 
 
@@ -92,7 +90,12 @@ def check_workers_alive(workers: List, is_alive: Callable, gap_time: float = 1) 
 
 
 class WorkerGroup:
-    """A group of workers"""
+    """Container that manages a set of :class:`Worker` instances.
+
+    Worker methods annotated with :func:`register` are bound to this group
+    allowing the controller to fan out calls according to their configured
+    :class:`Dispatch` and :class:`Execute` modes.
+    """
 
     fused_worker_execute_fn_name = "_fuw_execute"
 
@@ -141,8 +144,11 @@ class WorkerGroup:
     # MegatronWorkerGroup, XperfWorkerGroup should skip
 
     def _bind_worker_method(self, user_defined_cls, func_generator):
-        """
-        Bind the worker method to the WorkerGroup
+        """Bind ``register``-decorated methods of ``user_defined_cls``.
+
+        The decorated attributes describe how the call should be dispatched and
+        executed. ``func_generator`` is used to create the actual bound method
+        on the group.
         """
 
         method_names = []

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Ray based register center for coordinating worker groups."""
+
 from typing import Dict
 
 import ray
