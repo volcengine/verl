@@ -289,8 +289,9 @@ class DataProto:
 
     def print_size(self, prefix=""):
         size_of_batch = 0
-        for key, tensor in self.batch.items():
-            size_of_batch += tensor.element_size() * tensor.numel()
+        if self.batch is not None:
+            for _, tensor in self.batch.items():
+                size_of_batch += tensor.element_size() * tensor.numel()
         size_of_non_tensor_batch = 0
         for key, numpy_array in self.non_tensor_batch.items():
             size_of_non_tensor_batch += numpy_array.nbytes
