@@ -23,7 +23,9 @@ concurrency:
 
 # Declare permissions just read content.
 permissions:
-  contents: read
+  contents: read      # for checkout
+  pages: write        # for deploy-pages
+  id-token: write     # for deploy-pages
 
 jobs:
   doc_test:
