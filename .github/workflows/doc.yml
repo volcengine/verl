@@ -50,20 +50,3 @@ jobs:
           cd docs 
           make clean
           make html
-
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/_build/html
-
-      - name: Deploy Pages
-        if: github.event_name == 'pull_request'
-        uses: actions/deploy-pages@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/_build/html
-          destination_dir: pr-${{ github.event.number }}
-
-      - name: Show published URL
-        run: |
-          echo "📖 Docs are live at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.number }}/"
