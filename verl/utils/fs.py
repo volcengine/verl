@@ -18,6 +18,7 @@
 
 import hashlib
 import os
+import shutil
 import tempfile
 
 try:
@@ -58,14 +59,17 @@ def md5_encode(path: str) -> str:
 
 
 def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
-    """Return a local temp path that joins cache_dir and basename of hdfs_path
+    """Generate a unique local cache path for an HDFS resource.
+    Creates a MD5-hashed subdirectory in cache_dir to avoid name conflicts,
+    then returns path combining this subdirectory with the HDFS basename.
 
     Args:
-        hdfs_path:
-        cache_dir:
+        hdfs_path (str): Source HDFS path to be cached
+        cache_dir (str): Local directory for storing cached files
 
     Returns:
-
+        str: Absolute local filesystem path in format:
+            {cache_dir}/{md5(hdfs_path)}/{basename(hdfs_path)}
     """
     # make a base64 encoding of hdfs_path to avoid directory conflict
     encoded_hdfs_path = md5_encode(hdfs_path)
@@ -75,25 +79,54 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     return dst
 
 
-def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
-    """Copy src from hdfs to local if src is on hdfs or directly return src.
+def _record_directory_structure(folder_path):
+    record_file = os.path.join(folder_path, ".directory_record.txt")
+    with open(record_file, "w") as f:
+        for root, dirs, files in os.walk(folder_path):
+            for dir_name in dirs:
+                relative_dir = os.path.relpath(os.path.join(root, dir_name), folder_path)
+                f.write(f"dir:{relative_dir}\n")
+            for file_name in files:
+                if file_name != ".directory_record.txt":
+                    relative_file = os.path.relpath(os.path.join(root, file_name), folder_path)
+                    f.write(f"file:{relative_file}\n")
+    return record_file
 
-    If cache_dir is None, we will use the default cache dir of the system. Note that this may cause conflicts if
-    the src name is the same between calls.
+
+def _check_directory_structure(folder_path, record_file):
+    if not os.path.exists(record_file):
+        return False
+    existing_entries = set()
+    for root, dirs, files in os.walk(folder_path):
+        for dir_name in dirs:
+            relative_dir = os.path.relpath(os.path.join(root, dir_name), folder_path)
+            existing_entries.add(f"dir:{relative_dir}")
+        for file_name in files:
+            if file_name != ".directory_record.txt":
+                relative_file = os.path.relpath(os.path.join(root, file_name), folder_path)
+                existing_entries.add(f"file:{relative_file}")
+    with open(record_file) as f:
+        recorded_entries = set(f.read().splitlines())
+    return existing_entries == recorded_entries
+
+
+def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
+    """Copy files/directories from HDFS to local cache with validation.
 
     Args:
-        src (str): A HDFS path or a local path.
-        cache_dir (str, optional): Directory to store the local copy. If None, uses system temp directory.
-        filelock (str, optional): Name of the lock file to use for thread safety. Defaults to ".file.lock".
-        verbose (bool, optional): Whether to print copy operations. Defaults to False.
+        src (str): Source path - HDFS path (hdfs://...) or local filesystem path
+        cache_dir (str, optional): Local directory for cached files. Uses system tempdir if None
+        filelock (str): Base name for file lock. Defaults to ".file.lock"
+        verbose (bool): Enable copy operation logging. Defaults to False
+        always_recopy (bool): Force fresh copy ignoring cache. Defaults to False
 
     Returns:
-        str: A local path of the copied file.
+        str: Local filesystem path to copied resource
     """
-    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose)
+    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
 
 
-def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False) -> str:
+def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
     """Deprecated. Please use copy_to_local instead."""
     from filelock import FileLock
 
@@ -111,10 +144,26 @@ def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", v
         filelock = md5_encode(src) + ".lock"
         lock_file = os.path.join(cache_dir, filelock)
         with FileLock(lock_file=lock_file):
+            if always_recopy and os.path.exists(local_path):
+                if os.path.isdir(local_path):
+                    shutil.rmtree(local_path, ignore_errors=True)
+                else:
+                    os.remove(local_path)
             if not os.path.exists(local_path):
                 if verbose:
                     print(f"Copy from {src} to {local_path}")
                 copy(src, local_path)
+                if os.path.isdir(local_path):
+                    _record_directory_structure(local_path)
+            elif os.path.isdir(local_path):
+                # always_recopy=False, local path exists, and it is a folder: check whether there is anything missed
+                record_file = os.path.join(local_path, ".directory_record.txt")
+                if not _check_directory_structure(local_path, record_file):
+                    if verbose:
+                        print(f"Recopy from {src} to {local_path} due to missing files or directories.")
+                    shutil.rmtree(local_path, ignore_errors=True)
+                    copy(src, local_path)
+                    _record_directory_structure(local_path)
         return local_path
     else:
         return src

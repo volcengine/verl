@@ -34,12 +34,9 @@ class NVMegatronRayWorkerGroup(RayWorkerGroup, MegatronWorkerGroup):
         Initialize the NVMegatronRayWorkerGroup.
 
         Args:
-            resource_pool (RayResourcePool):
-                The resource pool containing worker resources
-            ray_cls_with_init (RayClassWithInitArgs):
-                The Ray class with initialization arguments
-            **kwargs:
-                Additional keyword arguments to pass to the parent class
+            resource_pool (RayResourcePool): The resource pool containing worker resources
+            ray_cls_with_init (RayClassWithInitArgs): The Ray class with initialization arguments
+            **kwargs: Additional keyword arguments to pass to the parent class
         """
         super().__init__(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, **kwargs)
         self._megatron_rank_info: DistRankInfo = self.execute_all_sync(method_name="get_megatron_rank_info")

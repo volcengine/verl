@@ -13,18 +13,18 @@
 # limitations under the License.
 
 import inspect
-from enum import Enum
 from functools import wraps
 from types import FunctionType
 from typing import Dict, List, Tuple
 
 from verl.protocol import DataProtoFuture, _padding_size_key
+from verl.utils.py_functional import DynamicEnum
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
 
 
-class Dispatch(Enum):
+class Dispatch(DynamicEnum):
     """Enum class defining different dispatch modes for distributed computation.
 
     Each mode represents a specific strategy for distributing data across
@@ -32,31 +32,46 @@ class Dispatch(Enum):
     how data is partitioned and processed across different worker groups.
     """
 
-    RANK_ZERO = 0  #: Only on rank 0
-    ONE_TO_ALL = 1  #: Broadcast data from one rank to all others
-    ALL_TO_ALL = 2  #: Distribute data across all ranks
-    MEGATRON_COMPUTE = 3  #: Megatron-style computation with tensor/pipeline parallelism
-    MEGATRON_PP_AS_DP = 4  #: Broadcast data from one rank to all others
-    MEGATRON_PP_ONLY = 5  #: Only use pipeline parallelism
-    MEGATRON_COMPUTE_PROTO = 6  #: Megatron-style computation with tensor/pipeline parallelism
-    MEGATRON_PP_AS_DP_PROTO = 7  #: Megatron PP as DP with DataProto support
-    DP_COMPUTE = 8  #: Data parallelism computation
-    DP_COMPUTE_PROTO = 9  #: Data parallelism with DataProto support
-    DP_COMPUTE_PROTO_WITH_FUNC = 10  #: Data parallelism with DataProto, supporting one function argument
-    DP_COMPUTE_METRIC = 11  #: Data parallelism with metric computation
-
-    DIRECT_ROLLOUT_METHOD = 12  #: Special mode for vllm ExternalRayDistributedExecutor
+    _registry = {}
+    _next_value = 0
 
 
-class Execute(Enum):
+def init_predefined_dispatch_mode():
+    Dispatch.register("RANK_ZERO")
+    Dispatch.register("ONE_TO_ALL")
+    Dispatch.register("ALL_TO_ALL")
+    Dispatch.register("MEGATRON_COMPUTE")
+    Dispatch.register("MEGATRON_PP_AS_DP")
+    Dispatch.register("MEGATRON_PP_ONLY")
+    Dispatch.register("MEGATRON_COMPUTE_PROTO")
+    Dispatch.register("MEGATRON_PP_AS_DP_PROTO")
+    Dispatch.register("DP_COMPUTE")
+    Dispatch.register("DP_COMPUTE_PROTO")
+    Dispatch.register("DP_COMPUTE_PROTO_WITH_FUNC")
+    Dispatch.register("DP_COMPUTE_METRIC")
+    # This is a special dispatch mode for vllm ExternalRayDistributedExecutor
+    Dispatch.register("DIRECT_ROLLOUT_METHOD")
+
+
+class Execute(DynamicEnum):
     """Enum class defining different execution modes for distributed computation.
 
     These modes control how a function should be executed across different ranks
     in a distributed system.
     """
 
-    ALL = 0  #: Execute the function on all ranks
-    RANK_ZERO = 1  #: Execute the function only on rank 0
+    _registry = {}
+    _next_value = 0
+
+
+def init_predefined_execute_mode():
+    Execute.register("ALL")
+    Execute.register("RANK_ZERO")
+
+
+# Initialize the two Dynamic Enum Classes
+init_predefined_dispatch_mode()
+init_predefined_execute_mode()
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
@@ -381,49 +396,71 @@ def collect_dp_compute_data_proto(worker_group, output):
     return _concat_data_proto_or_future(output)
 
 
+# Global registry for dispatch mode.
+DISPATCH_MODE_FN_REGISTRY = {
+    Dispatch.ONE_TO_ALL: {
+        "dispatch_fn": dispatch_one_to_all,
+        "collect_fn": collect_all_to_all,
+    },
+    Dispatch.ALL_TO_ALL: {
+        "dispatch_fn": dispatch_all_to_all,
+        "collect_fn": collect_all_to_all,
+    },
+    Dispatch.MEGATRON_COMPUTE: {
+        "dispatch_fn": dispatch_megatron_compute,
+        "collect_fn": collect_megatron_compute,
+    },
+    Dispatch.MEGATRON_PP_AS_DP: {
+        "dispatch_fn": dispatch_megatron_pp_as_dp,
+        "collect_fn": collect_megatron_pp_as_dp,
+    },
+    Dispatch.MEGATRON_PP_ONLY: {"dispatch_fn": dispatch_one_to_all, "collect_fn": collect_megatron_pp_only},
+    Dispatch.MEGATRON_COMPUTE_PROTO: {
+        "dispatch_fn": dispatch_megatron_compute_data_proto,
+        "collect_fn": collect_megatron_compute_data_proto,
+    },
+    Dispatch.MEGATRON_PP_AS_DP_PROTO: {
+        "dispatch_fn": dispatch_megatron_pp_as_dp_data_proto,
+        "collect_fn": collect_megatron_pp_as_dp_data_proto,
+    },
+    Dispatch.DP_COMPUTE: {"dispatch_fn": dispatch_dp_compute, "collect_fn": collect_dp_compute},
+    Dispatch.DP_COMPUTE_PROTO: {
+        "dispatch_fn": dispatch_dp_compute_data_proto,
+        "collect_fn": collect_dp_compute_data_proto,
+    },
+    Dispatch.DP_COMPUTE_PROTO_WITH_FUNC: {
+        "dispatch_fn": dispatch_dp_compute_data_proto_with_func,
+        "collect_fn": collect_dp_compute_data_proto,
+    },
+    Dispatch.DP_COMPUTE_METRIC: {"dispatch_fn": dispatch_dp_compute_data_proto, "collect_fn": collect_dp_compute},
+    Dispatch.DIRECT_ROLLOUT_METHOD: {
+        "dispatch_fn": dummy_direct_rollout_call,
+        "collect_fn": dummy_direct_rollout_call,
+    },
+}
+
+
 def get_predefined_dispatch_fn(dispatch_mode):
-    predefined_dispatch_mode_fn = {
-        Dispatch.ONE_TO_ALL: {
-            "dispatch_fn": dispatch_one_to_all,
-            "collect_fn": collect_all_to_all,
-        },
-        Dispatch.ALL_TO_ALL: {
-            "dispatch_fn": dispatch_all_to_all,
-            "collect_fn": collect_all_to_all,
-        },
-        Dispatch.MEGATRON_COMPUTE: {
-            "dispatch_fn": dispatch_megatron_compute,
-            "collect_fn": collect_megatron_compute,
-        },
-        Dispatch.MEGATRON_PP_AS_DP: {
-            "dispatch_fn": dispatch_megatron_pp_as_dp,
-            "collect_fn": collect_megatron_pp_as_dp,
-        },
-        Dispatch.MEGATRON_PP_ONLY: {"dispatch_fn": dispatch_one_to_all, "collect_fn": collect_megatron_pp_only},
-        Dispatch.MEGATRON_COMPUTE_PROTO: {
-            "dispatch_fn": dispatch_megatron_compute_data_proto,
-            "collect_fn": collect_megatron_compute_data_proto,
-        },
-        Dispatch.MEGATRON_PP_AS_DP_PROTO: {
-            "dispatch_fn": dispatch_megatron_pp_as_dp_data_proto,
-            "collect_fn": collect_megatron_pp_as_dp_data_proto,
-        },
-        Dispatch.DP_COMPUTE: {"dispatch_fn": dispatch_dp_compute, "collect_fn": collect_dp_compute},
-        Dispatch.DP_COMPUTE_PROTO: {
-            "dispatch_fn": dispatch_dp_compute_data_proto,
-            "collect_fn": collect_dp_compute_data_proto,
-        },
-        Dispatch.DP_COMPUTE_PROTO_WITH_FUNC: {
-            "dispatch_fn": dispatch_dp_compute_data_proto_with_func,
-            "collect_fn": collect_dp_compute_data_proto,
-        },
-        Dispatch.DP_COMPUTE_METRIC: {"dispatch_fn": dispatch_dp_compute_data_proto, "collect_fn": collect_dp_compute},
-        Dispatch.DIRECT_ROLLOUT_METHOD: {
-            "dispatch_fn": dummy_direct_rollout_call,
-            "collect_fn": dummy_direct_rollout_call,
-        },
-    }
-    return predefined_dispatch_mode_fn[dispatch_mode]
+    return DISPATCH_MODE_FN_REGISTRY[dispatch_mode]
+
+
+def register_dispatch_mode(dispatch_mode_name, dispatch_fn, collect_fn):
+    """
+    Register a new dispatch mode.
+    """
+    dispatch_mode = Dispatch.register(dispatch_mode_name)
+    _check_dispatch_mode(dispatch_mode)
+    assert dispatch_mode not in DISPATCH_MODE_FN_REGISTRY, f"dispatch_mode_name {dispatch_mode_name} already exists"
+    DISPATCH_MODE_FN_REGISTRY[dispatch_mode] = {"dispatch_fn": dispatch_fn, "collect_fn": collect_fn}
+
+
+def update_dispatch_mode(dispatch_mode, dispatch_fn, collect_fn):
+    """
+    Update the dispatch mode.
+    """
+    _check_dispatch_mode(dispatch_mode)
+    assert dispatch_mode in DISPATCH_MODE_FN_REGISTRY, f"dispatch_mode {dispatch_mode} not found"
+    DISPATCH_MODE_FN_REGISTRY[dispatch_mode] = {"dispatch_fn": dispatch_fn, "collect_fn": collect_fn}
 
 
 def get_predefined_execute_fn(execute_mode):

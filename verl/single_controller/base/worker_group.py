@@ -35,12 +35,9 @@ class ResourcePool:
         """Initialize the ResourcePool with node processes and GPU configuration.
 
         Args:
-            process_on_nodes (List[int], optional):
-                List of process counts per node. Defaults to empty list.
-            max_colocate_count (int, optional):
-                Maximum number of processes that can be colocated. Defaults to 10.
-            n_gpus_per_node (int, optional):
-                Number of GPUs available per node. Defaults to 8.
+            process_on_nodes (List[int], optional): List of process counts per node. Defaults to empty list.
+            max_colocate_count (int, optional): Maximum number of processes that can be colocated. Defaults to 10.
+            n_gpus_per_node (int, optional): Number of GPUs available per node. Defaults to 8.
         """
         if process_on_nodes is None:
             process_on_nodes = []
@@ -49,7 +46,6 @@ class ResourcePool:
         self.n_gpus_per_node = n_gpus_per_node  # this is left for future huawei GPU that contains 16 GPUs per node
 
     def add_node(self, process_count):
-        """Add a new node to the resource pool with the specified process count."""
         self._store.append(process_count)
 
     @property
@@ -58,12 +54,10 @@ class ResourcePool:
         return sum(self._store)
 
     def __call__(self) -> Any:
-        """Get the list of processes count per node of the resource pool."""
         return self._store
 
     @property
     def store(self):
-        """The store of the process count per node."""
         return self._store
 
     def local_world_size_list(self) -> List[int]:
@@ -88,12 +82,9 @@ class ClassWithInitArgs:
         """Initialize the ClassWithInitArgs instance.
 
         Args:
-            cls:
-                The class to be instantiated later
-            *args:
-                Positional arguments for the class constructor
-            **kwargs:
-                Keyword arguments for the class constructor
+            cls: The class to be instantiated later
+            *args: Positional arguments for the class constructor
+            **kwargs: Keyword arguments for the class constructor
         """
         self.cls = cls
         self.args = args
@@ -188,10 +179,8 @@ class WorkerGroup:
         """Binds worker methods to the WorkerGroup based on registered attributes.
 
         Args:
-            user_defined_cls (type):
-                The class containing methods to bind
-            func_generator (Callable):
-                Function that generates the bound method
+            user_defined_cls (type): The class containing methods to bind
+            func_generator (Callable): Function that generates the bound method
 
         Returns:
             List[str]: List of method names that were successfully bound

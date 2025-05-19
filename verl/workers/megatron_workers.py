@@ -148,14 +148,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(
-                self.tf_config,
-                self.hf_config,
-                pre_process,
-                post_process,
-                share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                value=False,
-            )
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
@@ -209,6 +202,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
+        layer_name_mapping = {
+            "qkv_layer_name": "self_attention.linear_qkv.",
+            "gate_proj_layer_name": "linear_fc1.weight",
+        }
         if self.config.rollout.name == "vllm":
             from torch.distributed.device_mesh import init_device_mesh
 
@@ -217,10 +214,6 @@ class ActorRolloutRefWorker(MegatronWorker):
 
             # NOTE(sgm): If the QKV and gate_up projection layer are concate together in actor,
             # we will reorganize their weight format when resharding from actor to rollout.
-            layer_name_mapping = {
-                "qkv_layer_name": "self_attention.linear_qkv.",
-                "gate_proj_layer_name": "linear_fc1.weight",
-            }
 
             infer_tp = self.config.rollout.tensor_model_parallel_size
             dp = self.world_size // infer_tp
@@ -256,6 +249,32 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_config=self.actor_model_config,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
+                weight_converter=weight_converter,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+        elif self.config.rollout.name == "sglang":
+            from verl.workers.rollout.sglang_rollout import SGLangRollout
+
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
+
+            local_path = copy_to_local(self.config.model.path)
+            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
+            rollout = SGLangRollout(actor_module=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config)
+            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
+
+            from verl.models.mcore import get_mcore_weight_converter
+
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+            sharding_manager = MegatronSGLangShardingManager(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout.inference_engine,
+                model_config=self.actor_model_config,
+                layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
@@ -384,7 +403,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout
@@ -536,14 +555,7 @@ class CriticWorker(MegatronWorker):
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(
-                self.tf_config,
-                self.hf_config,
-                pre_process,
-                post_process,
-                share_embeddings_and_output_weights=False,
-                value=True,
-            )
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
@@ -645,7 +657,7 @@ class CriticWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
-            load_megatron_optimizer(optimizer=self.critic_optimizer)
+            load_megatron_optimizer(self.critic_optimizer)
 
         dataloader = self.critic.make_minibatch_iterator(data)
         with Timer(name="update_critic", logger=None) as timer:

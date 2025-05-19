@@ -21,6 +21,9 @@ Tracking Utilities
 .. automodule:: verl.utils.tracking
    :members:
 
+.. automodule::  verl.utils.metric
+   :members: reduce_metrics
+
 Checkpoint Management
 ------------------------
 
@@ -97,12 +100,6 @@ Sequence Length Balancing
 -----------------------------
 
 .. automodule:: verl.utils.seqlen_balancing
-   :members:
-
-Tracking Utilities
------------------------
-
-.. automodule:: verl.utils.tracking
    :members:
 
 Megatron Utilities

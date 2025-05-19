@@ -138,7 +138,7 @@ def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResour
 
     new_store = rp1.store + rp2.store
 
-    merged = RayResourcePool(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
+    merged = type(rp1)(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
     merged.pgs = rp1.get_placement_groups() + rp2.get_placement_groups()
 
     return merged
@@ -225,6 +225,7 @@ class RayWorkerGroup(WorkerGroup):
         name_prefix: str = None,
         detached=False,
         worker_names=None,
+        worker_handles: List[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
         **kwargs,
     ) -> None:
@@ -254,7 +255,7 @@ class RayWorkerGroup(WorkerGroup):
             self._worker_names = worker_names
 
         if self._is_init_with_detached_workers:
-            self._init_with_detached_workers(worker_names=worker_names)
+            self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
         else:
             self._init_with_resource_pool(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, bin_pack=bin_pack, detached=detached)
 
@@ -276,13 +277,12 @@ class RayWorkerGroup(WorkerGroup):
         worker_state_dict = get_actor(worker._actor_id.hex())
         return worker_state_dict.get("state", "undefined") == "ALIVE" if worker_state_dict is not None else False
 
-    def _init_with_detached_workers(self, worker_names):
-        """Initialize the worker group with existing detached workers.
-
-        Args:
-            worker_names: Names of existing workers to attach to
-        """
-        workers = [ray.get_actor(name=name) for name in worker_names]
+    def _init_with_detached_workers(self, worker_names, worker_handles):
+        # ray.get_actor holds a weak reference to the actor, which causes actors garbage collected unexpectedly
+        # if we only hold spawn RayWorkerGroup. By passing actor handle explicitly, spawn RayWorkerGroup have
+        # strong reference to these actors.
+        # https://github.com/ray-project/ray/pull/45699
+        workers = worker_handles if worker_handles else [ray.get_actor(name=name) for name in worker_names]
         self._workers = workers
         self._world_size = len(worker_names)
 
@@ -388,6 +388,7 @@ class RayWorkerGroup(WorkerGroup):
         cls,
         name_prefix,
         worker_names=None,
+        worker_handles=None,
         ray_cls_with_init=None,
     ):
         """Create a worker group from existing detached workers.
@@ -400,7 +401,7 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             A new RayWorkerGroup instance
         """
-        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names)
+        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles)
         return worker_group
 
     def spawn(self, prefix_set):
@@ -416,9 +417,6 @@ class RayWorkerGroup(WorkerGroup):
             return self.spawn_fused(prefix_set)
 
         def _rebind_actor_methods(worker_group, actor_name):
-            """
-            bind the method with actor_prefix to its original name
-            """
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
@@ -432,6 +430,7 @@ class RayWorkerGroup(WorkerGroup):
             new_worker_group = self.from_detached(
                 name_prefix=self.name_prefix,
                 worker_names=self._worker_names,
+                worker_handles=self._workers,
                 ray_cls_with_init=self.ray_cls_with_init,
             )
 
