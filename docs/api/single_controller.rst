@@ -24,20 +24,3 @@ Core APIs
 
 .. automodule:: verl.single_controller.ray
    :members: RayWorkerGroup, create_colocated_worker_cls
-
-.. autoclass:: verl.single_controller.ray.megatron.NVMegatronRayWorkerGroup
-   :members: __init__
-
-
-
-Decorator APIs
-~~~~~~~~~~~~~~~~~
-.. autofunction:: verl.single_controller.base.decorator.register
-
-.. autoclass:: verl.single_controller.base.decorator.Dispatch
-   :members: RANK_ZERO, ONE_TO_ALL, ALL_TO_ALL, MEGATRON_COMPUTE, MEGATRON_PP_AS_DP, MEGATRON_PP_ONLY, MEGATRON_COMPUTE_PROTO, MEGATRON_PP_AS_DP_PROTO, DP_COMPUTE, DP_COMPUTE_PROTO, DP_COMPUTE_PROTO_WITH_FUNC, DP_COMPUTE_METRIC, DIRECT_ROLLOUT_METHOD
-   :member-order: bysource
-
-.. autoclass:: verl.single_controller.base.decorator.Execute
-   :members: ALL, RANK_ZERO
-   :member-order: bysource
