@@ -110,9 +110,10 @@ class Qwen2MoEModel(BaseModelInitializer):
 
         return transformer_layer_spec
 
-    def initialize(self, freeze_moe_router: bool = True, **kwargs):
+    def initialize(self, **kwargs):
         # Qwen default freeze_moe_router: true
         model = super().initialize(**kwargs)
+        freeze_moe_router = kwargs.get("freeze_moe_router", True)
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
@@ -128,8 +129,9 @@ class MixtralModel(BaseModelInitializer):
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
         return transformer_layer_spec
 
-    def initialize(self, freeze_moe_router: bool = False, **kwargs):
+    def initialize(self, **kwargs):
         model = super().initialize(**kwargs)
+        freeze_moe_router = kwargs.get("freeze_moe_router", False)
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
@@ -144,9 +146,10 @@ class Qwen3MoEModel(BaseModelInitializer):
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
         return transformer_layer_spec
 
-    def initialize(self, freeze_moe_router: bool = True, **kwargs):
+    def initialize(self, **kwargs):
         # Qwen default freeze_moe_router: true
         model = super().initialize(**kwargs)
+        freeze_moe_router = kwargs.get("freeze_moe_router", True)
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
