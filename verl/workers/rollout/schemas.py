@@ -91,6 +91,15 @@ class AsyncRolloutRequest(BaseModel):
             "assistant_suffix_msg": "<|im_end|>",
             "tool_prefix_msg": "\n<|im_start|>tool\n",
             "tool_suffix_msg": "<|im_end|>",
+        },
+        "qwen": {
+            "assistant_prefix_msg": "\n<|im_start|>assistant\n",
+            "assistant_suffix_msg": "<|im_end|>",
+            "merge_tool_response": True,
+            "tool_prefix_msg": "\n<|im_start|>user",
+            "tool_suffix_msg": "<|im_end|>",
+            "tool_response_prefix_msg": "\n<tool_response>\n",
+            "tool_response_suffix_msg": "\n</tool_response>",
         }
     }
 
@@ -107,7 +116,7 @@ class AsyncRolloutRequest(BaseModel):
         tokenizer: PreTrainedTokenizer,
         content: str,
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
-        format: Literal["chatml"] = "chatml",
+        format: Literal["chatml", "qwen"] = "chatml",
         already_over_long: bool = False,
     ) -> None:
         """Currently, we only support chatml format."""
@@ -157,21 +166,29 @@ class AsyncRolloutRequest(BaseModel):
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
 
-    def add_tool_response_message(self, tokenizer: PreTrainedTokenizer, content: str, format: Literal["chatml"] = "chatml") -> None:
+    def add_tool_response_message(self, tokenizer: PreTrainedTokenizer, content: str, last_tool: bool, format: Literal["chatml", "qwen"] = "chatml") -> None:
         """Currently, we only support chatml format."""
         msg = Message(role="tool", content=content)
         self.messages.append(msg)
         # TODO: support other formats
         if format in self.format_config:
+            merge_tool_responses = self.format_config[format].get("merge_tool_response", False)
             prefix_msg = self.format_config[format]["tool_prefix_msg"]
             prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
             suffix_msg = self.format_config[format]["tool_suffix_msg"]
             suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
+            prefix_resp = self.format_config[format].get("tool_response_prefix_msg", '')
+            prefix_resp_token_ids = tokenizer.encode(prefix_resp, add_special_tokens=False)
+            suffix_resp = self.format_config[format].get("tool_response_suffix_msg", '')
+            suffix_resp_token_ids = tokenizer.encode(suffix_resp, add_special_tokens=False)
+            full_suffix_token_ids = suffix_resp_token_ids + (suffix_token_ids if last_tool or not merge_tool_responses else [])
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)
-            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
-                append_token_ids = content_token_ids + suffix_token_ids
+            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids or self.input_ids[-len(suffix_resp_token_ids) :] == suffix_resp_token_ids:
+                append_token_ids = prefix_resp_token_ids + content_token_ids + full_suffix_token_ids
+            elif self.input_ids[-len(prefix_resp_token_ids) :] == prefix_resp_token_ids:
+                append_token_ids = content_token_ids + full_suffix_token_ids
             elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
-                append_token_ids = prefix_token_ids + content_token_ids + suffix_token_ids
+                append_token_ids = prefix_token_ids + prefix_resp_token_ids + content_token_ids + full_suffix_token_ids
             else:
                 raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-len(prefix_token_ids) :])}")
             self.input_ids += append_token_ids
