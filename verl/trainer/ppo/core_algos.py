@@ -202,7 +202,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
             scores[i] = scores[i] - id2mean[index[i]]
 
         scores = scores.unsqueeze(-1).tile([1, response_length]) * response_mask
-        scores = verl_F.masked_whiten(scores, response_mask)
+        scores = verl_F.masked_whiten(scores, response_mask) * response_mask
 
     return scores, scores
 
