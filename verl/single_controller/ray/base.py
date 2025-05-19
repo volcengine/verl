@@ -401,7 +401,7 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             A new RayWorkerGroup instance
         """
-        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names)
+        worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles)
         return worker_group
 
     def spawn(self, prefix_set):
@@ -417,9 +417,6 @@ class RayWorkerGroup(WorkerGroup):
             return self.spawn_fused(prefix_set)
 
         def _rebind_actor_methods(worker_group, actor_name):
-            """
-            bind the method with actor_prefix to its original name
-            """
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
