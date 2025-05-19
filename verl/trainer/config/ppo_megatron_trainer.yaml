@@ -70,7 +70,7 @@ actor_rollout_ref:
       optimizer_offload: False
       tensor_model_parallel_size: 1
       expert_model_parallel_size: 1
-      expert_tensor_parallel_size: None
+      expert_tensor_parallel_size: null
       pipeline_model_parallel_size: 1
       virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
       context_parallel_size: 1
@@ -186,7 +186,7 @@ critic:
     optimizer_offload: False
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: None
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
@@ -219,7 +219,7 @@ reward_model:
     optimizer_offload: False
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
-    expert_tensor_parallel_size: None
+    expert_tensor_parallel_size: null
     pipeline_model_parallel_size: 1
     virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
     context_parallel_size: 1
