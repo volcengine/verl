@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-7b-MATH-megatron'
+exp_name='DAPO-Qwen2.5-7b-MATH-megatron-0519a1'
 
 adv_estimator=grpo
 
@@ -22,27 +22,12 @@ overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
-enable_filter_groups=False
-filter_groups_metric=acc
-max_num_gen_batches=10
+train_prompt_bsz=512
+n_resp_per_prompt=16
+train_prompt_mini_bsz=32
 
-train_prompt_bsz=256
-gen_prompt_bsz=$((train_prompt_bsz * 3))
-n_resp_per_prompt=2
-train_prompt_mini_bsz=16
-
-# Ray
-# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-1}
+NNODES=${NNODES:-8}
 # Paths
-# RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-# MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-32B"}
-# CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
-# TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
-# TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
-
 MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-Math-7B_32k
 CKPTS_DIR=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${exp_name}
 TRAIN_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/dapo-math-17k.parquet
@@ -61,12 +46,12 @@ val_top_p=0.7
 
 # Performance Related Parameter
 use_dynamic_bsz=True
-actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
+actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=4
 train_tp=4
-train_pp=4
+train_pp=2
 
 # actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
 # actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -117,7 +102,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.rollout.temperature=${temperature} \
     actor_rollout_ref.rollout.top_p=${top_p} \
-    actor_rollout_ref.rollout.top_k="${top_k}" \
+    actor_rollout_ref.rollout.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
     actor_rollout_ref.rollout.val_kwargs.top_p=${val_top_p} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
@@ -142,8 +127,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=10 \
     trainer.total_epochs=10 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.resume_mode=disable \
+    trainer.resume_mode=auto \
     trainer.log_val_generations=10
-
-
-
