@@ -26,12 +26,12 @@ from megatron.core import DistributedDataParallel as LocalDDP
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer.module import Float16Module
 from torch import nn
-from torch.distributed import new_group
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
+from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
@@ -48,7 +48,7 @@ from verl.utils.memory_buffer import (
     get_weight_buffer_meta_from_module,
 )
 from verl.utils.model import normalize_model_name
-from verl.utils.torch_functional import allgather_dict_tensors, check_cuda_is_available
+from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -286,13 +286,14 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.module = module
-        # initialize micro_dp group for vllm inference
-        global _MICRO_DATA_PARALLEL_GROUP
-        world_size = torch.distributed.get_world_size()
-        rank = torch.distributed.get_rank()
+        # initialize groups for vllm inference
+        self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
+        if vllm_version not in ("0.5.4", "0.6.3"):
+            self.infer_tp_group = self.infer_tp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
@@ -302,20 +303,8 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.train_etp_size = mpu.get_expert_tensor_parallel_world_size()
         self.train_etp_rank = mpu.get_expert_tensor_parallel_rank()
         self.train_etp_group = mpu.get_expert_tensor_parallel_group()
-        self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
-
-        # TODO(sgm): this may not be true for FSDP -> vLLM
-        assert self.infer_tp_size <= self.train_tp_size, "Not implemented for infer_tp > train_tp"
-        assert self.train_tp_size % self.infer_tp_size == 0
-
-        micro_dp_size = self.train_tp_size // self.infer_tp_size
-        num_micro_dp_groups = world_size // micro_dp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
-        for i in range(num_micro_dp_groups):
-            ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-            group = new_group(ranks=ranks)
-            if rank in ranks:
-                _MICRO_DATA_PARALLEL_GROUP = group
+        self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
+        self.train_tp_larger = self.train_tp_size > self.infer_tp_size
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         """
@@ -327,15 +316,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -356,6 +337,11 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # lazy load tensor for full model
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+            if self.model_config.tie_word_embeddings and ("output_layers" in name):
+                import warnings
+
+                warnings.warn("Current model sharing word and embedding weights, skip output layer conversion", stacklevel=2)
+                continue
             if cur_pp_rank == pp_rank:
                 try:
                     cur_name, cur_tensor = next(gen_func)
@@ -492,21 +478,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
         """
-        For each param, if it is a tp-splited param, we all-gather from train
-        tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
+        For each param, if it is a tp-splited param, we all-gather from train tp group
         """
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
@@ -575,42 +552,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
-        # prompts are identical for each training tp. We select for each inference tp
-        micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            local_prompts = data.chunk(chunks=micro_dp_size)
-            data = local_prompts[get_micro_data_parallel_rank()]
-
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        all_gather_data_proto(data, self.infer_tp_group)
         return data
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # MEGATRON_PP_AS_DP_PROTO will collect PP+CP+DP group
-        # all gather batch among micro-dp groups
-        micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            data.batch = allgather_dict_tensors(
-                data.batch.contiguous(),
-                size=get_micro_data_parallel_world_size(),
-                group=get_micro_data_parallel_group(),
-                dim=0,
-            )
-        return data
-
-
-"""
-Micro Data parallel group
-"""
-
-
-def get_micro_data_parallel_group():
-    assert _MICRO_DATA_PARALLEL_GROUP is not None
-    return _MICRO_DATA_PARALLEL_GROUP
-
-
-def get_micro_data_parallel_world_size():
-    return torch.distributed.get_world_size(group=get_micro_data_parallel_group())
-
-
-def get_micro_data_parallel_rank():
-    return torch.distributed.get_rank(group=get_micro_data_parallel_group())
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        return data.chunk(chunks=self.infer_tp_size)[self.infer_tp_rank]

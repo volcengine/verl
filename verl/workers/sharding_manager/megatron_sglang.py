@@ -15,19 +15,13 @@
 This file contains a Megatron style Hybrid Engine that shares the weights of the actor with the inference engine.
 """
 
-import importlib
 import logging
 import os
+
 import torch
-import torch.distributed as dist
 from torch import nn
 
-from verl.utils.model import normalize_model_name
-from verl.utils.megatron_utils import broadcast_from_megatron_pp, broadcast_str_from_megatron_pp
-
-from verl.utils.megatron_utils import get_model, unwrap_model
 from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.megatron_utils import convert_megatron_model_to_transformers_model
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -40,23 +34,14 @@ Megatron Hybrid Engine:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-from .base import BaseShardingManager
-
-import torch
-from torch import nn
 import torch.distributed
-from torch.distributed import new_group
-from torch.distributed._tensor import DTensor
-from typing import Dict, Iterable, Union, Tuple
-
-from verl import DataProto
-from verl.protocol import all_gather_data_proto
-from verl.utils.torch_functional import (broadcast_dict_tensor, allgather_dict_tensors)
 from sglang.srt.entrypoints.verl_engine import VerlEngine
-from verl.utils.debug import GPUMemoryLogger
+from torch.distributed import new_group
 
-import verl.utils.megatron.tensor_parallel as tp_utils
-from verl.utils.megatron_utils import per_tensor_generator, default_tp_concat_fn
+from verl.utils.debug import GPUMemoryLogger
+from verl.utils.megatron_utils import per_tensor_generator
+
+from .base import BaseShardingManager
 
 _MICRO_DATA_PARALLEL_GROUP = None
 

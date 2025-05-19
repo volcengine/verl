@@ -264,7 +264,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             from verl.workers.rollout.sglang_rollout import SGLangRollout
 
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
-            # However, due to veRL's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
             # "RuntimeError: No CUDA GPUs are available".
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
@@ -411,7 +411,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.cuda.empty_cache()
         return output
 
-    @register(dispatch_mode=Dispatch.MEGATRON_PP_AS_DP_PROTO)
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @GPUMemoryLogger(role="generate_sequences", logger=logger)
     def generate_sequences(self, prompts: DataProto):
         assert self._is_rollout

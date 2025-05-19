@@ -179,7 +179,7 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
         # Qwen specific
-        moe_router_pre_softmax=True,
+        moe_router_pre_softmax=False,
         qk_layernorm=True,
     )
 
