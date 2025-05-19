@@ -28,7 +28,7 @@ max_num_gen_batches=10
 
 train_prompt_bsz=256
 gen_prompt_bsz=$((train_prompt_bsz * 3))
-n_resp_per_prompt=16
+n_resp_per_prompt=2
 train_prompt_mini_bsz=16
 
 # Ray
@@ -46,7 +46,12 @@ NNODES=${NNODES:-1}
 MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-Math-7B_32k
 CKPTS_DIR=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${exp_name}
 TRAIN_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/dapo-math-17k.parquet
-TEST_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/aime-2024.parquet
+aime24_test_path=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/aime-2024.parquet
+# math500_test_path=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/rlhf/math500/test.parquet
+
+# TEST_FILE="['$math500_test_path', '$aime24_test_path']"
+
+TEST_FILE="['$aime24_test_path']"
 
 # Algorithm
 temperature=1.0
@@ -62,7 +67,7 @@ infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=4
 
-python3 -m recipe.dapo.main_dapo \
+python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -79,9 +84,6 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
-    algorithm.filter_groups.enable=${enable_filter_groups} \
-    algorithm.filter_groups.max_num_gen_batches=${max_num_gen_batches} \
-    algorithm.filter_groups.metric=${filter_groups_metric} \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -117,17 +119,20 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     reward_model.reward_manager=dapo \
-    reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
-    reward_model.overlong_buffer.len=${overlong_buffer_len} \
-    reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
+    +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
+    +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
     trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=16 \
     trainer.nnodes="${NNODES}" \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.test_freq=10 \
     trainer.save_freq=10 \
     trainer.total_epochs=10 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.resume_mode=auto
+    trainer.resume_mode=disable \
+    trainer.log_val_generations=10
