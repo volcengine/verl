@@ -73,11 +73,17 @@ class WorkerHelper:
 
 # we assume that in each WorkerGroup, there is a Master Worker
 class Worker(WorkerHelper):
-    """A (distributed) worker."""
+    """A distributed worker that handles initialization and configuration for distributed training.
+
+    This class manages worker initialization, configuration, and provides methods for executing
+    distributed operations. It handles communication settings, device configuration, and worker
+    metadata management.
+    """
 
     fused_worker_attr_name = "fused_worker_dict"
 
     def __new__(cls, *args, **kwargs):
+        """Create a new Worker instance with proper initialization based on environment settings."""
         instance = super().__new__(cls)
 
         # note that here we use int to distinguish
@@ -95,6 +101,14 @@ class Worker(WorkerHelper):
         return instance
 
     def _configure_before_init(self, register_center_name: str, rank: int):
+        """Configure worker settings before initialization.
+
+        Args:
+            register_center_name (str):
+                Name of the register center Ray actor for worker coordination
+            rank (int):
+                Rank of the worker in the distributed setup
+        """
         assert isinstance(rank, int), f"rank must be int, instead of {type(rank)}"
 
         if rank == 0:
@@ -122,6 +136,12 @@ class Worker(WorkerHelper):
         return ["WORLD_SIZE", "RANK", "LOCAL_WORLD_SIZE", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT", "CUDA_VISIBLE_DEVICES"]
 
     def __init__(self, cuda_visible_devices=None) -> None:
+        """Initialize the worker with environment settings and device configuration.
+
+        Args:
+            cuda_visible_devices (str, optional):
+                CUDA visible devices configuration. Defaults to None.
+        """
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
 
@@ -175,6 +195,12 @@ class Worker(WorkerHelper):
         self.fused_worker_dict = {}
 
     def get_fused_worker_by_name(self, worker_name: str):
+        """Get a fused worker by its name.
+
+        Args:
+            worker_name (str):
+                Name of the worker to retrieve
+        """
         return self.fused_worker_dict.get(worker_name, None)
 
     def _configure_with_store(self, store: Dict):
@@ -192,9 +218,11 @@ class Worker(WorkerHelper):
         os.environ["REDIS_STORE_SERVER_HOST"] = str(self._master_addr).replace("[", "").replace("]", "") if self._master_addr else ""
 
     def get_master_addr_port(self):
+        """Get the master address and port for distributed communication."""
         return self._master_addr, self._master_port
 
     def get_cuda_visible_devices(self):
+        """Get the CUDA visible devices configuration."""
         import os
 
         cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
@@ -202,18 +230,40 @@ class Worker(WorkerHelper):
 
     @property
     def world_size(self):
+        """Get the total number of workers in the distributed setup."""
         return self._world_size
 
     @property
     def rank(self):
+        """Get the rank of this worker in the distributed setup."""
         return self._rank
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO_WITH_FUNC)
     def execute_with_func_generator(self, func, *args, **kwargs):
+        """Execute a function with function generator dispatch mode.
+
+        Args:
+            func:
+                Function to execute
+            *args:
+                Positional arguments for the function
+            **kwargs:
+                Keyword arguments for the function
+        """
         ret_proto = func(self, *args, **kwargs)
         return ret_proto
 
     @register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.RANK_ZERO)
     def execute_func_rank_zero(self, func, *args, **kwargs):
+        """Execute a function in rank zero execution mode.
+
+        Args:
+            func:
+                Function to execute
+            *args:
+                Positional arguments for the function
+            **kwargs:
+                Keyword arguments for the function
+        """
         result = func(*args, **kwargs)
         return result

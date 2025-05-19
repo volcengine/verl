@@ -19,6 +19,7 @@ Installation
 Please always follow the following command to install SGLang with verl. 
 
 .. code-block:: bash
+    
     pip install --upgrade pip
     # Currently 0.4.6.post1, subject to updates at any time, please refer to the latest version specified in `setup.py`
     pip install -e ".[sglang]"
