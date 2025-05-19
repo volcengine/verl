@@ -87,10 +87,10 @@ class AsyncRolloutRequest(BaseModel):
 
     format_config: dict = {
         "chatml": {
-            "assistant_prefix_msg": "\n<|im_start|>assistant\n",
-            "assistant_suffix_msg": "<|im_end|>",
-            "tool_prefix_msg": "\n<|im_start|>tool\n",
-            "tool_suffix_msg": "<|im_end|>",
+            "assistant_prefix_msg": "<|im_start|>assistant\n",
+            "assistant_suffix_msg": "<|im_end|>\n",
+            "tool_prefix_msg": "<|im_start|>tool\n",
+            "tool_suffix_msg": "<|im_end|>\n",
         }
     }
 
