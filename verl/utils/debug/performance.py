@@ -99,50 +99,6 @@ class GPUMemoryLogger(DecoratorLoggerBase):
         self.logging_function(message)
         return output
 
-
-class GPUMemoryLogger(DecoratorLoggerBase):
-    """A decorator class to log GPU memory usage.
-
-    Usage:
-        For example, in actor function, we initialize a GPUMemoryLogger
-
-        ```
-        from verl.utils.debug.performance import GPUMemoryLogger
-        @GPUMemoryLogger(role="actor")
-        def update_actor(self, batch):
-            # do something
-            return
-        ```
-
-    """
-
-    def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, log_only_rank_0: bool = True):
-        if dist.is_initialized() and dist.get_world_size() > 1:
-            rank = dist.get_rank()
-        else:
-            rank = 0
-        super().__init__(role, logger, level, rank, log_only_rank_0)
-
-    def __call__(self, decorated_function: callable):
-        def f(*args, **kwargs):
-            return self.log(decorated_function, *args, **kwargs)
-
-        return f
-
-    def log(self, func, *args, **kwargs):
-        name = func.__name__
-        mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
-        message = f"Before {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
-        self.logging_function(message)
-
-        output = func(*args, **kwargs)
-
-        mem_allocated, mem_reserved, mem_used, mem_total = _get_current_mem_info()
-        message = f"After {name}, memory allocated (GB): {mem_allocated}, memory reserved (GB): {mem_reserved}, device memory used/total (GB): {mem_used}/{mem_total}"
-
-        self.logging_function(message)
-        return output
-
 def log_print(ctn: Any):
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
