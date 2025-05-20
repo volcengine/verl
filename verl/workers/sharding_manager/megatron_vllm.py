@@ -398,7 +398,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             q_lst = []
             k_lst = []
             v_lst = []
-            assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
+            if hasattr(model_config, "llm_config") and hasattr(model_config.llm_config.num_attention_heads) and hasattr(model_config.llm_config.num_key_value_heads):
+                assert model_config.llm_config.num_attention_heads % model_config.llm_config.num_key_value_heads == 0
+            else:
+                assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
             num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
             assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
             kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)

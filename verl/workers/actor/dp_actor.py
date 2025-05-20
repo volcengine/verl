@@ -22,6 +22,7 @@ import logging
 import os
 from typing import Tuple
 
+import re
 import torch
 from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from torch import nn
@@ -82,10 +83,14 @@ class DataParallelPPOActor(BasePPOActor):
         """
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
+        image_flags = None
         if "multi_modal_inputs" in micro_batch:
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
-
+                if re.match("internvl", self.actor_module.config.model_type):
+                    # The image_flags is used for InternVL's github version
+                    if key == "pixel_values":
+                        image_flags = torch.ones(multi_modal_inputs[key].size(0), dtype=torch.long)
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
@@ -122,7 +127,8 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-
+                if image_flags is not None:
+                    multi_modal_inputs["image_flags"] = image_flags
                 # only pass input_ids and position_ids to enable flash_attn_varlen
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
@@ -131,7 +137,6 @@ class DataParallelPPOActor(BasePPOActor):
                     **multi_modal_inputs,
                     use_cache=False,
                 )  # prevent model thinks we are generating
-
                 if self.use_fused_kernels:
                     hidden_states = output.last_hidden_state
                     vocab_weights = self.actor_module.lm_head.weight
@@ -145,11 +150,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-
-                    # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
-
-                    # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
+                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
                     if calculate_entropy:
                         inplace_backward = False
@@ -158,7 +160,6 @@ class DataParallelPPOActor(BasePPOActor):
                         labels=input_ids_rmpad_rolled,
                         inplace_backward=inplace_backward,
                     )
-
                     # compute entropy
                     if calculate_entropy:
                         entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
@@ -273,7 +274,6 @@ class DataParallelPPOActor(BasePPOActor):
         micro_batch_size = data.meta_info["micro_batch_size"]
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
-
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
@@ -288,7 +288,6 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batches, indices = rearrange_micro_batches(batch=batch, max_token_len=max_token_len)
         else:
             micro_batches = batch.split(micro_batch_size)
-
         log_probs_lst = []
         entropy_lst = []
         for micro_batch in micro_batches:

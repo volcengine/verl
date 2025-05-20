@@ -19,6 +19,7 @@ import importlib.metadata
 import sys
 from functools import lru_cache
 from typing import Optional
+import re
 
 import torch
 from packaging import version
@@ -114,8 +115,12 @@ def apply_monkey_patch(
 ):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
-
-    num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    if hasattr(model.config, "text_config"):
+        num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
+    elif hasattr(model.config, "llm_config"):
+        num_attention_heads, num_key_value_heads = model.config.llm_config.num_attention_heads, model.config.llm_config.num_key_value_heads
+    else:
+        num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
     assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
@@ -157,6 +162,9 @@ def apply_monkey_patch(
 
             Qwen2VLForConditionalGeneration.forward = forward_without_logits
 
+        return
+    
+    elif re.match("internvl", model.config.model_type):
         return
 
     # transformers<=4.47.1

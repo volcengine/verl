@@ -14,7 +14,7 @@
 """
 The main entry point to run the PPO algorithm
 """
-
+import re
 import logging
 import os
 import warnings
@@ -164,7 +164,7 @@ class ActorRolloutRefWorker(Worker):
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-        from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq, AutoModelForImageTextToText
 
         from verl.utils.model import get_generation_config, print_model_size, update_model_config
         from verl.utils.torch_dtypes import PrecisionType
@@ -207,17 +207,28 @@ class ActorRolloutRefWorker(Worker):
             warnings.simplefilter("ignore")
             if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
                 actor_module_class = AutoModelForVision2Seq
+            elif type(actor_model_config) in AutoModelForImageTextToText._model_mapping.keys():
+                actor_module_class = AutoModelForImageTextToText
             else:
                 actor_module_class = AutoModelForCausalLM
-
+            model_init_kwargs = dict(attn_implementation="flash_attention_2")
+            if re.match("internvl", actor_model_config.model_type, re.IGNORECASE):
+                if "flash_attention_2" in model_init_kwargs.get("attn_implementation"):
+                    model_init_kwargs.pop("attn_implementation")
+                    model_init_kwargs["use_flash_attn"] = True
             actor_module = actor_module_class.from_pretrained(
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=actor_model_config,
-                attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
+                **model_init_kwargs
             )
 
+            if re.match("internvl", actor_module.config.model_type):
+                #Frozen the vision parameters for InternVL
+                actor_module.img_context_token_id = self.tokenizer.convert_tokens_to_ids(self.tokenizer.context_image_token)
+                for param in actor_module.vision_model.parameters():
+                    param.requires_grad = False
             # Apply Liger kernel to the model if use_liger is set to True
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
