@@ -367,8 +367,10 @@ def offload_megatron_optimizer(optimizers):
     offload_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-        v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+        if 'exp_avg' in v:
+            v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+        if 'exp_avg_sq' in v:
+            v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -378,8 +380,10 @@ def load_megatron_optimizer(optimizers):
     load_megatron_copy_params(optimizers)
     opt_state_dict_values = optimizers.optimizer.state.values()
     for v in opt_state_dict_values:
-        v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
-        v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
+        if 'exp_avg' in v:
+            v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+        if 'exp_avg_sq' in v:
+            v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
 
