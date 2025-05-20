@@ -164,6 +164,7 @@ def compute_grpo_outcome_advantage(
 
     return scores, scores
 
+
 def compute_grpo_passk_outcome_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,
@@ -550,46 +551,3 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         raise NotImplementedError
 
     raise NotImplementedError
-
-
-if __name__ == "__main__":
-
-    def test_passk_grpo():
-        import numpy as np
-        import torch
-
-        token_level_rewards = torch.tensor([
-            [0.0, 0.0, 0.1],  # total = 1.0
-            [0.0, 0.0, 1.0],  # total = 1.0
-            [0.0, 0.0, 0.5],  # total = 1.0
-            [0.0, 0.0, 0.3],  # total = 1.0
-            [0.0, 0.0, 1.0],  # total = 0.9
-            [0.0, 0.0, 0.9],  # total = 0.9
-            [0.0, 0.0, 0.6],  # total = 0.9
-            [0.0, 0.0, 0.6],  # total = 0.9
-        ])  # shape (4, 3)
-
-        response_mask = torch.tensor([
-            [1, 0, 0],
-            [1, 1, 0],
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 0, 0],
-            [1, 1, 0],
-            [1, 1, 1],
-            [1, 0, 0],
-        ])  # same shape
-
-        index = np.array([0, 0, 0, 0, 1, 1, 1, 1])  # two groups of size 2
-
-        adv, ret = compute_passk_grpo_outcome_advantage(
-            token_level_rewards,
-            response_mask,
-            index,
-            norm_adv_by_std_in_grpo=False,
-        )
-
-        print("Advantages:\n", adv)
-        print("Returns:\n", ret)
-    
-    test_passk_grpo()
