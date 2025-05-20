@@ -82,6 +82,7 @@ class RLHFDataset(Dataset):
         self.video_key = config.get("video_key", "videos")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
+        self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
 
@@ -236,6 +237,10 @@ class RLHFDataset(Dataset):
                 raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]
             elif self.truncation == "right":
                 raw_prompt_ids = raw_prompt_ids[: self.max_prompt_length]
+            elif self.truncation == "middle":
+                left_half = self.max_prompt_length // 2
+                right_half = self.max_prompt_length - left_half
+                raw_prompt_ids = raw_prompt_ids[:left_half] + raw_prompt_ids[-right_half:]
             elif self.truncation == "error":
                 raise RuntimeError(f"Prompt length {len(raw_prompt_ids)} is longer than {self.max_prompt_length}.")
 
@@ -243,6 +248,10 @@ class RLHFDataset(Dataset):
         # encode prompts without chat template
         if self.return_raw_chat:
             row_dict["raw_prompt"] = messages
+        
+        # get prompts with chat template
+        if self.return_full_prompt:
+            row_dict["full_prompts"] = raw_prompt # array of strings
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)

@@ -106,7 +106,12 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
+def apply_monkey_patch(
+    model: PreTrainedModel,
+    ulysses_sp_size: int = 1,
+    use_remove_padding: bool = True,
+    use_fused_kernels: bool = False,
+):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
@@ -116,27 +121,60 @@ def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
     )
     # TODO: VLM models only, unify monkey patch to LLM models.
-    if model.config.model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
-        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2
-        from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLFlashAttention2
+    if model.config.model_type == "qwen2_5_vl":
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+            Qwen2_5_VLFlashAttention2,
+            Qwen2_5_VLForConditionalGeneration,
+        )
 
-        from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
 
-        Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
-        Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
-        print("Monkey patch FlashAttention2.forward in Qwen2VL")
+            Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_5_vl import forward_without_logits
+
+            Qwen2_5_VLForConditionalGeneration.forward = forward_without_logits
+
+        return
+
+    elif model.config.model_type == "qwen2_vl":
+        from transformers.models.qwen2_vl.modeling_qwen2_vl import (
+            Qwen2VLFlashAttention2,
+            Qwen2VLForConditionalGeneration,
+        )
+
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+
+            Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2VL")
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_vl import forward_without_logits
+
+            Qwen2VLForConditionalGeneration.forward = forward_without_logits
+
         return
 
     # transformers<=4.47.1
-    if hasattr(module, "_flash_attention_forward"):
-        module._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {model.__module__}")
-    else:
-        # transformers>=4.48.0
-        from transformers.integrations import flash_attention
+    if use_remove_padding or ulysses_sp_size > 1:
+        if hasattr(module, "_flash_attention_forward"):
+            module._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {model.__module__}")
+        else:
+            # transformers>=4.48.0
+            from transformers.integrations import flash_attention
 
-        flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+
+    if use_fused_kernels:
+        from verl.models.transformers.llama import forward_without_logits
+
+        model.__class__.forward = forward_without_logits
 
 
 @lru_cache
