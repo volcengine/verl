@@ -439,7 +439,7 @@ class MegatronPPOActor(BasePPOActor):
 
             update_successful, grad_norm, num_zeros_in_grad = self.actor_optimizer.step()
             learning_rate = self.actor_optimizer.param_groups[-1]["lr"]
-            data = {"actor/grad_norm": grad_norm.detach().item(), "actor/lr": learning_rate}
+            data = {"actor/grad_norm": grad_norm, "actor/lr": learning_rate}
             append_to_dict(metrics, data)
 
             if update_successful:
