@@ -626,7 +626,6 @@ def broadcast_str_from_megatron_pp(obj: Any):
     return obj_output[0]
 
 
-
 def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
@@ -746,7 +745,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
                 torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
             infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
-                torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
+            torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
             infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
