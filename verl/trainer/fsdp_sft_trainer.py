@@ -485,7 +485,7 @@ class FSDPSFTTrainer:
                 is_valid_step = global_step % self.config.trainer.test_freq == 0
                 is_save_step = global_step % self.config.trainer.save_freq == 0
 
-                if self.config.trainer.test_freq > 0 and (is_last_step or  is_valid_step):
+                if self.config.trainer.test_freq > 0 and (is_last_step or is_valid_step):
                     val_metric = self._validate()
                     if rank == 0:
                         tracking.log(data=val_metric, step=global_step)
@@ -506,7 +506,7 @@ import hydra
 
 from torch.distributed.device_mesh import init_device_mesh
 
-from verl.utils.distributed import initialize_global_process_group
+from verl.utils.distributed import initialize_global_process_group, destroy_global_process_group
 
 def run_sft(config):
     local_rank, rank, world_size = initialize_global_process_group()
@@ -525,6 +525,8 @@ def run_sft(config):
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
+
+    destroy_global_process_group()
 
 @hydra.main(config_path='config', config_name='sft_trainer', version_base=None)
 def main(config):
