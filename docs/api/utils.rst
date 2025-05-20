@@ -21,6 +21,9 @@ Tracking Utilities
 .. automodule:: verl.utils.tracking
    :members:
 
+Metrics Utilities
+---------------------
+
 .. automodule::  verl.utils.metric
    :members: reduce_metrics
 
