@@ -625,6 +625,7 @@ def broadcast_str_from_megatron_pp(obj: Any):
 
     return obj_output[0]
 
+
 def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
@@ -632,7 +633,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     infer_params (Iterable[torch.Tensor]): a iterator towards list of parameters all-gathered from micro_dp_group
     model_config: huggingface model_config
     TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
-    definition so that it is model-agnostic. If the model doesn't implement this function, 
+    definition so that it is model-agnostic. If the model doesn't implement this function,
     we can throw an error to force user disable TP HybridEngine.
     """
     from megatron.core import mpu
@@ -649,14 +650,9 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
-            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size(
-            )
+            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size()
             for chunk in infer_param.chunk(num_query_groups_per_partition):
-                split_size = [
-                    kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
-                    kv_size_per_tp // num_query_groups_per_partition,
-                    kv_size_per_tp // num_query_groups_per_partition
-                ]
+                split_size = [kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition]
                 q, k, v = chunk.split(split_size)
                 q_lst.append(q)
                 k_lst.append(k)
@@ -693,6 +689,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
 
 def per_tensor_generator(actor_module, model_config, weight_converter, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
     from megatron.core import parallel_state as mpu
+
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
     vpp_size = len(actor_module)
@@ -710,9 +707,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
             meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
     obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
-    torch.distributed.all_gather_object(
-        object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group()
-    )
+    torch.distributed.all_gather_object(object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group())
     layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
     gen_func = tensor_generator()
@@ -724,9 +719,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 cur_name, cur_tensor = next(gen_func)
             except StopIteration:
                 cur_name, cur_tensor = None, None
-            cur_name = normalize_model_name(
-                name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers
-            )
+            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers)
         else:
             cur_tensor, cur_name = None, None
 
@@ -745,19 +738,13 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 infer_params = [broad_pp_tensor]
             else:
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
-                torch.distributed.all_gather(
-                    infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group()
-                )
-            infer_params = default_tp_concat_fn(
-                layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split
-            )
+                torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
+            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
-
 
         if not isinstance(infer_params, list):
             infer_params = [infer_params]
         converted_names, converted_params = weight_converter.convert_param(cur_name, infer_params)
 
         yield from zip(converted_names, converted_params)
-
