@@ -39,7 +39,6 @@ verl x Ascend
 https://github.com/vllm-project/vllm-ascend/issues/809
 https://github.com/vllm-project/vllm-ascend/issues/825
 
-
 ------
 源码安装
 ------
@@ -54,11 +53,7 @@ https://github.com/vllm-project/vllm-ascend/issues/825
 vLLM
 ------
 
-为了保证能够在 verl 上正常使用 vLLM，需要安装 vLLM Ascend 插件（`vllm-ascend`）。关于在华为昇腾上支持的 vLLM 版本以及和 vLLM Ascend 的配套关系请参考`安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.1rc1/installation.html>`_。
-
-------
-Ray
-------
+为了保证能够在 verl 上正常使用 vLLM，需要安装 vLLM Ascend 插件（`vllm-ascend`）。关于在华为昇腾上支持的 vLLM 版本以及和 vLLM Ascend 的配套关系请参考`安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.3/installation.html>`_。
 
 ------
 其他第三方库说明
@@ -76,14 +71,14 @@ Ray
 精度对比
 ------
 
-根据经验，对于SFT等微调算法，我们期望在相同配置下，在华为昇腾设备上的 Loss 与英伟达 GPU 的 Loss 平均误差小于 2%，具体计算方式如下：
+根据经验，对于SFT等微调算法，我们期望在相同配置下，在华为昇腾设备上的 Loss 与英伟达 GPU 的 Loss 平均绝对误差小于等于 2%，具体计算方式如下：
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/tree/main/docs/loss_comparison.png
    :alt: Alt text
 
 其中，N 表示训练的步数。更多信息请参考[精度计算说明](https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/LMaccuracy_0001.html)。
 
-根据经验，对于GRPO等强化学习算法，我们期望在相同配置下，在华为昇腾设备上的 reward 与英伟达 GPU 的 reward 平均绝对误差小于 4%，具体计算参考 Loss 计算。
+根据经验，对于GRPO等强化学习算法，我们期望在相同配置下，在华为昇腾设备上的 reward 与英伟达 GPU 的 reward 平均绝对误差小于等于 4%，具体计算参考 Loss 计算。
 
 ------
 进展
@@ -93,8 +88,6 @@ Ray
 | 算法    | 进展   |
 +========+========+
 | SFT    | 已支持  |
-+--------+--------+
-| PPO    | 已支持  |
 +--------+--------+
 | GRPO   | 已支持  |
 +--------+--------+

@@ -11,7 +11,7 @@ pyarrow>=15.0.0
 pybind11
 pylatexenc
 ray
-tensordict<0.6
+tensordict<=0.6.2
 wandb
 mathruler
 torchdata

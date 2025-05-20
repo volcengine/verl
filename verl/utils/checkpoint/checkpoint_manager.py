@@ -21,8 +21,8 @@ import numpy as np
 import torch
 import torch.distributed
 from filelock import FileLock
-from verl.utils.device import is_cuda_available, is_npu_available
 from transformers import PreTrainedTokenizer, ProcessorMixin
+from verl.utils.device import is_cuda_available, is_npu_available
 
 
 class BaseCheckpointManager:

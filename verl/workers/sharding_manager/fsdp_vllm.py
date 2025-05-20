@@ -189,6 +189,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     def update_params(self, updated_params):
         model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
-        device = torch.cuda.current_device()  # used when fsdp2 set cpu_offload_policy
-        loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()))
+        world_size = torch.distributed.get_world_size()
+        device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
+        loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if world_size != 1 and hasattr(param, "full_tensor") else param) for name, param in updated_params.items()))
         logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))

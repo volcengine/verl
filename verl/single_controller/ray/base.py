@@ -95,7 +95,7 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
 
-    def get_placement_groups(self, strategy="STRICT_PACK", device_name=None, name=None):
+    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name=None):
         if self.pgs is not None:
             return self.pgs
 

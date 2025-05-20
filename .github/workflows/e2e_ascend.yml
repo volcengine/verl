@@ -60,7 +60,7 @@ jobs:
       - name: Running deepseek generation tests on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/generation/run_gen_deepseek_v2_lite_math_npu.sh
+          bash tests/npu/run_gen_deepseek_v2_lite_math.sh
       - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
         run: |
           ray stop --force
@@ -69,5 +69,5 @@ jobs:
       - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/e2e/run_qwen05_gsm8k_grpo_npu.sh
+          bash tests/npu/run_qwen05_gsm8k_grpo_npu.sh
           rm -rf $HOME/ckpts

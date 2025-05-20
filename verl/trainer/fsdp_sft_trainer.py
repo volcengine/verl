@@ -55,7 +55,7 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
-from verl.utils.device import get_device_name, is_cuda_available, get_torch_device, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 
@@ -115,7 +115,7 @@ class FSDPSFTTrainer:
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
             print(self.config)
-        self.device = get_device_name()
+        self.device_name = get_device_name()
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
@@ -288,15 +288,15 @@ class FSDPSFTTrainer:
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
         # Move inputs to GPU and prepare loss mask
-        input_ids = batch["input_ids"].to(self.device)
-        attention_mask = batch["attention_mask"].to(self.device)
-        position_ids = batch["position_ids"].to(self.device)
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device)
+        input_ids = batch["input_ids"].to(self.device_name)
+        attention_mask = batch["attention_mask"].to(self.device_name)
+        position_ids = batch["position_ids"].to(self.device_name)
+        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
-        with context, torch.autocast(device_type=self.device, dtype=torch.bfloat16):
+        with context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
@@ -406,7 +406,7 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After offload weights", logger=logger)
 
-        step_loss = torch.tensor(step_loss).to(self.device)
+        step_loss = torch.tensor(step_loss).to(self.device_name)
         if is_cuda_available:
             torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         elif is_npu_available:
@@ -477,7 +477,7 @@ class FSDPSFTTrainer:
                 desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
             ):
                 global_step += 1
-                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device)
+                data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
@@ -487,7 +487,7 @@ class FSDPSFTTrainer:
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
+                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device_name)
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
@@ -503,7 +503,7 @@ class FSDPSFTTrainer:
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device)
+                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device_name)
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:

@@ -1,4 +1,3 @@
-# Tested with 1 & 8 NPUs
 set -x
 
 if [ "$#" -lt 2 ]; then
