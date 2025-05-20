@@ -13,11 +13,17 @@
 # limitations under the License.
 import concurrent.futures  # <-- Import concurrent.futures
 import json
+import requests
 import logging
 import os
 import threading
 import time
 import traceback
+from typing import Optional, Tuple, List, Dict, Any
+import logging
+import time # <-- Import time module
+import uuid # <-- Import uuid module
+import concurrent.futures # <-- Import concurrent.futures
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -31,6 +37,12 @@ API_TIMEOUT = 10
 logger = logging.getLogger(__name__)
 
 # Define supported languages list (optional, for documentation or validation)
+SUPPORTED_LANGUAGES = [
+    "python", "cpp", "nodejs", "go", "go_test", "java", "php", "csharp",
+    "bash", "typescript", "sql", "rust", "cuda", "lua", "R", "perl",
+    "D_ut", "ruby", "scala", "julia", "pytest", "junit", "kotlin_script",
+    "jest", "verilog", "python_gpu", "lean", "swift", "racket"
+]
 SUPPORTED_LANGUAGES = ["python", "cpp", "nodejs", "go", "go_test", "java", "php", "csharp", "bash", "typescript", "sql", "rust", "cuda", "lua", "R", "perl", "D_ut", "ruby", "scala", "julia", "pytest", "junit", "kotlin_script", "jest", "verilog", "python_gpu", "lean", "swift", "racket"]
 
 
@@ -385,9 +397,11 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
                        ordered corresponding to the inputs.
     """
     logger.info("Starting correctness check for generation.")
+    logger.info(f"Starting correctness check for generation.")
 
     if not in_outs or "inputs" not in in_outs or "outputs" not in in_outs:
         logger.warning("Invalid in_outs format provided.")
+        logger.warning(f"Invalid in_outs format provided.")
         return [-1], [{"error": "Invalid input/output data"}]
 
     inputs = in_outs["inputs"]
@@ -406,8 +420,21 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
         # Return error based on the number of inputs provided
         return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
 
+
     first_compile_error_index = -1
 
+    # Use ThreadPoolExecutor for concurrent execution
+    # Adjust max_workers based on expected load and API limits
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit all tasks
+        future_to_index = {
+            executor.submit(
+                _process_single_case,
+                i, stdin_data, expected_outputs[i],
+                sandbox_fusion_url, generation, timeout, language
+            ): i
+            for i, stdin_data in enumerate(inputs)
+        }
     # max_workers is limited by sandbox_fusion_max_concurrent from concurrent_semaphore
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(32, os.cpu_count() * 5)) as executor:
         # Submit all tasks, passing the concurrent_semaphore to _process_single_case
@@ -429,6 +456,7 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
                     # However, cancellation is not guaranteed. Post-processing is safer.
 
             except Exception as exc:
+                logger.error(f'Test case {index} generated an exception: {exc}')
                 logger.error(f"Test case {index} generated an exception: {exc}")
                 traceback.print_exc()
                 results[index] = -1  # Mark as API/internal error
@@ -458,6 +486,7 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
                     }
                 else:  # If future completed but result is overridden
                     metadata_list[i]["status"] = "compile_error_skipped"
+
 
     logger.info(f"Correctness check finished. Results: {results}")
     return results, metadata_list
