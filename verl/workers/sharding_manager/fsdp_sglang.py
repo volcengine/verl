@@ -165,7 +165,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         tp_rank = self.device_mesh["infer_tp"].get_local_rank()
         tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         src_rank = global_rank // tp_size * tp_size
-        broadcast_dict_tensor(data.batch, src=src_rank, group=self.device_mesh["infer_tp"].get_group())
         if tp_size > 1:
             local_prompts = data.chunk(chunks=tp_size)
             data = local_prompts[tp_rank]
