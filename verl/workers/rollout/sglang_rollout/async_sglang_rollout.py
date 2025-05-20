@@ -471,8 +471,8 @@ class AsyncSGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
-                        _req.add_tool_response_message(self.tokenizer, resp, format=self.config.multi_turn.format)
+                    for i, (tool_call, (resp, reward, metrics)) in enumerate(zip(parsed_tool_calls, tool_call_results)):
+                        _req.add_tool_response_message(self.tokenizer, resp, (i == len(parsed_tool_calls) - 1), format=self.config.multi_turn.format)
                         if len(_req.input_ids) >= self.config.max_model_len:
                             break
                     if len(_req.input_ids) >= self.config.max_model_len:
