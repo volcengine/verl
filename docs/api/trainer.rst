@@ -1,28 +1,28 @@
-PPO Trainer Interface
+Trainer Interface
 ================================
 
-This section documents the trainer utilities in the VERL library.
+Trainers drive the training loop. Introducing new trainer classes in case of new training paradiam is encouraged.
 
-PPO Ray Trainer
-----------------------------
+.. autosummary::
+   :nosignatures:
 
-.. automodule:: verl.trainer.ppo.ray_trainer
-   :members:
+   verl.trainer.ppo.ray_trainer.RayPPOTrainer
 
-PPO Metrics
---------------------------
 
-.. automodule:: verl.trainer.ppo.metric_utils
-   :members:
+Core APIs
+~~~~~~~~~~~~~~~~~
 
-PPO Core Algorithms
------------------------------
+.. autoclass::  verl.trainer.ppo.ray_trainer.RayPPOTrainer
+   :members: __init__, init_workers, fit
+
+
+.. automodule:: verl.utils.tokenizer
+   :members: hf_tokenizer
+
 
 .. automodule:: verl.trainer.ppo.core_algos
-   :members:
+   :members: agg_loss, kl_penalty, compute_policy_loss, kl_penalty
 
-PPO Reward
----------------------------
 
 .. automodule:: verl.trainer.ppo.reward
-   :members:
+   :members: load_reward_manager, compute_reward, compute_reward_async

@@ -341,7 +341,7 @@ class RayPPOTrainer:
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
     ):
-        # assert torch.cuda.is_available(), 'cuda must be available on driver'
+        """Initialize distributed PPO trainer with Ray backend."""
 
         self.tokenizer = tokenizer
         self.processor = processor
@@ -724,7 +724,12 @@ class RayPPOTrainer:
         return metric_dict
 
     def init_workers(self):
-        """Init resource pool and worker group"""
+        """Initialize distributed training workers using Ray backend.
+
+        Creates:
+        1. Ray resource pools from configuration
+        2. Worker groups for each role (actor, critic, etc.)
+        """
         self.resource_pool_manager.create_resource_pool()
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
