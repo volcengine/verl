@@ -81,7 +81,7 @@ RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
 
 # Install Sglang
-RUN pip install --no-deps "sglang[all]>=0.4.6.post4"
+RUN pip uninstall -y cuda-python && pip install --no-deps "sglang[all]>=0.4.6.post4"
 
 # Install cudnn
 RUN aria2c --max-tries=9999 https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb && \
