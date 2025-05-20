@@ -58,5 +58,4 @@ jobs:
           pytest -s -x .
       - name: Running arithmetic_sequence e2e test for TorchRPC
         run: |
-          cd ../..
           bash tests/e2e/run_torchrpc_trainer.sh
