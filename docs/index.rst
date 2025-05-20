@@ -40,6 +40,12 @@ verl is fast with:
    hybrid_flow
 
 .. toctree::
+   :maxdepth: 4
+   :caption: Design of Single Controller
+
+   single_controller
+
+.. toctree::
    :maxdepth: 5
    :caption: Data Preparation
 
