@@ -15,6 +15,7 @@
 Implement a multiprocess PPOCritic
 """
 
+import itertools
 import logging
 import os
 from functools import partial
@@ -33,6 +34,7 @@ from verl.trainer.ppo import core_algos
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
+from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean, split_dict_tensor_into_batches
 from verl.workers.critic import BasePPOCritic
 
@@ -91,13 +93,25 @@ class MegatronPPOCritic(BasePPOCritic):
         # data.batch = data.batch.to(self.critic_module.module.device)
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
+        use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
+        micro_batch_size = data.meta_info.get("micro_batch_size", None)
+        max_token_len = data.meta_info.get("max_token_len", None)
+        assert micro_batch_size is not None, "micro batch size is needed for forward compute"
+        if use_dynamic_bsz:
+            assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
+            max_token_len = max_token_len * self.config.megatron.context_parallel_size
         response_length = responses.size(1)
         with torch.no_grad():
-            output = self.forward_backward_batch(data=data, forward_only=True)
+            output, indices = self.forward_backward_batch(data=data, forward_only=True, use_dynamic_bsz=use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=None)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
                 # only on last rank. It should be on every tp rank
-                values = torch.cat([o["vpreds"] for o in output], dim=0)  # (bs, seq_size, vocal_size)
-                values = values.to(torch.float32)
+                values = [o["vpreds"] for o in output]  # (bs, seq_size, vocal_size)
+                if use_dynamic_bsz:
+                    indices = list(itertools.chain.from_iterable(indices))
+                    assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
+                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                    values = values[revert_indices]
+                values = torch.cat(values, dim=0).to(torch.float32)
             else:
                 values = torch.empty_like(attention_mask, dtype=torch.float32)
 
@@ -128,19 +142,32 @@ class MegatronPPOCritic(BasePPOCritic):
             dataloader_kwargs={"shuffle": self.config.shuffle},
         )
 
-    def forward_backward_batch(self, data: DataProto, forward_only=False):
+    def forward_backward_batch(self, data: DataProto, forward_only=False, use_dynamic_bsz=False, micro_batch_size=None, max_token_len=None, mini_batch_size=None):
         # broadcast from last pp rank to all other pp ranks
-        data.batch = data.batch.contiguous()
-        broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
+        mini_batch = data
+        mini_batch.batch = mini_batch.batch.contiguous()
+        broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
-        data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
-        batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size_per_gpu)
-        n_micro_batch = len(batches)
-        seq_len = batches[0]["input_ids"].shape[1]
+        mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
+        
+        indices, gradient_accumulation = None, None
+        if use_dynamic_bsz:
+            assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
+            micro_batches, indices = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            total_seqlen = max_token_len
+        else:
+            assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
+            gradient_accumulation = mini_batch_size // micro_batch_size
+            micro_batches = mini_batch.split(micro_batch_size)
+            seq_len = micro_batches[0]["input_ids"].shape[1]
+            total_seqlen = micro_batch_size * seq_len
+        n_micro_batch = len(micro_batches)
 
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output, data, meta_info):
+            nonlocal use_dynamic_bsz
+            
             if forward_only:
                 return torch.tensor(1.0, device=output.device), {"vpreds": output}
 
@@ -164,13 +191,19 @@ class MegatronPPOCritic(BasePPOCritic):
                 response_mask=response_mask,
                 cliprange_value=cliprange_value,
             )
+            
+            if use_dynamic_bsz:
+                loss = vf_loss * len(data) / mini_batch_size
+            else:
+                loss = vf_loss * gradient_accumulation
+            
             stats = {
                 "critic/vf_loss": vf_loss.detach().item(),
                 "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                 "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
             }
 
-            return vf_loss, stats
+            return loss, stats
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -193,7 +226,7 @@ class MegatronPPOCritic(BasePPOCritic):
             return output, partial(loss_func, data=batch, meta_info={})
 
         # batch should be a list of batches inside micro-batches
-        batch_generator = make_batch_generator(batches, vpp_size=len(self.critic_module))
+        batch_generator = make_batch_generator(micro_batches, vpp_size=len(self.critic_module))
 
         # TODO: we may use the new schedule instead
         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
@@ -203,7 +236,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 data_iterator=batch_generator,
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
-                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # no use when input_shapes was set
+                seq_length=total_seqlen,  # no use when input_shapes was set
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
@@ -213,12 +246,12 @@ class MegatronPPOCritic(BasePPOCritic):
                 data_iterator=batch_generator,
                 model=self.critic_module,
                 num_microbatches=n_micro_batch,
-                seq_length=self.config.ppo_micro_batch_size_per_gpu * seq_len,  # in use for pp = 1
+                seq_length=total_seqlen,  # in use for pp = 1
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
             )
         # loss_reduces contains the stats returned from loss_func
-        return losses_reduced
+        return losses_reduced, indices
 
     @GPUMemoryLogger("megatron critic", logger=logger)
     def update_critic(self, dataloader: Iterable[DataProto]):
@@ -231,9 +264,16 @@ class MegatronPPOCritic(BasePPOCritic):
             for chunk in self.critic_module:
                 chunk.zero_grad_buffer()
 
-            metric_micro_batch = self.forward_backward_batch(data)
+            micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
+            max_token_len = None
+            if self.config.use_dynamic_bsz:
+                max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size
+            metric_micro_batch, _ = self.forward_backward_batch(data, forward_only=False, use_dynamic_bsz=self.config.use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=self.config.ppo_mini_batch_size)
 
             update_successful, grad_norm, num_zeros_in_grad = self.critic_optimizer.step()
+            learning_rate = self.actor_optimizer.param_groups[-1]["lr"]
+            data = {"critic/grad_norm": grad_norm, "critic/lr": learning_rate}
+            append_to_dict(metrics, data)
 
             if update_successful:
                 # allgather already execute in optimizer.step in new megatron

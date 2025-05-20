@@ -21,6 +21,9 @@ RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
 
+USE_DYNAMIC_BSZ=${USE_DYNAMIC_BSZ:-True}
+ppo_max_token_len_per_gpu=12000
+forward_max_token_len_per_gpu=24000
 train_traj_micro_bsz_per_gpu=2 # b
 n_resp_per_prompt=4 # g
 
@@ -71,6 +74,8 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
+    actor_rollout_ref.actor.use_dynamic_bsz=${USE_DYNAMIC_BSZ} \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${train_max_token_len_per_gpu} \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$ACTOR_PP \
     actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=$ACTOR_VPP \
     actor_rollout_ref.actor.megatron.context_parallel_size=$ACTOR_CP \
@@ -93,6 +98,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.model.path="${MODEL_PATH}" \
     critic.model.enable_gradient_checkpointing=False \
     critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
+    critic.ppo_max_token_len_per_gpu=${forward_max_token_len_per_gpu} \
     critic.megatron.pipeline_model_parallel_size=$CRITIC_PP \
     critic.megatron.virtual_pipeline_model_parallel_size=$CRITIC_VPP \
     critic.megatron.context_parallel_size=$CRITIC_CP \
