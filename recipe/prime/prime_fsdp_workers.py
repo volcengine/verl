@@ -36,7 +36,6 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils.import_utils import import_external_libs
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -129,12 +128,10 @@ class PRIMERewardModelWorker(Worker):
                 trust_remote_code=trust_remote_code,
             )
 
-            apply_monkey_patch(
-                model=reward_module,
-                ulysses_sp_size=self.ulysses_sequence_parallel_size,
-                use_remove_padding=config.model.get("use_remove_padding", False),
-                use_fused_kernels=config.model.get("use_fused_kernels", False),
-            )
+            if config.model.get("use_remove_padding", False) or self.ulysses_sequence_parallel_size > 1:
+                from verl.models.transformers.monkey_patch import apply_monkey_patch
+
+                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)
