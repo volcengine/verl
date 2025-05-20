@@ -473,7 +473,7 @@ def layered_summon_lora_params(fsdp_module)->OrderedDict:
     ]
     for prefix in prefix_list:
         for name, submodule in __prefix_submodules(fsdp_module, prefix):
-            prefix = name.replace("_fsdp_wrapped_module.base_model.model.","")
+            prefix = name.replace("_fsdp_wrapped_module.base_model.model.","base_model.model.")
             if name.endswith('.model') or name.endswith('.layers'):
                 continue
             if fsdp_version(submodule) > 0:
