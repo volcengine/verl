@@ -454,6 +454,7 @@ class FSDPSFTTrainer:
             )
 
         global_step = 0
+        last_valid_metric = None
         # compute the total training steps.
         # the total training steps in SFT is mainly for early exit
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -481,19 +482,22 @@ class FSDPSFTTrainer:
                     tracking.log(data=metric, step=global_step)
 
                 is_last_step = global_step >= self.total_training_steps
-                if self.config.trainer.test_freq > 0 and \
-                    (is_last_step or  global_step % self.config.trainer.test_freq == 0):
+                is_valid_step = global_step % self.config.trainer.test_freq == 0
+                is_save_step = global_step % self.config.trainer.save_freq == 0
+
+                if self.config.trainer.test_freq > 0 and (is_last_step or  is_valid_step):
                     val_metric = self._validate()
                     if rank == 0:
                         tracking.log(data=val_metric, step=global_step)
+                    if is_last_step:
+                        last_valid_metric = val_metric
                     torch.distributed.barrier()
 
-                if self.config.trainer.save_freq > 0 and ( is_last_step or \
-                        global_step % self.config.trainer.save_freq == 0):
+                if self.config.trainer.save_freq > 0 and ( is_last_step or is_save_step):
                     self.save_checkpoint(step=global_step)
 
                 if is_last_step:
-                    print(f'Final validation metrics: {val_metric}')
+                    print(f'Final validation metrics: {last_valid_metric}')
                     return
 
 
