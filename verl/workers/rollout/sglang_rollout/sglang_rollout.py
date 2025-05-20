@@ -37,7 +37,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from sglang.srt.entrypoints.verl_engine import VerlEngine
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
+from sglang.srt.utils import get_ip, get_open_port
 from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -48,6 +48,7 @@ from verl.utils.debug import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 if TYPE_CHECKING:
     from torch import nn
@@ -146,7 +147,6 @@ class SGLangRollout(BaseRollout):
 
         # get tp_rank of this process in this tp group
         rank = device_mesh_cpu.get_rank()
-        tp_rank = device_mesh_cpu["tp"].get_local_rank()
         visible_devices = [None] * device_mesh_cpu.size(1)
 
         torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
@@ -159,7 +159,7 @@ class SGLangRollout(BaseRollout):
             port = get_open_port() if port is None else port
             [ip, port] = broadcast_pyobj(
                 [ip, port],
-                rank=tp_rank,
+                rank=rank,
                 dist_group=device_mesh_cpu.get_group("tp"),
                 src=device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
@@ -325,10 +325,11 @@ class SGLangRollout(BaseRollout):
                 attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
                 position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
                 batch_size = batch_size * self.sampling_params["n"]
-                if "multi_modal_inputs" in non_tensor_batch.keys():
-                    non_tensor_batch["multi_modal_inputs"] = np.repeat(non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0)
-                if "tools_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["tools_kwargs"] = np.repeat(non_tensor_batch["tools_kwargs"], self.sampling_params["n"], axis=0)
+                _non_tensor_batch = {}
+                for key, val in non_tensor_batch.items():
+                    _non_tensor_batch[key] = np.repeat(val, self.sampling_params["n"], axis=0)
+            else:
+                _non_tensor_batch = non_tensor_batch
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -361,7 +362,7 @@ class SGLangRollout(BaseRollout):
         if self.config.free_cache_engine and self.inference_engine._engine is not None and self.inference_engine._engine.tokenizer_manager is not None:
             self.inference_engine._engine.flush_cache()
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
     # this function is left for uniform train-inference resharding
     def update_weights(self, params_iter):

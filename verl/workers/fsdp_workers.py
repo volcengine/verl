@@ -29,6 +29,7 @@ from torch.distributed.device_mesh import init_device_mesh
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
+from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
@@ -50,7 +51,6 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
@@ -91,7 +91,9 @@ class ActorRolloutRefWorker(Worker):
         import torch.distributed
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group()
+            rank = int(os.environ.get("RANK", 0))
+            world_size = int(os.environ.get("WORLD_SIZE", 1))
+            torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=rank, world_size=world_size)
 
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
@@ -443,9 +445,10 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
             from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
+            local_path = copy_to_local(self.config.model.path)
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
             rollout = AsyncSGLangRollout(
-                actor_module=self.config.model.path,
+                actor_module=local_path,
                 config=self.config.rollout,
                 tokenizer=self.tokenizer,
                 model_hf_config=self.actor_model_config,
