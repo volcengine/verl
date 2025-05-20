@@ -25,6 +25,13 @@ MAGIC_ATTR = "attrs_3141562937"
 
 
 class Dispatch(DynamicEnum):
+    """Enum class defining different dispatch modes for distributed computation.
+
+    Each mode represents a specific strategy for distributing data across
+    different ranks in a distributed system. The modes are used to control
+    how data is partitioned and processed across different worker groups.
+    """
+
     _registry = {}
     _next_value = 0
 
@@ -47,6 +54,12 @@ def init_predefined_dispatch_mode():
 
 
 class Execute(DynamicEnum):
+    """Enum class defining different execution modes for distributed computation.
+
+    These modes control how a function should be executed across different ranks
+    in a distributed system.
+    """
+
     _registry = {}
     _next_value = 0
 
@@ -490,6 +503,26 @@ def _materialize_futures(*args, **kwargs):
 
 
 def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocking=True, materialize_futures=True):
+    """Register a function with distributed execution configuration.
+
+    This decorator registers a function with specific dispatch and execution modes
+    for distributed computation. It handles both synchronous and asynchronous
+    functions, and optionally materializes futures before execution.
+
+    Args:
+        dispatch_mode:
+            Dispatch mode for computation distribution. Default: Dispatch.ALL_TO_ALL.
+        execute_mode:
+            Execute mode for computation distribution. Default: Execute.ALL.
+        blocking:
+            Whether the execution should be blocking. Defaults to True.
+        materialize_futures:
+            Whether to materialize the data before dispatching. Defaults to True.
+
+    Returns:
+        A decorator that wraps the original function with distributed execution
+        configuration.
+    """
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 

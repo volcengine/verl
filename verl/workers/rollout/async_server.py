@@ -184,8 +184,8 @@ class ChatCompletionScheduler:
 
         completions, exception = None, None
         try:
-            # TODO: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_openai(address, **chat_complete_request)
+            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
+            completions = await self._chat_completions_aiohttp(address, **chat_complete_request)
         except Exception as e:
             # Let user handle the exception
             exception = e
@@ -193,20 +193,16 @@ class ChatCompletionScheduler:
         await callback(completions, callback_additional_info, exception)
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
-        client = AsyncOpenAI(
-            base_url=f"http://{address}/v1",
-            api_key="token-abc123",
-            timeout=None,
-            max_retries=0
-        )
+        client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
         return await client.chat.completions.create(**chat_complete_request)
 
     async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
         try:
+            extra_headers = chat_complete_request.pop("extra_headers")
             session = aiohttp.ClientSession()
             async with session.post(
                 url=f"http://{address}/v1/chat/completions",
-                headers={"Authorization": "Bearer token-abc123"},
+                headers={"Authorization": "Bearer token-abc123", **extra_headers},
                 json=chat_complete_request,
             ) as resp:
                 data = await resp.json()
