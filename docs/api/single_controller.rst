@@ -22,5 +22,7 @@ Core APIs
 .. autoclass:: verl.single_controller.ResourcePool
    :members: __init__, world_size, local_world_size_list, local_rank_list
 
-.. automodule:: verl.single_controller.ray
-   :members: RayWorkerGroup, create_colocated_worker_cls
+.. autoclass:: verl.single_controller.ray.RayWorkerGroup
+   :members: __init__
+
+.. autofunction:: verl.single_controller.ray.create_colocated_worker_cls
