@@ -7,19 +7,19 @@ Python Functional Utilities
 ------------------------------
 
 .. automodule:: verl.utils.py_functional
-   :members:
+   :members: append_to_dict
 
 File System Utilities
 ------------------------
 
 .. automodule:: verl.utils.fs
-   :members:
+   :members: copy_to_local
 
 Tracking Utilities
 ---------------------
 
 .. automodule:: verl.utils.tracking
-   :members:
+   :members: Tracking, ValidationGenerationsLogger
 
 Metrics Utilities
 ---------------------
@@ -31,88 +31,50 @@ Checkpoint Management
 ------------------------
 
 .. automodule:: verl.utils.checkpoint.checkpoint_manager
-   :members:
+   :members: fins_latest_ckpt_path
 
 .. automodule:: verl.utils.checkpoint.fsdp_checkpoint_manager
-   :members:
+   :members: FSDPCheckpointManager
 
 Dataset Utilities
 ---------------------
 
 .. automodule:: verl.utils.dataset.rl_dataset
-   :members:
-
-.. automodule:: verl.utils.dataset.sft_dataset
-   :members:
+   :members: RLHFDataset, collate_fn
 
 Torch Functional Utilities
 -----------------------------
 
 .. automodule:: verl.utils.torch_functional
-   :members:
+   :members: get_constant_schedule_with_warmup, masked_whiten, masked_mean, logprobs_from_logits
 
 Sequence Length Balancing
 ----------------------------
 
 .. automodule:: verl.utils.seqlen_balancing
-   :members:
+   :members: get_reverse_idx, rearrage_micro_batches
 
 Ulysses Utilities
 --------------------
 
 .. automodule:: verl.utils.ulysses
-   :members:
+   :members: gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
 Model Utilities
 ------------------
 
 .. automodule:: verl.utils.model
-   :members:
+   :members: print_model_size
 
 FSDP Utilities
 ------------------
 
 .. automodule:: verl.utils.fsdp_utils
-   :members:
-
-Reward Score Utilities
--------------------------
-
-.. automodule:: verl.utils.reward_score
-   :members:
+   :members: get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn, load_fsdp_model_to_gpu, load_fsdp_optimizer, offload_fsdp_model_to_cpu, offload_fsdp_optimizer,
 
 Debug Utilities
 -------------------
 
 .. automodule:: verl.utils.debug
-   :members:
+   :members: log_gpu_memory_usage, GPUMemoryLogger
 
-Ray Utilities
------------------
-
-.. automodule:: verl.utils.ray_utils
-   :members:
-
-Model Utilities
--------------------
-
-.. automodule:: verl.utils.model
-   :members:
-
-Sequence Length Balancing
------------------------------
-
-.. automodule:: verl.utils.seqlen_balancing
-   :members:
-
-Megatron Utilities
-----------------------
-
-.. automodule:: verl.utils.megatron.pipeline_parallel
-   :members:
-
-.. automodule:: verl.utils.megatron.sequence_parallel
-   :members:
-
-.. automodule:: verl.utils.megatron.tensor_parallel
-   :members:
