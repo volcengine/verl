@@ -289,10 +289,9 @@ class ActorRolloutRefWorker(Worker):
         elif fsdp_strategy == "fsdp2":
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
+            self._is_offload_optimizer = False
             if role == "actor" and fsdp_config.offload_policy:
                 cpu_offload = CPUOffloadPolicy(pin_memory=True)
-                self._is_offload_param = False
-                self._is_offload_optimizer = False
             else:
                 cpu_offload = None if role == "actor" else CPUOffloadPolicy(pin_memory=True)
 
@@ -304,7 +303,7 @@ class ActorRolloutRefWorker(Worker):
             }
             full_state = actor_module.state_dict()
             apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
-            fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
+            fsdp2_load_full_state_dict(actor_module, full_state, self.rank, fsdp_mesh, cpu_offload)
             actor_module_fsdp = actor_module
         else:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
@@ -896,7 +895,7 @@ class CriticWorker(Worker):
             }
             full_state = critic_module.state_dict()
             apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
-            fsdp2_load_full_state_dict(critic_module, full_state, fsdp_mesh, offload_policy)
+            fsdp2_load_full_state_dict(critic_module, full_state, self.rank, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {config.strategy}")
 

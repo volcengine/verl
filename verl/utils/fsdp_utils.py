@@ -149,8 +149,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    for param in model.parameters():
-        param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+    model.to("cpu")
     if empty_cache:
         torch.cuda.empty_cache()
 
@@ -178,8 +177,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
     device = torch.cuda.current_device()
-    for param in model.parameters():
-        param.data = param.data.to(device, non_blocking=True)
+    model.to(device)
 
 
 @torch.no_grad()
@@ -389,7 +387,7 @@ def get_fsdp_state_ctx(model, state_type, state_cfg, optim_cfg):
         return nullcontext()
 
 
-def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None):
+def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, rank: int, device_mesh=None, cpu_offload=None):
     """
     Loads the full state dict (could be only on rank 0) into the sharded model. This is done by broadcasting the
     parameters from rank 0 to all other ranks. This function modifies the model in-place.
@@ -398,26 +396,41 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
         model (`torch.nn.Module`): The model to load the state dict into
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
-
-    # To broadcast, it needs to be instantiated in the GPU.
-    if dist.get_rank() == 0:
-        model = model.to(device=torch.cuda.current_device(), non_blocking=True)
+    from torch.distributed.tensor import distribute_tensor
+    model = model.to_empty(device=torch.cuda.current_device())
+    sharded_sd = model.state_dict()
+    if rank == 0:
+        for (param_name, full_param), sharded_param in zip(full_state.items(), sharded_sd.values()):
+            full_param = full_param.detach().cuda()
+            mesh = sharded_param.device_mesh
+            dist.broadcast(full_param, src=0, group=mesh.get_group())
+            # full_param = full_param.cpu()
+            sharded_tensor = distribute_tensor(full_param, mesh, sharded_param.placements)
+            sharded_sd[param_name] = sharded_tensor
+            del full_param
     else:
-        model = model.to_empty(device=torch.cuda.current_device())
+        for param_name, sharded_param in sharded_sd.items():
+            full_tensor = torch.empty(sharded_param.size(), device="cuda", dtype=sharded_param.dtype)
+            # print(f"rank {rank} loading {param_name}, dtype {sharded_param.dtype}")
+            mesh = sharded_param.device_mesh
+            dist.broadcast(full_tensor, src=0, group=mesh.get_group())
+            # full_tensor = full_tensor.cpu()
+            sharded_tensor = distribute_tensor(full_tensor, mesh, sharded_param.placements)
+            sharded_sd[param_name] = sharded_tensor
+            del full_tensor
 
-    cpu_offload = cpu_offload is not None
-    options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
-    set_model_state_dict(model, full_state, options=options)
-
-    # rotary_emb is not in state_dict, so we need to broadcast it manually
     for name, buf in model.named_buffers():
         dist.broadcast(buf, src=0)
 
-    if cpu_offload:
-        model.to("cpu", non_blocking=True)
-        for buf in model.buffers():
-            buf.data = buf.data.to(torch.cuda.current_device())
+    model.load_state_dict(sharded_sd, assign=False)
+    offload_fsdp2_model_to_cpu(model)
+    del sharded_sd
+    del full_state
+    import gc
+    gc.collect()
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    load_fsdp2_model_to_gpu(model)
 
 
 def apply_fsdp2(model, fsdp_kwargs, config):
