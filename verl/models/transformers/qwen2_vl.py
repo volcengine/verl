@@ -407,17 +407,16 @@ def forward_for_ppo(
         raise NotImplementedError("forward_for_ppo has to return_dict")
 
     # Loss calculations
-    rolled_hidden_states = hidden_states[..., :-1, :]
     if labels is not None:
-        rolled_labels = labels[..., 1:]
+        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
     elif input_ids is not None:
-        rolled_labels = input_ids[..., 1:]
+        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
     else:
         raise RuntimeError("To use forward_for_ppo, either labels or input_ids must be provided.")
 
     fused_linear_for_ppo = FusedLinearForPPO()
     log_probs, entropy = fused_linear_for_ppo.forward(
-        hidden_states=rolled_hidden_states,
+        hidden_states=hidden_states,
         vocab_weights=self.lm_head.weight,
         input_ids=rolled_labels,
         temperature=temperature,
