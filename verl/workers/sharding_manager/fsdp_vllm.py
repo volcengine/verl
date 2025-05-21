@@ -35,7 +35,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, log_print
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu, layered_summon_lora_params
 from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader, TensorLoRARequest
@@ -122,10 +122,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 if self.layered_summon:
                     if not self.base_sync_done:
                         raise ValueError("To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let rollout.load_format=safetensors")
-                    log_print(f"SimonDbg: <1.1>. PeftModel with PSDF and layered_summon")
                     lora_params = layered_summon_lora_params(self.module)
                 else:
-                    log_print(f"SimonDbg: <1.2>. PeftModel with PSDF and summon_full_params")
                     with FSDP.summon_full_params(self.module, writeback=False):
                         if self.base_sync_done:
                             lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
@@ -143,7 +141,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                             model = model.to(orig_dev)
                     torch.cuda.empty_cache()
             else:
-                log_print(f"SimonDbg: <2>. PeftModel without PSDF")
                 if self.base_sync_done:
                     lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
                 else:
@@ -159,22 +156,18 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             return lora_params
 
         torch.cuda.empty_cache()
-        tac = time.time()
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         if self.offload_param:
             load_fsdp_model_to_gpu(self.module)
 
         peft_config = None
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
-            log_print(f"SimonDbg: <1>. Process PeftModel")
             peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
             params = __collect_lora_params()
         elif isinstance(self.module, FSDP):
-            log_print(f"SimonDbg: <3>. Not PeftModel with FSDP")
             with FSDP.summon_full_params(self.module, writeback=False):
                 params = self.module.state_dict()
         else:
-            log_print(f"SimonDbg: <4>. Not PeftModel without FSDP")
             params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
@@ -211,9 +204,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if self.device_mesh is not None:
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
-
-        tic = time.time()
-        log_print(f"FSDPVLLMShardingManager: __enter__ model weight syncing time cost: {tic-tac:.2f}s")
 
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
@@ -266,7 +256,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model = self.model_runner.model
         if peft_config:
             if self.base_sync_done:
-                log_print(f"SimonDbg: update_params with LoRA") 
                 lora_int_id=int(time.time_ns())
                 lora_reqest = TensorLoRARequest(
                     lora_name=f"{lora_int_id}",
@@ -279,7 +268,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 logger.info(f"vLLM load weights, loaded_params: {len(updated_params)}")
                 return
             else:
-                log_print(f"SimonDbg: update base-model weights")
                 def replace_lora_wrapper(k):
                     stacked_params = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
                     if any([k.endswith(f"{s}.weight") for s in stacked_params]):

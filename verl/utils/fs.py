@@ -22,8 +22,6 @@ import shutil
 import tempfile
 import hashlib
 
-from verl.utils.debug import log_print
-
 try:
     from hdfs_io import copy, exists, makedirs  # for internal use only
 except ImportError:
@@ -132,9 +130,8 @@ def copy_to_shm(src:str):
     dest = os.path.join(dest, os.path.basename(src_abs))
     if os.path.exists(dest) and verify_copy(src, dest):
         # inform user and depends on him
-        log_print(f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task.")
+        print(f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task.")
     else:
-        log_print(f'Load from disk {src} into memory {dest}')
         if os.path.isdir(src):
             shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)
         else:

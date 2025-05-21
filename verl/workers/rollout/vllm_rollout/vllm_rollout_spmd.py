@@ -41,7 +41,6 @@ from vllm.distributed import parallel_state as vllm_ps
 from vllm.worker.worker_base import WorkerWrapperBase
 
 from verl import DataProto
-from verl.utils.debug.performance import log_print
 from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
@@ -272,7 +271,6 @@ class vLLMRollout(BaseRollout):
             if len(lora_int_ids) > 0:
                 lora_int_id=lora_int_ids[0]
                 lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
-                log_print(f"SimonDbg: {len(lora_requests)=}, {lora_requests[0]=}")
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):

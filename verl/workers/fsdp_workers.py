@@ -34,7 +34,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage, log_print
+from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -794,7 +794,7 @@ class ActorRolloutRefWorker(Worker):
                                 json.dump(peft_config, f, ensure_ascii=False, indent=4)
             except Exception as e:
                 if dist.get_rank() == 0:
-                    log_print(f"[rank-{self.rank}]: Save LoRA Adapter Error ({e})")
+                    print(f"[rank-{self.rank}]: Save LoRA Adapter Error ({e})")
 
             dist.barrier()
             if dist.get_rank() == 0:

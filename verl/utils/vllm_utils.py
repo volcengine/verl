@@ -46,7 +46,6 @@ from vllm.lora.models import LoRAModel
 from vllm.lora.request import LoRARequest
 
 from verl.third_party.vllm import get_version
-from verl.utils.debug.performance import log_print
 from vllm.lora.utils import get_adapter_absolute_path
 try:
     from vllm.lora.peft_helper import PEFTHelper
@@ -186,11 +185,9 @@ class VLLMHijack():
         def do_hijack(target_cls, target_method_name, hooking_method):
             setattr(target_cls, target_method_name, hooking_method)
 
-        log_print("Hijack vllm.lora.worker_manager.LRUCacheWorkerLoRAManager._load_adapter")
         do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
 
 
 def is_version_ge(pkg:str='vllm', minver:str="0.7.3"):
     """ check if the package version is greater than or equal to the minimum version """
-    log_print(f"{get_version(pkg)=}")
     return vs.parse(get_version(pkg)) >= vs.parse(minver)
