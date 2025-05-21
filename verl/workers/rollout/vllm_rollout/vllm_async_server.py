@@ -94,6 +94,7 @@ class ExternalRayDistributedExecutor(Executor):
             sent_method = cloudpickle.dumps(method)
         del method
 
+        # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
         outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
         return outputs
 

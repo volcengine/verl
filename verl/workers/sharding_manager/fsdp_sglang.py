@@ -44,7 +44,7 @@ from torch.distributed.tensor import DTensor
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_available
 
@@ -100,6 +100,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+    @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
     def __enter__(self):
         torch.cuda.empty_cache()
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
@@ -124,6 +125,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             self.torch_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.gen_random_states)
 
+    @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
         self.release_memory()
@@ -163,7 +165,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         tp_rank = self.device_mesh["infer_tp"].get_local_rank()
         tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         src_rank = global_rank // tp_size * tp_size
-        broadcast_dict_tensor(data.batch, src=src_rank, group=self.device_mesh["infer_tp"].get_group())
         if tp_size > 1:
             local_prompts = data.chunk(chunks=tp_size)
             data = local_prompts[tp_rank]
@@ -183,11 +184,10 @@ class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):
         super().__init__(module, inference_engine, model_config, full_params, device_mesh, offload_param)
 
     def update_weights(self, params):
-        load_format = None if self.full_params else "dtensor"
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             self.inference_engine.resume_memory_occupation()
 
-        # Most naive implementation, can optimize a lot if it is bottleneck from sglang VerlEngine
+        # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):

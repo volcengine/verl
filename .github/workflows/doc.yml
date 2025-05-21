@@ -1,4 +1,4 @@
-name: utils_gpu_test
+name: doc_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,8 +13,8 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-      - .github/workflows/utils_gpu_test.yml
-      - "!recipe/**/*.py"
+      - "docs/**"
+      - .github/workflows/doc.yml
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -23,15 +23,17 @@ concurrency:
 
 # Declare permissions just read content.
 permissions:
-  contents: read
+  contents: read      # for checkout
+  pages: write        # for deploy-pages
+  id-token: write     # for deploy-pages
 
 jobs:
-  utils_gpu_test:
-    runs-on: [L20x8]
-    timeout-minutes: 20 # Increase this timeout value as needed
-    container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
-      options: --gpus all --shm-size=10g
+  doc_test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # Increase this timeout value as needed
+    strategy:
+      matrix:
+        python-version: ["3.10"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up Python ${{ matrix.python-version }}
@@ -41,7 +43,10 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -e .[test]
-      - name: Running utils gpu tests
+          pip install -r docs/requirements-docs.txt
+
+      - name: Run doc make html
         run: |
-          cd tests/utils/gpu_tests
-          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ .
+          cd docs 
+          make clean
+          make html

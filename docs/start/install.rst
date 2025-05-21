@@ -38,11 +38,11 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2``.
+For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3``.
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post1`` which is provided by SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post4`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -70,7 +70,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
 .. note::
     
-    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
@@ -80,8 +80,8 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     - **Flash Infer**: 0.2.2.post1
     - **vLLM**: 0.8.5
     - **SGLang**: 0.4.6.post4
-    - **Megatron-LM**: v0.12.0rc3
-    - **TransformerEngine**: 2.2.0
+    - **Megatron-LM**: core_v0.12.0
+    - **TransformerEngine**: 2.3
     - **Ray**: 2.44.1
 
 
@@ -214,11 +214,10 @@ Install with AMD GPUs - ROCM kernel support
 ------------------------------------------------------------------
 
 When you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and run it. 
-
 If you encounter any issues in using AMD GPUs running verl, feel free to contact me - `Yusheng Su <https://yushengsu-thu.github.io/>`_.
 
 Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcengine/verl/blob/main/docker/Dockerfile.rocm>`_
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 .. code-block:: bash
 
@@ -267,15 +266,15 @@ Find the docker for AMD ROCm: `docker/Dockerfile.rocm <https://github.com/volcen
         pybind11 && \
         pip install -e . --no-deps
 
-Build the image:
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Build the image
+::::::::::::::::::::::::
 
 .. code-block:: bash
 
     docker build -t verl-rocm .
 
 Launch the container
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+::::::::::::::::::::::::::::
 
 .. code-block:: bash
 
