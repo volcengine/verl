@@ -25,8 +25,8 @@ While this recipe uses the DPO loss, the online generation loop where the curren
 * **SPIN:** [Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models](https://arxiv.org/abs/2401.01335) (Chen et al., 2024)
 * **DPO:** [Direct Preference Optimization: Your Language Model is Secretly a Reward Model](https://arxiv.org/abs/2305.18290) (Rafailov et al., 2023)
 
-## Implementation within Verl 
-The recipe should be able to run on Verl v0.3.0.post1
+## Implementation within verl 
+The recipe is expected to be working on verl v0.3.0.post1
 
 This implementation adapts the existing PPO infrastructure provided by `verl`:
 
@@ -69,7 +69,7 @@ The following steps outline how to set up the environment and run the SPIN recip
     python3 -m pip install uv
     ```
 
-2.  **Install Verl and Dependencies:**
+2.  **Install verl and Dependencies:**
     ```bash
     # Clone the verl repository and checkout the spin branch
     cd ~
