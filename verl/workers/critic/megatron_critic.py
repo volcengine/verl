@@ -35,7 +35,7 @@ from verl.utils.debug import GPUMemoryLogger
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean, split_dict_tensor_into_batches
+from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean
 from verl.workers.critic import BasePPOCritic
 
 logger = logging.getLogger(__file__)
@@ -105,8 +105,14 @@ class MegatronPPOCritic(BasePPOCritic):
             output = self.forward_backward_batch(data=data, forward_only=True, use_dynamic_bsz=use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=None)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
                 # only on last rank. It should be on every tp rank
-                values = [o["vpreds"] for o in output]  # (bs, seq_size, vocal_size)
+                values = [o["vpreds"] for o in output["output"]]  # (bs, seq_size, vocal_size)
                 values = torch.cat(values, dim=0).to(torch.float32)
+                if use_dynamic_bsz:
+                    indices = output["indices"]
+                    indices = list(itertools.chain.from_iterable(indices))
+                    assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
+                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                    values = values[revert_indices]
             else:
                 values = torch.empty_like(attention_mask, dtype=torch.float32)
 
@@ -144,15 +150,16 @@ class MegatronPPOCritic(BasePPOCritic):
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
-        
-        indices, gradient_accumulation = None, None
+
+        indices = None
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
-            micro_batches, indices = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, vpp_size=vpp_size, max_token_len=max_token_len)
+            assert len(micro_batches) % vpp_size == 0, f"micro_batches {micro_batches} must be divisible by vpp_size {vpp_size} for megatron backend"
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
-            gradient_accumulation = mini_batch_size // micro_batch_size
             micro_batches = mini_batch.split(micro_batch_size)
             seq_len = micro_batches[0]["input_ids"].shape[1]
             total_seqlen = micro_batch_size * seq_len
@@ -162,7 +169,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
         def loss_func(output, data, meta_info):
             nonlocal use_dynamic_bsz
-            
+
             if forward_only:
                 return torch.tensor(1.0, device=output.device), {"vpreds": output}
 
@@ -186,19 +193,14 @@ class MegatronPPOCritic(BasePPOCritic):
                 response_mask=response_mask,
                 cliprange_value=cliprange_value,
             )
-            
-            if use_dynamic_bsz:
-                loss = vf_loss * len(data) / mini_batch_size
-            else:
-                loss = vf_loss * gradient_accumulation
-            
+
             stats = {
                 "critic/vf_loss": vf_loss.detach().item(),
                 "critic/vf_clipfrac": vf_clipfrac.detach().item(),
                 "critic/vpred_mean": masked_mean(vpreds, response_mask).detach().item(),
             }
 
-            return loss, stats
+            return vf_loss, stats
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -246,15 +248,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 forward_only=forward_only,
             )
         # loss_reduces contains the stats returned from loss_func
-        if use_dynamic_bsz and forward_only:
-            values = [o["vpreds"] for o in losses_reduced]
-            assert indices is not None, "indices should be set when forward_only and use_dynamic_bsz is True"
-            indices = list(itertools.chain.from_iterable(indices))
-            assert len(indices) == values.size(0), f"{len(indices)} vs. {values.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-            values = values[revert_indices]
-            for i in range(len(losses_reduced)):
-                losses_reduced[i]["vpreds"] = values[i]
+        losses_reduced = {"output": losses_reduced}
+        if use_dynamic_bsz:
+            losses_reduced["indices"] = indices
         return losses_reduced
 
     @GPUMemoryLogger("megatron critic", logger=logger)
@@ -273,9 +269,9 @@ class MegatronPPOCritic(BasePPOCritic):
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size
             metric_micro_batch = self.forward_backward_batch(data, forward_only=False, use_dynamic_bsz=self.config.use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=self.config.ppo_mini_batch_size)
-
+            metric_micro_batch = metric_micro_batch["output"]
             update_successful, grad_norm, num_zeros_in_grad = self.critic_optimizer.step()
-            learning_rate = self.actor_optimizer.param_groups[-1]["lr"]
+            learning_rate = self.critic_optimizer.param_groups[-1]["lr"]
             data = {"critic/grad_norm": grad_norm, "critic/lr": learning_rate}
             append_to_dict(metrics, data)
 

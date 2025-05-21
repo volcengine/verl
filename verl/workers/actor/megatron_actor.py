@@ -45,7 +45,7 @@ from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_pa
 from verl.utils.megatron_utils import get_model_config
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.torch_functional import broadcast_dict_tensor, split_dict_tensor_into_batches
+from verl.utils.torch_functional import broadcast_dict_tensor
 from verl.workers.actor import BasePPOActor
 
 __all__ = ["MegatronPPOActor"]
@@ -199,10 +199,16 @@ class MegatronPPOActor(BasePPOActor):
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
                     if calculate_entropy:
-                        log_probs = [o[0]["log_probs"] for o in output]  # (bs, seq_size)
+                        log_probs = [o[0]["log_probs"] for o in output["output"]]  # (bs, seq_size)
                     else:
-                        log_probs = [o["log_probs"] for o in output]  # (bs, seq_size)
+                        log_probs = [o["log_probs"] for o in output["output"]]  # (bs, seq_size)
                     log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
+                    if use_dynamic_bsz:
+                        indices = output["indices"]
+                        indices = list(itertools.chain.from_iterable(indices))
+                        assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
+                        revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                        log_probs = log_probs[revert_indices]
                 else:
                     log_probs = torch.empty(size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device)
 
@@ -216,8 +222,14 @@ class MegatronPPOActor(BasePPOActor):
                 if calculate_entropy:
                     # Note that o[0] is metrics, o[1] is entropy
                     if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                        entropys = torch.cat([o[1] for o in output], dim=0)
+                        entropys = torch.cat([o[1] for o in output["output"]], dim=0)
                         entropys = entropys.to(torch.float32)
+                        if use_dynamic_bsz:
+                            indices = output["indices"]
+                            indices = list(itertools.chain.from_iterable(indices))
+                            assert len(indices) == entropys.size(0), f"{len(indices)} vs. {entropys.size()}"
+                            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                            entropys = entropys[revert_indices]
                     else:
                         entropys = torch.empty(size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device)
                     # broadcast across pp ranks
@@ -278,15 +290,16 @@ class MegatronPPOActor(BasePPOActor):
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
-        
-        indices, gradient_accumulation = None, None
+
+        indices = None
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
-            micro_batches, indices = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, vpp_size=vpp_size, max_token_len=max_token_len)
+            assert len(micro_batches) % vpp_size == 0, f"micro_batches {micro_batches} must be divisible by vpp_size {vpp_size} for megatron backend"
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
-            gradient_accumulation = mini_batch_size // micro_batch_size
             micro_batches = mini_batch.split(micro_batch_size)
             seq_len = micro_batches[0]["input_ids"].shape[1]
             total_seqlen = micro_batch_size * seq_len
@@ -295,7 +308,7 @@ class MegatronPPOActor(BasePPOActor):
 
         forward_backward_func = get_forward_backward_func()
 
-        def loss_func(output, data, meta_info):            
+        def loss_func(output, data, meta_info):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
             metrics = {}
@@ -371,14 +384,9 @@ class MegatronPPOActor(BasePPOActor):
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
                     }
                 )
-                
-                if use_dynamic_bsz:
-                    loss = policy_loss * len(data) / mini_batch_size
-                else:
-                    assert gradient_accumulation is not None, "gradient_accumulation should be set when use_dynamic_bsz is False"
-                    loss = policy_loss * gradient_accumulation
+
             append_to_dict(metrics, stats)
-            return loss, [metrics, ret_entropy]
+            return policy_loss, [metrics, ret_entropy]
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -427,21 +435,9 @@ class MegatronPPOActor(BasePPOActor):
                 forward_only=forward_only,
             )
         # loss_reduces contains the stats returned from loss_func
-        if use_dynamic_bsz and forward_only:
-            if calculate_entropy:
-                log_probs = [o[0]["log_probs"] for o in losses_reduced]
-            else:
-                log_probs = [o["log_probs"] for o in losses_reduced]
-            assert indices is not None, "indices should be set when forward_only and use_dynamic_bsz is True"
-            indices = list(itertools.chain.from_iterable(indices))
-            assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-            log_probs = log_probs[revert_indices]
-            for i in range(len(losses_reduced)):
-                if calculate_entropy:
-                    losses_reduced[i][0]["log_probs"] = log_probs[i]
-                else:
-                    losses_reduced[i]["log_probs"] = log_probs[i]
+        losses_reduced = {"output": losses_reduced}
+        if use_dynamic_bsz:
+            losses_reduced["indices"] = indices
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
@@ -460,7 +456,7 @@ class MegatronPPOActor(BasePPOActor):
         metrics = {}
         self.prof.start()
         for data in dataloader:
-            # data = data.batch.to(self.actor_module.device)            
+            # data = data.batch.to(self.actor_module.device)
             self.actor_optimizer.zero_grad()
             # use use_contiguous_buffers_in_local_ddp and no overlap_dp_param_comm
             for chunk in self.actor_module:
@@ -476,6 +472,7 @@ class MegatronPPOActor(BasePPOActor):
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size
             metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy, use_dynamic_bsz=self.config.use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=self.config.ppo_mini_batch_size)
+            metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
                 append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.

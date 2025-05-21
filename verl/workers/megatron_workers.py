@@ -468,7 +468,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         data.meta_info["temperature"] = self.config.rollout.temperature
         data = data.to(torch.cuda.current_device())
         output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
-        output = DataProto.from_dict(tensors={"log_probs": output, "entropys": entropys}, meta_info={"temperature": self.config.rollout.temperature})
+        output = DataProto.from_dict(tensors={"old_log_probs": output, "entropys": entropys}, meta_info={"temperature": self.config.rollout.temperature})
         output = output.to("cpu")
         # clear kv cache
         if self._is_offload_param:
@@ -642,7 +642,7 @@ class CriticWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-        micro_batch_size = self.config.forward_micro_batch_size_per_gpu
+        micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
@@ -659,7 +659,7 @@ class CriticWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
         data = data.to(torch.cuda.current_device())
-        
+
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         if self._is_offload_optimizer:
@@ -827,7 +827,7 @@ class RewardModelWorker(MegatronWorker):
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
-        data.meta_info["micro_batch_size"] = self.config.forward_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         data = data.to(torch.cuda.current_device())

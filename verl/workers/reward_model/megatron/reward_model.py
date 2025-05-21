@@ -16,6 +16,7 @@ Megatron Reward Model.
 """
 
 import itertools
+
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
@@ -25,7 +26,7 @@ from tensordict import TensorDict
 from verl import DataProto
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
-from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length, split_dict_tensor_into_batches
+from verl.utils.torch_functional import broadcast_dict_tensor, pad_sequence_to_length
 from verl.workers.reward_model.base import BasePPORewardModel
 
 
@@ -143,9 +144,15 @@ class MegatronRewardModel(BasePPORewardModel):
         response_length = responses.size(1)
 
         with torch.no_grad():
-            output = self.forward_batch(data)
+            output = self.forward_batch(data, use_dynamic_bsz=use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                logits = torch.cat(output, dim=0)
+                logits = torch.cat(output["output"], dim=0)
+                if use_dynamic_bsz:
+                    indices = output["indices"]
+                    indices = list(itertools.chain.from_iterable(indices))
+                    assert len(indices) == logits.size(0), f"{len(indices)} vs. {logits.size()}"
+                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+                    logits = logits[revert_indices]
             else:
                 logits = torch.empty(
                     (input_ids.shape[0], input_ids.shape[1]),
@@ -207,10 +214,12 @@ class MegatronRewardModel(BasePPORewardModel):
 
         mini_batch.batch["attention_mask"] = mini_batch.batch["attention_mask"].to(bool)
 
-        indices, gradient_accumulation = None, None
+        indices = None
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
-            micro_batches, indices = rearrange_micro_batches(batch=mini_batch, max_token_len=max_token_len)
+            vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, vpp_size=vpp_size, max_token_len=max_token_len)
+            assert len(micro_batches) % vpp_size == 0, f"micro_batches {len(micro_batches)} must be divisible by vpp_size {vpp_size} for megatron backend"
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
@@ -271,11 +280,9 @@ class MegatronRewardModel(BasePPORewardModel):
                 forward_only=True,
             )
         # loss_reduces contains the stats returned from loss_func
+        losses_reduced = {"output": losses_reduced}
         if use_dynamic_bsz:
-            indices = list(itertools.chain.from_iterable(indices))
-            assert len(indices) == losses_reduced.size(0), f"{len(indices)} vs. {losses_reduced.size()}"
-            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-            losses_reduced = losses_reduced[revert_indices]
+            losses_reduced["indices"] = indices
         return losses_reduced
 
     def offload_params_to_cpu(self):
