@@ -69,7 +69,7 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) after resuming
         run: |
           ray stop --force
-          RESUME_MODE=auto bash tests/e2e/run_ppo_trainer_megatron.sh
+          RESUME_MODE=auto  TOT_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
         run: |
           exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
@@ -78,7 +78,7 @@ jobs:
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=grpo bash tests/e2e/run_ppo_trainer_megatron.sh
+          ADV_ESTIMATOR=grpo TOT_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -111,11 +111,11 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
-          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
+          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOT_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=grpo MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
+          ADV_ESTIMATOR=grpo MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOT_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
