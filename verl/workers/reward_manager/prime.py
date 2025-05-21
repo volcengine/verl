@@ -155,6 +155,7 @@ class PrimeRewardManager:
 
         for i in range(len(data)):
             data_source = data_sources[i]
+            # To use correctly in main_ppo, align the functionality with naive.py.
             if isinstance(scores[i], dict):
                 reward = scores[i]["score"]
                 for key, value in scores[i].items():
