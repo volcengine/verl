@@ -171,6 +171,9 @@ class PrimeRewardManager:
                 print(sequences_str)
 
         if return_dict:
-            return {"reward_tensor": reward_tensor}
+            return {
+                "reward_tensor": reward_tensor,
+                "reward_extra_info": reward_extra_info,
+            }
         else:
             return reward_tensor
