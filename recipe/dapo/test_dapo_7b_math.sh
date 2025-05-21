@@ -26,17 +26,17 @@ train_prompt_bsz=512
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
-NNODES=${NNODES:-8}
+# Ray
+RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+NNODES=${NNODES:-4}
 # Paths
-MODEL_PATH=/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen2.5-Math-7B_32k
-CKPTS_DIR=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/open_verl/${project_name}/${exp_name}
-TRAIN_FILE=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/dapo-math-17k.parquet
-aime24_test_path=/mnt/hdfs/zhangchi.usc1992_ssd_hldy/dataset/aime-2024.parquet
-# math500_test_path=/mnt/hdfs/zhangchi.usc1992_lf_lq/data/rlhf/math500/test.parquet
-
-# TEST_FILE="['$math500_test_path', '$aime24_test_path']"
-
-TEST_FILE="['$aime24_test_path']"
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
 # Algorithm
 temperature=1.0
@@ -113,7 +113,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=16 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
