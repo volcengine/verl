@@ -216,7 +216,7 @@ def roundup_divisible(a, b):
     return a + (a % b)
 
 
-def rearrange_micro_batches(batch, max_token_len, dp_group=None, pp_size=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
+def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_devided_by=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
 
@@ -246,8 +246,8 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, pp_size=None, s
         num_micro_batches = torch.tensor([num_micro_batches], device="cuda")
         dist.all_reduce(num_micro_batches, op=dist.ReduceOp.MAX, group=dp_group)
         num_micro_batches = num_micro_batches.cpu().item()
-    if pp_size is not None:
-        num_micro_batches = roundup_divisible(num_micro_batches, pp_size)
+    if num_batches_devided_by is not None:
+        num_micro_batches = roundup_divisible(num_micro_batches, num_batches_devided_by)
 
     seq_len_effective = seq_len_effective.tolist()
     assert num_micro_batches <= len(seq_len_effective)
