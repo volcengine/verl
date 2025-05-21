@@ -31,7 +31,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     Args:
         hf_config: HuggingFace model configuration
         dtype: Data type for the model
-        override: Additional parameters to override defaults
+        override_transformer_config_kwargs: Additional parameters to override defaults
 
     Returns:
         TransformerConfig with common parameters

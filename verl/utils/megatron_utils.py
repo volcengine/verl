@@ -711,7 +711,6 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
 
     obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
     torch.distributed.all_gather_object(object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group())
-    torch.distributed.all_gather_object(object_list=obj_spec_output, obj=meta_info, group=mpu.get_pipeline_model_parallel_group())
     layer_list_meta = [item for sublist in obj_spec_output for item in sublist]
 
     gen_func = tensor_generator()
@@ -723,7 +722,6 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 cur_name, cur_tensor = next(gen_func)
             except StopIteration:
                 cur_name, cur_tensor = None, None
-            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers)
             cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers)
         else:
             cur_tensor, cur_name = None, None
@@ -745,8 +743,6 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
                 torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
             infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
-            torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
-            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
 
@@ -758,8 +754,15 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
 
 
 def get_transformer_layer_offset(pipeline_rank, vp_rank, config: TransformerConfig):
-    """Get the index offset of any pipeline stage, given the level of pipelining."""
-    """Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset"""
+    '''
+    Get the index offset of any pipeline stage, given the level of pipelining.
+
+    Make pp_rank and vpp_rank as two arguments to make it more flexible,
+    which is able to fetch layer offset for any pipeline stage.
+    The original function only returns the layer offset for current pipeline stage.
+
+    Extension to https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_layer.py::get_transformer_layer_offset"""
+    '''
     if config.pipeline_model_parallel_size > 1:
         if config.num_layers_in_first_pipeline_stage is not None or config.num_layers_in_last_pipeline_stage is not None:
             # Calculate number of pipeline stages to distribute the remaining Transformer

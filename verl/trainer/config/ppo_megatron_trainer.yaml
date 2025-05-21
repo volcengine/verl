@@ -80,7 +80,7 @@ actor_rollout_ref:
       use_dist_checkpointing: False
       dist_checkpointing_path: null
       seed: 1
-      override_transformer_config: {} # common transformer config for all models
+      override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
     profile: # profile the actor model in `update_policy` 
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
