@@ -677,54 +677,57 @@ class ActorRolloutRefWorker(Worker):
         torch.cuda.empty_cache()
         return output
 
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def compute_log_prob(self, data: DataProto, no_lora=False):
-        # when no_lora is True, we use the actor without lora applied to calculate the log_prob
+    def compute_log_prob(self, data: DataProto):
+        # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
-        
+
         # Support all hardwares
         from contextlib import nullcontext
-        adapter_ctx = self.actor.actor_module.disable_adapter() if no_lora else nullcontext()
-        with adapter_ctx:
-            data = data.to(torch.cuda.current_device())
-            # we should always recompute old_log_probs when it is HybridEngine
-            data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-            data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
-            data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
-            data.meta_info["temperature"] = self.config.rollout.temperature
-            # perform recompute log_prob
-            with self.ulysses_sharding_manager:
-                data = self.ulysses_sharding_manager.preprocess_data(data)
+        is_lora = data.meta_info.pop("is_lora", False)
+        adapter_ctx = self.actor.actor_module.disable_adapter() if is_lora else nullcontext()
+
+        data = data.to(torch.cuda.current_device())
+        # we should always recompute old_log_probs when it is HybridEngine
+        data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
+        data.meta_info["temperature"] = self.config.rollout.temperature
+        # perform recompute log_prob
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
+            with adapter_ctx:
                 output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
-                output = DataProto.from_dict(
+            output = DataProto.from_dict(
                 tensors={"old_log_probs": output, "entropys": entropys},
-                   meta_info={"temperature": self.config.rollout.temperature},
+                meta_info={"temperature": self.config.rollout.temperature},
             )
-                output = self.ulysses_sharding_manager.postprocess_data(output)
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
-            output = output.to("cpu")
+        output = output.to("cpu")
 
-            # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
-            # unshard the root FSDP module
-            if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
-                self.actor.actor_module._handle.reshard(True)
-            
-            if self._is_offload_param:
-                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-            log_gpu_memory_usage("After offload actor model during compute_log_prob", logger=logger)
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
+            self.actor.actor_module._handle.reshard(True)
 
-    
-            torch.cuda.empty_cache()
-            return output
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After offload actor model during compute_log_prob", logger=logger)
+
+        torch.cuda.empty_cache()
+        return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
-            data = self.compute_log_prob(data, no_lora=True)
+            data.meta_info['is_lora'] = True
+            data = self.compute_log_prob(data)
             # this old_log_probs is in fact ref_log_prob
             data = DataProto.from_dict(tensors={'ref_log_prob': data.batch['old_log_probs']})
             return data
