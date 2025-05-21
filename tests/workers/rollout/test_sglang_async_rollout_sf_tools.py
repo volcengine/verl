@@ -25,6 +25,7 @@ import pytest
 from transformers import AutoConfig, AutoTokenizer
 
 from verl.protocol import DataProto
+from verl.tools.sandbox_fusion_tools import TokenBucketWorker
 from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, FinishReasonTypeEnum, Message
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
@@ -538,8 +539,9 @@ class TestSingleNodeRateLimiterCase(RayMultiProcessTestCase):
 
     def test_rate_limiter(self):
         ray.init("auto",namespace="test",ignore_reinit_error=True)
-        from verl.tools.sandbox_fusion_tools import ExecutionWorker
-        exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=3)
+        from verl.tools.sandbox_fusion_tools import init_execution_pool,PoolMode
+        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=3)
+        exec_worker = init_execution_pool(num_workers=10,enable_global_rate_limit=True,rate_limit=3,mode=PoolMode.ThreadMode)
         center = TestActor.options(get_if_exists=True,name="test-actor").remote(self.rank,self.world_size)
         ray.get(exec_worker.ping.remote())
 
@@ -565,6 +567,29 @@ class TestSingleNodeRateLimiterCase(RayMultiProcessTestCase):
         assert duration > 6
         assert duration < 10
 
+    def test_rotten_execution(self):
+        ray.init("auto",namespace="test",ignore_reinit_error=True)
+        from verl.tools.sandbox_fusion_tools import PoolMode,init_execution_pool
+        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=6)
+        exec_worker = init_execution_pool(num_workers=10,enable_global_rate_limit=True,rate_limit=6,mode=PoolMode.ThreadMode)
+        ray.get(exec_worker.ping.remote())
+        def fn(i):
+            if i ==10:
+                raise Exception("test")
+            else:
+                return i
+
+        tasks = [exec_worker.execute.remote(fn, i) for i in range(20)]
+        loop = asyncio.get_event_loop()
+        results = loop.run_until_complete(
+                asyncio.gather(*tasks)
+            )
+        expect_result =[None] + list(range(10)) + list(range(11,20))
+        sorted_data = sorted(results, key=lambda x: (x is not None, x))
+        assert sorted_data == expect_result,f"results: {results}, expect_result: {expect_result}"
+        rate_limiter = TokenBucketWorker.options(name="rate-limiter", get_if_exists=True).remote()
+        rate = ray.get(rate_limiter.get_current_count.remote())
+        assert rate == 0,f"rate: {rate}"
 
 
 
@@ -576,8 +601,9 @@ class TestMultiNodeRateLimiterCase(RayMultiProcessTestCase):
 
     def test_rate_limiter(self):
         ray.init("auto",namespace="test",ignore_reinit_error=True)
-        from verl.tools.sandbox_fusion_tools import ExecutionWorker
-        exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=6)
+        from verl.tools.sandbox_fusion_tools import PoolMode,init_execution_pool
+        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=6)
+        exec_worker = init_execution_pool(num_workers=10,enable_global_rate_limit=True,rate_limit=6,mode=PoolMode.ThreadMode)
         center = TestActor.options(get_if_exists=True,name="test-actor").remote(self.rank,self.world_size)
         ray.get(exec_worker.ping.remote())
 

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from enum import Enum
+from functools import partial
 import logging
 import os
 import threading
@@ -23,8 +24,9 @@ from contextlib import ExitStack
 import time
 import ray
 import ray.actor
+from ray.util.multiprocessing import Pool
+import ray.util.multiprocessing
 
-from verl.utils.reward_score import prime_code
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case, call_sandbox_api
 
 from .base_tool import BaseTool
@@ -49,23 +51,18 @@ class TokenBucketWorker:
         # this only used for observalability
         self.current_count = 0
         self._semaphore = threading.Semaphore(rate_limit)
-
     @ray.method(concurrency_group="acquire")
     def acquire(self):
         self._semaphore.acquire()
         self.current_count +=1
-        
-
     @ray.method(concurrency_group="release")
     def release(self):
         self._semaphore.release()
         self.current_count -=1
-
     def get_current_count(self):
         return self.current_count
 
 
-@ray.remote
 class ExecutionWorker:
     def __init__(self,enable_global_rate_limit=True,rate_limit=10):
         self.rate_limit_worker = self._init_rate_limit(rate_limit) if enable_global_rate_limit else None
@@ -81,15 +78,19 @@ class ExecutionWorker:
         with ExitStack() as stack:
             stack.callback(self.rate_limit_worker.release.remote)
             ray.get(self.rate_limit_worker.acquire.remote())
-            return fn(*fn_args, **fn_kwargs)
+            try:
+                return fn(*fn_args, **fn_kwargs)
+            except Exception as e: 
+                #TODO we should make this available to the tool caller
+                logger.warning(f"Error when executing code: {e}")
 
 
-def init_execution_pool(num_workers: int, worker_actor_cls: ray.actor.ActorClass,mode: PoolMode=PoolMode.ThreadMode):
+def init_execution_pool(num_workers: int,enable_global_rate_limit=True,rate_limit=10,mode: PoolMode=PoolMode.ThreadMode):
     if mode == PoolMode.ThreadMode:
-        return worker_actor_cls.options(max_concurrency=num_workers).remote()
+        return ray.remote(ExecutionWorker).options(max_concurrency=num_workers).remote(enable_global_rate_limit=enable_global_rate_limit,rate_limit=rate_limit)
     else:
-        raise NotImplementedError
-        return ray.util.ActorPool([worker_actor_cls.remote() for _ in range(num_workers)])
+        raise NotImplementedError("Process mode is not implemented yet")
+        # return ray.util.multiprocessing.Pool(processes=num_workers)
 
 class SandboxFusionTool(BaseTool):
     """A tool for executing the code using sanbox fusion image.
@@ -123,9 +124,11 @@ class SandboxFusionTool(BaseTool):
         """
         super().__init__(config, tool_schema)
         self._instance_dict = {}
+        # TODO: better documentation for the config
         self.num_workers = config.get("num_workers", 10)
         self.rate_limit = config.get("rate_limit", 10)
-        self.execution_pool = init_execution_pool(num_workers=self.num_workers, worker_actor_cls=ExecutionWorker)
+        self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
+        self.execution_pool = init_execution_pool(num_workers=self.num_workers,enable_global_rate_limit=self.enable_global_rate_limit,rate_limit=self.rate_limit,mode=PoolMode.ThreadMode)
         self.sandbox_fusion_url = config.get("sandbox_fusion_url","")
         if self.sandbox_fusion_url == "":
             raise ValueError("sandbox_fusion_url is not set")
@@ -158,19 +161,8 @@ class SandboxFusionTool(BaseTool):
 
         return result, result, {}
 
-    def execute_code(self,instance_id,code):
-        '''
-            _process_single_case(
-            case_index: int,
-            stdin_data: Any,
-            expected_output: Any,
-            sandbox_fusion_url: str,
-            generation: str,
-            timeout: int,
-            language: str
-        )
-        '''
-        result_status, metadata  = _process_single_case(0, None, None,self.sandbox_fusion_url, code, 30, "python")
+    def execute_code(self,instance_id,code,timeout=30,language="python"):
+        result_status, metadata  = _process_single_case(0, None, None,self.sandbox_fusion_url, code, timeout, language)
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
