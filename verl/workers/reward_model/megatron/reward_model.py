@@ -227,7 +227,7 @@ class MegatronRewardModel(BasePPORewardModel):
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
-            micro_batches = mini_batch.split(micro_batch_size)
+            micro_batches = mini_batch.batch.split(micro_batch_size)
             seq_len = micro_batches[0]["input_ids"].shape[1]
             total_seqlen = micro_batch_size * seq_len
         n_micro_batch = len(micro_batches)
