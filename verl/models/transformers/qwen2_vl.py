@@ -404,7 +404,7 @@ def forward_for_ppo(
     hidden_states = outputs[0]
 
     if not return_dict:
-        raise NotImplementedError("forward_without_logits has to return_dict")
+        raise NotImplementedError("forward_for_ppo has to return_dict")
 
     # Loss calculations
     rolled_hidden_states = hidden_states[..., :-1, :]
