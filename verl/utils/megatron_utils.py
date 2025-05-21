@@ -692,6 +692,10 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
 
     pp_rank = mpu.get_pipeline_model_parallel_rank()
     pp_size = mpu.get_pipeline_model_parallel_world_size()
+    ep_size = mpu.get_expert_model_parallel_world_size()
+    etp_size = mpu.get_expert_tensor_parallel_world_size()
+    ep_group = mpu.get_expert_model_parallel_group()
+    etp_group = mpu.get_expert_tensor_parallel_group()
     vpp_size = len(actor_module)
     all_gather_group = mpu.get_tensor_model_parallel_group()
     all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
@@ -730,6 +734,35 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
         # (xya): this is a hack to fix the name of the parameters
         while cur_name.startswith("module."):
             cur_name = cur_name[len("module.") :]
+
+        # EP
+        if ".mlp.experts.linear_fc" in cur_name and ep_size > 1:
+            num_experts = weight_converter.mcore_config.num_moe_experts
+            num_experts_per_rank = num_experts // ep_size
+            infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(ep_size)]
+            torch.distributed.all_gather(infer_params, broad_pp_tensor, group=ep_group)
+
+            name_prefix, local_expert_id = cur_name.split(".weight")
+            local_expert_id = int(local_expert_id)
+            global_expert_ids = [num_experts_per_rank * ep_rank + local_expert_id for ep_rank in range(ep_size)]
+            global_expert_names = [f"{name_prefix}.weight{expert_id}" for expert_id in global_expert_ids]
+
+            for name, param in zip(global_expert_names, infer_params):
+                if etp_size > 1:
+                    # gather etp
+                    etp_params = [torch.empty_like(param) for _ in range(etp_size)]
+                    torch.distributed.all_gather(etp_params, param, group=etp_group)
+                    params = etp_params
+                else:
+                    params = [param]
+
+                merge_params = default_tp_concat_fn(name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
+                if not isinstance(merge_params, list):
+                    merge_params = [merge_params]
+                converted_names, converted_params = weight_converter.convert_param(name, merge_params)
+
+                yield from zip(converted_names, converted_params)
+            continue
 
         # tp all gather
         if tp_utils.is_tensor_parallel_param(broad_pp_tensor):

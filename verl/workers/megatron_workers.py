@@ -97,7 +97,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.actor.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
@@ -524,7 +525,8 @@ class CriticWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
@@ -723,7 +725,8 @@ class RewardModelWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
