@@ -10,6 +10,5 @@
         "string_view": "cpp",
         "initializer_list": "cpp",
         "utility": "cpp"
-    },
-    "iis.configDir": ""
+    }
 }
