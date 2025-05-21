@@ -17,7 +17,6 @@ import heapq
 from typing import List, Tuple
 
 import torch
-from tensordict import TensorDict
 from torch import distributed as dist
 
 
@@ -213,18 +212,32 @@ def ceildiv(a, b):
     return -(a // -b)
 
 
-def rearrange_micro_batches(batch: TensorDict, max_token_len, dp_group=None):
-    """Split the batch into a list of micro_batches, where the max_token_len is smaller than max_token_len
-    and the number of valid tokens in each micro batch is well balanced.
+def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
+    """
+    Split a batch into micro-batches by total token count, with optional DP sync and padding.
+
+    Args:
+        batch (TensorDict): must include "attention_mask" (B*S); other fields are sliced similarly.
+        max_token_len (int): max sum of attention_mask per micro-batch.
+        dp_group (optional): torch.distributed group for data-parallel sync.
+        same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
+        min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
+
+    Returns:
+        List[TensorDict]: the micro-batches.
+        List[List[int]]: index lists mapping each micro-batch back to original positions.
     """
     # this is per local micro_bsz
     max_seq_len = batch["attention_mask"].shape[-1]
     assert max_token_len >= max_seq_len, f"max_token_len must be greater than the sequence length. Got {max_token_len=} and {max_seq_len=}"
-
     seq_len_effective: torch.Tensor = batch["attention_mask"].sum(dim=1)
     total_seqlen = seq_len_effective.sum().item()
-    num_micro_batches = ceildiv(total_seqlen, max_token_len)
-    if dist.is_initialized():
+    # NOTE: num_microbatches <= batch_size, so take the min of this two.
+    num_micro_batches = min(len(seq_len_effective), ceildiv(total_seqlen, max_token_len))
+    if min_num_micro_batch is not None:
+        # used to support pp
+        num_micro_batches = max(min_num_micro_batch, num_micro_batches)
+    if dist.is_initialized() and same_micro_num_in_dp:
         num_micro_batches = torch.tensor([num_micro_batches], device="cuda")
         dist.all_reduce(num_micro_batches, op=dist.ReduceOp.MAX, group=dp_group)
         num_micro_batches = num_micro_batches.cpu().item()

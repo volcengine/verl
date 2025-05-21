@@ -177,7 +177,6 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
-    # total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
@@ -277,7 +276,7 @@ def postprocess_data(
     Returns:
         (input_ids, attention_mask) padded/truncated to max_length
     """
-    assert truncation in ["left", "right", "error"]
+    assert truncation in ["left", "right", "middle", "error"]
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
@@ -292,6 +291,11 @@ def postprocess_data(
         elif truncation == "right":
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
+        elif truncation == "middle":
+            left_half = max_length // 2
+            right_half = max_length - left_half
+            input_ids = torch.cat([input_ids[:, :left_half], input_ids[:, -right_half:]], dim=-1)
+            attention_mask = torch.cat([attention_mask[:, :left_half], attention_mask[:, -right_half:]], dim=-1)
         elif truncation == "error":
             raise NotImplementedError(f"{sequence_length=} is larger than {max_length=}")
         else:
@@ -448,16 +452,17 @@ def get_cosine_schedule_with_warmup(
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
+    min_lr_ratio = 0.0 if min_lr_ratio is None else min_lr_ratio
     assert min_lr_ratio >= 0 and min_lr_ratio <= 1.0
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
-        return max(0.0, x * coef + intercept)
+        return max(min_lr_ratio, x * coef + intercept)
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
@@ -468,7 +473,9 @@ def get_constant_schedule_with_warmup(
     last_epoch: int = -1,
 ):
     def lr_lambda(current_step):
-        return min(1, float(current_step) / float(max(1, num_warmup_steps)))
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1.0, num_warmup_steps))
+        return 1.0
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 

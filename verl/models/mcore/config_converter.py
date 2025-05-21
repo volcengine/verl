@@ -65,6 +65,8 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         # Parallel configuration
         "tensor_model_parallel_size": mpu.get_tensor_model_parallel_world_size(),
         "pipeline_model_parallel_size": mpu.get_pipeline_model_parallel_world_size(),
+        "expert_model_parallel_size": mpu.get_expert_model_parallel_world_size(),
+        "expert_tensor_parallel_size": mpu.get_expert_tensor_parallel_world_size(),
         "virtual_pipeline_model_parallel_size": mpu.get_virtual_pipeline_model_parallel_world_size(),
         "context_parallel_size": mpu.get_context_parallel_world_size(),
         "overlap_p2p_comm": overlap_p2p_comm,
@@ -177,7 +179,7 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
         # Qwen specific
-        moe_router_pre_softmax=True,
+        moe_router_pre_softmax=False,
         qk_layernorm=True,
     )
 
