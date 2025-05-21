@@ -38,98 +38,17 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, log_print
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu, layered_summon_lora_params
 from verl.utils.torch_functional import check_cuda_is_available
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from verl.utils.vllm_utils import VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader, TensorLoRARequest
 
 from .base import BaseShardingManager
 
-from peft.tuners.tuners_utils import BaseTunerLayer
-import torch.distributed as dist
 from peft.utils.save_and_load import get_peft_model_state_dict
-from peft.utils.other import transpose
-
-from vllm.engine.llm_engine import LLMEngine
-from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
-from vllm.lora.models import LRUCacheLoRAModelManager, LoRAModel
-from vllm.lora.request import LoRARequest
-from vllm.lora.peft_helper import PEFTHelper
-from dataclasses import dataclass, asdict
-from msgspec import Struct, field
-
+from dataclasses import asdict
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-class TensorLoRARequest(LoRARequest):
-    peft_config:dict = field(default=None)
-    lora_tensors:dict = field(default=None)
 
-class VLLMHijack():
-    @staticmethod
-    def hijack():
-        def hijack__load_adapter(self, lora_request: TensorLoRARequest) -> LoRAModel:
-            """
-            based on vllm.lora.worker_manager.WorkerLoRAManager._load_adapter, support load adapter with lora tensors
-
-            Reason:
-            VLLM does not support adding LoRA from tensors directly. It only supports adding LoRA via file paths.
-            To synchronize the LoRA tensors of the actor model, we need to find a workaround to enable VLLM to load memory-based LoRA tensors.
-            """
-            try:
-                supported_lora_modules = (
-                    self._adapter_manager.supported_lora_modules)
-                packed_modules_mapping = (
-                    self._adapter_manager.packed_modules_mapping)
-                expected_lora_modules: List[str] = []
-                for module in supported_lora_modules:
-                    if module in packed_modules_mapping:
-                        expected_lora_modules.extend(
-                            packed_modules_mapping[module])
-                    else:
-                        expected_lora_modules.append(module)
-
-                expected_lora_modules = list(set(expected_lora_modules))
-
-                peft_config = lora_request.peft_config
-                lora_tensors = lora_request.lora_tensors
-                peft_helper = PEFTHelper.from_dict(peft_config)
-
-                # Validates the LoRA configuration against requirements before
-                # loading weights, throwing an exception if validation fails.
-                peft_helper.validate_legal(self.lora_config)
-
-                # For some models like Qwen2VL, we need to use hf_to_vllm_mapper
-                # to ensure correct loading of lora weights.
-                model = self._adapter_manager.model
-                hf_to_vllm_mapper = None
-                if (hasattr(model, "hf_to_vllm_mapper")
-                        and model.hf_to_vllm_mapper is not None):
-                    hf_to_vllm_mapper = model.hf_to_vllm_mapper
-
-                lora = self._lora_model_cls.from_lora_tensors(
-                    lora_model_id=lora_request.lora_int_id,
-                    tensors=lora_tensors,
-                    peft_helper=peft_helper,
-                    device="cpu",
-                    dtype=self.lora_config.lora_dtype,
-                    embeddings=None,
-                    target_embedding_padding=self.vocab_size + self.lora_config.lora_extra_vocab_size,
-                    embedding_modules=self.embedding_modules,
-                    embedding_padding_modules=self.embedding_padding_modules,
-                    weights_mapper=hf_to_vllm_mapper
-                )
-            except Exception as e:
-                raise e
-
-            if lora.extra_vocab_size > self.lora_config.lora_extra_vocab_size:
-                raise ValueError(f"LoRA added vocab size {lora.extra_vocab_size} "
-                                f"is greater than lora_extra_vocab_size "
-                                f"{self.lora_config.lora_extra_vocab_size}.")
-            return lora
-
-        def do_hijack(target_cls, target_method_name, hooking_method):
-            setattr(target_cls, target_method_name, hooking_method)
-
-        do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
 
 class FSDPVLLMShardingManager(BaseShardingManager):
     @check_cuda_is_available()
@@ -188,7 +107,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             self.gen_random_states = None
 
         self.base_sync_done: bool = 'dummy' not in load_format
-        VLLMHijack.hijack()
+        if is_version_ge(pkg='vllm', minver='0.7.3'):
+            VLLMHijack.hijack()
 
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
