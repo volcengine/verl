@@ -14,37 +14,33 @@
 # limitations under the License.
 
 import os
+import traceback
 import uuid
-import warnings
+from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type, Dict
-from copy import deepcopy
-from collections import defaultdict
-from functools import partial
-from tqdm import tqdm
+from typing import Dict, Optional, Type
 
-import ray
 import numpy as np
+import ray
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
+from torch.utils.data import Dataset, Sampler
+from torchdata.stateful_dataloader import StatefulDataLoader
+from tqdm import tqdm
+
+from recipe.spin import core_algos
 from verl import DataProto
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
-from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from recipe.spin import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
-from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.trainer.ppo.metric_utils import compute_throughout_metrics, compute_timing_metrics, process_validation_metrics, reduce_metrics
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import Dataset, RandomSampler, SequentialSampler, Sampler
-from torchdata.stateful_dataloader import StatefulDataLoader
-import traceback
-from typing import Optional, Callable
 
 WorkerType = Type[Worker]
 
@@ -134,10 +130,13 @@ class ResourcePoolManager:
                 )
 
 
+from typing import Any
+
 import torch
+
 from verl.utils.torch_functional import masked_mean
 
-from typing import Any, Dict
+
 def _compute_response_info(batch: DataProto) -> Dict[str, Any]:
     """Placeholder: Computes prompt and response lengths."""
     try:
@@ -326,7 +325,7 @@ def compute_onlineDPO_pref(data: DataProto):
         data.batch['preferences'] = preferences
 
     except AttributeError:
-         print(f"ERROR: Function 'compute_online_dpo_preference' not found in core_algos.py!")
+         print("ERROR: Function 'compute_online_dpo_preference' not found in core_algos.py!")
          # Assign dummy value or raise error
          data.batch['preferences'] = None # Indicate failure
     except Exception as e_pref:
@@ -347,7 +346,7 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     timing_raw[name] = timer.last
 
 
-class RaySPINTrainer(object):
+class RaySPINTrainer:
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
@@ -488,7 +487,7 @@ class RaySPINTrainer(object):
         ], f"Invalid loss_agg_mode: {config.actor_rollout_ref.actor.loss_agg_mode}"
 
         if config.algorithm.use_kl_in_reward and config.actor_rollout_ref.actor.use_kl_loss:
-            print(f"NOTICE: You have both enabled in-reward kl and kl loss.")
+            print("NOTICE: You have both enabled in-reward kl and kl loss.")
 
         # critic
         if self.use_critic and not config.critic.use_dynamic_bsz:
@@ -512,7 +511,7 @@ class RaySPINTrainer(object):
 
         if config.data.get('val_batch_size', None) is not None:
             print(
-                f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+                "WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
             )
 
         # check eval config
@@ -924,9 +923,11 @@ class RaySPINTrainer(object):
         The driver process calls worker groups for computation.
         Advantage computation is replaced by DPO logic.
         """
-        from verl.utils.tracking import Tracking
+        import traceback  # Ensure traceback is imported
+
         from omegaconf import OmegaConf
-        import traceback # Ensure traceback is imported
+
+        from verl.utils.tracking import Tracking
 
         # Initialize logger
         logger = None
@@ -1004,7 +1005,7 @@ class RaySPINTrainer(object):
                                 #    This needs to be done collectively across actor worker ranks.
                                 #    The checkpoint_manager might be adaptable, or use FSDP APIs directly.
                                 #    Example placeholder using a conceptual save/load mechanism:
-                                actor_state_path = f"/tmp/actor_state_mid" # Temporary path
+                                actor_state_path = "/tmp/actor_state_mid" # Temporary path
                                 self.actor_rollout_wg.save_checkpoint(actor_state_path) # Adapt save logic
 
                                 # 2. Load the state dict onto the reference model worker group
@@ -1105,7 +1106,7 @@ class RaySPINTrainer(object):
                                      reward_tensor = reward_result['reward_tensor'] # Final combined reward
                                      reward_extra_infos_dict = reward_result.get('reward_extra_info', {})
 
-                            except Exception as e:
+                            except Exception:
                                 # print(f'---- [DEBUG Step {self.global_steps}] Error in reward_fn call: {e}. Using dummy rewards. ----')
                                 traceback.print_exc()
                                 reward_tensor = torch.zeros_like(batch.batch['response_mask'], dtype=torch.float32)

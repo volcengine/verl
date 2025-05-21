@@ -17,30 +17,28 @@
 import logging
 import os
 import warnings
-import psutil
 
+import psutil
 import torch
 import torch.distributed
+from codetiming import Timer
+from omegaconf import open_dict
 from torch.distributed.device_mesh import init_device_mesh
+
 import verl.utils.torch_functional as verl_F
-from omegaconf import DictConfig, open_dict
 from verl import DataProto
 from verl.single_controller.base import Worker
-from verl.single_controller.base.decorator import register, Dispatch
-from verl.utils import hf_tokenizer, hf_processor
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.utils import hf_tokenizer
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
-from verl.utils.fsdp_utils import get_fsdp_wrap_policy, init_fn, get_init_weight_context_manager
-from verl.utils.fsdp_utils import offload_fsdp_optimizer, offload_fsdp_model_to_cpu, load_fsdp_optimizer, \
-    load_fsdp_model_to_gpu
+from verl.utils.fsdp_utils import get_fsdp_wrap_policy, get_init_weight_context_manager, init_fn, load_fsdp_model_to_gpu, load_fsdp_optimizer, offload_fsdp_model_to_cpu, offload_fsdp_optimizer
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.flops_counter import FlopsCounter
-from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
-
-from codetiming import Timer
+from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
@@ -309,8 +307,9 @@ class RewardModelWorker(Worker):
 
     def _build_model(self, config):
         # the following line is necessary
-        from transformers import AutoModelForTokenClassification, AutoConfig
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
+        from torch.distributed.fsdp import CPUOffload
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        from transformers import AutoConfig, AutoModelForTokenClassification
 
         # download the checkpoint from hdfs
         local_path = copy_to_local(config.model.path)
@@ -334,7 +333,7 @@ class RewardModelWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            setattr(model_config, 'classifier_dropout', 0.)
+            model_config.classifier_dropout = 0.0
             reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             config=model_config,
                                                                             torch_dtype=torch.bfloat16,
@@ -373,8 +372,9 @@ class RewardModelWorker(Worker):
         self.reward_module = self._build_model(config=self.config)
 
     def _forward_micro_batch(self, micro_batch):
-        from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
-        from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
+        from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
+
+        from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
@@ -507,7 +507,8 @@ class RewardModelWorker(Worker):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
         import itertools
-        from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+
+        from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:

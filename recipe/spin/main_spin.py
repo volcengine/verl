@@ -13,15 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from recipe.spin.spin_trainer import RaySPINTrainer
-
 import os
-import ray
+
 import hydra
+import ray
+
+from recipe.spin.spin_trainer import RaySPINTrainer
 
 
 def get_custom_reward_fn(config):
-    import importlib.util, sys
+    import importlib.util
+    import sys
     reward_fn_config = config.get("custom_reward_function") or {}
     file_path = reward_fn_config.get("path")
     if not file_path:
@@ -80,10 +82,12 @@ def run_ppo(config) -> None:
 class TaskRunner:
 
     def run(self, config):
-        from verl.utils.fs import copy_to_local
         # print initial config
         from pprint import pprint
+
         from omegaconf import OmegaConf
+
+        from verl.utils.fs import copy_to_local
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
 
@@ -91,7 +95,7 @@ class TaskRunner:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
 
         # instantiate tokenizer
-        from verl.utils import hf_tokenizer, hf_processor
+        from verl.utils import hf_processor, hf_tokenizer
         trust_remote_code = config.data.get('trust_remote_code', False)
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
@@ -106,7 +110,6 @@ class TaskRunner:
 
         elif config.actor_rollout_ref.actor.strategy == 'megatron':
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             ray_worker_group_cls = NVMegatronRayWorkerGroup
 

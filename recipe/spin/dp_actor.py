@@ -15,27 +15,16 @@
 
 
 import itertools
-from typing import Iterable, Tuple
-
-import torch
-from torch import nn
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-from verl import DataProto
-from recipe.spin.core_algos import compute_online_dpo_loss, get_batch_logps
-from verl.workers.actor import BasePPOActor
-from verl.utils.py_functional import append_to_dict
-from verl.utils.torch_functional import logprobs_from_logits, masked_mean
-from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
-from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
-import verl.utils.torch_functional as verl_F
-import numpy as np
-from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
-
-from verl.workers.actor import DataParallelPPOActor
-
 import math
 from collections import defaultdict
+
+import numpy as np
+import torch
+
+from recipe.spin.core_algos import compute_online_dpo_loss, get_batch_logps
+from verl import DataProto
+from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+from verl.workers.actor import DataParallelPPOActor
 
 __all__ = ['DataParallelPPOActor']
 
