@@ -634,7 +634,6 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     model_config: huggingface model_config
     TODO(zhangchi.usc1992): currently, the implementation is adhoc. We can move this function to the model
     definition so that it is model-agnostic. If the model doesn't implement this function,
-    definition so that it is model-agnostic. If the model doesn't implement this function,
     we can throw an error to force user disable TP HybridEngine.
     """
     from megatron.core import mpu
@@ -652,9 +651,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
             num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size()
-            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size()
             for chunk in infer_param.chunk(num_query_groups_per_partition):
-                split_size = [kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition]
                 split_size = [kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition]
                 q, k, v = chunk.split(split_size)
                 q_lst.append(q)
