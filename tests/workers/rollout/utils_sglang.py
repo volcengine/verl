@@ -150,8 +150,11 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "tensor_model_parallel_size": tensor_parallel_size,
             "multi_turn": {
                 "max_turns": 4,
+                "user_max_turns": 0,
                 "enable": True,
                 "tool_config_path": tool_config_path,
+                "tool_config_path": None,
+                "feedback_config_path": None,
                 "format": "chatml",
             },
             "max_model_len": None,

@@ -142,7 +142,9 @@ actor_rollout_ref:
       enable: False  # should set rollout.name to sglang_async if True
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
+      feedback_config_path: null  # null for no feedback
       format: chatml  # chatml, more formats will be supported in the future
+      user_max_turns: 1
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}

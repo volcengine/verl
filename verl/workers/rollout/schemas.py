@@ -57,6 +57,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TOOL_CALLING = "tool_calling"
+    WAITING = "waiting"
 
 
 class AsyncRolloutRequest(BaseModel):
@@ -69,6 +70,7 @@ class AsyncRolloutRequest(BaseModel):
     messages: List[Message]
     tools: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
+    feedback_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
     prompt_ids: List[int]
     response_ids: List[int]
@@ -92,6 +94,8 @@ class AsyncRolloutRequest(BaseModel):
             "assistant_suffix_msg": "<|im_end|>",
             "tool_prefix_msg": "\n<|im_start|>tool\n",
             "tool_suffix_msg": "<|im_end|>",
+            "user_prefix_msg": "\n<|im_start|>user\n",
+            "user_suffix_msg": "<|im_end|>",
         },
         "qwen": {
             "assistant_prefix_msg": "\n<|im_start|>assistant\n",
@@ -102,6 +106,9 @@ class AsyncRolloutRequest(BaseModel):
             "tool_response_prefix_msg": "\n<tool_response>\n",
             "tool_response_suffix_msg": "\n</tool_response>",
         },
+            "user_prefix_msg": "\n<|im_start|>user",
+            "user_suffix_msg": "<|im_end|>",
+        }
     }
 
     def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> list[int]:
@@ -111,7 +118,47 @@ class AsyncRolloutRequest(BaseModel):
             add_generation_prompt=True,
             tokenize=True,
         )
+    def add_user_message(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        content: str,
+        format: Literal["chatml", "qwen"] = "chatml",
+        already_over_long: bool = False,
+    ) -> None:
+        msg = Message(role="user", content=content)
+        self.messages.append(msg)
+        if format in self.format_config:
+            prefix_msg = self.format_config[format]["user_prefix_msg"]
+            prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
+            suffix_msg = self.format_config[format]["user_suffix_msg"]
+            suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
 
+            content_token_ids = tokenizer.encode(content, add_special_tokens=False)
+            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
+                append_token_ids = content_token_ids
+                _loss_mask = [0] * len(content_token_ids)
+            elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
+                append_token_ids = prefix_token_ids + content_token_ids
+                _loss_mask = [0] * len(prefix_token_ids) + [0] * len(content_token_ids)
+            else:
+                max_len = max(len(prefix_token_ids), len(suffix_token_ids))
+                raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}")
+            if not already_over_long:
+                append_token_ids += suffix_token_ids
+                _loss_mask += [0] * len(suffix_token_ids)
+            self.input_ids += append_token_ids
+            _attention_mask = [1] * len(append_token_ids)
+            self.attention_mask += _attention_mask
+            _delta_position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
+            last_position_id = self.position_ids[-1]
+            _position_ids = [pos_id + last_position_id for pos_id in _delta_position_ids]
+            self.loss_mask += _loss_mask
+            self.position_ids += _position_ids
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+    
     def add_assistant_message(
         self,
         tokenizer: PreTrainedTokenizer,
