@@ -176,6 +176,8 @@ def compute_grpo_passk_outcome_advantage(
     Compute advantage for Pass@k using a GRPO-style outcome reward formulation.
     Only the best response per group gets a non-zero advantage: r_max - r_second_max.
 
+    Implemented as described in https://arxiv.org/abs/2503.19595.
+
     Args:
         token_level_rewards: (bs, response_length)
         response_mask: (bs, response_length)
