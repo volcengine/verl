@@ -218,8 +218,12 @@ class MegatronRewardModel(BasePPORewardModel):
         if use_dynamic_bsz:
             assert max_token_len is not None, "max_token_len must be set when use_dynamic_bsz is True"
             pp_size = mpu.get_pipeline_model_parallel_world_size()
-            micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, pp_size=pp_size, max_token_len=max_token_len)
-            assert len(micro_batches) % pp_size == 0, f"micro_batches {len(micro_batches)} must be divisible by pp_size {pp_size} for megatron backend"
+            vpp_size = mpu.get_virtual_pipeline_model_parallel_world_size()
+            if vpp_size is not None and vpp_size > 1:
+                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, pp_size=pp_size, max_token_len=max_token_len)
+                assert len(micro_batches) % pp_size == 0, f"micro_batches {micro_batches} must be divisible by pp_size {pp_size} for megatron backend"
+            else:
+                micro_batches, indices = rearrange_micro_batches(batch=mini_batch.batch, max_token_len=max_token_len)
             total_seqlen = max_token_len
         else:
             assert micro_batch_size is not None, "micro_batch_size is needed to be passed in when not using dynamic batch size"
