@@ -56,12 +56,16 @@ RUN aria2c --always-resume=true --max-tries=99999 https://developer.download.nvi
     update-alternatives --set cuda /usr/local/cuda-12.4 && \
     rm -rf /usr/local/cuda-12.6
 
-# Install torch-2.6.0+cu124 + vllm-0.8.5
+# Install torch-2.6.0+cu124 + vllm-0.8.5.post1 + sglang-0.4.6.post4
 # torch-2.6.0+cu124: cxx11abi=False
 # torch-2.6.0+cu126: cxx11abi=True
 # see https://github.com/flashinfer-ai/flashinfer/issues/911
-RUN pip install --no-cache-dir "vllm==0.8.5" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata \
-    "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
+# Install sglang-0.4.6.post1 and torch-memory-saver
+RUN pip install "sglang[all]==0.4.6.post1" --no-cache-dir --find-links https://flashinfer.ai/whl/cu124/torch2.6/flashinfer-python && pip install torch-memory-saver --no-cache-dir
+
+RUN pip install --no-cache-dir "vllm==0.8.5.post1" "torch==2.6.0" "torchvision==0.21.0" "torchaudio==2.6.0" "tensordict==0.6.2" torchdata
+
+RUN pip install --no-cache-dir "transformers[hf_xet]>=4.51.0" accelerate datasets peft hf-transfer \
     "numpy<2.0.0" "pyarrow>=15.0.0" pandas \
     ray[default] codetiming hydra-core pylatexenc qwen-vl-utils wandb dill pybind11 liger-kernel mathruler \
     pytest py-spy pyext pre-commit ruff
@@ -70,18 +74,9 @@ RUN pip install --no-cache-dir "vllm==0.8.5" "torch==2.6.0" "torchvision==0.21.0
 RUN wget -nv https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl && \
     pip install --no-cache-dir flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
 
-# Install flashinfer-0.2.2.post1+cu124 (cxx11abi=False)
-# vllm-0.8.3 does not support flashinfer>=0.2.3
-# see https://github.com/vllm-project/vllm/pull/15777
-RUN wget -nv https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.2.post1/flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl && \
-    pip install --no-cache-dir flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl
-
 # Fix packages
 RUN pip uninstall -y pynvml nvidia-ml-py && \
     pip install --no-cache-dir --upgrade "nvidia-ml-py>=12.560.30" "fastapi[standard]>=0.115.0" "optree>=0.13.0" "pydantic>=2.9" "grpcio>=1.62.1"
-
-# Install Sglang
-RUN pip uninstall -y cuda-python && pip install --no-deps "sglang[all]>=0.4.6.post4"
 
 # Install cudnn
 RUN aria2c --max-tries=9999 https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb && \
@@ -91,7 +86,7 @@ RUN aria2c --max-tries=9999 https://developer.download.nvidia.com/compute/cudnn/
     apt-get -y install cudnn-cuda-12 && \
     rm cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb
 
-RUN pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple nvidia-cudnn-cu12==9.8.0.87
+RUN pip install --no-cache-dir nvidia-cudnn-cu12==9.8.0.87
 
 # Install Apex
 RUN git clone https://github.com/NVIDIA/apex.git && \
@@ -99,10 +94,10 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
     pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
 
 # Install TransformerEngine
-RUN export NVTE_FRAMEWORK=pytorch && pip3 install --no-deps git+https://github.com/NVIDIA/TransformerEngine.git@v2.2
+RUN export NVTE_FRAMEWORK=pytorch && pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/TransformerEngine.git@v2.3
 
 # Install Megatron-LM
-RUN pip3 install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0rc3
+RUN pip3 install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.12.0
 
 # Fix opencv
 RUN pip install opencv-python
@@ -111,7 +106,6 @@ RUN pip install opencv-fixer && \
     python -c "from opencv_fixer import AutoFix; AutoFix()"
 
 # Install verl
-RUN pip install --no-deps --no-cache-dir verl[vllm] -U
 
 # Reset pip config
 RUN pip config unset global.index-url && \
