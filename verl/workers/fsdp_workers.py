@@ -28,6 +28,7 @@ from omegaconf import DictConfig, open_dict
 from torch.distributed.device_mesh import init_device_mesh
 
 import verl.utils.torch_functional as verl_F
+from verl.utils.py_functional import convert_to_regular_types
 from verl import DataProto
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
@@ -71,16 +72,6 @@ import json
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-def convert_to_regular_types(obj):
-    """Convert Hydra configs and other special types to regular Python types."""
-    from omegaconf import ListConfig, DictConfig
-    if isinstance(obj, (ListConfig, DictConfig)):
-        return {k: convert_to_regular_types(v) for k, v in obj.items()} if isinstance(obj, DictConfig) else list(obj)
-    elif isinstance(obj, (list, tuple)):
-        return [convert_to_regular_types(x) for x in obj]
-    elif isinstance(obj, dict):
-        return {k: convert_to_regular_types(v) for k, v in obj.items()}
-    return obj
 
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
