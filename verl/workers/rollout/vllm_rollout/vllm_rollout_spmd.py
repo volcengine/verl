@@ -114,6 +114,8 @@ class vLLMRollout(BaseRollout):
                 max_position_embeddings = model_hf_config.max_position_embeddings
             elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
                 max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
+            elif hasattr(model_hf_config, "text_config") and hasattr(model_hf_config.text_config, "max_position_embeddings"):
+                max_position_embeddings = model_hf_config.text_config.max_position_embeddings
             if max_position_embeddings is None:
                 raise ValueError("max_position_embeddings not found in model_hf_config")
 
