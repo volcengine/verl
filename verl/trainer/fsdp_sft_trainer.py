@@ -108,7 +108,7 @@ class FSDPSFTTrainer:
         self._build_model_optimizer()
 
         # Initialize checkpoint manager
-        self.checkpoint_manager = FSDPCheckpointManager(model=self.fsdp_model, optimizer=self.optimizer, lr_scheduler=self.lr_scheduler, processing_class=self.tokenizer, checkpoint_contents=self.config.trainer.checkpoint_contents)
+        self.checkpoint_manager = FSDPCheckpointManager(model=self.fsdp_model, optimizer=self.optimizer, lr_scheduler=self.lr_scheduler, processing_class=self.tokenizer, checkpoint_contents=self.config.trainer.ckpt.contents)
 
         if self.device_mesh.get_rank() == 0:
             print(self.config)
@@ -413,13 +413,13 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
         return loss
 
-    def save_checkpoint(self, step, max_ckpt_to_keep=None):
+    def save_checkpoint(self, step, num_to_keep=None):
         """
         Save checkpoint
 
         Args:
             step: current training step
-            max_ckpt_to_keep: maximum number of checkpoints to keep
+            num_to_keep: number of checkpoints to keep
         """
         path = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
         hdfs_path = None
@@ -427,7 +427,7 @@ class FSDPSFTTrainer:
             hdfs_path = os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{step}")
 
         # Use checkpoint manager to save
-        self.checkpoint_manager.save_checkpoint(local_path=path, hdfs_path=hdfs_path, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep)
+        self.checkpoint_manager.save_checkpoint(local_path=path, hdfs_path=hdfs_path, global_step=step, max_ckpt_to_keep=num_to_keep)
 
         dataloader_local_path = os.path.join(path, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
@@ -470,7 +470,7 @@ class FSDPSFTTrainer:
         dataloader_local_path = os.path.join(checkpoint_path, "data.pt")
         dataloader_state_dict = torch.load(dataloader_local_path)
         self.train_dataloader.load_state_dict(dataloader_state_dict)
-        if self.config.trainer.load_previous_saved_paths:
+        if self.config.trainer.ckpt.load_previous_saved_paths:
             self.checkpoint_manager.previous_saved_paths = [os.path.join(self.config.trainer.default_local_dir, f) for f in os.listdir(self.config.trainer.default_local_dir)]
 
         # extract the step from the checkpoint path
@@ -526,10 +526,10 @@ class FSDPSFTTrainer:
 
                 self.global_steps += 1
                 # check if we need to save checkpoint
-                save_steps = getattr(self.config.trainer, "save_steps", None)
+                save_steps = getattr(self.config.trainer.ckpt, "save_steps", None)
                 if save_steps and self.global_steps % save_steps == 0:
-                    max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
-                    self.save_checkpoint(step=self.global_steps, max_ckpt_to_keep=max_ckpt_to_keep)
+                    num_to_keep = getattr(self.config.trainer.ckpt, "num_to_keep", None)
+                    self.save_checkpoint(step=self.global_steps, num_to_keep=num_to_keep)
 
                 # for early exit validation
                 if self.global_steps >= self.total_training_steps:

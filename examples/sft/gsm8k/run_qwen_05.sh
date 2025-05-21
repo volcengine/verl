@@ -28,6 +28,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.experiment_name=gsm8k-sft-qwen-0.5b-it \
     trainer.total_epochs=2 \
     trainer.logger=['console'] \
-    trainer.save_steps=5 \
-    trainer.max_ckpt_to_keep=2 \
+    trainer.ckpt.save_steps=5 \
+    trainer.ckpt.num_to_keep=2 \
     trainer.default_hdfs_dir=null $@
