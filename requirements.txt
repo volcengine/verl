@@ -17,7 +17,6 @@ ray[default]
 tensordict<=0.6.2
 torchdata
 transformers
-vllm>=0.7.3
 # vllm==0.8.4
 wandb
 packaging>=20.0
