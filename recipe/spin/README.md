@@ -25,7 +25,8 @@ While this recipe uses the DPO loss, the online generation loop where the curren
 * **SPIN:** [Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models](https://arxiv.org/abs/2401.01335) (Chen et al., 2024)
 * **DPO:** [Direct Preference Optimization: Your Language Model is Secretly a Reward Model](https://arxiv.org/abs/2305.18290) (Rafailov et al., 2023)
 
-## Implementation within Verl
+## Implementation within Verl 
+The recipe should be able to run on Verl v0.3.0.post1
 
 This implementation adapts the existing PPO infrastructure provided by `verl`:
 
@@ -105,12 +106,9 @@ The following steps outline how to set up the environment and run the SPIN recip
     # Set CUDA visible devices (adjust based on your hardware and config)
     export CUDA_VISIBLE_DEVICES=0,1,2,3
 
-    # Navigate to the recipe directory
-    cd recipe/spin
-
     # Launch the training script (e.g., test.sh or a custom script)
     # Ensure test.sh points to the correct config and main script
-    bash run_spin.sh
+    bash recipe/spin/run_spin.sh
     ```
 
 ## Configuration

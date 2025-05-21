@@ -1,7 +1,7 @@
 set -e
 set -x
-export WANDB_API_KEY="324f1526c5559d81acdf0e40dddc9222f30965e1"
 VISIBLE_DEVICES="4,5,6,7"
+export HYDRA_FULL_ERROR=1
 
 CUDA_VISIBLE_DEVICES=${VISIBLE_DEVICES} python3 -m recipe.spin.main_spin \
   data.train_files=$HOME/data/gsm8k/train.parquet \
@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=${VISIBLE_DEVICES} python3 -m recipe.spin.main_spin \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
   actor_rollout_ref.ref.log_prob_micro_batch_size=64 \
   algorithm.kl_ctrl.kl_coef=0.001 \
-  trainer.logger=['console,wandb'] \
+  trainer.logger=['console'] \
   trainer.val_before_train=True \
   trainer.default_hdfs_dir=null \
   trainer.n_gpus_per_node=4 \
