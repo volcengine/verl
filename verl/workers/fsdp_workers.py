@@ -53,7 +53,7 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.device import get_device_name, is_cuda_available, get_torch_device, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 
 
 logger = logging.getLogger(__file__)

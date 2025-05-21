@@ -38,6 +38,7 @@ from verl.utils.fs import copy_to_local
 from verl.utils.hdfs_io import makedirs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
+from verl.utils.device import is_cuda_available
 
 
 @hydra.main(config_path="config", config_name="generation", version_base=None)
@@ -79,7 +80,7 @@ def main_task(config):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorRolloutRefWorker), config=config, role="rollout")
+    ray_cls_with_init = RayClassWithInitArgs(cls=ray.remote(ActorRolloutRefWorker), config=config, role="rollout", device_name="cuda" if is_cuda_available else "npu")
     resource_pool = RayResourcePool(process_on_nodes=[config.trainer.n_gpus_per_node] * config.trainer.nnodes)
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
     wg.init_model()
