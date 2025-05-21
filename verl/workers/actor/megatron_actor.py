@@ -195,18 +195,13 @@ class MegatronPPOActor(BasePPOActor):
             response = batch["responses"]
             response_length = response.size(1)
             with torch.no_grad():
-                output, indices = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn, calculate_entropy=calculate_entropy, use_dynamic_bsz=use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len)
+                output = self.forward_backward_batch(data, forward_only=True, post_process_fn=compute_logprobs_fn, calculate_entropy=calculate_entropy, use_dynamic_bsz=use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len)
                 if mpu.is_pipeline_last_stage(ignore_virtual=True):
                     # only on last rank. It should be on every tp rank
                     if calculate_entropy:
                         log_probs = [o[0]["log_probs"] for o in output]  # (bs, seq_size)
                     else:
                         log_probs = [o["log_probs"] for o in output]  # (bs, seq_size)
-                    if use_dynamic_bsz:
-                        indices = list(itertools.chain.from_iterable(indices))
-                        assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
-                        revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                        log_probs = log_probs[revert_indices]
                     log_probs = torch.cat(log_probs, dim=0).to(torch.float32)
                 else:
                     log_probs = torch.empty(size=(batch_size, response_length), dtype=torch.float32, device=input_ids.device)
@@ -432,7 +427,22 @@ class MegatronPPOActor(BasePPOActor):
                 forward_only=forward_only,
             )
         # loss_reduces contains the stats returned from loss_func
-        return losses_reduced, indices
+        if use_dynamic_bsz and forward_only:
+            if calculate_entropy:
+                log_probs = [o[0]["log_probs"] for o in losses_reduced]
+            else:
+                log_probs = [o["log_probs"] for o in losses_reduced]
+            assert indices is not None, "indices should be set when forward_only and use_dynamic_bsz is True"
+            indices = list(itertools.chain.from_iterable(indices))
+            assert len(indices) == log_probs.size(0), f"{len(indices)} vs. {log_probs.size()}"
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+            log_probs = log_probs[revert_indices]
+            for i in range(len(losses_reduced)):
+                if calculate_entropy:
+                    losses_reduced[i][0]["log_probs"] = log_probs[i]
+                else:
+                    losses_reduced[i]["log_probs"] = log_probs[i]
+        return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
     def update_policy(self, dataloader: Iterable[DataProto]) -> Dict:
@@ -465,7 +475,7 @@ class MegatronPPOActor(BasePPOActor):
             max_token_len = None
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size
-            metric_micro_batch, _ = self.forward_backward_batch(data, calculate_entropy=calculate_entropy, use_dynamic_bsz=self.config.use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=self.config.ppo_mini_batch_size)
+            metric_micro_batch = self.forward_backward_batch(data, calculate_entropy=calculate_entropy, use_dynamic_bsz=self.config.use_dynamic_bsz, micro_batch_size=micro_batch_size, max_token_len=max_token_len, mini_batch_size=self.config.ppo_mini_batch_size)
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
                 append_to_dict(metrics, metric[0])  # append the metric from this micro-batch to global metrics.

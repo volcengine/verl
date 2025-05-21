@@ -827,6 +827,7 @@ class RewardModelWorker(MegatronWorker):
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
+        data.meta_info["micro_batch_size"] = self.config.forward_micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
         data = data.to(torch.cuda.current_device())

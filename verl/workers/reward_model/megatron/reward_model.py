@@ -143,13 +143,8 @@ class MegatronRewardModel(BasePPORewardModel):
         response_length = responses.size(1)
 
         with torch.no_grad():
-            output, indices = self.forward_batch(data)
+            output = self.forward_batch(data)
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
-                if use_dynamic_bsz:
-                    indices = list(itertools.chain.from_iterable(indices))
-                    assert len(indices) == output.size(0), f"{len(indices)} vs. {output.size()}"
-                    revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                    output = output[revert_indices]
                 logits = torch.cat(output, dim=0)
             else:
                 logits = torch.empty(
@@ -276,8 +271,12 @@ class MegatronRewardModel(BasePPORewardModel):
                 forward_only=True,
             )
         # loss_reduces contains the stats returned from loss_func
-
-        return losses_reduced, indices
+        if use_dynamic_bsz:
+            indices = list(itertools.chain.from_iterable(indices))
+            assert len(indices) == losses_reduced.size(0), f"{len(indices)} vs. {losses_reduced.size()}"
+            revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+            losses_reduced = losses_reduced[revert_indices]
+        return losses_reduced
 
     def offload_params_to_cpu(self):
         if self.device == "cuda":
