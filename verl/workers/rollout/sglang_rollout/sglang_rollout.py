@@ -172,7 +172,7 @@ class SGLangRollout(BaseRollout):
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        engine_kwargs = {} if "engine_kwargs" not in config or "sglang" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.sglang))
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         self.inference_engine = VerlEngine(
             model_path=actor_module,

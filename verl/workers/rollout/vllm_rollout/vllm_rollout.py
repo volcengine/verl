@@ -96,7 +96,7 @@ class vLLMRollout(BaseRollout):
             ):
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
 
-        rope_scaling_config = getattr(model_hf_config, 'rope_scaling', None)
+        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
             assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
 
@@ -110,7 +110,7 @@ class vLLMRollout(BaseRollout):
             )
 
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);

@@ -149,8 +149,10 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times)
     n: 1
     engine_kwargs: # inference engine parameters
-      swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
-      attention_backend: fa3 # null means use the engine default value, available options: flashinfer, triton, flashmla
+      vllm:
+        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+      sglang:
+        attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
