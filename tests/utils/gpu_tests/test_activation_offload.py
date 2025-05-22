@@ -15,8 +15,10 @@ import os
 import shutil
 import tempfile
 
+import pytest
 import torch
 import torch.distributed
+import torch.multiprocessing as mp
 from torch.distributed import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
@@ -24,12 +26,17 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2Config
 
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fsdp_utils import MixedPrecisionPolicy, apply_fsdp2, get_fsdp_wrap_policy
 
 
-def test_fsdp_activation_offloading(strategy="fsdp"):
-    _, _, world_size = initialize_global_process_group()
+def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy="fsdp"):
+    torch.cuda.set_device(rank)
+    torch.distributed.init_process_group(
+        backend="nccl",
+        init_method=f"file://{rendezvous_file}",
+        rank=rank,
+        world_size=world_size,
+    )
     device_mesh = init_device_mesh("cuda", mesh_shape=(world_size,), mesh_dim_names=("dp",))
 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -114,7 +121,7 @@ def test_fsdp_activation_offloading(strategy="fsdp"):
 
     # Step 4: Verify outputs match
     torch.testing.assert_close(logits_without_offloading, logits_with_offloading, atol=0.0, rtol=0.0)
-    print(f"Activaiton offloading for {strategy} test passed!")
+    print(f"Activaiton offloading for {strategy} test passed on {world_size} GPUs!")
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -122,6 +129,15 @@ def test_fsdp_activation_offloading(strategy="fsdp"):
     torch.distributed.destroy_process_group()
 
 
-if __name__ == "__main__":
-    strategy = os.environ.get("STRATEGY", "fsdp")
-    test_fsdp_activation_offloading(strategy=strategy)
+@pytest.mark.parametrize("world_size", (2, 4))
+@pytest.mark.parametrize("strategy", ("fsdp", "fsdp2"))
+def test_activation_offloading(world_size, strategy, tmp_path):
+    rendezvous_file = str(tmp_path / "rdzv_file")
+    os.makedirs(os.path.dirname(rendezvous_file), exist_ok=True)
+
+    mp.spawn(
+        fn=_fsdp_activation_offloading_test,
+        args=(world_size, rendezvous_file, strategy),
+        nprocs=world_size,
+        join=True,
+    )
