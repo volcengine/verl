@@ -1,4 +1,6 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -55,9 +57,6 @@ Megatron Hybrid Engine:
 """
 
 
-_MICRO_DATA_PARALLEL_GROUP = None
-
-
 class MegatronSGLangShardingManager(BaseShardingManager):
     def __init__(
         self,
@@ -76,28 +75,11 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.device_mesh = device_mesh
-        global _MICRO_DATA_PARALLEL_GROUP
-        world_size = dist.get_world_size()
-        rank = dist.get_rank()
 
         if self.device_mesh is not None:
             self.infer_tp_size = self.device_mesh["tp"].mesh.size()[0]
         else:
             self.infer_tp_size = self.inference_engine._tp_size
-        self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
-        self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
-
-        assert self.infer_tp_size <= self.train_tp_size, "Not implemented for infer_tp > train_tp"
-        assert self.train_tp_size % self.infer_tp_size == 0
-
-        micro_dp_size = self.train_tp_size // self.infer_tp_size
-        num_micro_dp_groups = world_size // micro_dp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
-        for i in range(num_micro_dp_groups):
-            ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-            group = new_group(ranks=ranks)
-            if rank in ranks:
-                _MICRO_DATA_PARALLEL_GROUP = group
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
