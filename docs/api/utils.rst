@@ -60,12 +60,6 @@ Ulysses Utilities
 .. automodule:: verl.utils.ulysses
    :members: gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
-Model Utilities
-------------------
-
-.. automodule:: verl.utils.model
-   :members: print_model_size
-
 FSDP Utilities
 ------------------
 
