@@ -14,7 +14,7 @@ save_path=$2
 # Shift the arguments so $@ refers to the rest
 shift 2
 
-python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.fsdp_sft_trainer \
     algorithm.adv_estimator=sft \
     data.train_files=$HOME/data/geo3k/train.parquet \
     data.val_files=$HOME/data/geo3k/test.parquet \

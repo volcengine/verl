@@ -39,7 +39,7 @@ from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, Qwen2_5_VLForConditionalGeneration, AutoProcessor
 
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
@@ -79,6 +79,35 @@ def convert_to_regular_types(obj):
     elif isinstance(obj, dict):
         return {k: convert_to_regular_types(v) for k, v in obj.items()}
     return obj
+
+
+def vlm_collate_fn(batch):
+    """Collate function for VLM data in SFT training"""
+    result = {}
+    
+    # Process standard inputs (these are common in all SFT batches)
+    result["input_ids"] = torch.stack([item["input_ids"] for item in batch])
+    result["attention_mask"] = torch.stack([item["attention_mask"] for item in batch])
+    result["position_ids"] = torch.stack([item["position_ids"] for item in batch])
+    result["loss_mask"] = torch.stack([item["loss_mask"] for item in batch])
+    
+    # Process multimodal inputs if present
+    if "multi_modal_inputs" in batch[0]:
+        result["multi_modal_inputs"] = {}
+        
+        # Handle pixel_values (images)
+        if "pixel_values" in batch[0]["multi_modal_inputs"]:
+            result["multi_modal_inputs"]["pixel_values"] = torch.stack([
+                item["multi_modal_inputs"]["pixel_values"] for item in batch
+            ])
+            
+        # Handle image_grid_thw (specific to Qwen2.5-VL)
+        if "image_grid_thw" in batch[0]["multi_modal_inputs"]:
+            result["multi_modal_inputs"]["image_grid_thw"] = torch.stack([
+                item["multi_modal_inputs"]["image_grid_thw"] for item in batch
+            ])
+    
+    return result
 
 
 class FSDPSFTTrainer:
@@ -125,9 +154,12 @@ class FSDPSFTTrainer:
         config = self.config
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
-        # build dataloader
-        # Use data parallel rank and size instead of global rank and world size
-
+        # Determine if we're using a VLM dataset
+        is_vlm_dataset = hasattr(train_dataset, 'processor') and train_dataset.processor is not None
+        
+        # Choose appropriate collate function
+        collate_fn = vlm_collate_fn if is_vlm_dataset else None
+        
         # If doing SP, we need to use the local rank and size
         if self.config.ulysses_sequence_parallel_size > 1:
             rank = self.ulysses_device_mesh.get_local_rank("dp")
@@ -140,6 +172,8 @@ class FSDPSFTTrainer:
             world_size = self.device_mesh.size()
         if self.device_mesh.get_rank() == 0:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
+            if is_vlm_dataset:
+                print("Using VLM dataset with custom collate function")
 
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
         self.train_dataloader = DataLoader(
@@ -149,6 +183,7 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            collate_fn=collate_fn,
         )
 
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
@@ -159,6 +194,43 @@ class FSDPSFTTrainer:
             num_workers=8,
             pin_memory=True,
             drop_last=True,
+            collate_fn=collate_fn,
+        )
+        # If doing SP, we need to use the local rank and size
+        if self.config.ulysses_sequence_parallel_size > 1:
+            rank = self.ulysses_device_mesh.get_local_rank("dp")
+            world_size = self.ulysses_device_mesh.size(0)
+            if self.ulysses_device_mesh.get_rank() == 0:
+                print(f"Using SP rank {rank} and size {world_size} for data distribution")
+                print("Each SP rank gets different data, but the same data WITHIN the same rank")
+        else:
+            rank = self.device_mesh.get_rank()
+            world_size = self.device_mesh.size()
+        if self.device_mesh.get_rank() == 0:
+            print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
+            if is_vlm_dataset:
+                print("Using VLM dataset with custom collate function")
+
+        self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
+        self.train_dataloader = DataLoader(
+            dataset=self.train_dataset,
+            batch_size=config.data.train_batch_size,
+            sampler=self.train_sampler,
+            num_workers=8,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=collate_fn,
+        )
+
+        self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
+        self.val_dataloader = DataLoader(
+            dataset=self.val_dataset,
+            batch_size=config.data.micro_batch_size_per_gpu,
+            sampler=self.val_sampler,
+            num_workers=8,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=collate_fn,
         )
 
     def _build_model_optimizer(self):
@@ -185,12 +257,11 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                local_model_path,
-                config=config,
-                torch_dtype=torch.float32,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
+            self.model: PreTrainedModel = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                "Qwen/Qwen2.5-VL-7B-Instruct",
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="sdpa",
             )
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
@@ -292,7 +363,25 @@ class FSDPSFTTrainer:
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
-                output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
+                
+                # Prepare forward kwargs
+                forward_kwargs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "use_cache": False
+                }
+                
+                # Add multimodal inputs if present
+                if "multi_modal_inputs" in batch:
+                    # Qwen2.5-VL specific inputs
+                    if "pixel_values" in batch["multi_modal_inputs"]:
+                        forward_kwargs["pixel_values"] = batch["multi_modal_inputs"]["pixel_values"].cuda()
+                    if "image_grid_thw" in batch["multi_modal_inputs"]:
+                        forward_kwargs["image_grid_thw"] = batch["multi_modal_inputs"]["image_grid_thw"].cuda()
+                
+                # Use forward_kwargs instead of individual arguments
+                output = self.fsdp_model(**forward_kwargs)
                 logits = output.logits
 
                 shift_logits = logits[..., :-1, :].contiguous()
@@ -326,13 +415,24 @@ class FSDPSFTTrainer:
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size())
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
-                # Forward pass
-                output = self.fsdp_model(
-                    input_ids=input_ids_rmpad_sliced,
-                    attention_mask=None,  # Not needed with flash attention varlen
-                    position_ids=position_ids_rmpad_padded,
-                    use_cache=False,
-                )
+                # Prepare forward kwargs
+                forward_kwargs = {
+                    "input_ids": input_ids_rmpad_sliced,
+                    "attention_mask": None,  # Not needed with flash attention varlen
+                    "position_ids": position_ids_rmpad_padded,
+                    "use_cache": False
+                }
+
+                # Add multimodal inputs if present
+                if "multi_modal_inputs" in batch:
+                    # Qwen2.5-VL specific inputs
+                    if "pixel_values" in batch["multi_modal_inputs"]:
+                        forward_kwargs["pixel_values"] = batch["multi_modal_inputs"]["pixel_values"].cuda()
+                    if "image_grid_thw" in batch["multi_modal_inputs"]:
+                        forward_kwargs["image_grid_thw"] = batch["multi_modal_inputs"]["image_grid_thw"].cuda()
+
+                # Use forward_kwargs instead of individual arguments
+                output = self.fsdp_model(**forward_kwargs)
 
                 # Compute loss locally then aggregate
                 logits_rmpad = output.logits.squeeze(0)
@@ -512,15 +612,15 @@ def main(config):
 
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, config.model.name_or_path)
+    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer, config.model.name_or_path)
 
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, tokenizer, model_name_or_path):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -528,6 +628,16 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         from verl.utils.import_utils import load_extern_type
 
         dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+    # Then check if we're using a VLM model based on model name
+    elif any(vlm_indicator in model_name_or_path.lower() for vlm_indicator in ["vl", "vision", "visual"]):
+        from verl.utils.dataset.sft_dataset import VLMSFTDataset
+        dataset_cls = VLMSFTDataset
+        
+        # Initialize processor for the VLM model
+        processor = AutoProcessor.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=data_config.get("trust_remote_code", True)
+        )
     # Then check if multi-turn dataset should be used
     elif data_config.get("multiturn", {}).get("enable", False):
         dataset_cls = MultiTurnSFTDataset
@@ -536,7 +646,10 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = SFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    if dataset_cls == VLMSFTDataset:
+        dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config, processor=processor)
+    else:
+        dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
     return dataset
 
 

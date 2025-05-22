@@ -20,8 +20,15 @@ data:
   custom_cls:
     path: null
     name: null
+  image_key: "images"                          # Specify the column name for images in your dataset
+  processor:
+    use_fast: True                             # Use fast tokenization
+    trust_remote_code: True                    # Trust remote code for processor
 model:
-  partial_pretrain: ~/models/gemma-1.1-7b-it
+  name_or_path: "Qwen/Qwen2.5-VL-7B-Instruct"  # Update to the new model path
+  torch_dtype: "float16"                       # Specify the data type
+  device_map: "auto"                           # Use automatic device mapping
+  attn_implementation: "sdpa"                  # Specify the attention implementation
   fsdp_config:
     wrap_policy:
       min_num_params: 0
@@ -29,7 +36,7 @@ model:
     offload_params: False
   external_lib: null
   enable_gradient_checkpointing: False
-  trust_remote_code: False
+  trust_remote_code: True                      # Set to True for Qwen models
   lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
   lora_alpha: 16  # LoRA scaling factor
   target_modules: all-linear  # Target modules for LoRA adaptation
