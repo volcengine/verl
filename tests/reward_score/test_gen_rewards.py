@@ -10,8 +10,6 @@ class TestGenerativeRewardManager(unittest.TestCase):
     def setUp(self, mock_open, mock_yaml_load):
         # Import the necessary classes
         from transformers import PreTrainedTokenizer
-        import sys
-        sys.path.append("/fs-computility/mabasic/fanyuchen/verl")
         from verl import DataProto
         from verl.workers.reward_manager import GenerativeRewardManager
         # Mock the yaml config loading
