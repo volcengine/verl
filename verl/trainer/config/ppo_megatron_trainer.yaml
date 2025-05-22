@@ -148,6 +148,7 @@ actor_rollout_ref:
     n: 1
     engine_kwargs: # inference engine parameters
       swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+      attention_backend: fa3 # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -243,6 +244,7 @@ reward_model:
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   max_length: null
+  reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
   sandbox_fusion:
     url: null # faas url to run code in cloud sandbox
