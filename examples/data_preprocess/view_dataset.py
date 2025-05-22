@@ -30,5 +30,5 @@ def view_parquet_with_datasets(file_path):
     return dataset
 
 # Example usage
-file_path = "~/data/math/sky_work_10k_04_21.parquet"
+file_path = "/home/share/reasoning/aime-2024-qwen3.parquet"
 dataset = view_parquet_with_datasets(file_path)

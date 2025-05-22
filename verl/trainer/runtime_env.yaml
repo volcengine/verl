@@ -3,5 +3,6 @@ excludes: ["/.git/"]
 env_vars:
   TORCH_NCCL_AVOID_RECORD_STREAMS: "1"
   GLOO_SOCKET_IFNAME: "ibs9"
+  https_proxy: "http://vpn.luchentech.com:32171"
   # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
   # VLLM_ATTENTION_BACKEND: "XFORMERS"

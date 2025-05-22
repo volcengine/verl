@@ -1,8 +1,6 @@
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
 # basics
 project_name='DAPO'
-exp_name='DAPO-Qwen-32B'
+exp_name='DAPO-Qwen3-14B'
 
 adv_estimator=grpo
 
@@ -15,9 +13,9 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_prompt_length=2192
-max_response_length=$((1024 * 20))
+max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
-overlong_buffer_len=$((1024 * 4))
+overlong_buffer_len=$((1024 * 1))
 overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
@@ -26,7 +24,7 @@ enable_filter_groups=True
 filter_groups_metric=acc
 max_num_gen_batches=10
 train_prompt_bsz=256
-gen_prompt_bsz=$((train_prompt_bsz * 3))
+gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
@@ -35,10 +33,10 @@ NNODES=4
 
 # Paths
 RAY_DATA_HOME="/home/share/reasoning"
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/Qwen2.5-32B"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/Qwen3-14B"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/${project_name}/${exp_name}"}
-TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/dapo-math-17k.parquet"}
-TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/aime-2024.parquet"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/dapo-math-17k-qwen3.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/aime-2024-qwen3.parquet"}
 
 # Algorithm
 temperature=1.0
@@ -47,15 +45,15 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
 val_temperature=0.6
 val_top_p=0.95
-val_top_k=-1
+val_top_k=20
 
 # Performance Related Parameter
-sp_size=8
+sp_size=1
+gen_tp=4
 use_dynamic_bsz=True
 actor_ppo_max_token_len=$((max_prompt_length + max_response_length))
 infer_ppo_max_token_len=$((max_prompt_length + max_response_length))
 offload=True
-gen_tp=4
 
 
 ray job submit --no-wait --runtime-env="./verl/trainer/runtime_env.yaml" \
@@ -94,7 +92,7 @@ ray job submit --no-wait --runtime-env="./verl/trainer/runtime_env.yaml" \
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
+    actor_rollout_ref.actor.optim.lr_warmup_steps=0 \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.fsdp_config.param_offload=${offload} \
@@ -122,14 +120,14 @@ ray job submit --no-wait --runtime-env="./verl/trainer/runtime_env.yaml" \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
-    trainer.logger=['console'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
+    trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.test_freq=5 \
     trainer.save_freq=20 \
     trainer.total_epochs=1 \
-    trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto
