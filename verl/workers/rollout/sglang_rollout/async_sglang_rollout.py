@@ -98,7 +98,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         self._tool_schemas, self._tool_map, self._tool_call_parser_type, self._sgl_tools, self._function_call_parser = self._initialize_tools(config, tokenizer)
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
-
+        print(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
 
         self._init_distributed_env(device_mesh_cpu=device_mesh,**kwargs)
 
@@ -152,7 +152,8 @@ class AsyncSGLangRollout(BaseRollout):
         self._rank = self._device_mesh_cpu.get_rank()
         self._tp_rank = self._device_mesh_cpu["tp"].get_local_rank()
         self._tp_size = self._device_mesh_cpu["tp"].size()
-
+        if self._rank == 0:
+            print(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
 
@@ -162,7 +163,7 @@ class AsyncSGLangRollout(BaseRollout):
 
     def _init_inference_engine(self,trust_remote_code,actor_module):
                # initialize the inference engine
-        nnodes = -(-self.tp_size // len(self.visible_devices_set))
+        nnodes = -(-self._tp_size // len(self.visible_devices_set))
         if nnodes > 1:
             ip = get_ip()
             port = get_open_port() if port is None else port
@@ -228,10 +229,9 @@ class AsyncSGLangRollout(BaseRollout):
         for k in self.config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = self.config.get(k)
-        print(f"kwargs: {kwargs}")
         self.sampling_params = kwargs
 
-        
+
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
 
@@ -280,7 +280,7 @@ class AsyncSGLangRollout(BaseRollout):
         tools_config_file = config.multi_turn.tool_config_path
         tools_config = OmegaConf.load(tools_config_file)
         tool_list = initialize_tools_from_config(tools_config)
-
+        print(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
         tool_call_parser_type = get_tool_call_parser_type(tokenizer)
@@ -599,7 +599,6 @@ class AsyncSGLangRollout(BaseRollout):
                 tool = self._tool_map[tool_schema.function.name]
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
-                print(f"creation for tools coroutine: {tool.name}")
             await asyncio.gather(*tool_creation_coroutines)
 
     @GPUMemoryLogger(role="sglang async rollout", logger=logger)
@@ -726,11 +725,20 @@ class AsyncSGLangRollout(BaseRollout):
         for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
             for rollout_offset in range(n):
                 if self._tool_schemas:
-                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] if "tools_kwargs" in prompts.non_tensor_batch else {}
-                    print(f"tool_kwags: {_tools_kwargs}")
+                    data_tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] if "tools_kwargs" in prompts.non_tensor_batch else {}
                     _tool_schemas = []
-                    for k in _tools_kwargs.keys():
+                    _tools_kwargs = {}
+                    # this is used for datasets
+                    for k in data_tools_kwargs.keys():
+                        if k not in self._tool_map:
+                            # logger.warning(f"Tool {k} not found in tool map,skip this tool")
+                            continue
                         _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
+                        _tools_kwargs[k] = data_tools_kwargs[k]
+                    # add for dataset-irrelevant tools
+                    for tool_key in self._tool_map.keys():
+                            _tools_kwargs[tool_key] = {}
+                            _tool_schemas.append(self._tool_map[tool_key].get_openai_tool_schema())
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
                         conversation=raw_prompt,
                         tools=[tool.model_dump() for tool in _tool_schemas],

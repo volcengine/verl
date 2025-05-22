@@ -127,11 +127,15 @@ class SandboxFusionTool(BaseTool):
         # TODO: better documentation for the config
         self.num_workers = config.get("num_workers", 10)
         self.rate_limit = config.get("rate_limit", 10)
+        self.default_timeout = config.get("default_timeout", 30)
+        self.default_language = config.get("default_language", "python")
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
         self.execution_pool = init_execution_pool(num_workers=self.num_workers,enable_global_rate_limit=self.enable_global_rate_limit,rate_limit=self.rate_limit,mode=PoolMode.ThreadMode)
         self.sandbox_fusion_url = config.get("sandbox_fusion_url","")
         if self.sandbox_fusion_url == "":
             raise ValueError("sandbox_fusion_url is not set")
+        log_msg = f"Init SandboxFusionTool with config: {config}"
+        print(log_msg)
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
@@ -144,15 +148,16 @@ class SandboxFusionTool(BaseTool):
             "ground_truth": ground_truth,
             "reward": [],
         }
-        print(f"self._instance_dict: {self._instance_dict}, prime_tools create are called")
         return instance_id
 
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
         code = parameters.get("code", "")
+        timeout = parameters.get("timeout", self.default_timeout)
+        language = parameters.get("language", self.default_language)
         if not isinstance(code, str):
             code = str(code)
 
-        result = await self.execution_pool.execute.remote(self.execute_code,instance_id,code)
+        result = await self.execution_pool.execute.remote(self.execute_code,instance_id,code,timeout,language)
         # penalty for non improved answer submission
         # tool_reward = 0.0 if reward > self._instance_dict[instance_id]["reward"] else -0.05
         # update the reward
