@@ -39,7 +39,7 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config):
+    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config, override_transformer_config):
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config
@@ -66,7 +66,7 @@ class MegatronWorker(Worker):
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype)
+        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
         def add_optimization_config_to_tf_config(tf_config, verl_model_config):
             # add optimization config to tf_config, e.g. checkpointing
