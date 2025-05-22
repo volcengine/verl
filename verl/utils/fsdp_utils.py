@@ -30,7 +30,6 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-from peft.utils.save_and_load import get_peft_model_state_dict
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -460,6 +459,8 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
     return total_norm
 
 def layered_summon_lora_params(fsdp_module)->OrderedDict:
+    from peft.utils.save_and_load import get_peft_model_state_dict
+
     def __prefix_submodules(module, prefix):
         for name, submodule in module.named_modules():
             if name.startswith(prefix) and "." not in name[len(prefix):]:

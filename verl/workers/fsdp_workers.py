@@ -63,7 +63,6 @@ from codetiming import Timer
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from peft import PeftModel
-from peft.utils.save_and_load import get_peft_model_state_dict
 from safetensors.torch import save_file
 from dataclasses import asdict
 import json

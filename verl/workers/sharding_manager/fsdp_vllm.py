@@ -42,7 +42,6 @@ from verl.utils.vllm_utils import VLLMHijack, is_version_ge, patch_vllm_moe_mode
 
 from .base import BaseShardingManager
 
-from peft.utils.save_and_load import get_peft_model_state_dict
 from dataclasses import asdict
 
 logger = logging.getLogger(__file__)
@@ -117,6 +116,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             collect lora params or full params if base model is not ready in vllm
             work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
             """
+            from peft.utils.save_and_load import get_peft_model_state_dict
+
             lora_params = OrderedDict()
             if fsdp_version(self.module) > 0:
                 if self.layered_summon:
