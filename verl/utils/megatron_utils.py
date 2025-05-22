@@ -721,11 +721,10 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     return infer_params
 
 
-def per_tensor_generator(actor_module, model_config, weight_converter, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
+def per_tensor_generator(actor_module, model_config, weight_converter, transformer_config, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
     from megatron.core import parallel_state as mpu
 
     pp_rank = mpu.get_pipeline_model_parallel_rank()
-    pp_size = mpu.get_pipeline_model_parallel_world_size()
     ep_size = mpu.get_expert_model_parallel_world_size()
     etp_size = mpu.get_expert_tensor_parallel_world_size()
     ep_group = mpu.get_expert_model_parallel_group()
@@ -757,7 +756,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 cur_name, cur_tensor = next(gen_func)
             except StopIteration:
                 cur_name, cur_tensor = None, None
-            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers)
+            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, transformer_config)
         else:
             cur_tensor, cur_name = None, None
 

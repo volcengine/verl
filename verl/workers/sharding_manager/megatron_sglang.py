@@ -63,6 +63,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         actor_module: nn.ModuleList,
         inference_engine: VerlEngine,
         model_config,
+        transformer_config,
         layer_name_mapping,
         weight_converter,
         device_mesh: DeviceMesh | None = None,
@@ -72,6 +73,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.device_mesh = device_mesh
@@ -94,7 +96,13 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
-        per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.layer_name_mapping)
+        per_tensor_param = per_tensor_generator(
+            self.actor_module,
+            self.model_config,
+            self.weight_converter,
+            self.transformer_config,
+            self.layer_name_mapping,
+        )
         self.update_weights(per_tensor_param)
 
         # important: need to manually set the random states of each tp to be identical.
@@ -142,8 +150,25 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
 
 class MegatronAsyncSGLangShardingManager(MegatronSGLangShardingManager):
-    def __init__(self, actor_module: nn.ModuleList, inference_engine: Engine, model_config, layer_name_mapping, weight_converter, device_mesh: DeviceMesh = None):
-        super().__init__(actor_module, inference_engine, model_config, layer_name_mapping, weight_converter, device_mesh)
+    def __init__(
+        self,
+        actor_module: nn.ModuleList,
+        inference_engine: Engine,
+        model_config,
+        transformer_config,
+        layer_name_mapping,
+        weight_converter,
+        device_mesh: DeviceMesh = None,
+    ):
+        super().__init__(
+            actor_module,
+            inference_engine,
+            model_config,
+            transformer_config,
+            layer_name_mapping,
+            weight_converter,
+            device_mesh,
+        )
 
     def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0:
