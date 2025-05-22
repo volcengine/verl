@@ -157,6 +157,18 @@ def union_two_dict(dict1: Dict, dict2: Dict):
 
 
 def append_to_dict(data: Dict, new_data: Dict):
+    """Append values from new_data to lists in data.
+
+    For each key in new_data, this function appends the corresponding value to a list
+    stored under the same key in data. If the key doesn't exist in data, a new list is created.
+
+    Args:
+        data (Dict): The target dictionary containing lists as values.
+        new_data (Dict): The source dictionary with values to append.
+
+    Returns:
+        None: The function modifies data in-place.
+    """
     for key, val in new_data.items():
         if key not in data:
             data[key] = []
@@ -164,6 +176,21 @@ def append_to_dict(data: Dict, new_data: Dict):
 
 
 class NestedNamespace(SimpleNamespace):
+    """A nested version of SimpleNamespace that recursively converts dictionaries to namespaces.
+
+    This class allows for dot notation access to nested dictionary structures by recursively
+    converting dictionaries to NestedNamespace objects.
+
+    Example:
+        config_dict = {"a": 1, "b": {"c": 2, "d": 3}}
+        config = NestedNamespace(config_dict)
+        # Access with: config.a, config.b.c, config.b.d
+
+    Args:
+        dictionary: The dictionary to convert to a nested namespace.
+        **kwargs: Additional attributes to set on the namespace.
+    """
+
     def __init__(self, dictionary, **kwargs):
         super().__init__(**kwargs)
         for key, value in dictionary.items():

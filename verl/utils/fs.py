@@ -32,10 +32,29 @@ _HDFS_PREFIX = "hdfs://"
 
 
 def is_non_local(path):
+    """Check if a path is a non-local (HDFS) path.
+
+    Args:
+        path (str): The path to check.
+
+    Returns:
+        bool: True if the path is an HDFS path, False otherwise.
+    """
     return path.startswith(_HDFS_PREFIX)
 
 
 def md5_encode(path: str) -> str:
+    """Generate an MD5 hash of a path string.
+
+    This function is used to create unique identifiers for paths, typically
+    for creating cache directories or lock files.
+
+    Args:
+        path (str): The path to encode.
+
+    Returns:
+        str: The hexadecimal MD5 hash of the path.
+    """
     return hashlib.md5(path.encode()).hexdigest()
 
 

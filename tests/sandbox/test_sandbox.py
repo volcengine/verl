@@ -18,7 +18,7 @@ import os
 
 import pytest
 
-from verl.utils.reward_score import _default_compute_score, prime_code, sandbox_fusion
+from verl.utils.reward_score import default_compute_score, prime_code, sandbox_fusion
 from verl.utils.reward_score.prime_code import apps_check_correctness
 from verl.workers.reward_manager.prime import parallel_compute_score_async
 
@@ -109,7 +109,7 @@ def test_parallelism():
         ground_truth.extend(prime_math_gts)
         data_sources.extend(["numina_aops_forum"] * len(prime_math_answers))
 
-    scores = asyncio.run(parallel_compute_score_async(_default_compute_score, sequences_str, ground_truth, data_sources, num_processes=16))
+    scores = asyncio.run(parallel_compute_score_async(default_compute_score, sequences_str, ground_truth, data_sources, num_processes=16))
     print(scores)
 
 
@@ -119,7 +119,7 @@ def test_prime_code():
     """
     data_source = "codecontests"
     for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
-        score = _default_compute_score(data_source, completion, ground_truth)
+        score = default_compute_score(data_source, completion, ground_truth)
         assert float(score) == score_
 
 
@@ -135,7 +135,7 @@ def test_prime_code_sandbox_fusion():
     # Removed the previous 'if not sandbox_url' check block
 
     for completion, ground_truth, score_ in zip(prime_code_answers, prime_code_gts, prime_code_scores):
-        score = _default_compute_score(data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url})  # <-- Use the URL obtained from the environment variable
+        score = default_compute_score(data_source, completion, ground_truth, extra_info={"sandbox_fusion_url": sandbox_fusion_url})  # <-- Use the URL obtained from the environment variable
         assert float(score) == score_
 
 
@@ -153,7 +153,7 @@ def test_continuous_score_consistency():
     prime_score, _ = sandbox_fusion.compute_score(os.environ.get("SANDBOX_FUSION_URL"), None, completion, ground_truth, continuous=True)
 
     # 2. Calculate score using sandbox_fusion with continuous=True
-    # Ensure the extra_info key triggers the sandbox_fusion path in _default_compute_score
+    # Ensure the extra_info key triggers the sandbox_fusion path in default_compute_score
     fusion_score, _ = prime_code.compute_score(completion, ground_truth, continuous=True)
 
     # 3. Assert scores are equal (using pytest.approx for float comparison)
@@ -175,5 +175,5 @@ def test_check_correctness():
 def test_prime_math():
     data_source = "numina_aops_forum"
     for completion, ground_truth in zip(prime_math_answers, prime_math_gts):
-        score = _default_compute_score(data_source, completion, ground_truth)
+        score = default_compute_score(data_source, completion, ground_truth)
         assert float(score) == 1.0

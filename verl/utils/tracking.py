@@ -23,6 +23,16 @@ from typing import Any, Dict, List, Union
 
 
 class Tracking:
+    """A unified tracking interface for logging experiment data to multiple backends.
+
+    This class provides a centralized way to log experiment metrics, parameters, and artifacts
+    to various tracking backends including WandB, MLflow, SwanLab, TensorBoard, and console.
+
+    Attributes:
+        supported_backend: List of supported tracking backends.
+        logger: Dictionary of initialized logger instances for each backend.
+    """
+
     supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml"]
 
     def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
@@ -70,9 +80,9 @@ class Tracking:
             SWANLAB_MODE = os.environ.get("SWANLAB_MODE", "cloud")
             if SWANLAB_API_KEY:
                 swanlab.login(SWANLAB_API_KEY)  # NOTE: previous login information will be overwritten
-            
+
             if config is None:
-                config = {} # make sure config is not None, otherwise **config will raise error
+                config = {}  # make sure config is not None, otherwise **config will raise error
             swanlab.init(
                 project=project_name,
                 experiment_name=experiment_name,
@@ -147,7 +157,7 @@ class ClearMLLogger:
             output_uri=False,
         )
 
-        self._task.connect_configuration(config, name='Hyperparameters')
+        self._task.connect_configuration(config, name="Hyperparameters")
 
     def _get_logger(self):
         return self._task.get_logger()
@@ -159,7 +169,7 @@ class ClearMLLogger:
         # logs = self._rewrite_logs(data)
         logger = self._get_logger()
         for k, v in data.items():
-            title, series = k.split('/', 1)
+            title, series = k.split("/", 1)
 
             if isinstance(v, (int, float, np.floating, np.integer)):
                 logger.report_scalar(
@@ -176,12 +186,7 @@ class ClearMLLogger:
                     iteration=step,
                 )
             else:
-                logger.warning(
-                    'Trainer is attempting to log a value of '
-                    f'"{v}" of type {type(v)} for key "{k}". '
-                    "This invocation of ClearML logger's function "
-                    'is incorrect so this attribute was dropped. '
-                )
+                logger.warning(f'Trainer is attempting to log a value of "{v}" of type {type(v)} for key "{k}". This invocation of ClearML logger\'s function is incorrect so this attribute was dropped. ')
 
     def finish(self):
         self._task.mark_completed()
@@ -334,7 +339,7 @@ class ValidationGenerationsLogger:
             print(f"WARNING: save validation generation file to mlflow failed with error {e}")
 
     def log_generation_to_clearml(self, samples, step):
-        """ Log validation generation to clearml as table"""
+        """Log validation generation to clearml as table"""
 
         import clearml
         import pandas as pd
