@@ -164,9 +164,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         if isinstance(self.module._fsdp_wrapped_module, PeftModel):
             peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
             params = __collect_lora_params()
-        elif isinstance(self.module, FSDP):
-            with FSDP.summon_full_params(self.module, writeback=False):
-                params = self.module.state_dict()
         else:
             params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
