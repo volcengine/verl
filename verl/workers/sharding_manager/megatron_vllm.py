@@ -274,6 +274,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         actor_module: nn.ModuleList,
         inference_engine: LLM,
         model_config,
+        transformer_config,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         module: AllGatherPPModel = None,
@@ -283,6 +284,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.module = module
@@ -297,6 +299,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
+        self.train_ep_size = mpu.get_expert_model_parallel_world_size()
+        self.train_ep_rank = mpu.get_expert_model_parallel_rank()
+        self.train_ep_group = mpu.get_expert_model_parallel_group()
+        self.train_etp_size = mpu.get_expert_tensor_parallel_world_size()
+        self.train_etp_rank = mpu.get_expert_tensor_parallel_rank()
+        self.train_etp_group = mpu.get_expert_tensor_parallel_group()
         self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
         self.train_tp_larger = self.train_tp_size > self.infer_tp_size
 
@@ -307,7 +315,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         from megatron.core import parallel_state as mpu
 
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
         all_gather_group = self.train_tp_group
@@ -341,7 +348,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers)
+                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, self.transformer_config)
             else:
                 cur_tensor, cur_name = None, None
 
@@ -352,6 +359,35 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
                 cur_name = cur_name[len("module.") :]
+
+            # EP
+            if ".mlp.experts.linear_fc" in cur_name and self.train_ep_size > 1:
+                num_experts = self.weight_converter.mcore_config.num_moe_experts
+                num_experts_per_rank = num_experts // self.train_ep_size
+                infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(self.train_ep_size)]
+                torch.distributed.all_gather(infer_params, broad_pp_tensor, group=self.train_ep_group)
+
+                name_prefix, local_expert_id = cur_name.split(".weight")
+                local_expert_id = int(local_expert_id)
+                global_expert_ids = [num_experts_per_rank * ep_rank + local_expert_id for ep_rank in range(self.train_ep_size)]
+                global_expert_names = [f"{name_prefix}.weight{expert_id}" for expert_id in global_expert_ids]
+
+                for name, param in zip(global_expert_names, infer_params):
+                    if self.train_etp_size > 1:
+                        # gather etp
+                        etp_params = [torch.empty_like(param) for _ in range(self.train_etp_size)]
+                        torch.distributed.all_gather(etp_params, param, group=self.train_etp_group)
+                        params = etp_params
+                    else:
+                        params = [param]
+
+                    merge_params = self.default_tp_concat_fn(name, broad_pp_tensor, params, self.model_config, convert_qkv_gate_up_by_simple_split)
+                    if not isinstance(merge_params, list):
+                        merge_params = [merge_params]
+                    converted_names, converted_params = self.weight_converter.convert_param(name, merge_params)
+
+                    yield from zip(converted_names, converted_params)
+                continue
 
             # tp all gather
             if tp_utils.is_tensor_parallel_param(broad_pp_tensor):

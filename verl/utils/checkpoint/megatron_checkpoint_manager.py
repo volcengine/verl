@@ -246,6 +246,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             ckpt_name = self.get_checkpoint_name(model_ckpt_path, return_base_dir=False)
             torch.save(state_dicts, os.path.join(ckpt_name))
 
+            print(f"Saved checkpoint to {model_ckpt_path}")
             if self.rank == 0:
                 self.processing_class.save_pretrained(hf_config_and_tokenizer_path)
                 self.hf_config.save_pretrained(hf_config_and_tokenizer_path)
@@ -256,14 +257,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     except Exception:
                         # if the generation config isn't available, we don't save it
                         pass
+                if hdfs_path is not None:
+                    print(f"Uploading checkpoint to {hdfs_path}")
+                    from verl.utils import hdfs_io
 
-            print(f"Saved checkpoint to {model_ckpt_path}")
-            if hdfs_path is not None:
-                print(f"Uploading checkpoint to {hdfs_path}")
-                from verl.utils import hdfs_io
-
-                hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                    hdfs_io.copy(src=model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                    hdfs_io.copy(src=hf_config_and_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
 
         if "hf_model" in self.checkpoint_contents:
             # wait for everyone to dump to local
@@ -276,11 +276,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             )
 
             torch.distributed.barrier()
-            print(f"self.param_dtype: {self.param_dtype}")
-            for key in state_dict.keys():
-                print(f"state_dict[key].dtype: {key} {state_dict[key].dtype}")
-            torch.distributed.barrier()
             if self.rank == 0:
+                print(f"self.param_dtype: {self.param_dtype}")
+                for key in state_dict.keys():
+                    print(f"state_dict[key].dtype: {key} {state_dict[key].dtype}")
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 import warnings
 

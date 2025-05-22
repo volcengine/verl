@@ -145,6 +145,13 @@ def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResour
 
 
 class RayClassWithInitArgs(ClassWithInitArgs):
+    """A wrapper class for Ray actors with initialization arguments.
+
+    This class extends ClassWithInitArgs to provide additional functionality for
+    configuring and creating Ray actors with specific resource requirements and
+    scheduling strategies.
+    """
+
     def __init__(self, cls, *args, **kwargs) -> None:
         # self._options = kwargs.pop('options', dict())
         super().__init__(cls, *args, **kwargs)
@@ -152,12 +159,34 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         self._additional_resource = {}
 
     def set_additional_resource(self, additional_resource):
+        """Set additional resource requirements for the actor.
+
+        Args:
+            additional_resource: Dictionary specifying additional resource requirements
+        """
         self._additional_resource = additional_resource
 
     def update_options(self, options: Dict):
+        """Update the Ray actor creation options.
+
+        Args:
+            options: Dictionary of options to update
+        """
         self._options.update(options)
 
     def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None) -> Any:
+        """Create and return a Ray actor with the configured options.
+
+        Args:
+            placement_group: Ray placement group for scheduling
+            placement_group_bundle_idx: Index of the bundle in the placement group
+            use_gpu: Whether to use GPU resources
+            num_gpus: Number of GPUs to allocate
+            sharing_with: Actor to share resources with
+
+        Returns:
+            A Ray actor handle with the configured options
+        """
         if sharing_with is not None:
             target_node_id = ray.get(sharing_with.get_node_id.remote())
             cuda_visible_devices = ray.get(sharing_with.get_cuda_visible_devices.remote())
@@ -181,6 +210,13 @@ class RayClassWithInitArgs(ClassWithInitArgs):
 
 
 class RayWorkerGroup(WorkerGroup):
+    """A group of Ray workers that can be managed collectively.
+
+    This class extends WorkerGroup to provide Ray-specific functionality for
+    creating and managing groups of Ray actors with specific resource requirements
+    and scheduling strategies.
+    """
+
     def __init__(
         self,
         resource_pool: RayResourcePool = None,
@@ -193,6 +229,18 @@ class RayWorkerGroup(WorkerGroup):
         ray_wait_register_center_timeout: int = 300,
         **kwargs,
     ) -> None:
+        """Initialize a RayWorkerGroup.
+
+        Args:
+            resource_pool: Resource pool for worker allocation
+            ray_cls_with_init: Class with initialization arguments for workers
+            bin_pack: Whether to use strict bin packing for resource allocation
+            name_prefix: Prefix for worker names
+            detached: Whether workers should be detached
+            worker_names: Names of existing workers to attach to
+            ray_wait_register_center_timeout: Timeout for waiting on register center
+            **kwargs: Additional keyword arguments
+        """
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -218,6 +266,14 @@ class RayWorkerGroup(WorkerGroup):
         self.method_names = []
 
     def _is_worker_alive(self, worker: ray.actor.ActorHandle):
+        """Check if a worker actor is still alive.
+
+        Args:
+            worker: Ray actor handle to check
+
+        Returns:
+            bool: True if the worker is alive, False otherwise
+        """
         worker_state_dict = get_actor(worker._actor_id.hex())
         return worker_state_dict.get("state", "undefined") == "ALIVE" if worker_state_dict is not None else False
 
@@ -231,6 +287,14 @@ class RayWorkerGroup(WorkerGroup):
         self._world_size = len(worker_names)
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached):
+        """Initialize the worker group by creating new workers from a resource pool.
+
+        Args:
+            resource_pool: Resource pool for worker allocation
+            ray_cls_with_init: Class with initialization arguments for workers
+            bin_pack: Whether to use strict bin packing for resource allocation
+            detached: Whether workers should be detached
+        """
         use_gpu = resource_pool.use_gpu
 
         strategy = "PACK"
@@ -327,21 +391,32 @@ class RayWorkerGroup(WorkerGroup):
         worker_handles=None,
         ray_cls_with_init=None,
     ):
+        """Create a worker group from existing detached workers.
+
+        Args:
+            name_prefix: Prefix for worker names
+            worker_names: Names of existing workers to attach to
+            ray_cls_with_init: Class with initialization arguments for workers
+
+        Returns:
+            A new RayWorkerGroup instance
+        """
         worker_group = cls(resource_pool=None, ray_cls_with_init=ray_cls_with_init, name_prefix=name_prefix, worker_names=worker_names, worker_handles=worker_handles)
         return worker_group
 
     def spawn(self, prefix_set):
-        """
-        spawn to a dictionary of worker groups, each with a subset of method with prefix.
+        """Spawn to a dictionary of worker groups, each with a subset of method with prefix.
 
+        Args:
+            prefix_set: Set of prefixes to create worker groups for
+
+        Returns:
+            Dictionary of worker groups keyed by prefix
         """
         if self.fused_worker_used:
             return self.spawn_fused(prefix_set)
 
         def _rebind_actor_methods(worker_group, actor_name):
-            """
-            bind the method with actor_prefix to its original name
-            """
             prefix: str = actor_name + "_"
             for method_name in dir(worker_group):
                 if method_name.startswith(prefix):
@@ -364,6 +439,14 @@ class RayWorkerGroup(WorkerGroup):
         return new_worker_group_dict
 
     def spawn_fused(self, prefix_set):
+        """Create a dictionary of worker groups for fused workers.
+
+        Args:
+            prefix_set: Set of prefixes to create worker groups for
+
+        Returns:
+            Dictionary of worker groups keyed by prefix
+        """
         wg_dict = dict()
         for key in prefix_set:
             new_wg = deepcopy(self)
@@ -373,6 +456,11 @@ class RayWorkerGroup(WorkerGroup):
         return wg_dict
 
     def fuse(self, prefix_set):
+        """Fuse multiple worker groups into the current worker group.
+
+        Args:
+            prefix_set: Set of prefixes to fuse into the worker group
+        """
         if self.wg_dict is None:
             self.wg_dict = self.spawn(prefix_set)
         for role_name, role_wg in self.wg_dict.items():
@@ -380,6 +468,17 @@ class RayWorkerGroup(WorkerGroup):
         self.method_names = self._bind_worker_method(self.ray_cls_with_init.cls, func_generator)
 
     def _execute_remote_single_worker(self, worker, method_name: str, *args, **kwargs):
+        """Execute a method on a single worker remotely.
+
+        Args:
+            worker: The worker actor handle
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            Remote object reference to the method execution
+        """
         if self.fused_worker_used and method_name not in self.method_names:
             remote_call = getattr(worker, self.fused_worker_execute_fn_name)
             return remote_call.remote(f"{self.sub_cls_name}_fwmn_{method_name}", *args, **kwargs)
@@ -388,21 +487,81 @@ class RayWorkerGroup(WorkerGroup):
         return remote_call.remote(*args, **kwargs)
 
     def execute_rank_zero_sync(self, method_name: str, *args, **kwargs):
+        """Execute a method on rank zero worker synchronously.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            Result of the method execution
+        """
         return ray.get(self.execute_rank_zero_async(method_name, *args, **kwargs))
 
     def execute_rank_zero_async(self, method_name: str, *args, **kwargs):
+        """Execute a method on rank zero worker asynchronously.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            Remote object reference to the method execution
+        """
         return self._execute_remote_single_worker(self._workers[0], method_name, *args, **kwargs)
 
     def execute_rank_zero(self, method_name: str, *args, **kwargs):
+        """Alias for execute_rank_zero_async.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            Remote object reference to the method execution
+        """
         return self.execute_rank_zero_async(method_name, *args, **kwargs)
 
     def execute_all(self, method_name: str, *args, **kwargs):
+        """Alias for execute_all_async.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            List of remote object references to the method executions
+        """
         return self.execute_all_async(method_name, *args, **kwargs)
 
     def execute_all_sync(self, method_name: str, *args, **kwargs):
+        """Execute a method on all workers synchronously.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            List of results from all workers
+        """
         return ray.get(self.execute_all_async(method_name, *args, **kwargs))
 
     def execute_all_async(self, method_name: str, *args, **kwargs):
+        """Execute a method on all workers asynchronously.
+
+        Args:
+            method_name: Name of the method to execute
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            List of remote object references to the method executions
+        """
         # Here, we assume that if all arguments in args and kwargs are lists,
         # and their lengths match len(self._workers), we'll distribute each
         # element in these lists to the corresponding worker

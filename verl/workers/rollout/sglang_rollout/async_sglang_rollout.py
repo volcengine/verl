@@ -30,11 +30,10 @@ from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.function_call_parser import FunctionCallParser
 from sglang.srt.openai_api.protocol import Tool
-from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.utils import broadcast_pyobj, get_ip, get_open_port
+from sglang.srt.utils import get_ip, get_open_port
 from tensordict import TensorDict
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizer
 
@@ -54,6 +53,7 @@ from verl.workers.rollout.schemas import (
     Message,
 )
 from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs
+from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
 
 if TYPE_CHECKING:
     from torch import nn
@@ -80,6 +80,7 @@ class AsyncSGLangRollout(BaseRollout):
         model_hf_config,
         port=None,
         trust_remote_code: bool = False,
+        device_mesh: DeviceMesh | None = None,
         **kwargs,
     ):
         """A SGLang rollout. It requires the module is supported by the SGLang.
@@ -93,61 +94,10 @@ class AsyncSGLangRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        self._device_mesh_cpu = device_mesh
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
 
-        tool_list = None
-        if config.multi_turn.tool_config_path is not None:
-            from omegaconf import OmegaConf
-
-            def initialize_tools(tools_config) -> list:
-                import importlib.util
-                import sys
-
-                from verl.tools.schemas import OpenAIFunctionToolSchema
-
-                tool_list = []
-
-                for tool_config in tools_config.tools:
-                    cls_name = tool_config.class_name
-                    module_name, class_name = cls_name.rsplit(".", 1)
-
-                    if module_name not in sys.modules:
-                        spec = importlib.util.find_spec(module_name)
-                        module = importlib.util.module_from_spec(spec)
-                        sys.modules[module_name] = module
-                        spec.loader.exec_module(module)
-                    else:
-                        module = sys.modules[module_name]
-
-                    tool_cls = getattr(module, class_name)
-
-                    tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
-                    tool_schema = OpenAIFunctionToolSchema.parse_obj(tool_schema_dict)
-
-                    tool = tool_cls(config=OmegaConf.to_container(tool_config.config, resolve=True), tool_schema=tool_schema)
-                    tool_list.append(tool)
-
-                return tool_list
-
-            tools_config_file = config.multi_turn.tool_config_path
-            tools_config = OmegaConf.load(tools_config_file)
-            tool_list = initialize_tools(tools_config)
-
-        if tool_list is not None:
-            self._tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
-            self._tool_map = {tool.name: tool for tool in tool_list}
-            self._tool_call_parser_type = get_tool_call_parser_type(tokenizer)
-            self._sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in self._tool_schemas]
-            self._function_call_parser = FunctionCallParser(
-                self._sgl_tools,
-                self._tool_call_parser_type,
-            )
-        else:
-            self._tool_schemas = []
-            self._tool_map = {}
-            self._tool_call_parser_type = None
-            self._sgl_tools = []
-            self._function_call_parser = None
+        self._tool_schemas, self._tool_map, self._tool_call_parser_type, self._sgl_tools, self._function_call_parser = self._initialize_tools(config, tokenizer)
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
@@ -177,31 +127,35 @@ class AsyncSGLangRollout(BaseRollout):
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
 
         # init device mesh
-        device_mesh_kwargs = dict(
-            mesh_shape=(world_size // tp_size, tp_size, 1),
-            mesh_dim_names=["dp", "tp", "pp"],
-        )
+        if self._device_mesh_cpu is None:
+            device_mesh_kwargs = dict(
+                mesh_shape=(world_size // tp_size, tp_size, 1),
+                mesh_dim_names=["dp", "tp", "pp"],
+            )
 
-        device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
-        # device_mesh_device = init_device_mesh("cuda", **device_mesh_kwargs)
+            self._device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+
+        self._rank = self._device_mesh_cpu.get_rank()
+        self._tp_rank = self._device_mesh_cpu["tp"].get_local_rank()
+        self._tp_size = self._device_mesh_cpu["tp"].size()
 
         # get tp_rank of this process in this tp group
-        visible_devices = [None] * device_mesh_cpu.size(1)
+        visible_devices = [None] * self._device_mesh_cpu.size(1)
 
-        dist.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], device_mesh_cpu.get_group("tp"))
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(visible_devices)
+        torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp"))
+        visible_devices_set = set(",".join(visible_devices).split(","))
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(visible_devices_set)))
 
         # initialize the inference engine
-        monkey_patch_torch_reductions()
-        nnodes = -(-tp_size // len(visible_devices))
+        nnodes = -(-tp_size // len(visible_devices_set))
         if nnodes > 1:
             ip = get_ip()
             port = get_open_port() if port is None else port
             [ip, port] = broadcast_pyobj(
                 [ip, port],
-                rank=self._tp_rank,
-                dist_group=device_mesh_cpu.get_group("tp"),
-                src=device_mesh_cpu["tp"].mesh[0].item(),
+                rank=self._rank,
+                dist_group=self._device_mesh_cpu.get_group("tp"),
+                src=self._device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
             )
             dist_init_addr = f"[{ip}]:{port}" if is_ipv6(ip) else f"{ip}:{port}"
@@ -209,9 +163,6 @@ class AsyncSGLangRollout(BaseRollout):
             dist_init_addr = None
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
-        self._device_mesh_cpu = device_mesh_cpu
-        self._tp_rank = device_mesh_cpu["tp"].get_local_rank()
-        self._tp_size = device_mesh_cpu["tp"].size()
         tp_size_per_node = self._tp_size // nnodes
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
@@ -228,9 +179,9 @@ class AsyncSGLangRollout(BaseRollout):
                 gpu_id_step=1,
                 tp_size=self._tp_size,
                 node_rank=node_rank,
-                nnodes=nnodes,
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
+                nnodes=nnodes,
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
@@ -266,6 +217,66 @@ class AsyncSGLangRollout(BaseRollout):
 
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
+
+    def _initialize_tools(self, config, tokenizer):
+        """Initialize tools from configuration.
+
+        Args:
+            config: Configuration object containing tool settings
+            tokenizer: Tokenizer instance for tool call parsing
+
+        Returns:
+            tuple: (tool_schemas, tool_map, tool_call_parser_type, sgl_tools, function_call_parser)
+        """
+        if config.multi_turn.tool_config_path is None:
+            return [], {}, None, [], None
+
+        import importlib.util
+        import sys
+
+        from omegaconf import OmegaConf
+
+        from verl.tools.schemas import OpenAIFunctionToolSchema
+
+        def initialize_tools_from_config(tools_config) -> list:
+            tool_list = []
+
+            for tool_config in tools_config.tools:
+                cls_name = tool_config.class_name
+                module_name, class_name = cls_name.rsplit(".", 1)
+
+                if module_name not in sys.modules:
+                    spec = importlib.util.find_spec(module_name)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                else:
+                    module = sys.modules[module_name]
+
+                tool_cls = getattr(module, class_name)
+
+                tool_schema_dict = OmegaConf.to_container(tool_config.tool_schema, resolve=True)
+                tool_schema = OpenAIFunctionToolSchema.parse_obj(tool_schema_dict)
+
+                tool = tool_cls(config=OmegaConf.to_container(tool_config.config, resolve=True), tool_schema=tool_schema)
+                tool_list.append(tool)
+
+            return tool_list
+
+        tools_config_file = config.multi_turn.tool_config_path
+        tools_config = OmegaConf.load(tools_config_file)
+        tool_list = initialize_tools_from_config(tools_config)
+
+        tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
+        tool_map = {tool.name: tool for tool in tool_list}
+        tool_call_parser_type = get_tool_call_parser_type(tokenizer)
+        sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
+        function_call_parser = FunctionCallParser(
+            sgl_tools,
+            tool_call_parser_type,
+        )
+
+        return tool_schemas, tool_map, tool_call_parser_type, sgl_tools, function_call_parser
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -371,7 +382,7 @@ class AsyncSGLangRollout(BaseRollout):
             # Most naive implementation, can extract tensor and send via gloo if too slow
             [output] = broadcast_pyobj(
                 data=[output],
-                rank=self._tp_rank,
+                rank=self._rank,
                 dist_group=self._device_mesh_cpu["tp"].get_group(),
                 src=self._device_mesh_cpu["tp"].mesh[0].item(),
                 force_cpu_device=False,
@@ -391,8 +402,11 @@ class AsyncSGLangRollout(BaseRollout):
                 attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
                 position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
                 batch_size = batch_size * self.sampling_params["n"]
-                if "multi_modal_inputs" in non_tensor_batch.keys():
-                    non_tensor_batch["multi_modal_inputs"] = np.repeat(non_tensor_batch["multi_modal_inputs"], self.sampling_params["n"], axis=0)
+                _non_tensor_batch = {}
+                for key, val in non_tensor_batch.items():
+                    _non_tensor_batch[key] = np.repeat(val, self.sampling_params["n"], axis=0)
+            else:
+                _non_tensor_batch = non_tensor_batch
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -423,9 +437,9 @@ class AsyncSGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None:
-            self._engine.tokenizer_manager.flush_cache()
+            self._engine.flush_cache()
 
-        return DataProto(batch=batch)
+        return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
     async def _async_rollout_a_request(self, req: AsyncRolloutRequest, do_sample: bool = True, is_validate: bool = False, **kwargs) -> AsyncRolloutRequest:
         assert self._tp_rank == 0, "only the master process can call this function"
@@ -457,8 +471,8 @@ class AsyncSGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
-                        _req.add_tool_response_message(self.tokenizer, resp, format=self.config.multi_turn.format)
+                    for i, (tool_call, (resp, reward, metrics)) in enumerate(zip(parsed_tool_calls, tool_call_results)):
+                        _req.add_tool_response_message(self.tokenizer, resp, (i == len(parsed_tool_calls) - 1), format=self.config.multi_turn.format)
                         if len(_req.input_ids) >= self.config.max_model_len:
                             break
                     if len(_req.input_ids) >= self.config.max_model_len:
@@ -591,7 +605,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
-            rank=self._tp_rank,
+            rank=self._rank,
             dist_group=self._device_mesh_cpu["tp"].get_group(),
             src=self._device_mesh_cpu["tp"].mesh[0].item(),
             force_cpu_device=False,
@@ -681,7 +695,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
-            self._engine.tokenizer_manager.flush_cache()
+            self._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch={"messages": np.array(messages), "reward_scores": np.array(reward_scores)})
 
