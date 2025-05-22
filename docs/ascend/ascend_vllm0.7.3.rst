@@ -28,7 +28,7 @@ verl x Ascend
 
 1. 使用 vLLM，需遵循 vllm-ascend 的安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.3/installation.html>。
 2. 为了能够在 ASCEND NPU 上正常使能 flash_attention_2， transformers 版本需要大于等于 4.52.0。
-3. 目前支持 LLM 模型的 GRPO 训练，VLM模型的 GRPO 训练因为 vllm-ascend 的问题将会在后续支持，涉及到的issue为：
+3. 目前支持 SFT 与 LLM 模型的 GRPO 训练，VLM模型的 GRPO 训练因为 vllm-ascend 的问题将会在后续支持，涉及到的issue为：
 
 https://github.com/vllm-project/vllm-ascend/issues/809
 https://github.com/vllm-project/vllm-ascend/issues/825
