@@ -122,10 +122,10 @@ def get_supported_model(model_type: str) -> SupportedModel:
         raise NotImplementedError(f"Model Type: {model_type} not supported. Supported models: {supported_models}") from err
 
 
-def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
     model = get_supported_model(hf_config.architectures[0])
-    return MODEL_CONFIG_CONVERTER_REGISTRY[model](hf_config, dtype)
+    return MODEL_CONFIG_CONVERTER_REGISTRY[model](hf_config, dtype, **override_transformer_config_kwargs)
 
 
 def init_mcore_model(
