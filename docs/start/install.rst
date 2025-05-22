@@ -69,7 +69,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     # pip3 install verl[sglang]
 
 .. note::
-    
+
     The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
@@ -84,6 +84,10 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     - **TransformerEngine**: 2.3
     - **Ray**: 2.44.1
 
+.. note::
+
+   For aws instances with EFA net interface (Sagemaker AI Pod),
+   you need to install EFA driver as shown in ``docker/Dockerfile.awsefa``
 
 Install from custom environment
 ---------------------------------------------
