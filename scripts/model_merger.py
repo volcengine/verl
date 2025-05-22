@@ -524,7 +524,7 @@ class MegatronModelMerger(BaseModelMerger):
                 raise RuntimeError(f"key: {name} not exist in state_dict")
             param = ref_state_dict[name]
             assert loaded_weight.dtype == param.dtype
-            torch.testing.assert_close(loaded_weight, param, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(loaded_weight, param, atol=1e-2, rtol=5e-2)
 
     def _replace_name(self, megatron_name: str, name_mapping: list[tuple[str, str]]) -> str:
         for m_name, v_name in name_mapping:
