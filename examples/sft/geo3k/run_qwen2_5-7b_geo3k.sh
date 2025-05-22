@@ -16,13 +16,12 @@ shift 2
 
 torchrun --standalone --nproc_per_node=$nproc_per_node --nnodes=1 \
   -m verl.trainer.fsdp_sft_trainer \
-    algorithm.adv_estimator=sft \
     data.train_files=$HOME/data/geo3k/train.parquet \
     data.val_files=$HOME/data/geo3k/test.parquet \
     data.train_batch_size=16 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=2048 \
-    data.filter_overlong_prompts=True \
+    +data.max_prompt_length=1024 \
+    +data.max_response_length=2048 \
+    +data.filter_overlong_prompts=True \
     data.truncation=error \
     data.image_key=images \
     model.name_or_path=Qwen/Qwen2.5-VL-7B-Instruct \
