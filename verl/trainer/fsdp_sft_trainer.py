@@ -30,7 +30,6 @@ from contextlib import nullcontext
 import hydra
 import torch
 import torch.distributed
-from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
 from torch import nn, optim

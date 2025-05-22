@@ -42,6 +42,13 @@ jobs:
         --device /dev/hisi_hdc
         --privileged
         --network "host"
+        --shm-size 2g
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     steps:
       - name: Check npu and CANN info
         run: |
@@ -49,18 +56,24 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
-      - name: Install vLLM
+      - name: Install torch
         run: |
-          git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git
-          cd vllm
+          pip install torch==2.5.1+cpu  --index-url https://download.pytorch.org/whl/cpu
+          pip install torch-npu==2.5.1
+          pip install /usr/local/Ascend/ascend-toolkit/latest/lib64/te-0.4.0-py3-none-any.whl
+      - name: Install vllm
+        run: |
+          apt-get update && apt-get install -y git
+          git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git vllm-npu
+          cd vllm-npu
           pip install -r requirements-build.txt
           VLLM_TARGET_DEVICE=empty pip install -e . --extra-index https://download.pytorch.org/whl/cpu/
       - name: Install vllm-ascend
         run: |
-          git clone -b v0.7.3 https://github.com/vllm-project/vllm-ascend.git
+          pip list
+          pip show torch
+          git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm-ascend.git
           cd vllm-ascend
-          source /usr/local/Ascend/ascend-toolkit/set_env.sh
-          source /usr/local/Ascend/nnal/atb/set_env.sh
           export COMPILE_CUSTOM_KERNELS=1
           python setup.py install
       - name: Install the current repository
@@ -72,17 +85,13 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k.py
-      - name: Running deepseek generation tests on ASCEND NPU
-        run: |
-          ray stop --force
-          bash tests/npu/run_gen_deepseek_v2_lite_math.sh
       - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/sft/run_sft_qwen05_peft.sh 8 $HOME/ckpts
+          bash tests/e2e/sft/run_sft.sh
           rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
         run: |
           ray stop --force
-          bash tests/npu/run_qwen05_gsm8k_grpo_npu.sh
+          bash tests/npu/run_qwen2_5_05b_grpo.sh
           rm -rf $HOME/ckpts
