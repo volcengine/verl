@@ -21,6 +21,7 @@ Data
      train_batch_size: 1024
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     return_full_prompt: False
      shuffle: True
      filter_overlong_prompts: False
      filter_overlong_prompts_workers: 1
@@ -52,7 +53,9 @@ Data
   from the policy. It needs to be decoded first, then apply the RM's
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
-- ``data.return_raw_chat``:
+- ``data.return_raw_chat``: Whether to return the original chat (prompt)
+  without applying chat template.
+- ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
 - ``data.filter_overlong_prompts``: Default don't filter.
 - ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
@@ -89,7 +92,10 @@ Actor/Rollout/Reference Policy
     model:
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
-      override_config: { }
+      override_config:
+        model_config: {}
+        moe_config:  # Megatron only, can adjust moe configuration
+          freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
       trust_remote_code: False
       use_remove_padding: False
@@ -164,6 +170,7 @@ Actor/Rollout/Reference Policy
       do_sample: True
       engine_kwargs: # inference engine parameters
         swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        attention_backend: fa3 # null means use the engine default value, available options: flashinfer, triton, flashmla
       # number of responses (i.e. num sample times)
       n: 1 # > 1 for grpo, rloo
       val_kwargs:
@@ -316,6 +323,12 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
   - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
   - Positive integer, e.g., ``32`` means 32 GB.
+
+- ``actor_rollout_ref.rollout.engine_kwargs.attention_backend``: The attention backend to use for the inference engine.
+  - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
+  - ``flashinfer``: Use flashinfer attention backend.
+  - ``triton``: Use triton attention backend.
+  - ``flashmla``: Use flashmla attention backend.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.

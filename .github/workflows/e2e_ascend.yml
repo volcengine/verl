@@ -57,16 +57,8 @@ jobs:
           VLLM_TARGET_DEVICE=empty pip install -e . --extra-index https://download.pytorch.org/whl/cpu/
       - name: Install vllm-ascend
         run: |
-          git clone https://github.com/vllm-project/vllm-ascend.git
+          git clone -b v0.7.3 https://github.com/vllm-project/vllm-ascend.git
           cd vllm-ascend
-          git checkout edeadde387451ca982fe3717555c1841ee195718
-          export COMPILE_CUSTOM_KERNELS=1
-          python setup.py install
-      - name: Install vllm-ascend
-        run: |
-          git clone https://github.com/vllm-project/vllm-ascend.git
-          cd vllm-ascend
-          git checkout edeadde387451ca982fe3717555c1841ee195718
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           source /usr/local/Ascend/nnal/atb/set_env.sh
           export COMPILE_CUSTOM_KERNELS=1
