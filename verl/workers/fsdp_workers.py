@@ -779,12 +779,11 @@ class ActorRolloutRefWorker(Worker):
             try:
                 if isinstance(self.actor_module_fsdp, FSDP):
                     self.actor_module_fsdp = self.actor_module_fsdp.cuda()
-                    with FSDP.summon_full_params(self.actor_module_fsdp, writeback=False):
-                        lora_params = layered_summon_lora_params(self.actor_module_fsdp)
-                        if dist.get_rank() == 0:
-                            save_file(lora_params, os.path.join(lora_save_path, "adapter_model.safetensors"))
-                            with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding='utf-8') as f:
-                                json.dump(peft_config, f, ensure_ascii=False, indent=4)
+                    lora_params = layered_summon_lora_params(self.actor_module_fsdp)
+                    if dist.get_rank() == 0:
+                        save_file(lora_params, os.path.join(lora_save_path, "adapter_model.safetensors"))
+                        with open(os.path.join(lora_save_path, "adapter_config.json"), "w", encoding='utf-8') as f:
+                            json.dump(peft_config, f, ensure_ascii=False, indent=4)
             except Exception as e:
                 if dist.get_rank() == 0:
                     print(f"[rank-{self.rank}]: Save LoRA Adapter Error ({e})")
