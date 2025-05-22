@@ -4,6 +4,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from transformers.cache_utils import Cache
+from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
 from verl.utils.ulysses import gather_heads_scatter_seq, gather_outpus_and_unpad, gather_seq_scatter_heads, get_ulysses_sequence_parallel_group, get_ulysses_sequence_parallel_rank, get_ulysses_sequence_parallel_world_size, validate_ulysses_config
 
@@ -30,9 +31,9 @@ def _merge_with_image_features(
 
     assert image_feature_dim == input_embed_dim
 
-    image_token_nums = (input_ids == image_token_index).sum()    
+    image_token_nums = (input_ids == image_token_index).sum()
     total_image_token_nums = torch.tensor([image_token_nums], dtype=image_token_nums.dtype, device=input_ids.device)
-    total_image_token_nums = gather_outpus_and_unpad(total_image_token_nums, gather_dim=0) # [sp_size]
+    total_image_token_nums = gather_outpus_and_unpad(total_image_token_nums, gather_dim=0)  # [sp_size]
     assert image_feature_nums == total_image_token_nums.sum()
 
     # (batch_size, sequence_length / sp, input_embed_dim) -> (batch_size * sequence_length / sp, input_embed_dim)
@@ -47,9 +48,7 @@ def _merge_with_image_features(
     image_features = sp_image_features[sp_rank]
     inputs_embeds[input_ids == image_token_index] = image_features
 
-    inputs_embeds = inputs_embeds.reshape(
-        (batch_size, sequence_length, input_embed_dim)
-    )
+    inputs_embeds = inputs_embeds.reshape((batch_size, sequence_length, input_embed_dim))
 
     return inputs_embeds
 
@@ -107,9 +106,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(
-        batch, num_key_value_heads, n_rep, slen, head_dim
-    )
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
@@ -123,7 +120,6 @@ def _ulysses_flash_attn_forward(
     use_cache: bool = False,
     **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-
     bsz, q_len, _ = hidden_states.size()
 
     if self.q_lora_rank is None:
@@ -131,33 +127,25 @@ def _ulysses_flash_attn_forward(
     else:
         q = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
     q = q.view(bsz, q_len, self.num_heads, self.q_head_dim).transpose(1, 2)
-    q_nope, q_pe = torch.split(
-        q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
-    )
+    q_nope, q_pe = torch.split(q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
 
     # Flash attention requires the input to have the shape
     # batch_size x seq_length x head_dim x hidden_dim
     # therefore we just need to keep the original shape
     compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
-    compressed_kv, k_pe = torch.split(
-        compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
-    )
+    compressed_kv, k_pe = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
     k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
-    kv = (
-        self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-        .view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim)
-        .transpose(1, 2)
-    )
+    kv = self.kv_b_proj(self.kv_a_layernorm(compressed_kv)).view(bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim).transpose(1, 2)
 
-    k_nope, value_states = torch.split(
-        kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-    )
+    k_nope, value_states = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
     kv_seq_len = value_states.shape[-2]
 
     # patch to get all emb
-    kv_seq_len = torch.tensor([kv_seq_len], device=hidden_states.device)
-    dist.all_reduce(kv_seq_len, op=dist.ReduceOp.SUM, group=get_ulysses_sequence_parallel_group())
-    kv_seq_len = kv_seq_len.item()
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+    if ulysses_sp_size > 1:
+        kv_seq_len = torch.tensor([kv_seq_len], device=hidden_states.device)
+        dist.all_reduce(kv_seq_len, op=dist.ReduceOp.SUM, group=get_ulysses_sequence_parallel_group())
+        kv_seq_len = kv_seq_len.item()
 
     cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
     q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
@@ -172,21 +160,26 @@ def _ulysses_flash_attn_forward(
 
     if self.q_head_dim != self.v_head_dim:
         value_states = F.pad(value_states, [0, self.q_head_dim - self.v_head_dim])
-        
+
     # patch
-    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     if ulysses_sp_size > 1:
         validate_ulysses_config(self.num_heads, ulysses_sp_size)
 
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        num_key_value_groups = self.config.num_attention_heads // self.config.num_key_value_heads
+        key_states = repeat_kv(key_states, num_key_value_groups)
+        value_states = repeat_kv(value_states, num_key_value_groups)
         query_states = gather_seq_scatter_heads(query_states, seq_dim=2, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=2, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=2, head_dim=1)
         # (batch_size, num_head / sp_size, seq_length, head_size)
         full_q_len = query_states.size(2)  # full_q_len = seq_length
+
+        position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
+        torch.distributed.all_gather(position_ids_list, position_ids, group=get_ulysses_sequence_parallel_group())
+        position_ids = torch.concat(position_ids_list, dim=-1)
+
     else:
-        full_q_len = q_len        
+        full_q_len = q_len
 
     # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
     # to be able to avoid many of these transpose/reshape/view.
@@ -196,31 +189,27 @@ def _ulysses_flash_attn_forward(
 
     dropout_rate = self.attention_dropout if self.training else 0.0
 
-    # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-    # therefore the input hidden states gets silently casted in float32. Hence, we need
-    # cast them back in the correct dtype just to be sure everything works as expected.
-    # This might slowdown training & inference so it is recommended to not cast the LayerNorms
-    # in fp32. (DeepseekV3RMSNorm handles it correctly)
-
-    attn_output = self._flash_attention_forward(
+    attn_output = _flash_attention_forward(
         query_states,
         key_states,
         value_states,
         attention_mask,
         full_q_len,
         dropout=dropout_rate,
+        sliding_window=None,
+        is_causal=self.is_causal,
+        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+        position_ids=position_ids,  # important: pass position ids
         softmax_scale=self.softmax_scale,
     )
 
     if ulysses_sp_size > 1:
         attn_output = gather_heads_scatter_seq(attn_output, head_dim=2, seq_dim=1)
-        
+
     if self.q_head_dim != self.v_head_dim:
         attn_output = attn_output[:, :, :, : self.v_head_dim]
 
-    attn_output = attn_output.reshape(
-        bsz, q_len, self.num_heads * self.v_head_dim
-    ).contiguous()
+    attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.v_head_dim).contiguous()
     attn_output = self.o_proj(attn_output)
 
     return attn_output, None, None
