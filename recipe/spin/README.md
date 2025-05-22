@@ -43,13 +43,13 @@ The following steps outline how to set up the environment and run the SPIN recip
 1.  **Setup Environment (Example using Docker):**
     ```bash
     # Start a container with GPU access and shared memory
-    # docker run -it --name spin_test --gpus all \
-    #     --shm-size=32g \
-    #     --ipc=host \
-    #     -v /path/to/host/.cache:/root/.cache \
-    #     -e HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN> \
-    #     lmsysorg/sglang:latest \
-    #     /bin/bash
+    docker run -it --name spin_test --gpus all \
+        --shm-size=32g \
+        --ipc=host \
+        -v /path/to/host/.cache:/root/.cache \
+        -e HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN> \
+        lmsysorg/sglang:latest \
+        /bin/bash
 
     # Inside the container or on your host machine:
     # Ensure /tmp is writable
@@ -57,9 +57,9 @@ The following steps outline how to set up the environment and run the SPIN recip
     chmod 1777 /tmp
 
     # Install Python 3.10 (if not present) and venv
-    # sudo apt update
-    # sudo apt install -y python3.10 python3.10-venv tmux
-    # python3 -m ensurepip --upgrade
+    sudo apt update
+    sudo apt install -y python3.10 python3.10-venv tmux
+    python3 -m ensurepip --upgrade
 
     # Create and activate a virtual environment
     python3 -m venv ~/.python/spin_env
