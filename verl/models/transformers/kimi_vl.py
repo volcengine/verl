@@ -142,10 +142,7 @@ def _ulysses_flash_attn_forward(
 
     # patch to get all emb
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
-    if ulysses_sp_size > 1:
-        kv_seq_len = torch.tensor([kv_seq_len], device=hidden_states.device)
-        dist.all_reduce(kv_seq_len, op=dist.ReduceOp.SUM, group=get_ulysses_sequence_parallel_group())
-        kv_seq_len = kv_seq_len.item()
+    kv_seq_len *= ulysses_sp_size
 
     cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
     q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
