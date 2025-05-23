@@ -38,6 +38,7 @@ verl is fast with:
    :caption: Programming guide
 
    hybrid_flow
+   single_controller
 
 .. toctree::
    :maxdepth: 5
