@@ -22,8 +22,6 @@ import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.vllm_utils import VLLMHijack, is_version_ge
-
 
 def get_custom_reward_fn(config):
     import importlib.util
@@ -103,6 +101,7 @@ class TaskRunner:
 
         # vllm early verify
         if config.actor_rollout_ref.rollout.name in ["vllm"]:
+            from verl.utils.vllm_utils import is_version_ge
             if config.actor_rollout_ref.model.get('lora_rank', 0) > 0:
                 if not is_version_ge(pkg='vllm', minver='0.7.3'):
                     raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
