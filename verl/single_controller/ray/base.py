@@ -95,7 +95,7 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name=None):
+    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
             return self.pgs
 
@@ -178,7 +178,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._options.update(options)
 
-    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None, device_name=None) -> Any:
+    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None, device_name="cuda") -> Any:
         """Create and return a Ray actor with the configured options.
 
         Args:
@@ -234,7 +234,7 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles: List[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
-        device_name=None,
+        device_name="cuda",
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.

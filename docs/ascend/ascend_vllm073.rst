@@ -13,7 +13,6 @@ verl x Ascend
 安装
 =======
 
-------
 环境准备
 ------
 
@@ -34,7 +33,6 @@ https://github.com/vllm-project/vllm-ascend/issues/809
 
 https://github.com/vllm-project/vllm-ascend/issues/825
 
-------
 源码安装
 ------
 
@@ -44,13 +42,11 @@ https://github.com/vllm-project/vllm-ascend/issues/825
     pip install -r requirements-npu.txt
     pip install -e .
 
-------
 vLLM
 ------
 
 为了保证能够在 verl 上正常使用 vLLM，需要安装 vLLM Ascend 插件（`vllm-ascend`）。关于在华为昇腾上支持的 vLLM 版本以及和 vLLM Ascend 的配套关系请参考`安装教程 <https://vllm-ascend.readthedocs.io/en/v0.7.3/installation.html>`_。
 
-------
 其他第三方库说明
 ------
 
@@ -62,7 +58,6 @@ vLLM
 | liger-kernel | 不支持  |
 +--------------+--------+
 
-------
 精度对比
 ------
 
@@ -75,7 +70,6 @@ vLLM
 
 根据经验，对于GRPO等强化学习算法，我们期望在相同配置下，在华为昇腾设备上的 reward 与英伟达 GPU 的 reward 平均绝对误差小于等于 4%，具体计算参考 Loss 计算。
 
-------
 进展
 ------
 

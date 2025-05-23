@@ -21,6 +21,7 @@ import hydra
 import ray
 
 from .dapo_ray_trainer import RayDAPOTrainer
+from verl.utils.device import is_cuda_available
 
 
 def get_custom_reward_fn(config):
