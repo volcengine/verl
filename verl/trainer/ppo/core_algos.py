@@ -414,7 +414,7 @@ def compute_policy_loss(
     cliprange_low=None,
     cliprange_high=None,
     clip_ratio_c=3.0,
-    loss_agg_mode="token-mean",
+    loss_agg_mode: str = "token-mean",
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
     Args:
@@ -434,11 +434,7 @@ def compute_policy_loss(
             The higher clip range used in PPO.
         clip_ratio_c: (float) default: 3.0
             The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
@@ -475,8 +471,8 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-def compute_entropy_loss(logits, response_mask):
-    """Compute Categorical entropy loss
+def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
+    """Compute categorical entropy loss (For backward compatibility)
 
     Args:
         logits: `(torch.Tensor)`
@@ -489,12 +485,12 @@ def compute_entropy_loss(logits, response_mask):
 
     """
     # compute entropy
-    entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
-    entropy_loss = verl_F.masked_mean(entropy, mask=response_mask)
+    token_entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
+    entropy_loss = agg_loss(loss_mat=token_entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return entropy_loss
 
 
-def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
+def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torch.Tensor, response_mask: torch.Tensor, cliprange_value: float, loss_agg_mode: str = "token-mean"):
     """Compute the value loss. Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1151
 
     Args:
@@ -504,6 +500,9 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
             Old values of value head, shape (`batch_size`, `response_length`)
         returns: (`torch.FloatTensor`):
             Ground truth returns, shape (`batch_size`, `response_length`)
+        response_mask: `(torch.Tensor)`
+            Mask for tokens to calculate value function losses. # TODO: Rename to `state_mask`.
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         vf_loss: a scalar (`torch.FloatTensor`):
@@ -515,7 +514,8 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
     vpredclipped = verl_F.clip_by_value(vpreds, values - cliprange_value, values + cliprange_value)
     vf_losses1 = (vpreds - returns) ** 2
     vf_losses2 = (vpredclipped - returns) ** 2
-    vf_loss = 0.5 * verl_F.masked_mean(torch.max(vf_losses1, vf_losses2), response_mask)
+    clipped_vf_losses = torch.max(vf_losses1, vf_losses2)
+    vf_loss = agg_loss(loss_mat=clipped_vf_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     vf_clipfrac = verl_F.masked_mean(torch.gt(vf_losses2, vf_losses1).float(), response_mask)
     return vf_loss, vf_clipfrac
 
