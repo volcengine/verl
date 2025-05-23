@@ -98,19 +98,11 @@ class AsyncSGLangRollout(BaseRollout):
 
         self._tool_schemas, self._tool_map, self._tool_call_parser_type, self._sgl_tools, self._function_call_parser = self._initialize_tools(config, tokenizer)
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
-        print(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
+        logger.info(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
 
         self._init_distributed_env(device_mesh_cpu=device_mesh,**kwargs)
 
-        if not self.config.get("max_model_len", None):
-            self.config.max_model_len = self.config.prompt_length + self.config.response_length
-        assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
-            {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
-        assert model_hf_config.max_position_embeddings >= self.config.max_model_len, "model context length should be greater than total sequence length"
-        # currently max_turns stand for max number of tool calls
-        if self.config.multi_turn.max_turns is None:
-            self.config.multi_turn.max_turns = self.config.max_model_len // 3
-
+        self._verrify_config()
         # initialize the inference engine
         self._init_inference_engine(trust_remote_code,actor_module)
 
@@ -118,7 +110,6 @@ class AsyncSGLangRollout(BaseRollout):
 
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
-
 
     def _init_distributed_env(self,device_mesh_cpu,**kwargs):
         self._device_mesh_cpu = device_mesh_cpu
@@ -153,13 +144,25 @@ class AsyncSGLangRollout(BaseRollout):
         self._tp_rank = self._device_mesh_cpu["tp"].get_local_rank()
         self._tp_size = self._device_mesh_cpu["tp"].size()
         if self._rank == 0:
-            print(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
+            logger.info(f"_init_distributed_env: :tp_world: {self._tp_size}, global_world: {world_size}")
         # get tp_rank of this process in this tp group
         visible_devices = [None] * self._device_mesh_cpu.size(1)
 
         torch.distributed.all_gather_object(visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self._device_mesh_cpu.get_group("tp"))
         self.visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+
+    def _verrify_config(self):
+        if not self.config.get("max_model_len", None):
+            self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
+            {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
+        assert model_hf_config.max_position_embeddings >= self.config.max_model_len, "model context length should be greater than total sequence length"
+        # currently max_turns stand for max number of tool calls
+        if self.config.multi_turn.max_turns is None:
+            self.config.multi_turn.max_turns = self.config.max_model_len // 3
+
+
 
     def _init_inference_engine(self,trust_remote_code,actor_module):
                # initialize the inference engine
@@ -280,7 +283,7 @@ class AsyncSGLangRollout(BaseRollout):
         tools_config_file = config.multi_turn.tool_config_path
         tools_config = OmegaConf.load(tools_config_file)
         tool_list = initialize_tools_from_config(tools_config)
-        print(f"Initialize tools from configuration.: tool_list: {tool_list}")
+        logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
         tool_call_parser_type = get_tool_call_parser_type(tokenizer)
@@ -379,7 +382,6 @@ class AsyncSGLangRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            print(f"{self.sampling_params=}")
             if self._tp_rank == 0:
                 loop = asyncio.get_event_loop()
                 output = loop.run_until_complete(
@@ -656,7 +658,7 @@ class AsyncSGLangRollout(BaseRollout):
             prompt_ids.append(torch.tensor(req.prompt_ids, dtype=torch.int, device=tgt_device))
             response_ids.append(torch.tensor(req.response_ids, dtype=torch.int, device=tgt_device))
             if len(req.response_ids) > self.config.response_length:
-                print(
+                logger.warning(
                     f"""{req.request_id=} has response_ids length {len(req.response_ids)} 
                     greater than max_response_len {self.config.response_length},\n{req=}"""
                 )
@@ -737,8 +739,8 @@ class AsyncSGLangRollout(BaseRollout):
                         _tools_kwargs[k] = data_tools_kwargs[k]
                     # add for dataset-irrelevant tools
                     for tool_key in self._tool_map.keys():
-                            _tools_kwargs[tool_key] = {}
-                            _tool_schemas.append(self._tool_map[tool_key].get_openai_tool_schema())
+                        _tools_kwargs[tool_key] = {}
+                        _tool_schemas.append(self._tool_map[tool_key].get_openai_tool_schema())
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
                         conversation=raw_prompt,
                         tools=[tool.model_dump() for tool in _tool_schemas],
