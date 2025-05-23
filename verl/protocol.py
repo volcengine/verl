@@ -35,7 +35,7 @@ from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
 from verl.utils.py_functional import union_two_dict
-from verl.utils.torch_functional import allgather_dict_tensors
+from verl.utils.torch_functional import allgather_dict_tensors, compute_response_mask
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
@@ -749,6 +749,10 @@ class DataProto:
             non_tensor_batch=repeated_non_tensor_batch,
             meta_info=self.meta_info,
         )
+
+    @property
+    def response_mask(self):
+        return compute_response_mask(response_ids=self.batch["responses"], attention_mask=self.batch["attention_mask"])
 
 
 @dataclass

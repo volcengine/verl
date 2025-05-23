@@ -527,6 +527,24 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
     return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
 
+def compute_response_mask(response_ids: torch.Tensor, attention_mask: torch.Tensor):
+    """
+    Compute the response mask from the response ID's and attention mask.
+
+    Args:
+        response_ids: torch.Tensor
+            shape: (bsz, response_length)
+        attention_mask: torch.Tensor
+            shape: (bsz, seq_length)
+
+    Returns:
+        response_mask: torch.Tensor
+            shape: (bsz, response_length)
+    """
+    response_length = response_ids.shape[-1]
+    return attention_mask[:, -response_length:]
+
+
 def get_unpad_data(attention_mask):
     seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
     indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
