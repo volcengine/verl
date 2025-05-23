@@ -25,7 +25,7 @@ from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
-from megatron.core.optimizer import OptimizerConfig, ChainedOptimizer
+from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -386,10 +386,10 @@ def offload_megatron_optimizer(optimizers):
         offload_megatron_copy_params(_opt)
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
-            if 'exp_avg' in v:
-                v['exp_avg'] = v['exp_avg'].to('cpu', non_blocking=True)
-            if 'exp_avg_sq' in v:
-                v['exp_avg_sq'] = v['exp_avg_sq'].to('cpu', non_blocking=True)
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -405,10 +405,10 @@ def load_megatron_optimizer(optimizers):
         load_megatron_copy_params(_opt)
         opt_state_dict_values = _opt.optimizer.state.values()
         for v in opt_state_dict_values:
-            if 'exp_avg' in v:
-                v['exp_avg'] = v['exp_avg'].to(torch.cuda.current_device(), non_blocking=True)
-            if 'exp_avg_sq' in v:
-                v['exp_avg_sq'] = v['exp_avg_sq'].to(torch.cuda.current_device(), non_blocking=True)
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -430,6 +430,11 @@ def get_model_checkpoint_path(checkpoint_path):
 def get_hf_model_checkpoint_path(checkpoint_path):
     os.makedirs(checkpoint_path, exist_ok=True)
     return os.path.join(checkpoint_path, "huggingface")
+
+
+def get_hf_config_and_tokenizer_checkpoint_path(checkpoint_path):
+    os.makedirs(checkpoint_path, exist_ok=True)
+    return os.path.join(checkpoint_path, "hf_config_and_tokenizer")
 
 
 def get_optimizer_checkpoint_path(checkpoint_path, use_distributed_optimizer=True):
