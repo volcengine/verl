@@ -183,7 +183,11 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype,
 def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
     from megatron.core import parallel_state as mpu
+    from megatron.core.transformer.enums import AttnBackend
 
+    from .patch_v012 import apply_patch
+
+    apply_patch()
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
 
@@ -217,7 +221,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         params_dtype=dtype,
         variable_seq_lengths=True,
         masked_softmax_fusion=True,
-        # attention_backend=AttnBackend.flash,
+        attention_backend=AttnBackend.fused,
         bf16=dtype is torch.bfloat16,
         layernorm_epsilon=hf_config.rms_norm_eps,
         ffn_hidden_size=hf_config.intermediate_size,
@@ -227,6 +231,8 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
         virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
         context_parallel_size=mpu.get_context_parallel_world_size(),
+        expert_model_parallel_size=mpu.get_expert_model_parallel_world_size(),
+        expert_tensor_parallel_size=mpu.get_expert_tensor_parallel_world_size(),
         overlap_p2p_comm=overlap_p2p_comm,
         batch_p2p_comm=batch_p2p_comm,
         sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
@@ -262,8 +268,8 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         beta_fast=mla_rope_config["beta_fast"],
         beta_slow=mla_rope_config["beta_slow"],
         # mcore 0.12 moe
-        # moe_router_dtype="fp64",
-        # disable_bf16_reduced_precision_matmul=True,
+        moe_router_dtype="fp64",
+        disable_bf16_reduced_precision_matmul=True,
         # other
         # deallocate_pipeline_outputs=True,
         # gradient_accumulation_fusion=True,
