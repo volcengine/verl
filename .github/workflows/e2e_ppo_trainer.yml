@@ -269,6 +269,10 @@ jobs:
         run: |
           ray stop --force
           bash tests/e2e/run_gsm8k_fsdp_sgl_multiturn_w_tool.sh
+      - name: Running GSM8K with tool E2E training tests with FSDP2
+        run: |
+          ray stop --force
+          FSDP_STRATEGY=fsdp2 bash tests/e2e/run_gsm8k_fsdp_sgl_multiturn_w_tool.sh
 
   e2e_ppo_trainer_sglang_vlm:
     runs-on: [L20x8]
