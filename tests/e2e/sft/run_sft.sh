@@ -17,6 +17,8 @@ LIGER=${LIGER:-False}
 MULTITURN=${MULTITURN:-False}
 LORA_RANK=${LORA_RANK:-0}
 RM_PAD=${RM_PAD:-True}
+SAVE_STEPS=${SAVE_STEPS:-5}
+NUM_TO_KEEP=${NUM_TO_KEEP:-2}
 
 micro_bsz=2
 NUM_GPUS=8
@@ -49,6 +51,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=${NUM_GPUS} ${ENTRYPOINT} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.total_training_steps=1 \
+    trainer.ckpt.save_steps="${SAVE_STEPS}" \
+    trainer.ckpt.num_to_keep="${NUM_TO_KEEP}" \
     trainer.logger=['console'] \
     trainer.default_hdfs_dir=null $@
 

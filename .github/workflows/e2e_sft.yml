@@ -87,4 +87,8 @@ jobs:
         run: |
           ray stop --force
           LORA_RANK=32 bash tests/e2e/sft/run_sft.sh
+      - name: Running GSM8K E2E training tests with checkpoints saving and loading
+        run: |
+          ray stop --force
+          SAVE_STEPS=5 NUM_TO_KEEP=2 bash tests/e2e/sft/run_sft.sh
       # TODO: multiturn

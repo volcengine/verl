@@ -53,4 +53,10 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+  resume_from_checkpoint: True # if True, resume from the latest checkpoint; could be a path as well
+  ckpt:
+    save_steps: 5
+    num_to_keep: 2
+    contents: ["model", "optimizer", "extra"]
+    load_previous_saved_paths: True
 

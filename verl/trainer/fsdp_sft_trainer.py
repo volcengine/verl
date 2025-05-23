@@ -37,11 +37,13 @@ from torch import nn, optim
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.utils.data import DataLoader, Dataset, DistributedSampler
+from torch.utils.data import Dataset, DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
-import verl.utils.hdfs_io as hdfs_io
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.debug import log_gpu_memory_usage
@@ -105,7 +107,9 @@ class FSDPSFTTrainer:
         # build model
         self._build_model_optimizer()
 
-        # TODO: add checkpoint manager
+        # Initialize checkpoint manager
+        self.checkpoint_manager = FSDPCheckpointManager(model=self.fsdp_model, optimizer=self.optimizer, lr_scheduler=self.lr_scheduler, processing_class=self.tokenizer, checkpoint_contents=self.config.trainer.ckpt.contents)
+
         if self.device_mesh.get_rank() == 0:
             print(self.config)
 
@@ -142,7 +146,7 @@ class FSDPSFTTrainer:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
 
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
-        self.train_dataloader = DataLoader(
+        self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=config.data.train_batch_size,
             sampler=self.train_sampler,
@@ -152,7 +156,7 @@ class FSDPSFTTrainer:
         )
 
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
-        self.val_dataloader = DataLoader(
+        self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=config.data.micro_batch_size_per_gpu,
             sampler=self.val_sampler,
@@ -409,24 +413,72 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
         return loss
 
-    def save_checkpoint(self, step):
-        # save checkpoint
-        from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+    def save_checkpoint(self, step, num_to_keep=None):
+        """
+        Save checkpoint
 
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
-            state_dict = self.fsdp_model.state_dict()
-
+        Args:
+            step: current training step
+            num_to_keep: number of checkpoints to keep
+        """
         path = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
-        # save huggingface model
+        hdfs_path = None
+        if self.config.trainer.default_hdfs_dir:
+            hdfs_path = os.path.join(self.config.trainer.default_hdfs_dir, f"global_step_{step}")
+
+        # Use checkpoint manager to save
+        self.checkpoint_manager.save_checkpoint(local_path=path, hdfs_path=hdfs_path, global_step=step, max_ckpt_to_keep=num_to_keep)
+
+        dataloader_local_path = os.path.join(path, "data.pt")
+        dataloader_state_dict = self.train_dataloader.state_dict()
+        torch.save(dataloader_state_dict, dataloader_local_path)
+
+        local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
+        with open(local_latest_checkpointed_iteration, "w") as f:
+            f.write(str(self.global_steps))
+
         if self.device_mesh.get_rank() == 0:
-            os.makedirs(path, exist_ok=True)
-            self.model.save_pretrained(path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(path)
-            if self.config.trainer.default_hdfs_dir:
-                hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
-                hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
-        torch.distributed.barrier()
+            print(f"Checkpoint saved to {path}")
+            if hdfs_path:
+                print(f"Checkpoint also saved to HDFS: {hdfs_path}")
+
+    def load_checkpoint(self, checkpoint_path=None, hdfs_path=None, del_local_after_load=False):
+        """
+        Load checkpoint
+
+        Args:
+            checkpoint_path: checkpoint path, if None, try to load the latest checkpoint from the default path
+
+        Returns:
+            step: the step of the loaded checkpoint
+        """
+        if checkpoint_path is None:
+            # try to load the latest checkpoint from the default path
+            checkpoint_path = find_latest_ckpt_path(self.config.trainer.default_local_dir)
+            if checkpoint_path is None and self.config.trainer.default_hdfs_dir:
+                # if no checkpoint is found in local, try to load from HDFS
+                checkpoint_path = find_latest_ckpt_path(self.config.trainer.default_hdfs_dir)
+
+        if checkpoint_path is None:
+            if self.device_mesh.get_rank() == 0:
+                print("No checkpoint found. Starting from scratch.")
+            return 0  # return the starting step
+
+        # Use checkpoint manager to load
+        self.checkpoint_manager.load_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load)
+
+        dataloader_local_path = os.path.join(checkpoint_path, "data.pt")
+        dataloader_state_dict = torch.load(dataloader_local_path)
+        self.train_dataloader.load_state_dict(dataloader_state_dict)
+        if self.config.trainer.ckpt.load_previous_saved_paths:
+            self.checkpoint_manager.previous_saved_paths = [os.path.join(self.config.trainer.default_local_dir, f) for f in os.listdir(self.config.trainer.default_local_dir)]
+
+        # extract the step from the checkpoint path
+        step = extract_step(checkpoint_path)
+        if self.device_mesh.get_rank() == 0:
+            print(f"Loaded checkpoint from {checkpoint_path}, resuming from step {step}")
+
+        return step
 
     def fit(self):
         rank = self.device_mesh.get_rank()
@@ -439,7 +491,18 @@ class FSDPSFTTrainer:
                 default_backend=self.config.trainer.logger,
             )
 
-        global_step = 0
+        # load checkpoint (if exists)
+        resume_from_checkpoint = getattr(self.config.trainer, "resume_from_checkpoint", True)
+        if resume_from_checkpoint:
+            if isinstance(resume_from_checkpoint, str):
+                # if a specific checkpoint path is provided
+                self.global_steps = self.load_checkpoint(resume_from_checkpoint)
+            else:
+                # otherwise, try to load the latest checkpoint
+                self.global_steps = self.load_checkpoint()
+        else:
+            self.global_steps = 0
+
         # compute the total training steps.
         # the total training steps in SFT is mainly for early exit
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -450,24 +513,26 @@ class FSDPSFTTrainer:
         self.total_training_steps = total_training_steps
         print(f"Total training steps: {self.total_training_steps}")
 
-        # TODO (zhangchi.usc1992) add back checkpoint manager.
-        # Currently, it blocks when uploading to hdfs. So very slow.
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
-            for data in tqdm(
-                self.train_dataloader,
-                total=self.steps_per_epoch,
-                desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
-            ):
-                global_step += 1
+
+            for data in self.train_dataloader:
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
-                    tracking.log(data=metric, step=global_step)
+                    tracking.log(data=metric, step=self.global_steps)
+
+                self.global_steps += 1
+                # check if we need to save checkpoint
+                save_steps = getattr(self.config.trainer.ckpt, "save_steps", None)
+                if save_steps and self.global_steps % save_steps == 0:
+                    num_to_keep = getattr(self.config.trainer.ckpt, "num_to_keep", None)
+                    self.save_checkpoint(step=self.global_steps, num_to_keep=num_to_keep)
 
                 # for early exit validation
-                if global_step >= self.total_training_steps:
+                if self.global_steps >= self.total_training_steps:
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
@@ -477,12 +542,15 @@ class FSDPSFTTrainer:
                     if rank == 0:
                         avg_val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": avg_val_loss.detach().item()}
-                        tracking.log(data=metric, step=global_step)
+                        tracking.log(data=metric, step=self.global_steps)
                     torch.distributed.barrier()
 
                     # Save final checkpoint
-                    self.save_checkpoint(step=global_step)
+                    self.save_checkpoint(step=self.global_steps)
+                    progress_bar.close()
                     return
+
+                progress_bar.update(1)
 
             # validation
             val_losses = []
@@ -493,11 +561,12 @@ class FSDPSFTTrainer:
             if rank == 0:
                 val_loss = torch.mean(torch.stack(val_losses))
                 metric = {"val/loss": val_loss.detach().item()}
-                tracking.log(data=metric, step=global_step)
+                tracking.log(data=metric, step=self.global_steps)
             torch.distributed.barrier()
 
             # save checkpoint
-            self.save_checkpoint(step=global_step)
+            max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
+            self.save_checkpoint(step=self.global_steps, max_ckpt_to_keep=max_ckpt_to_keep)
 
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
