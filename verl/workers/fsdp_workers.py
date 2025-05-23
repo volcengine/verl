@@ -432,7 +432,7 @@ class ActorRolloutRefWorker(Worker):
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
                 load_format=self.config.rollout.load_format,
-                layered_summon=self.config.rollout.layered_summon,
+                layered_summon=self.config.rollout.get('layered_summon', False),
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
