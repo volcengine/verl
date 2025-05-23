@@ -228,6 +228,7 @@ class DataParallelPPOCritic(BasePPOCritic):
                         returns=returns,
                         response_mask=response_mask,
                         cliprange_value=self.config.cliprange_value,
+                        loss_agg_mode=self.config.loss_agg_mode,
                     )
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
