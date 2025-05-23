@@ -17,6 +17,7 @@ import itertools
 import json
 import math
 import os
+import re
 from contextlib import contextmanager, nullcontext
 from typing import Dict
 
@@ -81,8 +82,19 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
 
     if _get_attr("disable", False):
         return None
-
     default_transformer_cls_names_to_wrap = getattr(module, "_no_split_modules", None)
+    if re.match("internvl", module.__class__.__name__, re.IGNORECASE):
+        update_cls_names_to_wrap = []
+        for mod in default_transformer_cls_names_to_wrap:
+            if mod != "LlamaDecoderLayer":
+                update_cls_names_to_wrap.append(mod)
+        default_transformer_cls_names_to_wrap = update_cls_names_to_wrap
+    elif re.match("gemma3", module.__class__.__name__, re.IGNORECASE):
+        update_cls_names_to_wrap = []
+        for mod in default_transformer_cls_names_to_wrap:
+            if mod != "SiglipMultiheadAttentionPoolingHead":
+                update_cls_names_to_wrap.append(mod)
+        default_transformer_cls_names_to_wrap = update_cls_names_to_wrap 
     fsdp_transformer_layer_cls_to_wrap = _get_attr("transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap)
     min_num_params = _get_attr("min_num_params", 0)
     auto_wrap_policy = None

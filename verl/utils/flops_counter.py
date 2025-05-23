@@ -77,7 +77,7 @@ class FlopsCounter:
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
         return 0
-
+    
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
         hidden_size = self.config.hidden_size
         vocab_size = self.config.vocab_size

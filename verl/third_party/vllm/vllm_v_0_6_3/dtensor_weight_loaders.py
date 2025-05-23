@@ -222,7 +222,6 @@ def qwen2vl_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) ->
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
             weight_loader(param, local_loaded_weight.to(dtype=param.dtype))
 
-
 def deepseekv2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     stacked_params_mapping = [
         # (param_name, shard_name, shard_id)
@@ -302,7 +301,6 @@ def deepseekv2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module)
                 weight_loader = getattr(param, "weight_loader", default_weight_loader)
                 weight_loader(param, local_loaded_weight.to(dtype=param.dtype))
 
-
 def gpt2_dtensor_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     pass
 
@@ -339,17 +337,19 @@ __MODEL_DTENSOR_WEIGHT_LOADER_REGISTRY__ = {
     "LlamaForCausalLM": llama_dtensor_weight_loader,
     "LLaMAForCausalLM": llama_dtensor_weight_loader,
     "MistralForCausalLM": llama_dtensor_weight_loader,  # mistral is the same as llama in vLLM
-    "InternLMForCausalLM": llama_dtensor_weight_loader,
     "AquilaModel": llama_dtensor_weight_loader,
     "AquilaForCausalLM": llama_dtensor_weight_loader,
     "Phi3ForCausalLM": llama_dtensor_weight_loader,
     "GemmaForCausalLM": gemma_dtensor_weight_loader,
     "Gemma2ForCausalLM": gemma_dtensor_weight_loader,
+    "Gemma3ForCausalLM": gemma_dtensor_weight_loader,
     "GPTBigCodeForCausalLM": gptbigcode_dtensor_load_weights,
     "Starcoder2ForCausalLM": starcoder2_dtensor_load_weights,
     "Qwen2ForCausalLM": qwen2_dtensor_weight_loader,
     "DeepseekV2ForCausalLM": deepseekv2_dtensor_weight_loader,
     "Qwen2VLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
+    "Gemma3ForConditionalGeneration": gemma_dtensor_weight_loader,
+    "InternVLForConditionalGeneration": qwen2vl_dtensor_weight_loader,
 }
 
 
