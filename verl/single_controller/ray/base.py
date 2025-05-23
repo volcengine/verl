@@ -40,12 +40,17 @@ def get_random_string(length: int) -> str:
     return "".join(random.choice(letters_digits) for _ in range(length))
 
 
-def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
+def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking, blocking_v2):
+    if blocking is not None:
+        assert blocking_v2 is None, f"blocking and blocking_v2 cannot be not None at the same time"
     def func(*args, **kwargs):
         args, kwargs = dispatch_fn(self, *args, **kwargs)
         padding_count = kwargs.pop(_padding_size_key, 0)
+        blocking_effect = blocking
+        if blocking_v2 is not None:
+            blocking_effect = kwargs.pop("blocking_v2", blocking_v2)
         output = execute_fn(method_name, *args, **kwargs)
-        if blocking:
+        if blocking_effect:
             output = ray.get(output)
         output = collect_fn(self, output)
         if padding_count > 0:

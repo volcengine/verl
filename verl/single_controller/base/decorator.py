@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import logging
 from functools import wraps
 from types import FunctionType
 from typing import Dict, List, Tuple
@@ -540,7 +541,15 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
             return await func(*args, **kwargs)
 
         wrapper = async_inner if inspect.iscoroutinefunction(func) else inner
-        attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, "blocking": blocking}
+
+        blocking_key = "blocking_v2"
+        sig = inspect.signature(func)
+        if "blocking" in sig.parameters:
+            logging.warning(f"method {func.__name__} hack \'blocking\' keyword in parameters, falling back to old mode")
+            blocking_key = "blocking"
+
+        attrs = {"dispatch_mode": dispatch_mode, "execute_mode": execute_mode, blocking_key: blocking}
+
         setattr(wrapper, MAGIC_ATTR, attrs)
         return wrapper
 
