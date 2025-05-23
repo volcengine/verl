@@ -33,7 +33,7 @@ def set_pad_token_id(tokenizer):
         warnings.warn(f"tokenizer.pad_token is None. Now set to {tokenizer.eos_token}", stacklevel=1)
 
 
-def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kwargs):
+def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, custom_chat_template=None, **kwargs):
     """Create a huggingface pretrained tokenizer which correctness handles eos and pad tokens.
 
     Args:
@@ -41,7 +41,7 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         name (str): The name of the tokenizer.
         correct_pad_token (bool): Whether to correct the pad token id.
         correct_gemma2 (bool): Whether to correct the gemma2 tokenizer.
-
+        custom_chat_template (str | None): The chat template that overrides the default template. 
     Returns:
 
         transformers.PreTrainedTokenizer: The pretrained tokenizer.
@@ -58,6 +58,11 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
     if correct_pad_token:
         set_pad_token_id(tokenizer)
+    
+    # Chat template can be overridden, or set if the tokenizer does not have a chat template
+    if custom_chat_template is not None:
+        tokenizer.chat_template = custom_chat_template
+
     return tokenizer
 
 
