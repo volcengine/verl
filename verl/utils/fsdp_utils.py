@@ -29,7 +29,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, get_device_name
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -171,7 +171,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
         if handle._offload_params:
             continue
         flat_param = handle.flat_param
-        handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        handle.flat_param_to(torch.device(f"{get_device_name}:{device_id}"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
 

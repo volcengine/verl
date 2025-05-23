@@ -284,7 +284,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
-        device_name=None,
+        device_name="cuda",
     ):
         self.tokenizer = tokenizer
         self.processor = processor
