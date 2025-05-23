@@ -15,8 +15,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
     data.train_files=$HOME/data/geo3k/train.parquet \
     data.val_files=$HOME/data/geo3k/test.parquet \
-    data.prompt_key=extra_info \
-    data.response_key=extra_info \
+    data.prompt_key=messages \
+    data.response_key=response \
     data.image_key=images \
     optim.lr=1e-4 \
     data.prompt_dict_keys=['question'] \
