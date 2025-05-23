@@ -171,7 +171,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
         if handle._offload_params:
             continue
         flat_param = handle.flat_param
-        handle.flat_param_to(torch.device(f"{get_device_name}:{device_id}"), non_blocking=True)
+        handle.flat_param_to(torch.device(f"{get_device_name()}:{device_id}"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
 
