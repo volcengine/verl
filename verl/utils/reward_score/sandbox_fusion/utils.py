@@ -406,6 +406,7 @@ def check_correctness(sandbox_fusion_url: str, in_outs: Optional[dict], generati
         # Return error based on the number of inputs provided
         return [-1] * num_cases, [{"error": "Input/output count mismatch", "case_index": i} for i in range(num_cases)]
 
+
     first_compile_error_index = -1
 
     # max_workers is limited by sandbox_fusion_max_concurrent from concurrent_semaphore
