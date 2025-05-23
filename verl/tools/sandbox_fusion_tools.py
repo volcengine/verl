@@ -1,5 +1,4 @@
-# Copyright 2023-2024 SGLang Team
-# Copyright 2025 ModelBest Inc. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -137,7 +136,7 @@ class SandboxFusionTool(BaseTool):
         if self.sandbox_fusion_url == "":
             raise ValueError("sandbox_fusion_url is not set")
         log_msg = f"Init SandboxFusionTool with config: {config}"
-        print(log_msg)
+        logger.info(log_msg)
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
@@ -169,15 +168,12 @@ class SandboxFusionTool(BaseTool):
         # we should always expect this since we don't have correct answer
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
-            print(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
+            logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output
         else:
             return "no stdout here"
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
-        # this code only called as a cumulation reward, so we return the sandbox result
-        # only for unit test to do any kind of verification
-        # print(f"self._instance_dict: {self._instance_dict}, prime_tools calc_reward are called")
         return self._instance_dict[instance_id]["reward"]
 
     async def release(self, instance_id: str, **kwargs) -> None:
