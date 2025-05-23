@@ -166,8 +166,6 @@ class DeepseekV3Model(BaseModelInitializer):
 
     def initialize(
         self,
-        tfconfig,
-        hf_config,
         pre_process=None,
         post_process=None,
         share_embeddings_and_output_weights=False,
@@ -175,6 +173,8 @@ class DeepseekV3Model(BaseModelInitializer):
         freeze_moe_router=True,
         **extra_kwargs,
     ):
+        tfconfig = self.tfconfig
+        hf_config = self.hf_config
         use_te = True
         if freeze_moe_router:
             self.tfconfig.moe_router_load_balancing_type = "none"

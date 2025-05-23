@@ -265,7 +265,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         warnings.simplefilter("ignore")
 
     # init hf model
-    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16)
+    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=True)
     hf_state_dict = hf_model.state_dict()
 
     # load hf state dict to megatron model
