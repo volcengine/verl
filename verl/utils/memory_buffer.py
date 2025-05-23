@@ -104,7 +104,7 @@ def build_memory_reference_from_module(module: torch.nn.Module, memory_buffers: 
         memory_buffer = memory_buffers[param.dtype]
         buffer = memory_buffer.get(shape=param.shape, start_index=start_index[param.dtype])
         # need to increment start_index
-        start_index[param.dtype] += calc_padded_numel(param.shape, dtype)
+        start_index[param.dtype] += calc_padded_numel(param.shape, param.dtype)
         if maintain_weight:
             buffer.copy_(param.data)
         param.data = buffer

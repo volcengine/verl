@@ -26,12 +26,12 @@ from megatron.core import DistributedDataParallel as LocalDDP
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer.module import Float16Module
 from torch import nn
-from torch.distributed import new_group
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
+from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
@@ -48,7 +48,7 @@ from verl.utils.memory_buffer import (
     get_weight_buffer_meta_from_module,
 )
 from verl.utils.model import normalize_model_name
-from verl.utils.torch_functional import allgather_dict_tensors, check_cuda_is_available
+from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -274,6 +274,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         actor_module: nn.ModuleList,
         inference_engine: LLM,
         model_config,
+        transformer_config,
         layer_name_mapping,
         weight_converter: McoreToHFWeightConverterBase,
         module: AllGatherPPModel = None,
@@ -283,33 +284,29 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
+        self.transformer_config = transformer_config
         self.layer_name_mapping = layer_name_mapping
         self.weight_converter = weight_converter
         self.module = module
-        # initialize micro_dp group for vllm inference
-        global _MICRO_DATA_PARALLEL_GROUP
-        world_size = torch.distributed.get_world_size()
-        rank = torch.distributed.get_rank()
+        # initialize groups for vllm inference
+        self.rank = torch.distributed.get_rank()
+        self.world_size = torch.distributed.get_world_size()
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
+        if vllm_version not in ("0.5.4", "0.6.3"):
+            self.infer_tp_group = self.infer_tp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
         self.train_tp_group = mpu.get_tensor_model_parallel_group()
-        self.need_tp_reshard = self.infer_tp_size == self.train_tp_size
-
-        # TODO(sgm): this may not be true for FSDP -> vLLM
-        assert self.infer_tp_size <= self.train_tp_size, "Not implemented for infer_tp > train_tp"
-        assert self.train_tp_size % self.infer_tp_size == 0
-
-        micro_dp_size = self.train_tp_size // self.infer_tp_size
-        num_micro_dp_groups = world_size // micro_dp_size
-        assert _MICRO_DATA_PARALLEL_GROUP is None, "micro data parallel group is already initialized"
-        for i in range(num_micro_dp_groups):
-            ranks = range(i * micro_dp_size, (i + 1) * micro_dp_size)
-            group = new_group(ranks=ranks)
-            if rank in ranks:
-                _MICRO_DATA_PARALLEL_GROUP = group
+        self.train_ep_size = mpu.get_expert_model_parallel_world_size()
+        self.train_ep_rank = mpu.get_expert_model_parallel_rank()
+        self.train_ep_group = mpu.get_expert_model_parallel_group()
+        self.train_etp_size = mpu.get_expert_tensor_parallel_world_size()
+        self.train_etp_rank = mpu.get_expert_tensor_parallel_rank()
+        self.train_etp_group = mpu.get_expert_tensor_parallel_group()
+        self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
+        self.train_tp_larger = self.train_tp_size > self.infer_tp_size
 
     def per_tensor_generator(self, convert_qkv_gate_up_by_simple_split=True):
         """
@@ -318,18 +315,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         from megatron.core import parallel_state as mpu
 
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        pp_size = mpu.get_pipeline_model_parallel_world_size()
         vpp_size = len(self.actor_module)
 
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         def tensor_generator():
@@ -350,12 +338,17 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
         # lazy load tensor for full model
         for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+            if self.model_config.tie_word_embeddings and ("output_layers" in name):
+                import warnings
+
+                warnings.warn("Current model sharing word and embedding weights, skip output layer conversion", stacklevel=2)
+                continue
             if cur_pp_rank == pp_rank:
                 try:
                     cur_name, cur_tensor = next(gen_func)
                 except StopIteration:
                     cur_name, cur_tensor = None, None
-                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, self.model_config.num_hidden_layers)
+                cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, self.transformer_config)
             else:
                 cur_tensor, cur_name = None, None
 
@@ -366,6 +359,35 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             # (xya): this is a hack to fix the name of the parameters
             while cur_name.startswith("module."):
                 cur_name = cur_name[len("module.") :]
+
+            # EP
+            if ".mlp.experts.linear_fc" in cur_name and self.train_ep_size > 1:
+                num_experts = self.weight_converter.mcore_config.num_moe_experts
+                num_experts_per_rank = num_experts // self.train_ep_size
+                infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(self.train_ep_size)]
+                torch.distributed.all_gather(infer_params, broad_pp_tensor, group=self.train_ep_group)
+
+                name_prefix, local_expert_id = cur_name.split(".weight")
+                local_expert_id = int(local_expert_id)
+                global_expert_ids = [num_experts_per_rank * ep_rank + local_expert_id for ep_rank in range(self.train_ep_size)]
+                global_expert_names = [f"{name_prefix}.weight{expert_id}" for expert_id in global_expert_ids]
+
+                for name, param in zip(global_expert_names, infer_params):
+                    if self.train_etp_size > 1:
+                        # gather etp
+                        etp_params = [torch.empty_like(param) for _ in range(self.train_etp_size)]
+                        torch.distributed.all_gather(etp_params, param, group=self.train_etp_group)
+                        params = etp_params
+                    else:
+                        params = [param]
+
+                    merge_params = self.default_tp_concat_fn(name, broad_pp_tensor, params, self.model_config, convert_qkv_gate_up_by_simple_split)
+                    if not isinstance(merge_params, list):
+                        merge_params = [merge_params]
+                    converted_names, converted_params = self.weight_converter.convert_param(name, merge_params)
+
+                    yield from zip(converted_names, converted_params)
+                continue
 
             # tp all gather
             if tp_utils.is_tensor_parallel_param(broad_pp_tensor):
@@ -457,21 +479,12 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     def _post_process_params(self, params, convert_qkv_gate_up_by_simple_split=False):
         """
-        For each param, if it is a tp-splited param, we all-gather from train
-        tp group (vllm 0.8.2) or micro-dp group (vllm <= 0.6.3)
+        For each param, if it is a tp-splited param, we all-gather from train tp group
         """
         # here the params are in train tp format. we iterate params and all-gather
         # TODO(zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
         # In this way, all the params in the original memory_buffers and can be offload.
-        all_gather_group = (
-            get_micro_data_parallel_group()
-            if vllm_version
-            in (
-                "0.5.4",
-                "0.6.3",
-            )
-            else self.train_tp_group
-        )
+        all_gather_group = self.train_tp_group
         all_gather_group_size = torch.distributed.get_world_size(group=all_gather_group)
 
         for name, param in params:
@@ -540,71 +553,15 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:
-        # prompts are identical for each training tp. We select for each inference tp
-        micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            local_prompts = data.chunk(chunks=micro_dp_size)
-            data = local_prompts[get_micro_data_parallel_rank()]
-
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        all_gather_data_proto(data, self.infer_tp_group)
         return data
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # MEGATRON_PP_AS_DP_PROTO will collect PP+CP+DP group
-        # all gather batch among micro-dp groups
-        micro_dp_size = get_micro_data_parallel_world_size()
-        if micro_dp_size > 1:
-            data.batch = allgather_dict_tensors(
-                data.batch.contiguous(),
-                size=get_micro_data_parallel_world_size(),
-                group=get_micro_data_parallel_group(),
-                dim=0,
-            )
-        return data
-
-
-"""
-Micro Data parallel group
-"""
-
-
-def get_micro_data_parallel_group():
-    assert _MICRO_DATA_PARALLEL_GROUP is not None
-    return _MICRO_DATA_PARALLEL_GROUP
-
-
-def get_micro_data_parallel_world_size():
-    return torch.distributed.get_world_size(group=get_micro_data_parallel_group())
-
-
-def get_micro_data_parallel_rank():
-    return torch.distributed.get_rank(group=get_micro_data_parallel_group())
-
-
-def _patch_vllm_moe_model_weight_loader(model):
-    # this is a work around to load the weight of vllm qwen2 moe model
-    # it is from a bug from vllm 0.8.2
-    # all the weights are supposed to have a weight_loader, but the moe weights
-    # do not have a weight_loader, so we need to patch it
-    # (True, 'model.embed_tokens.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.weight')
-    # (True, 'model.layers.0.self_attn.qkv_proj.bias')
-    # (True, 'model.layers.0.self_attn.o_proj.weight')
-    # (True, 'model.layers.0.mlp.gate.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.gate_up_proj.weight')
-    # (True, 'model.layers.0.mlp.shared_expert.down_proj.weight')
-    # (False, 'model.layers.0.mlp.shared_expert_gate.weight')   use default
-    # (False, 'model.layers.0.input_layernorm.weight')          use default
-    # (False, 'model.layers.0.post_attention_layernorm.weight') use default
-    # (False, 'model.layers.0.mlp.experts.w13_weight')          use mlp.experts.weight_loader
-    # (False, 'model.layers.0.mlp.experts.w2_weight')          use mlp.experts.weight_loader
-    from vllm.model_executor.models.deepseek_v2 import DeepseekV3ForCausalLM
-    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
-
-    if isinstance(model, DeepseekV3ForCausalLM) or isinstance(model, Qwen2MoeForCausalLM):
-        for layer in model.model.layers:
-            mlp = layer.mlp
-            param_dict = dict(mlp.named_parameters())
-            for name, param in param_dict.items():
-                if "w13_weight" in name or "w2_weight" in name:
-                    param.weight_loader = mlp.experts.weight_loader
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        return data.chunk(chunks=self.infer_tp_size)[self.infer_tp_rank]

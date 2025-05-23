@@ -67,27 +67,50 @@ Convert FSDP and Megatron Checkpoints to HuggingFace Format Model
 We provide a tool to convert the FSDP and Megatron checkpoints to HuggingFace format model.
 The tool is located in ``scripts/model_merger.py``.
 
-The arguments are as follows:
+The script supports two main sub-commands: `merge` (to convert and save checkpoints) and `test` (to validate merged checkpoints against a reference model).
+The arguments for the `merge` sub-command are as follows:
 
 .. code:: bash
 
-    usage: model_merger.py [-h] [--backend {fsdp,megatron}]
-                           [--tie-word-embedding whether the model share embedding weights]
-                           [--is-value-model whether the model is critic model]
-                           [--hf_model_path $original_model_path, like {Qwen/Qwen2-7B}]
-                           [--local_dir $local_directory saved fsdp or megatron models]
-                           [--target_dir $target_dir to save converted models, default is tmp]
-                           [--hf_upload_path $huggingface_repo to upload]
+    usage: model_merger.py merge [-h] --backend {fsdp,megatron} --local_dir LOCAL_DIR [--hf_model_path HF_MODEL_PATH]
+                                [--tie-word-embedding] [--is-value-model] [--target_dir TARGET_DIR]
+                                [--hf_upload_path HF_UPLOAD_PATH] [--private]
 
-So example use of Megatron model merger is:
+    options:
+    -h, --help            show this help message and exit
+    --backend {fsdp,megatron}
+                            The backend of the model
+    --local_dir LOCAL_DIR
+                            Path to the saved model checkpoints
+    --hf_model_path HF_MODEL_PATH
+                            (Deprecated) Path to the original Hugging Face model for config.
+    --tie-word-embedding  Whether to tie word embedding weights (currently only Megatron supported)
+    --is-value-model      Whether the model is a value model (currently only Megatron supported)
+    --target_dir TARGET_DIR
+                            Directory to save the merged huggingface model
+    --hf_upload_path HF_UPLOAD_PATH
+                            Hugging Face repository ID to upload the model
+    --private             Whether to upload the model to a private Hugging Face repository
+
+Example usage for merging Megatron checkpoints:
 
 .. code:: bash
 
-    python scripts/model_merger.py \
+    python scripts/model_merger.py merge \
         --backend megatron \
         --tie-word-embedding \
-        --hf_model_path Qwen/Qwen2.5-0.5B \
-        --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor
+        --local_dir checkpoints/verl_megatron_gsm8k_examples/qwen2_5_0b5_megatron_saveload/global_step_1/actor \
+        --target_dir /path/to/merged_hf_model
+
+Example usage for merging FSDP checkpoints:
+
+.. code:: bash
+
+    python scripts/model_merger.py merge \
+        --backend fsdp \
+        --local_dir checkpoints/verl_fsdp_gsm8k_examples/qwen2_5_0b5_fsdp_saveload/global_step_1/actor \
+        --target_dir /path/to/merged_hf_model
+
 
 Megatron Merger details
 -----------------------
@@ -102,6 +125,28 @@ There are 3 ways to correct this behavior:
 3. The Checkpoint merger do this work, calculate the actual ``offset`` from ``state_dict`` only, a little complex.
 
 Current implementation use solution 2.
+
+
+HuggingFace to Megatron DistCheckpoint details
+----------------------------------------------
+
+If your model is quite huge, we recommend you to use Megatron dist-checkpoint to load the model.
+Megatron dist-checkpoint supports loading with different kinds of model parallelism,
+and it is much faster than the original checkpoint loading.
+
+To convert original HuggingFace model to Megatron dist-checkpoint,
+you can use the ``scripts/converter_hf_to_mcore.py`` script. Large MoE models are temporarily supported with CPU initialization,
+which is a little slower. While we are working on a better solution to support large models.
+
+Example command to convert the model is as follows:
+
+.. code:: bash
+
+    python scripts/converter_hf_to_mcore.py \
+        --hf_model_path Qwen/Qwen1.5-MoE-A2.7B-Chat \
+        --output_path /mnt/disk/Qwen/Qwen1.5-MoE-A2.7B-Chat \
+        --use_cpu_initialization    # Only work for MoE models
+
 
 Original Checkpoint Utils
 -------------------------

@@ -39,7 +39,7 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config, trust_remote_code=False):
+    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config, override_transformer_config):
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config
@@ -49,10 +49,10 @@ class MegatronWorker(Worker):
 
         # Step 1: initialize the tokenizer
         self.local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
+        self.tokenizer = hf_tokenizer(self.local_path)
 
         # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+        hf_config = AutoConfig.from_pretrained(self.local_path)
 
         # Step 3: override the hf config
         override_config_kwargs = {
@@ -60,13 +60,13 @@ class MegatronWorker(Worker):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
-        override_config_kwargs.update(override_model_config)
+        override_config_kwargs.update(override_model_config.get("model_config", {}))
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
             print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype)
+        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
 
         def add_optimization_config_to_tf_config(tf_config):
             # add optimization config to tf_config, e.g. checkpointing

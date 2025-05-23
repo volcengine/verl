@@ -193,6 +193,13 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/mega
   the last pp.
 - Update the actor model weight using PPO & entropy loss.
 
+
+..note:: 
+
+   Currently, training Tensor Parallel Size can be different from inference
+   Tensor Parallel Size.
+
+
 ReferenceModel
 ''''''''''''''
 
@@ -294,3 +301,10 @@ specific rank, you can set the profile_ranks, by default, it will be [0].
    actor_rollout_ref.actor.profile.begin_step=0 \
    actor_rollout_ref.actor.profile.end_step=1 \
    actor_rollout_ref.actor.profile.save_path="./profile"
+
+
+Related MCore Document
+----------------------
+
+There is also a detailed document of using MCore to train different
+kinds of models, please refer to `MCore Document <https://github.com/volcengine/verl/blob/main/verl/models/mcore/readme.md>`_.
