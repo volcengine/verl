@@ -21,15 +21,10 @@ import logging
 import os
 
 import torch
-import torch.distributed as dist
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.entrypoints.verl_engine import VerlEngine
-from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-from sglang.srt.utils import MultiprocessingSerializer
 from torch import nn
-from torch.distributed import new_group
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.tensor import DTensor
 
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
@@ -62,8 +57,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         weight_converter,
         device_mesh: DeviceMesh | None = None,
     ):
-        from megatron.core import parallel_state as mpu
-
         self.actor_module = actor_module
         self.inference_engine = inference_engine
         self.model_config = model_config
