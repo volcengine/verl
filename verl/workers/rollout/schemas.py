@@ -14,10 +14,10 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from transformers import PreTrainedTokenizer
 
 from verl.tools.schemas import OpenAIFunctionToolCall, OpenAIFunctionToolSchema
@@ -67,6 +67,7 @@ class AsyncRolloutRequest(BaseModel):
     request_id: str
     state: AsyncRolloutRequestStateEnum
     messages: List[Message]
+    messages_dumps: List[Dict[str, Any]]
     tools: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
@@ -85,124 +86,82 @@ class AsyncRolloutRequest(BaseModel):
     max_response_len: int = 8192
     max_model_len: int = 32768
 
-    format_config: dict = {
-        "chatml": {
-            "assistant_prefix_msg": "\n<|im_start|>assistant\n",
-            "assistant_suffix_msg": "<|im_end|>",
-            "tool_prefix_msg": "\n<|im_start|>tool\n",
-            "tool_suffix_msg": "<|im_end|>",
-        },
-        "qwen": {
-            "assistant_prefix_msg": "\n<|im_start|>assistant\n",
-            "assistant_suffix_msg": "<|im_end|>",
-            "merge_tool_response": True,
-            "tool_prefix_msg": "\n<|im_start|>user",
-            "tool_suffix_msg": "<|im_end|>",
-            "tool_response_prefix_msg": "\n<tool_response>\n",
-            "tool_response_suffix_msg": "\n</tool_response>",
-        }
-    }
+    generation_prompt_ids: List[int]
 
-    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> list[int]:
-        return tokenizer.apply_chat_template(  # type: ignore
-            conversation=[msg.model_dump() for msg in self.messages],
-            tools=[tool.model_dump() for tool in self.tools] if self.tools else None,
-            add_generation_prompt=True,
-            tokenize=True,
-        )
+    @model_validator(mode="before")
+    @classmethod
+    def populate_chat_template_info(cls, values):
+        messages = values.get("messages")
+        if messages is None:
+            raise ValueError("messages is required for AsyncRolloutRequest initialization")
+        values["messages"] = [Message.model_validate(msg) for msg in messages]
+        values["messages_dumps"] = [msg.model_dump() for msg in values["messages"]]
+
+        tokenizer = values.pop("tokenizer", None)
+        if tokenizer is None:
+            raise ValueError("tokenizer is required for AsyncRolloutRequest initialization")
+
+        tokens_without_prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=False, tokenize=True)
+        tokens_with_prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+        values["generation_prompt_ids"] = tokens_with_prompt[len(tokens_without_prompt) :]
+        return values
+
+    def append_input_ids(self, new_input_ids: List[int], attention_mask: bool, loss_mask: bool) -> None:
+        self.input_ids += new_input_ids
+        attention_mask = [int(attention_mask)] * len(new_input_ids)
+        self.attention_mask += attention_mask
+        _delta_position_ids = compute_position_id_with_mask(torch.tensor(attention_mask)).tolist()
+        last_position_id = self.position_ids[-1]
+        _position_ids = [pos_id + last_position_id for pos_id in _delta_position_ids]
+        self.loss_mask += [int(loss_mask)] * len(new_input_ids)
+        self.position_ids += _position_ids
+
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
+            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+
+    def append_messages(self, messages: list[Message]) -> None:
+        self.messages.extend(messages)
+        self.messages_dumps.extend([msg.model_dump() for msg in messages])
+
+    def get_prompt_ids(self) -> List[int]:
+        self.append_input_ids(self.generation_prompt_ids, attention_mask=True, loss_mask=False)
+        return self.input_ids
 
     def add_assistant_message(
         self,
         tokenizer: PreTrainedTokenizer,
         content: str,
+        content_ids: Optional[List[int]] = None,
         tool_calls: Optional[List[OpenAIFunctionToolCall]] = None,
-        format: Literal["chatml", "qwen"] = "chatml",
         already_over_long: bool = False,
     ) -> None:
-        """Currently, we only support chatml format."""
-        msg = Message(role="assistant", content=content, tool_calls=tool_calls)
-        self.messages.append(msg)
-        if tool_calls is not None:
-            content_with_tool_calls: str = tokenizer.apply_chat_template(  # type: ignore
-                conversation=[msg.model_dump()], add_generation_prompt=False, tokenize=False
-            )
-        else:
-            content_with_tool_calls = content
-        # TODO: support other formats
-        if format in self.format_config:
-            prefix_msg = self.format_config[format]["assistant_prefix_msg"]
-            prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
-            suffix_msg = self.format_config[format]["assistant_suffix_msg"]
-            suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
-            if tool_calls is not None:
-                content = content_with_tool_calls.split(f"{prefix_msg}")[-1].split(f"{suffix_msg}")[0]
-            content_token_ids = tokenizer.encode(content, add_special_tokens=False)
-            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
-                append_token_ids = content_token_ids
-                _loss_mask = [1] * len(content_token_ids)
-            elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
-                append_token_ids = prefix_token_ids + content_token_ids
-                _loss_mask = [0] * len(prefix_token_ids) + [1] * len(content_token_ids)
-            else:
-                max_len = max(len(prefix_token_ids), len(suffix_token_ids))
-                raise ValueError(
-                    f"""Unsupported end of message format: 
-                    {tokenizer.decode(self.input_ids[-max_len:])},
-                    {tokenizer.decode(self.input_ids)=}, {self.messages=}"""
-                )
-            if not already_over_long:
-                append_token_ids += suffix_token_ids
-                _loss_mask += [1] * len(suffix_token_ids)
-            self.input_ids += append_token_ids
-            _attention_mask = [1] * len(append_token_ids)
-            self.attention_mask += _attention_mask
-            _delta_position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
-            last_position_id = self.position_ids[-1]
-            _position_ids = [pos_id + last_position_id for pos_id in _delta_position_ids]
-            self.loss_mask += _loss_mask
-            self.position_ids += _position_ids
-        else:
-            raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+        self.append_messages([Message(role="assistant", content=content, tool_calls=tool_calls)])
+        if tool_calls is None and content_ids is not None:
+            self.append_input_ids(content_ids, attention_mask=True, loss_mask=True)
+            return
 
-    def add_tool_response_message(self, tokenizer: PreTrainedTokenizer, content: str, last_tool: bool, format: Literal["chatml", "qwen"] = "chatml") -> None:
-        """Currently, we only support chatml format."""
-        msg = Message(role="tool", content=content)
-        self.messages.append(msg)
-        # TODO: support other formats
-        if format in self.format_config:
-            merge_tool_responses = self.format_config[format].get("merge_tool_response", False)
-            prefix_msg = self.format_config[format]["tool_prefix_msg"]
-            prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
-            suffix_msg = self.format_config[format]["tool_suffix_msg"]
-            suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
-            prefix_resp = self.format_config[format].get("tool_response_prefix_msg", '')
-            prefix_resp_token_ids = tokenizer.encode(prefix_resp, add_special_tokens=False)
-            suffix_resp = self.format_config[format].get("tool_response_suffix_msg", '')
-            suffix_resp_token_ids = tokenizer.encode(suffix_resp, add_special_tokens=False)
-            full_suffix_token_ids = suffix_resp_token_ids + (suffix_token_ids if last_tool or not merge_tool_responses else [])
-            content_token_ids = tokenizer.encode(content, add_special_tokens=False)
-            if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids or self.input_ids[-len(suffix_resp_token_ids) :] == suffix_resp_token_ids:
-                append_token_ids = prefix_resp_token_ids + content_token_ids + full_suffix_token_ids
-            elif self.input_ids[-len(prefix_resp_token_ids) :] == prefix_resp_token_ids:
-                append_token_ids = content_token_ids + full_suffix_token_ids
-            elif self.input_ids[-len(suffix_token_ids) :] == suffix_token_ids:
-                append_token_ids = prefix_token_ids + prefix_resp_token_ids + content_token_ids + full_suffix_token_ids
-            else:
-                raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-len(prefix_token_ids) :])}")
-            self.input_ids += append_token_ids
-            _attention_mask = [1] * len(append_token_ids)
-            self.attention_mask += _attention_mask
-            _delta_position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
-            last_position_id = self.position_ids[-1]
-            _position_ids = [pos_id + last_position_id for pos_id in _delta_position_ids]
-            self.loss_mask += [0] * len(append_token_ids)
-            self.position_ids += _position_ids
-        else:
-            raise ValueError(f"Unsupported format: {format}")
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+        # Handles cases where tool calls are incorrectly embedded, such as: I'll call the tool: <tool_call>{"name": ...}</tool_call>. Does this make sense?
+        # The code below restructures the text and tool calls parsed by the SGLang tool parser using the chat template.
+        # The outcome depends on the SGLang tool parser; for instance, with Qwen, any text after the first tool call is ignored.
+        # TODO: Reconsider this approach for RL scenarios: 1. Try to parse as much valid response as possible; 2. Surface the error to the model for learning.
+        content_start_pos = len(tokenizer.apply_chat_template(self.messages_dumps[:-1], add_generation_prompt=True, tokenize=False))
+        content = tokenizer.apply_chat_template(self.messages_dumps, add_generation_prompt=False, tokenize=False)[content_start_pos:]
+
+        if already_over_long:
+            content = content[: -len(tokenizer.eos_token)]
+        content_token_ids = tokenizer.encode(content, add_special_tokens=False)
+
+        self.append_input_ids(content_token_ids, attention_mask=True, loss_mask=True)
+
+    def add_tool_response_messages(self, tokenizer: PreTrainedTokenizer, contents: list[str]) -> None:
+        if not contents:
+            return
+
+        self.append_messages([Message(role="tool", content=content) for content in contents])
+        response_start_pos = len(tokenizer.apply_chat_template(self.messages_dumps[: -len(contents)], add_generation_prompt=False, tokenize=False))
+        response_tokens = tokenizer.apply_chat_template(self.messages_dumps, add_generation_prompt=False, tokenize=False)[response_start_pos:]
+        response_token_ids = tokenizer.encode(response_tokens, add_special_tokens=False)
+        self.append_input_ids(response_token_ids, attention_mask=True, loss_mask=False)
 
     def finalize(
         self,
