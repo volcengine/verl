@@ -39,7 +39,14 @@ class MegatronWorker(Worker):
         info = DistRankInfo(tp_rank=tp_rank, dp_rank=dp_rank, pp_rank=pp_rank, cp_rank=cp_rank)
         return info
 
-    def _init_hf_config_and_tf_config(self, model_path, dtype, override_model_config, override_transformer_config):
+    def _init_hf_config_and_tf_config(
+        self,
+        model_path,
+        dtype,
+        override_model_config,
+        override_transformer_config,
+        trust_remote_code=False,
+    ):
         from transformers import AutoConfig
 
         from verl.models.mcore import hf_to_mcore_config
@@ -49,10 +56,10 @@ class MegatronWorker(Worker):
 
         # Step 1: initialize the tokenizer
         self.local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(self.local_path)
+        self.tokenizer = hf_tokenizer(self.local_path, trust_remote_code=trust_remote_code)
 
         # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path)
+        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
 
         # Step 3: override the hf config
         override_config_kwargs = {

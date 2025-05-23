@@ -271,6 +271,9 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
     )
+    for k, v in override_transformer_config_kwargs.items():
+        setattr(transformer_config, k, v)
+
     return transformer_config
 
 
