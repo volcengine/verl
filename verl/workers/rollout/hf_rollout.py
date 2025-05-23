@@ -109,6 +109,7 @@ class HFRollout(BaseRollout):
             output = self.module.generate(
                 input_ids=idx,
                 attention_mask=attention_mask,
+                position_ids=position_ids,
                 do_sample=do_sample,
                 max_new_tokens=response_length,
                 eos_token_id=eos_token_id,
