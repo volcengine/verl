@@ -211,7 +211,8 @@ e2e Tests
 we provide e2e test scripts in `tests/e2e` folder, named `tests/e2e/run_gsm8k_fsdp_sgl_multiturn_sf_tool.sh`
 
 here is a sample with tool calling:
-.. code-block:: JSON
+
+.. code-block:: json
     {
   "input": "
   
