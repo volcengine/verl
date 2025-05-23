@@ -680,7 +680,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         v_lst = []
         assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
         num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
-        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0
+        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
@@ -694,10 +694,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         q = torch.cat(q_lst, dim=0)
         k = torch.cat(k_lst, dim=0)
         v = torch.cat(v_lst, dim=0)
-        if not convert_qkv_gate_up_by_simple_split:
-            infer_params = torch.cat((q, k, v), dim=0)
-        else:
-            infer_params = [q, k, v]
+        infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
     elif layer_name_mapping.get("gate_proj_layer_name") in name:
         # if the tensor is gate and proj
@@ -709,10 +706,10 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
             up_lst.append(up)
         gate = torch.cat(gate_lst, dim=0)
         up = torch.cat(up_lst, dim=0)
-        if not convert_qkv_gate_up_by_simple_split:
-            infer_params = torch.cat((gate, up), dim=0)
-        else:
-            infer_params = [gate, up]
+        infer_params = torch.cat((gate, up), dim=0) if not convert_qkv_gate_up_by_simple_split else [gate, up]
+
+    elif "mlp.experts.linear_fc2.weight" in name:  # moe
+        infer_params = torch.cat(infer_params, dim=1)
 
     else:
         # concat tensor
@@ -751,6 +748,12 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
 
     # lazy load tensor for full model
     for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+        if model_config.tie_word_embeddings and ("output_layers" in name):
+            import warnings
+
+            warnings.warn("Current model sharing word and embedding weights, skip output layer conversion", stacklevel=2)
+            continue
+
         if cur_pp_rank == pp_rank:
             try:
                 cur_name, cur_tensor = next(gen_func)

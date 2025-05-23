@@ -41,12 +41,6 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_PPO_LOGGING_LEVEL", "WARN"))
 
 
-def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
-    if isinstance(tensor, DTensor):
-        return tensor.full_tensor()
-    return tensor
-
-
 """
 Megatron Hybrid Engine:
 - During training, only the current pp stage holds the parameters
@@ -179,25 +173,12 @@ class MegatronAsyncSGLangShardingManager(MegatronSGLangShardingManager):
         named_tensors = params
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
-            serialized_tensor = MultiprocessingSerializer.serialize(_preprocess_tensor_for_update_weights(tensor))
-
-            if self.device_mesh["tp"].get_local_rank() == 0:
-                gathered_serialized_tensors = [None for _ in range(self.device_mesh["tp"].mesh.size()[0])]
-            else:
-                gathered_serialized_tensors = None
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.device_mesh["tp"].mesh.tolist()[0],
-                group=self.device_mesh["tp"].get_group(),
-            )
-
             if self.device_mesh["tp"].get_local_rank() == 0:
                 self.inference_engine.update_weights_from_tensor(
                     named_tensors=[
                         (
                             name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
+                            tensor.detach(),
                         )
                     ],
                     load_format=load_format,
