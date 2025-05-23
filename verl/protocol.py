@@ -389,6 +389,11 @@ class DataProto:
         """
         if self.batch is not None:
             self.batch = self.batch.to(device)
+        # copy torch.Tensor from "multi_modal_inputs" to device too
+        if "multi_modal_inputs" in self.non_tensor_batch.keys():
+            for input in self.non_tensor_batch["multi_modal_inputs"]:
+                for key in input.keys():
+                    input[key] = input[key].to(device=device)
         return self
 
     def select(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None, deepcopy=False) -> "DataProto":
