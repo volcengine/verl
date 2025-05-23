@@ -20,7 +20,7 @@ data:
   custom_cls:
     path: null
     name: null
-  image_key: None                          # Specify the column name for images in your dataset
+  image_key: null                          # Specify the column name for images in your dataset
   processor:
     use_fast: True                             # Use fast tokenization
     trust_remote_code: True                    # Trust remote code for processor

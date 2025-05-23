@@ -149,7 +149,7 @@ class FSDPSFTTrainer:
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
 
-        if self.config.data.get("image_key", None):
+        if self.config.data.get("image_key", None) is not None:
             self.train_dataloader = StatefulDataLoader(
                 dataset=self.train_dataset,
                 batch_size=config.data.train_batch_size,
@@ -550,7 +550,7 @@ def create_vlm_sft_dataset(data_paths, data_config, tokenizer, processor=None):
 
 def create_sft_dataset(data_paths, data_config, tokenizer, processor=None):
 
-    if data_config.get("image_key", None):
+    if data_config.get("image_key", None) is not None:
         return create_vlm_sft_dataset(data_paths, data_config, tokenizer, processor)
     """Create a dataset."""
     # build dataset
