@@ -13,9 +13,7 @@ Reward Compute with Sandbox Fusion + FaaS Integration
 =====================================================
 
 - In current datasets and tasks, similar work already exists (e.g., Prime), which uses local processes as runners to execute model-generated code for reward computation.
-- On this basis, Haiquan has advanced the design by integrating FaaS as the runner for reward computation.
-
-  Pull Request: `[feat] Sandbox: support sandbox fusion on FaaS & localhost #1429`
+- On this basis, #1429 has advanced the design by integrating FaaS as the runner for reward computation.
 
 Goals
 =====
@@ -76,7 +74,7 @@ Configuration Parameters
 +----------------------------+--------------------------------------------------------------+
 | `default_language`         | Default programming language. Default: "python"              |
 +----------------------------+--------------------------------------------------------------+
-| `enable_global_rate_limit`| Whether to enable global rate limiting. Default: True         |
+| `enable_global_rate_limit` | Whether to enable global rate limiting. Default: True         |
 +----------------------------+--------------------------------------------------------------+
 | `sandbox_fusion_url`       | URL for the veFaas sandbox execution service                 |
 +----------------------------+--------------------------------------------------------------+
@@ -158,11 +156,26 @@ Tool Implementation
        async def create(self, instance_id: Optional[str] = None, ...):
            ...
 
-       async def execute(self, instance_id: str, parameters: dict[str, Any], ...):
-           ...
+        async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> Tuple[str, float, dict]:
+            code = parameters.get("code", "")
+            timeout = parameters.get("timeout", self.default_timeout)
+            language = parameters.get("language", self.default_language)
+            if not isinstance(code, str):
+                code = str(code)
 
-       def execute_code(self, instance_id, code, timeout=30, language="python"):
-           ...
+            result = await self.execution_pool.execute.remote(self.execute_code,instance_id,code,timeout,language)
+            self._instance_dict[instance_id]["reward"].append(result.strip())
+
+            return result, result, {}
+
+        def execute_code(self,instance_id,code,timeout=30,language="python"):
+            result_status, metadata  = _process_single_case(0, None, None,self.sandbox_fusion_url, code, timeout, language)
+            # we should always expect this since we don't have correct answer
+            if metadata["run_status"] == "Finished":
+                actual_output = metadata["stdout"] if metadata["stdout"] is not None else ""
+                return actual_output
+            else:
+                return "no stdout here"
 
        async def calc_reward(self, instance_id: str, ...):
            ...
