@@ -84,11 +84,14 @@ Rate Limiting Design
 
 Objective:
 - Limit the number of inflight requests using a token bucket model.
+
 - Ensure ordered submission to code runners to avoid starvation due to backoff.
 
 Design Highlights:
 - Use Ray Global Actor as a singleton distributed counter at cluster level.
+  
 - Semaphore used for counting, with `acquire` and `release` in separate thread pools to preserve order.
+  
 - Use Ray’s cloud-pickle to serialize functions for decoupled `ExecutionWorker`.
 
 .. code-block:: python
@@ -142,7 +145,9 @@ Tool Implementation
 -------------------
 
 - Use `instance_id` to identify requests across multiple dialogue rounds.
+  
 - Use `execution_pool` to implement async invocation.
+  
 - Cleanup state after rollout completion.
 
 .. code-block:: python
