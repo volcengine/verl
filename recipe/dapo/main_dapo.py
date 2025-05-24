@@ -21,6 +21,7 @@ import hydra
 import ray
 
 from .dapo_ray_trainer import RayDAPOTrainer
+from verl.utils.device import is_cuda_available
 
 
 def get_custom_reward_fn(config):
@@ -113,7 +114,6 @@ class TaskRunner:
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),
-            Role.RefPolicy: ray.remote(ActorRolloutRefWorker),
         }
 
         global_pool_id = "global_pool"
@@ -123,7 +123,6 @@ class TaskRunner:
         mapping = {
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,
-            Role.RefPolicy: global_pool_id,
         }
 
         # we should adopt a multi-source reward function here
