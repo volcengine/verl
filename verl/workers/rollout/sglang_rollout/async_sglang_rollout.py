@@ -122,8 +122,8 @@ class AsyncSGLangRollout(BaseRollout):
         if self.config.multi_turn.max_turns is None:
             self.config.multi_turn.max_turns = self.config.max_model_len // 3
 
-        assert self.config.multi_turn.fast_tokenization in {"enable", "disable", "sanity_check"}, f"fast_tokenization should be one of [enable, disable, sanity_check], but got {self.config.multi_turn.fast_tokenization}"
-        self.fast_tokenization_enabled = self.config.multi_turn.fast_tokenization == "enable"
+        assert self.config.multi_turn.fast_tokenization in {"fast", "full", "sanity_check"}, f"fast_tokenization should be one of [enable, disable, sanity_check], but got {self.config.multi_turn.fast_tokenization}"
+        self.tokenization_mode = self.config.multi_turn.fast_tokenization
 
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
@@ -184,7 +184,7 @@ class AsyncSGLangRollout(BaseRollout):
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
                 nnodes=nnodes,
-                skip_tokenizer_init=self.fast_tokenization_enabled,
+                skip_tokenizer_init=self.tokenization_mode == "fast",
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
@@ -482,7 +482,7 @@ class AsyncSGLangRollout(BaseRollout):
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
-                generation_prompt_ids = _req.get_prompt_ids()
+                generation_prompt_ids = _req.get_prompt_ids(self.tokenizer)
                 max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
                 if max_new_tokens <= 0:
                     finish_reason_type = FinishReasonTypeEnum.STOP
@@ -521,7 +521,7 @@ class AsyncSGLangRollout(BaseRollout):
                     )
 
                 # No EOS token at the end of the decoded output
-                content = self.tokenizer.decode(output["output_ids"], skip_special_tokens=True) if self.fast_tokenization_enabled else output["text"]
+                content = self.tokenizer.decode(output["output_ids"], skip_special_tokens=True) if self.tokenization_mode == "fast" else output["text"]
                 # EON token included in output token ids unless the generation stopped because it reached the max allowed length
                 content_ids = output.get("output_ids")
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
@@ -762,6 +762,7 @@ class AsyncSGLangRollout(BaseRollout):
                     reward_scores={},
                     max_response_len=self.config.response_length,
                     max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+                    tokenization_mode=self.tokenization_mode,
                 )
 
                 error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
