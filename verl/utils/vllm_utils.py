@@ -40,6 +40,11 @@ try:
 except ImportError:
     pass
 
+try:
+    from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
+    SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)
+except ImportError:
+    pass
 
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
@@ -68,7 +73,11 @@ def patch_vllm_moe_model_weight_loader(model):
     if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)):
         return
 
-    for layer in model.model.layers:
+    model = getattr(model, "model", None) or getattr(model, "language_model", None)
+    if model is None:
+        raise ValueError("The provided model does not have a valid 'model' or 'language_model' attribute.")
+
+    for layer in model.layers:
         mlp_attr = MLP_ATTR_MAPPING.get(type(model), DEFAULT_MLP_ATTR)
         mlp = getattr(layer, mlp_attr)
 
