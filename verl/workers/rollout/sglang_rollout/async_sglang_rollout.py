@@ -30,6 +30,7 @@ from omegaconf import DictConfig
 from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.function_call_parser import FunctionCallParser
 from sglang.srt.openai_api.protocol import Tool
+from sglang.srt.patch_torch import monkey_patch_torch_reductions
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.utils import get_ip, get_open_port
 from tensordict import TensorDict
@@ -93,6 +94,7 @@ class AsyncSGLangRollout(BaseRollout):
             **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
         """
         super().__init__()
+        monkey_patch_torch_reductions()
         self.config = config
         self._device_mesh_cpu = device_mesh
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
