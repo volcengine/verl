@@ -22,7 +22,6 @@ import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.device import is_cuda_available
 
 
 def get_custom_reward_fn(config):
@@ -179,7 +178,7 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
-            device_name="cuda" if is_cuda_available else "npu",
+            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()
