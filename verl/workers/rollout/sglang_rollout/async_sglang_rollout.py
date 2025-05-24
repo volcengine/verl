@@ -42,7 +42,6 @@ from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.utils.debug import GPUMemoryLogger
-from verl.utils.model import compute_position_id_with_mask
 from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -50,7 +49,6 @@ from verl.workers.rollout.schemas import (
     AsyncRolloutRequest,
     AsyncRolloutRequestStateEnum,
     FinishReasonTypeEnum,
-    Message,
 )
 from verl.workers.rollout.sglang_rollout.sglang_rollout import _post_process_outputs, _pre_process_inputs
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
@@ -123,6 +121,9 @@ class AsyncSGLangRollout(BaseRollout):
         if self.config.multi_turn.max_turns is None:
             self.config.multi_turn.max_turns = self.config.max_model_len // 3
 
+        assert self.config.multi_turn.tokenization_mode in {"fast", "full", "sanity_check"}, f"tokenization_mode should be one of [fast, full, sanity_check], but got {self.config.multi_turn.tokenization_mode}"
+        self.tokenization_mode = self.config.multi_turn.tokenization_mode
+
         tp_size = tensor_parallel_size
         world_size = int(os.getenv("WORLD_SIZE", "-1"))
 
@@ -182,6 +183,7 @@ class AsyncSGLangRollout(BaseRollout):
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
                 nnodes=nnodes,
+                skip_tokenizer_init=self.tokenization_mode == "fast",
                 trust_remote_code=trust_remote_code,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
@@ -450,9 +452,9 @@ class AsyncSGLangRollout(BaseRollout):
         current_turns = 0
         while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
-                if _req.tools is not None:
+                if _req.tool_schemas is not None:
                     tool_creation_coroutines = []
-                    for tool_schema in _req.tools:
+                    for tool_schema in _req.tool_schemas:
                         tool = self._tool_map[tool_schema.function.name]
                         create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                         tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
@@ -471,10 +473,7 @@ class AsyncSGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    for i, (tool_call, (resp, reward, metrics)) in enumerate(zip(parsed_tool_calls, tool_call_results)):
-                        _req.add_tool_response_message(self.tokenizer, resp, (i == len(parsed_tool_calls) - 1), format=self.config.multi_turn.format)
-                        if len(_req.input_ids) >= self.config.max_model_len:
-                            break
+                    _req.add_tool_response_messages(self.tokenizer, [resp for resp, _, _ in tool_call_results])
                     if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
@@ -482,7 +481,7 @@ class AsyncSGLangRollout(BaseRollout):
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
-                generation_prompt_ids = _req.get_generation_prompt(self.tokenizer)
+                generation_prompt_ids = _req.get_prompt_ids(self.tokenizer)
                 max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
                 if max_new_tokens <= 0:
                     finish_reason_type = FinishReasonTypeEnum.STOP
@@ -520,11 +519,14 @@ class AsyncSGLangRollout(BaseRollout):
                         return_logprob=False,
                     )
 
-                content = output["text"]
+                # No EOS token at the end of the decoded output
+                content = self.tokenizer.decode(output["output_ids"], skip_special_tokens=True) if self.tokenization_mode == "fast" else output["text"]
+                # EON token included in output token ids unless the generation stopped because it reached the max allowed length
+                content_ids = output.get("output_ids")
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.tokenizer, content, already_over_long=True, format=self.config.multi_turn.format)
+                    _req.add_assistant_message(self.tokenizer, content, content_ids)
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -551,19 +553,14 @@ class AsyncSGLangRollout(BaseRollout):
                                 )
                             )
                         if len(parsed_tool_calls) > 0:
-                            _req.add_assistant_message(
-                                self.tokenizer,
-                                normed_content,
-                                tool_calls=parsed_tool_calls,
-                                format=self.config.multi_turn.format,
-                            )
+                            _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
                         else:
-                            _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
+                            _req.add_assistant_message(self.tokenizer, content, content_ids)
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
-                        _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
+                        _req.add_assistant_message(self.tokenizer, content, content_ids)
                         break
 
         if current_turns >= self.config.multi_turn.max_turns:
@@ -710,60 +707,35 @@ class AsyncSGLangRollout(BaseRollout):
             for rollout_offset in range(n):
                 if self._tool_schemas:
                     _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
-                    _tool_schemas = []
-                    for k in _tools_kwargs.keys():
-                        _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
-                    prompt_with_chat_template = self.tokenizer.apply_chat_template(
-                        conversation=raw_prompt,
-                        tools=[tool.model_dump() for tool in _tool_schemas],
-                        add_generation_prompt=True,
-                        tokenize=False,
-                        return_tensors="pt",
-                    )
-                    input_data = self.tokenizer(prompt_with_chat_template, return_tensors="pt", add_special_tokens=False)
-                    _input_ids = input_data["input_ids"][0].tolist()
-                    _attention_mask = input_data["attention_mask"][0].tolist()
-                    _position_ids = compute_position_id_with_mask(input_data["attention_mask"][0]).tolist()
-                    if len(_input_ids) > self.config.prompt_length:
-                        logger.warning(
-                            "Prompt {} has length {} greater than max_prompt_len {}",
-                            data_idx,
-                            len(_input_ids),
-                            self.config.prompt_length,
-                        )
-                        _input_ids = _input_ids[: self.config.prompt_length]
-                        _attention_mask = _attention_mask[: self.config.prompt_length]
-                        _position_ids = _position_ids[: self.config.prompt_length]
+                    _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                    _input_ids = None
+                    _attention_mask = None
                 else:
                     _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
                     _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
-                    _position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
-                    _tool_schemas = []
                     _tools_kwargs = {}
+                    _tool_schemas = None
 
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
                     request_id=str(uuid4()),
                     state=AsyncRolloutRequestStateEnum.PENDING,
-                    messages=[Message.model_validate(msg) for msg in raw_prompt],
-                    tools=_tool_schemas,
+                    messages=raw_prompt.tolist(),
+                    tool_schemas=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
                     input_ids=_input_ids,
-                    prompt_ids=_input_ids,
                     response_ids=[],
                     attention_mask=_attention_mask,
-                    prompt_attention_mask=_attention_mask,
                     response_attention_mask=[],
-                    position_ids=_position_ids,
-                    prompt_position_ids=_position_ids,
                     response_position_ids=[],
-                    loss_mask=[0] * len(_input_ids),
-                    prompt_loss_mask=[0] * len(_input_ids),
                     response_loss_mask=[],
                     reward_scores={},
+                    max_prompt_len=self.config.prompt_length,
                     max_response_len=self.config.response_length,
                     max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+                    tokenization_mode=self.tokenization_mode,
+                    tokenizer=self.tokenizer,
                 )
 
                 error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"

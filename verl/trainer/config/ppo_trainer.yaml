@@ -136,7 +136,12 @@ actor_rollout_ref:
       enable: False  # should set rollout.name to sglang_async if True
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
-      format: chatml  # chatml, more formats will be supported in the future
+      format: chatml  # deprecated, no effect anymore
+      # choose from: fast, full, sanity_check
+      # fast: only tokenizes the new messages in each turn
+      # full: tokenize the whole conversation in each turn. This could be significantly slower for long conversations but guarantees tokenization consistency across turns
+      # sanity_check: Check if fast tokenization produces consistent results. Use this for new chat templates only; not recommended for actual training.
+      tokenization_mode: fast
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
