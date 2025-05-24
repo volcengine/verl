@@ -147,6 +147,133 @@ class McoreToHFWeightConverterQwen2Moe(McoreToHFWeightConverterDense):
         return convert_names, params
 
 
+class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
+    def _convert_attention_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        # mcore
+        # 'decoder.layers.0.input_layernorm.weight'
+        # 'decoder.layers.0.self_attention.linear_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_q_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_kv_down_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_kv_up_proj.layer_norm_weight'
+        # 'decoder.layers.0.self_attention.linear_kv_up_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_q_down_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_q_up_proj.weight'
+        # 'decoder.layers.0.self_attention.linear_q_up_proj.layer_norm_weight'
+        # hf
+        # 'model.layers.0.input_layernorm.weight'
+        # 'model.layers.0.self_attn.o_proj.weight'
+        # 'model.layers.0.self_attn.q_proj.weight'
+        # 'model.layers.0.self_attn.kv_a_proj_with_mqa.weight'
+        # 'model.layers.0.self_attn.kv_a_layernorm.weight'
+        # 'model.layers.0.self_attn.kv_b_proj.weight'
+        # 'model.layers.0.self_attn.q_a_proj.weight'
+        # 'model.layers.0.self_attn.q_b_proj.weight'
+        # 'model.layers.0.self_attn.q_a_layernorm.weight'
+        name_map_after_layer = {
+            "input_layernorm.weight": "input_layernorm.weight",
+            "self_attention.linear_proj.weight": "self_attn.o_proj.weight",
+            "self_attention.linear_q_proj.weight": "self_attn.q_proj.weight",
+            "self_attention.linear_kv_down_proj.weight": "self_attn.kv_a_proj_with_mqa.weight",
+            "self_attention.linear_kv_up_proj.layer_norm_weight": "self_attn.kv_a_layernorm.weight",
+            "self_attention.linear_kv_up_proj.weight": "self_attn.kv_b_proj.weight",
+            "self_attention.linear_q_down_proj.weight": "self_attn.q_a_proj.weight",
+            "self_attention.linear_q_up_proj.weight": "self_attn.q_b_proj.weight",
+            "self_attention.linear_q_up_proj.layer_norm_weight": "self_attn.q_a_layernorm.weight",
+        }
+        assert len(params) == 1
+        convert_names = []
+        layer_number = name.split(".")[2]
+        name_after_layer = name.split(f".{layer_number}.")[1]
+        convert_names.append(f"model.layers.{layer_number}.{name_map_after_layer[name_after_layer]}")
+        return convert_names, params
+
+    def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        # mcore dense
+        # 'decoder.layers.0.mlp.linear_fc1.layer_norm_weight'
+        # 'decoder.layers.0.mlp.linear_fc2.weight'
+        # 'decoder.layers.0.mlp.linear_fc1.weight'
+        #       ---
+        # 'decoder.layers.1.mlp.shared_experts.linear_fc1.weight'
+        #       ---
+        # 'decoder.layers.1.mlp.shared_experts.linear_fc2.weight'
+        # hf dense
+        # 'model.layers.0.post_attention_layernorm.weight'
+        # 'model.layers.0.mlp.down_proj.weight'
+        # 'model.layers.0.mlp.gate_proj.weight'
+        # 'model.layers.0.mlp.up_proj.weight'
+        # 'model.layers.1.mlp.shared_experts.gate_proj.weight'
+        # 'model.layers.1.mlp.shared_experts.up_proj.weight'
+        # 'model.layers.1.mlp.shared_experts.down_proj.weight'
+
+        # mcore moe
+        # 'decoder.layers.1.pre_mlp_layernorm.weight'
+        # 'decoder.layers.1.mlp.router.weight'
+        # 'decoder.layers.1.mlp.router.expert_bias'
+        # 'decoder.layers.1.mlp.experts.linear_fc1.weight0'
+        #       ---
+        # 'decoder.layers.1.mlp.experts.linear_fc2.weight0'
+        # hf moe
+        # 'model.layers.1.post_attention_layernorm.weight'
+        # 'model.layers.1.mlp.gate.weight'
+        # 'model.layers.1.mlp.gate.e_score_correction_bias'
+        # 'model.layers.1.mlp.experts.0.gate_proj.weight'
+        # 'model.layers.1.mlp.experts.0.up_proj.weight'
+        # 'model.layers.1.mlp.experts.0.down_proj.weight'
+
+        name_map_after_layer = {
+            "mlp.linear_fc1.layer_norm_weight": "post_attention_layernorm.weight",
+            "mlp.linear_fc2.weight": "mlp.down_proj.weight",
+            "mlp.shared_experts.linear_fc2.weight": "mlp.shared_experts.down_proj.weight",
+            "mlp.linear_fc1.weight": ["mlp.gate_proj.weight", "mlp.up_proj.weight"],
+            "mlp.shared_experts.linear_fc1.weight": ["mlp.shared_experts.gate_proj.weight", "mlp.shared_experts.up_proj.weight"],
+            "pre_mlp_layernorm.weight": "post_attention_layernorm.weight",
+            "mlp.router.weight": "mlp.gate.weight",
+            "mlp.router.expert_bias": "mlp.gate.e_score_correction_bias",
+        }
+        convert_names = []
+        layer_number = name.split(".")[2]
+        name_after_layer = name.split(f".{layer_number}.")[1]
+        if name_after_layer in name_map_after_layer:
+            mapped_name = name_map_after_layer[name_after_layer]
+            if isinstance(mapped_name, list):
+                assert len(params) == len(mapped_name)
+                for one in mapped_name:
+                    convert_names.append(f"model.layers.{layer_number}.{one}")
+            else:
+                assert len(params) == 1
+                convert_names.append(f"model.layers.{layer_number}.{mapped_name}")
+        else:
+            if "mlp.experts.linear_fc1.weight" in name:
+                expert_id = name.split("weight")[-1]
+                convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.gate_proj.weight")
+                convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.up_proj.weight")
+                assert len(params) == 2
+            elif "mlp.experts.linear_fc2.weight" in name:
+                expert_id = name.split("weight")[-1]
+                convert_names.append(f"model.layers.{layer_number}.mlp.experts.{expert_id}.down_proj.weight")
+                assert len(params) == 1
+            else:
+                raise NotImplementedError(f"Unsupported parameter name: {name}")
+
+        return convert_names, params
+
+    def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        direct_name_mapping = {
+            "embedding.word_embeddings.weight": "model.embed_tokens.weight",
+            "decoder.final_layernorm.weight": "model.norm.weight",
+            "output_layer.weight": "lm_head.weight",
+        }
+        if name in direct_name_mapping:
+            return [direct_name_mapping[name]], [params_one_group[0]]
+
+        if "self_attention" in name or "input_layernorm.weight" in name:
+            return self._convert_attention_param(name, params_one_group)
+        elif "mlp" in name:
+            return self._convert_mlp_param(name, params_one_group)
+        else:
+            raise NotImplementedError(f"Unsupported parameter name: {name}")
+
+
 class McoreToHFWeightConverterMixtral(McoreToHFWeightConverterDense):
     def _convert_mlp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         # decoder.layers.0.mlp.router.weight
