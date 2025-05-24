@@ -289,7 +289,6 @@ class ActorRolloutRefWorker(Worker):
         elif fsdp_strategy == "fsdp2":
             assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
-            self._is_offload_optimizer = False
             if role == "actor" and fsdp_config.offload_policy:
                 cpu_offload = CPUOffloadPolicy(pin_memory=True)
             else:
@@ -883,8 +882,6 @@ class CriticWorker(Worker):
             mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True)
             offload_policy = None
             if fsdp_config.offload_policy:
-                self._is_offload_param = False
-                self._is_offload_optimizer = False
                 offload_policy = CPUOffloadPolicy(pin_memory=True)
 
             fsdp_kwargs = {
