@@ -228,8 +228,6 @@ reward_model:
   strategy: megatron
   megatron:
     param_offload: False
-    grad_offload: False
-    optimizer_offload: False
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     expert_tensor_parallel_size: null
