@@ -23,7 +23,7 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/dapo/src"
+      - "recipe/dapo"
       # Entrypoints
       - ".github/workflows/e2e_dapo.yml"
       - "examples/data_preprocess/gsm8k.py"
@@ -33,7 +33,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
-
 
 # Declare permissions just read content.
 permissions:
