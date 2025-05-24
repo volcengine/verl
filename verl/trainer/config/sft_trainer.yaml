@@ -26,6 +26,7 @@ data:
     trust_remote_code: True                    # Trust remote code for processor
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
+  name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
   fsdp_config:
     wrap_policy:
       min_num_params: 0
@@ -57,4 +58,3 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
-

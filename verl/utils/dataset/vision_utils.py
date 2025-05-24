@@ -19,8 +19,12 @@ import torch
 from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
-
 def process_image(image: Union[dict, Image.Image]) -> Image.Image:
+    
+    if isinstance(image, dict) and 'bytes' in image:
+        png_bytes = image['bytes']
+        return Image.open(BytesIO(png_bytes)).convert("RGB")
+
     if isinstance(image, Image.Image):
         return image.convert("RGB")
 

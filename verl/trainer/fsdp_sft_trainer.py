@@ -191,7 +191,7 @@ class FSDPSFTTrainer:
         # 1. support pretrain from random weights
         # 2. support init directly from sharded weights
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
-
+        
         if self.config.model.get("external_lib", None) is not None:
             # This is used to import external_lib into the huggingface systems
             import importlib
@@ -210,13 +210,24 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                local_model_path,
-                config=config,
-                torch_dtype=torch.float32,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
+
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            local_model_path,
+            device_map=torch.cuda.current_device(),
+            attn_implementation="sdpa"
             )
+
+            self.model: PreTrainedModel = model
+
+            #self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+            #    local_model_path,
+            #    config=config,
+            #    torch_dtype=torch.float32,
+            #    attn_implementation="flash_attention_2",
+            #    trust_remote_code=trust_remote_code,
+            #)
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch

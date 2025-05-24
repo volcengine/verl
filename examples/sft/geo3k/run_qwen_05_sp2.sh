@@ -13,16 +13,16 @@ shift 2
 
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.fsdp_sft_trainer \
-    data.train_files=$HOME/data/geo3k/train.parquet \
-    data.val_files=$HOME/data/geo3k/test.parquet \
-    data.prompt_key=messages \
-    data.response_key=response \
+    data.train_files=$HOME/data/geo3k/train_clean.parquet \
+    data.val_files=$HOME/data/geo3k/test_clean.parquet \
+    data.prompt_key=prompt \
+    data.response_key=extra_info \
     data.image_key=images \
     optim.lr=1e-4 \
-    data.prompt_dict_keys=['question'] \
     +data.response_dict_keys=['answer'] \
     data.micro_batch_size=4 \
-    model.partial_pretrain=Qwen/Qwen2.5-0.5B-Instruct \
+    model.partial_pretrain=Qwen/Qwen2.5-VL-3B-Instruct \
+    name_or_path=Qwen/Qwen2.5-VL-3B-Instruct \
     trainer.default_local_dir=$save_path \
     trainer.project_name=geo3k-sft \
     trainer.experiment_name=geo3k-sft-qwen-2.5-0.5b-instruct-sp2 \
