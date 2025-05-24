@@ -60,6 +60,21 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
     return init_context
 
 
+@contextmanager
+def cuda_memory_manager():
+    """Context manager for auto releasing CUDA memory management.
+
+    This context manager synchronizes CUDA operations and releases unused cached memory
+    to free up GPU memory.
+    """
+    try:
+        yield
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
+
 # Copyright 2020-present the HuggingFace Inc. team.
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
 def get_fsdp_wrap_policy(module, config=None, is_lora=False):
@@ -150,8 +165,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    for param in model.parameters():
-        param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+    model.to("cpu")
     if empty_cache:
         get_torch_device().empty_cache()
 
@@ -179,8 +193,7 @@ def load_fsdp_model_to_gpu(model: FSDP):
 @torch.no_grad()
 def load_fsdp2_model_to_gpu(model):
     device = torch.cuda.current_device()
-    for param in model.parameters():
-        param.data = param.data.to(device, non_blocking=True)
+    model.to(device)
 
 
 @torch.no_grad()
@@ -401,24 +414,24 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
     """
     from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 
-    # To broadcast, it needs to be instantiated in the GPU.
-    if dist.get_rank() == 0:
-        model = model.to(device=torch.cuda.current_device(), non_blocking=True)
-    else:
-        model = model.to_empty(device=torch.cuda.current_device())
-
     cpu_offload = cpu_offload is not None
-    options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
-    set_model_state_dict(model, full_state, options=options)
 
-    # rotary_emb is not in state_dict, so we need to broadcast it manually
-    for name, buf in model.named_buffers():
-        dist.broadcast(buf, src=0)
+    with cuda_memory_manager():
+        model = model.to_empty(device=torch.cuda.current_device())
+        options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
+        set_model_state_dict(model, full_state, options=options)
 
-    if cpu_offload:
-        model.to("cpu", non_blocking=True)
-        for buf in model.buffers():
-            buf.data = buf.data.to(torch.cuda.current_device())
+        # rotary_emb is not in state_dict, so we need to broadcast it manually
+        for name, buf in model.named_buffers():
+            dist.broadcast(buf, src=0)
+
+        # If we don't offload FSDP2 Module to CPU and then back to GPU,
+        # it will occupy a large amount of reserved GPU memory，which can not be released using torch.cuda.empty_cache()
+        # FIXME: we should find a better solution to solve FSDP2 load memory issue.
+        offload_fsdp2_model_to_cpu(model)
+
+    if not cpu_offload:
+        load_fsdp2_model_to_gpu(model)
 
 
 def apply_fsdp2(model, fsdp_kwargs, config):
