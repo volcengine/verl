@@ -36,6 +36,7 @@ from torch.utils.data import DataLoader
 
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
+from verl.utils.device import get_torch_device
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
@@ -272,7 +273,7 @@ class DataProto:
 
         batch_deserialized_bytes, non_tensor_batch, meta_info = data
         batch_deserialized = io.BytesIO(initial_bytes=batch_deserialized_bytes)
-        batch = torch.load(batch_deserialized, weights_only=False, map_location="cpu" if not torch.cuda.is_available() else None)
+        batch = torch.load(batch_deserialized, weights_only=False, map_location="cpu" if not get_torch_device().is_available() else None)
         self.batch = batch
         self.non_tensor_batch = non_tensor_batch
         self.meta_info = meta_info
@@ -802,7 +803,7 @@ def all_gather_data_proto(data: DataProto, process_group):
     group_size = torch.distributed.get_world_size(group=process_group)
     assert isinstance(data, DataProto)
     prev_device = data.batch.device
-    data.batch = data.batch.cuda(device=torch.cuda.current_device())
+    data.batch = data.batch.to(get_torch_device().current_device())
     data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
     data.batch = data.batch.to(prev_device)
     # all gather non_tensor_batch

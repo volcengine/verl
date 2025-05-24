@@ -23,6 +23,7 @@ from typing import Dict
 import ray
 
 from .decorator import Dispatch, Execute, register
+from verl.utils.device import get_torch_device
 
 
 @dataclass
@@ -147,10 +148,9 @@ class Worker(WorkerHelper):
 
         import torch
         from packaging import version
-
         ###
         # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
+        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("ROCR_VISIBLE_DEVICES")
             os.environ["LOCAL_RANK"] = os.environ.get("RAY_LOCAL_RANK")
         ###
@@ -168,7 +168,7 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
+        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
             self.local_rank = int(os.environ["LOCAL_RANK"])
             cuda_visible_devices = str(local_rank)
         ###
@@ -188,8 +188,8 @@ class Worker(WorkerHelper):
 
         ###
         # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in torch.cuda.get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
-            torch.cuda.set_device(int(cuda_visible_devices))
+        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
+            get_torch_device().set_device(int(cuda_visible_devices))
         ###
 
         self.fused_worker_dict = {}

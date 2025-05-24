@@ -1,5 +1,7 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright 2023-2024 SGLang Team
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +27,7 @@ from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -296,11 +298,17 @@ def load_megatron_model_to_gpu(models, load_grad=True):
 @torch.no_grad()
 def offload_megatron_copy_params(optimizers):
     """
-    Offload optimizer parameters to CPU
+    Offload optimizer parameters to CPU. Supports both Megatron optimizers
+    and `ChainedOptimizer`, which wraps a list of underlying optimizers.
 
     Args:
-        optimizers: The optimizer containing parameter groups to offload
+        optimizers: The optimizer or ChainedOptimizer instance.
     """
+
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
 
     def offload_tensor_to_cpu(tensor):
         if tensor is None:
@@ -321,20 +329,26 @@ def offload_megatron_copy_params(optimizers):
         else:
             offload_tensor_to_cpu(group)
 
-    # Offload all parameter groups to CPU
+    # Offload all parameter groups to CPU for each underlying optimizer
 
-    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
-        offload_group_to_cpu(optimizers.shard_fp32_from_float16_groups)
+    for _opt in _iter_opts(optimizers):
+        if hasattr(_opt, "shard_fp32_from_float16_groups"):
+            offload_group_to_cpu(_opt.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def load_megatron_copy_params(optimizers):
     """
-    Load optimizer parameters back to GPU
+    Load optimizer parameters back to GPU. Handles ChainedOptimizer.
 
     Args:
-        optimizers: The optimizer containing parameter groups to load
+        optimizers: Optimizer or ChainedOptimizer instance.
     """
+
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
 
     def load_tensor_to_gpu(tensor):
         if tensor is None:
@@ -356,36 +370,49 @@ def load_megatron_copy_params(optimizers):
         else:
             load_tensor_to_gpu(group)
 
-    # Load all parameter groups to GPU
+    # Load all parameter groups to GPU for each underlying optimizer
 
-    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
-        load_group_to_gpu(optimizers.shard_fp32_from_float16_groups)
+    for _opt in _iter_opts(optimizers):
+        if hasattr(_opt, "shard_fp32_from_float16_groups"):
+            load_group_to_gpu(_opt.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def offload_megatron_optimizer(optimizers):
-    offload_megatron_copy_params(optimizers)
-    opt_state_dict_values = optimizers.optimizer.state.values()
-    for v in opt_state_dict_values:
-        if "exp_avg" in v:
-            v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-        if "exp_avg_sq" in v:
-            v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
-    gc.collect()
-    torch.cuda.empty_cache()
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    for _opt in _iter_opts(optimizers):
+        offload_megatron_copy_params(_opt)
+        opt_state_dict_values = _opt.optimizer.state.values()
+        for v in opt_state_dict_values:
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 @torch.no_grad()
 def load_megatron_optimizer(optimizers):
-    load_megatron_copy_params(optimizers)
-    opt_state_dict_values = optimizers.optimizer.state.values()
-    for v in opt_state_dict_values:
-        if "exp_avg" in v:
-            v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
-        if "exp_avg_sq" in v:
-            v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
-    gc.collect()
-    torch.cuda.empty_cache()
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    for _opt in _iter_opts(optimizers):
+        load_megatron_copy_params(_opt)
+        opt_state_dict_values = _opt.optimizer.state.values()
+        for v in opt_state_dict_values:
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def print_rank_0(message):
@@ -655,7 +682,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         v_lst = []
         assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
         num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
-        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0
+        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
@@ -669,10 +696,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         q = torch.cat(q_lst, dim=0)
         k = torch.cat(k_lst, dim=0)
         v = torch.cat(v_lst, dim=0)
-        if not convert_qkv_gate_up_by_simple_split:
-            infer_params = torch.cat((q, k, v), dim=0)
-        else:
-            infer_params = [q, k, v]
+        infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
     elif layer_name_mapping.get("gate_proj_layer_name") in name:
         # if the tensor is gate and proj
@@ -684,10 +708,10 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
             up_lst.append(up)
         gate = torch.cat(gate_lst, dim=0)
         up = torch.cat(up_lst, dim=0)
-        if not convert_qkv_gate_up_by_simple_split:
-            infer_params = torch.cat((gate, up), dim=0)
-        else:
-            infer_params = [gate, up]
+        infer_params = torch.cat((gate, up), dim=0) if not convert_qkv_gate_up_by_simple_split else [gate, up]
+
+    elif "mlp.experts.linear_fc2.weight" in name:  # moe
+        infer_params = torch.cat(infer_params, dim=1)
 
     else:
         # concat tensor
@@ -696,11 +720,10 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     return infer_params
 
 
-def per_tensor_generator(actor_module, model_config, weight_converter, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
+def per_tensor_generator(actor_module, model_config, weight_converter, transformer_config, layer_name_mapping, convert_qkv_gate_up_by_simple_split=True):
     from megatron.core import parallel_state as mpu
 
     pp_rank = mpu.get_pipeline_model_parallel_rank()
-    pp_size = mpu.get_pipeline_model_parallel_world_size()
     ep_size = mpu.get_expert_model_parallel_world_size()
     etp_size = mpu.get_expert_tensor_parallel_world_size()
     ep_group = mpu.get_expert_model_parallel_group()
@@ -727,12 +750,18 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
 
     # lazy load tensor for full model
     for cur_pp_rank, scan_vpp_idx, idx, name in layer_list_meta:
+        if model_config.tie_word_embeddings and ("output_layers" in name):
+            import warnings
+
+            warnings.warn("Current model sharing word and embedding weights, skip output layer conversion", stacklevel=2)
+            continue
+
         if cur_pp_rank == pp_rank:
             try:
                 cur_name, cur_tensor = next(gen_func)
             except StopIteration:
                 cur_name, cur_tensor = None, None
-            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, pp_size, vpp_size, model_config.num_hidden_layers)
+            cur_name = normalize_model_name(name, cur_pp_rank, scan_vpp_idx, transformer_config)
         else:
             cur_tensor, cur_name = None, None
 

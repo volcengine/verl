@@ -8,6 +8,7 @@ python3 tests/e2e/arithmetic_sequence/rl/main_trainer.py \
     algorithm.adv_estimator=gae \
     data.train_files=tests/e2e/arithmetic_sequence/data/train.parquet \
     data.val_files=tests/e2e/arithmetic_sequence/data/test.parquet \
+    actor_rollout_ref.model.use_fused_kernels=True \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.path=tests/e2e/arithmetic_sequence/model \
     actor_rollout_ref.rollout.name=vllm \

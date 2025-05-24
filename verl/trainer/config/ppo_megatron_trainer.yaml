@@ -82,7 +82,7 @@ actor_rollout_ref:
       use_distributed_optimizer: True
       use_dist_checkpointing: False
       dist_checkpointing_path: null
-      seed: 1
+      seed: 42
       override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
     profile: # profile the actor model in `update_policy` 
       use_profile: False # open it when you want to profile the actor model
@@ -108,7 +108,7 @@ actor_rollout_ref:
       use_distributed_optimizer: False
       use_dist_checkpointing: False
       dist_checkpointing_path: null
-      seed: 1
+      seed: ${actor_rollout_ref.actor.megatron.seed}
       override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
     profile:
       use_profile: False
@@ -210,7 +210,7 @@ critic:
     use_distributed_optimizer: True
     use_dist_checkpointing: False
     dist_checkpointing_path: null
-    seed: 1
+    seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: ${actor_rollout_ref.actor.megatron.override_transformer_config}
   load_weight: True
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
@@ -235,8 +235,6 @@ reward_model:
   strategy: megatron
   megatron:
     param_offload: False
-    grad_offload: False
-    optimizer_offload: False
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     expert_tensor_parallel_size: null
@@ -247,7 +245,7 @@ reward_model:
     use_distributed_optimizer: False
     use_dist_checkpointing: False
     dist_checkpointing_path: null
-    seed: 1
+    seed: ${actor_rollout_ref.actor.megatron.seed}
     override_transformer_config: {}
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
