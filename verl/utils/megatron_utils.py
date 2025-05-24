@@ -25,7 +25,7 @@ from megatron.core import ModelParallelConfig, mpu, tensor_parallel
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.optimizer import ChainedOptimizer, OptimizerConfig
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -296,11 +296,17 @@ def load_megatron_model_to_gpu(models, load_grad=True):
 @torch.no_grad()
 def offload_megatron_copy_params(optimizers):
     """
-    Offload optimizer parameters to CPU
+    Offload optimizer parameters to CPU. Supports both Megatron optimizers
+    and `ChainedOptimizer`, which wraps a list of underlying optimizers.
 
     Args:
-        optimizers: The optimizer containing parameter groups to offload
+        optimizers: The optimizer or ChainedOptimizer instance.
     """
+
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
 
     def offload_tensor_to_cpu(tensor):
         if tensor is None:
@@ -321,20 +327,26 @@ def offload_megatron_copy_params(optimizers):
         else:
             offload_tensor_to_cpu(group)
 
-    # Offload all parameter groups to CPU
+    # Offload all parameter groups to CPU for each underlying optimizer
 
-    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
-        offload_group_to_cpu(optimizers.shard_fp32_from_float16_groups)
+    for _opt in _iter_opts(optimizers):
+        if hasattr(_opt, "shard_fp32_from_float16_groups"):
+            offload_group_to_cpu(_opt.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def load_megatron_copy_params(optimizers):
     """
-    Load optimizer parameters back to GPU
+    Load optimizer parameters back to GPU. Handles ChainedOptimizer.
 
     Args:
-        optimizers: The optimizer containing parameter groups to load
+        optimizers: Optimizer or ChainedOptimizer instance.
     """
+
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
 
     def load_tensor_to_gpu(tensor):
         if tensor is None:
@@ -356,36 +368,49 @@ def load_megatron_copy_params(optimizers):
         else:
             load_tensor_to_gpu(group)
 
-    # Load all parameter groups to GPU
+    # Load all parameter groups to GPU for each underlying optimizer
 
-    if hasattr(optimizers, "shard_fp32_from_float16_groups"):
-        load_group_to_gpu(optimizers.shard_fp32_from_float16_groups)
+    for _opt in _iter_opts(optimizers):
+        if hasattr(_opt, "shard_fp32_from_float16_groups"):
+            load_group_to_gpu(_opt.shard_fp32_from_float16_groups)
 
 
 @torch.no_grad()
 def offload_megatron_optimizer(optimizers):
-    offload_megatron_copy_params(optimizers)
-    opt_state_dict_values = optimizers.optimizer.state.values()
-    for v in opt_state_dict_values:
-        if "exp_avg" in v:
-            v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-        if "exp_avg_sq" in v:
-            v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
-    gc.collect()
-    torch.cuda.empty_cache()
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    for _opt in _iter_opts(optimizers):
+        offload_megatron_copy_params(_opt)
+        opt_state_dict_values = _opt.optimizer.state.values()
+        for v in opt_state_dict_values:
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 @torch.no_grad()
 def load_megatron_optimizer(optimizers):
-    load_megatron_copy_params(optimizers)
-    opt_state_dict_values = optimizers.optimizer.state.values()
-    for v in opt_state_dict_values:
-        if "exp_avg" in v:
-            v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
-        if "exp_avg_sq" in v:
-            v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
-    gc.collect()
-    torch.cuda.empty_cache()
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    for _opt in _iter_opts(optimizers):
+        load_megatron_copy_params(_opt)
+        opt_state_dict_values = _opt.optimizer.state.values()
+        for v in opt_state_dict_values:
+            if "exp_avg" in v:
+                v["exp_avg"] = v["exp_avg"].to(torch.cuda.current_device(), non_blocking=True)
+            if "exp_avg_sq" in v:
+                v["exp_avg_sq"] = v["exp_avg_sq"].to(torch.cuda.current_device(), non_blocking=True)
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def print_rank_0(message):
