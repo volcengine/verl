@@ -375,12 +375,16 @@ class MegatronPPOActor(BasePPOActor):
             def logits_processor(logits, label, label_mask):
                 assert logits.shape[:2] == label.shape[:2]
                 assert label.shape == label_mask.shape
-                log_probs = vocab_parallel_log_probs_from_logits(logits, label)
-                log_probs = log_probs.masked_fill(~label_mask, 0.0)
-                ret = {"log_probs": log_probs}
+
+                ret = {}
+
                 if calculate_entropy:
                     entropy = vocab_parallel_entropy(logits)
                     ret["entropy"] = entropy
+
+                log_probs = vocab_parallel_log_probs_from_logits(logits, label)
+                log_probs = log_probs.masked_fill(~label_mask, 0.0)
+                ret["log_probs"] = log_probs
                 return ret
 
             logits_processor_args = {"label": label, "label_mask": label_mask}
