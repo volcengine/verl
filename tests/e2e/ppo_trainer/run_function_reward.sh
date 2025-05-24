@@ -23,6 +23,12 @@ ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
 USE_KL=${USE_KL:-False}
 CUSTOM_REWARD_FN=${CUSTOM_REWARD_FN:-False}
 ENABLE_CHUNKED_PREFILL=${ENABLE_CHUNKED_PREFILL:-True} # For vLLM VLM placeholder issue: https://github.com/vllm-project/vllm/issues/15185
+# LoRA config
+LORA_RANK=${LORA_RANK:-0}
+LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
+USE_SHM=${USE_SHM:-False}
+LOAD_FORMAT=${LOAD_FORMAT:-dummy_dtensor}
+LAYERED_SUMMON=${LAYERED_SUMMON:-False}
 # Validation
 VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}
 TEST_FREQ=${TEST_FREQ:--1}
@@ -75,6 +81,9 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length="${MAX_PROMPT_LEN}" \
     data.max_response_length="${MAX_RESPONSE_LEN}" \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
+    actor_rollout_ref.model.use_shm=${USE_SHM} \
+    actor_rollout_ref.model.lora_rank=${LORA_RANK} \
+    actor_rollout_ref.model.lora_alpha=${LORA_ALPHA} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
     actor_rollout_ref.model.use_fused_kernels=${FUSED_KERNELS} \
@@ -88,6 +97,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name="${ENGINE}" \
+    actor_rollout_ref.rollout.load_format=${LOAD_FORMAT} \
+    actor_rollout_ref.rollout.layered_summon=${LAYERED_SUMMON} \
     actor_rollout_ref.rollout.gpu_memory_utilization="${GPU_MEMORY_UTILIZATION}" \
     actor_rollout_ref.rollout.enable_chunked_prefill="${ENABLE_CHUNKED_PREFILL}" \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
