@@ -42,7 +42,7 @@ permissions:
 jobs:
   e2e_ppo_trainer_megatron-deepseek:
     runs-on: [L20x8]
-    timeout-minutes: 90 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -84,7 +84,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen3:
     runs-on: [L20x8]
-    timeout-minutes: 90 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -126,7 +126,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding:
     runs-on: [L20x8]
-    timeout-minutes: 90 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -159,7 +159,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen-override-transformer-config:
     runs-on: [L20x8]
-    timeout-minutes: 90 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -198,7 +198,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-deepseek-override-transformer-config:
     runs-on: [L20x8]
-    timeout-minutes: 90 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}

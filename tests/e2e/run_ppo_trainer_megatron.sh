@@ -75,7 +75,7 @@ if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
     CHECKPOINT_CONTENTS=['model','optimizer','extra']
 fi
 
-ENGINES=${ENGINES:-['vllm', 'sglang', 'sglang_async']}
+ENGINES=${ENGINES:-("vllm" "sglang_async")}
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
