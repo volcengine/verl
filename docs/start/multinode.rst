@@ -71,6 +71,119 @@ Slurm
 -----
 TBD
 
+dstack
+------
+If you want to run multi-node training with `dstack <https://dstack.ai/>`_ on NVIDIA Cluster, you need to follow the following steps.
+
+1. Prerequisite
+
+   Once dstack is `installed <https://dstack.ai/docs/installation/>`_, go ahead clone the repo, and run dstack init. 
+
+   .. code-block:: bash
+
+       $ git clone https://github.com/dstackai/dstack
+       $ cd dstack
+       $ dstack init
+
+2. Create fleet
+   
+   Before submitting distributed training runs, make sure to create a fleet
+   with a ``placement`` set to ``cluster``.
+
+   .. note::
+
+       For more details on how to use clusters with ``dstack``, check the
+       `Clusters <https://dstack.ai/docs/guides/clusters>`_ guide.
+
+3. Run a Ray cluster
+
+   If you want to use Ray with ``dstack``, you have to first run a Ray cluster.
+
+   The task below runs a Ray cluster on an existing fleet:
+   
+   .. code-block:: yaml
+
+        type: task
+        name: ray-verl-cluster
+
+        nodes: 2
+
+        env:
+          - WANDB_API_KEY
+          - PYTHONUNBUFFERED=1
+          - CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+        
+        image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2
+        commands:
+          - git clone https://github.com/volcengine/verl
+          - cd verl
+          - pip install --no-deps -e .
+          - pip install hf_transfer hf_xet
+          - |
+            if [ $DSTACK_NODE_RANK = 0 ]; then
+                python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+                python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-7B-Instruct')" 
+                ray start --head --port=6379;
+            else
+                ray start --address=$DSTACK_MASTER_NODE_IP:6379
+            fi
+
+        # Expose Ray dashboard port
+        ports:
+          - 8265
+
+        resources:
+          gpu: 80GB:8
+          shm_size: 128GB
+
+        # Save checkpoints on the instance
+        volumes:
+          - /checkpoints:/checkpoints
+
+4. Submit Ray jobs
+
+   Before you can submit Ray jobs, ensure to install ``ray`` locally:
+   
+   .. code-block:: shell
+
+       $ pip install ray
+
+   Now you can submit the training job to the Ray cluster which is available at ``localhost:8265``:
+   
+   .. code-block:: shell
+
+       $ RAY_ADDRESS=http://localhost:8265
+       $ ray job submit \
+         -- python3 -m verl.trainer.main_ppo \
+            data.train_files=/root/data/gsm8k/train.parquet \
+            data.val_files=/root/data/gsm8k/test.parquet \
+            data.train_batch_size=256 \
+            data.max_prompt_length=512 \
+            data.max_response_length=256 \
+            actor_rollout_ref.model.path=Qwen/Qwen2.5-7B-Instruct \
+            actor_rollout_ref.actor.optim.lr=1e-6 \
+            actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+            actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+            actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+            actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+            actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+            actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+            critic.optim.lr=1e-5 \
+            critic.model.path=Qwen/Qwen2.5-7B-Instruct \
+            critic.ppo_micro_batch_size_per_gpu=4 \
+            algorithm.kl_ctrl.kl_coef=0.001 \
+            trainer.project_name=ppo_training \
+            trainer.experiment_name=qwen-2.5-7B \
+            trainer.val_before_train=False \
+            trainer.default_hdfs_dir=null \
+            trainer.n_gpus_per_node=8 \
+            trainer.nnodes=2 \
+            trainer.default_local_dir=/checkpoints \
+            trainer.save_freq=10 \
+            trainer.test_freq=10 \
+            trainer.total_epochs=15 2>&1 | tee verl_demo.log \
+            trainer.resume_mode=disable
+
 How to debug?
 ---------------------
 
