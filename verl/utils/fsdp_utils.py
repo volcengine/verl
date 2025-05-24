@@ -59,6 +59,21 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
     return init_context
 
 
+@contextmanager
+def cuda_memory_manager():
+    """Context manager for auto releasing CUDA memory management.
+
+    This context manager synchronizes CUDA operations and releases unused cached memory
+    to free up GPU memory.
+    """
+    try:
+        yield
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
+
 # Copyright 2020-present the HuggingFace Inc. team.
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
 def get_fsdp_wrap_policy(module, config=None, is_lora=False):
@@ -387,7 +402,7 @@ def get_fsdp_state_ctx(model, state_type, state_cfg, optim_cfg):
         return nullcontext()
 
 
-def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, rank: int, device_mesh=None, cpu_offload=None):
+def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None):
     """
     Loads the full state dict (could be only on rank 0) into the sharded model. This is done by broadcasting the
     parameters from rank 0 to all other ranks. This function modifies the model in-place.
@@ -396,41 +411,26 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, rank: i
         model (`torch.nn.Module`): The model to load the state dict into
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.tensor import distribute_tensor
-    model = model.to_empty(device=torch.cuda.current_device())
-    sharded_sd = model.state_dict()
-    if rank == 0:
-        for (param_name, full_param), sharded_param in zip(full_state.items(), sharded_sd.values()):
-            full_param = full_param.detach().cuda()
-            mesh = sharded_param.device_mesh
-            dist.broadcast(full_param, src=0, group=mesh.get_group())
-            # full_param = full_param.cpu()
-            sharded_tensor = distribute_tensor(full_param, mesh, sharded_param.placements)
-            sharded_sd[param_name] = sharded_tensor
-            del full_param
-    else:
-        for param_name, sharded_param in sharded_sd.items():
-            full_tensor = torch.empty(sharded_param.size(), device="cuda", dtype=sharded_param.dtype)
-            # print(f"rank {rank} loading {param_name}, dtype {sharded_param.dtype}")
-            mesh = sharded_param.device_mesh
-            dist.broadcast(full_tensor, src=0, group=mesh.get_group())
-            # full_tensor = full_tensor.cpu()
-            sharded_tensor = distribute_tensor(full_tensor, mesh, sharded_param.placements)
-            sharded_sd[param_name] = sharded_tensor
-            del full_tensor
+    from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 
-    for name, buf in model.named_buffers():
-        dist.broadcast(buf, src=0)
+    cpu_offload = cpu_offload is not None
 
-    model.load_state_dict(sharded_sd, assign=False)
-    offload_fsdp2_model_to_cpu(model)
-    del sharded_sd
-    del full_state
-    import gc
-    gc.collect()
-    torch.cuda.synchronize()
-    torch.cuda.empty_cache()
-    load_fsdp2_model_to_gpu(model)
+    with cuda_memory_manager():
+        model = model.to_empty(device=torch.cuda.current_device())
+        options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
+        set_model_state_dict(model, full_state, options=options)
+
+        # rotary_emb is not in state_dict, so we need to broadcast it manually
+        for name, buf in model.named_buffers():
+            dist.broadcast(buf, src=0)
+
+        # If we don't offload FSDP2 Module to CPU and then back to GPU,
+        # it will occupy a large amount of reserved GPU memory，which can not be released using torch.cuda.empty_cache()
+        # FIXME: we should find a better solution to solve FSDP2 load memory issue.
+        offload_fsdp2_model_to_cpu(model)
+
+    if not cpu_offload:
+        load_fsdp2_model_to_gpu(model)
 
 
 def apply_fsdp2(model, fsdp_kwargs, config):
