@@ -310,7 +310,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             "0.5.4",
             "0.6.3",
         ):
-            per_tensor_param = per_tensor_generator(convert_qkv_gate_up_by_simple_split=False)
+            per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.transformer_config, self.layer_name_mapping, convert_qkv_gate_up_by_simple_split=False)
             self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
         else:
             # > 0.7.2
@@ -318,7 +318,13 @@ class MegatronVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up(tags=["weights"])
             else:
                 self.inference_engine.wake_up()
-            per_tensor_param = per_tensor_generator()
+            per_tensor_param = per_tensor_generator(
+                self.actor_module,
+                self.model_config,
+                self.weight_converter,
+                self.transformer_config,
+                self.layer_name_mapping,
+            )
             model = self.inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
             patch_vllm_moe_model_weight_loader(model)
             loaded_params = model.load_weights(per_tensor_param)
