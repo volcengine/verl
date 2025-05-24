@@ -55,7 +55,10 @@ vLLM
     git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git
     cd vllm
     pip install -r requirements-build.txt
+    # for Atlas 200T A2 Box16
     VLLM_TARGET_DEVICE=empty pip install -e . --extra-index https://download.pytorch.org/whl/cpu/
+    # for Atlas 800T A2
+    VLLM_TARGET_DEVICE=empty pip install -e .
 
 .. code-block:: bash
     
@@ -83,7 +86,7 @@ vLLM
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/main/docs/loss_comparison.png?raw=true
    :alt: loss_comparison
 
-其中，N 表示训练的步数。更多信息请参考[精度计算说明](https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/LMaccuracy_0001.html)。
+其中，N 表示训练的步数。更多信息请参考 `精度计算说明 <https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/LMaccuracy_0001.html>`_。
 
 根据经验，对于GRPO等强化学习算法，我们期望在相同配置下，在华为昇腾设备上的 reward 与英伟达 GPU 的 reward 平均绝对误差小于等于 4%，具体计算参考 Loss 计算。
 
