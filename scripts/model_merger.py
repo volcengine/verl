@@ -123,9 +123,9 @@ class BaseModelMerger(ABC):
         """
         if model.can_generate():
             try:
-                model.generation_config = GenerationConfig.from_pretrained(self.config_path)
+                model.generation_config = GenerationConfig.from_pretrained(self.hf_model_config_path)
             except OSError:
-                print(f"Warning: Generation config file not found in {self.config_path}, using a generation config created from the model config.")
+                print(f"Warning: Generation config file not found in {self.hf_model_config_path}, using a generation config created from the model config.")
         return model
 
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
@@ -140,8 +140,8 @@ class BaseModelMerger(ABC):
         del state_dict
         del model
 
-        processor = hf_processor(self.config_path)
-        tokenizer = hf_tokenizer(self.config_path)
+        processor = hf_processor(self.hf_model_config_path)
+        tokenizer = hf_tokenizer(self.hf_model_config_path)
         if processor is not None:
             print(f"Saving processor to {self.config.target_dir}")
             processor.save_pretrained(self.config.target_dir)
