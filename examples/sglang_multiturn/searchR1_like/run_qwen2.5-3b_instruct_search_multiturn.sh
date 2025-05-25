@@ -51,7 +51,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='search_async_rl' \
+    trainer.project_name='searchR1_like_async_rl' \
     trainer.experiment_name='qwen2.5-3b-instruct_function_rm-search-async-sgl-multi-w-searchtool-verify-n16' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \

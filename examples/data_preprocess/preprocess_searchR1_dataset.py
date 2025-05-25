@@ -14,14 +14,6 @@ from verl.utils.hdfs_io import copy, makedirs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Load configuration from YAML file
-with open("prompt.yaml", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
-
-# System and user content configuration
-system_content = "You are a helpful and harmless assistant."
-user_content_prefix = cfg["searchR1_like_prompt"]["user_content_prefix"]
-
 
 def process_single_row(row, current_split_name, row_index):
     """
@@ -38,7 +30,7 @@ def process_single_row(row, current_split_name, row_index):
     question = row.get("question", "")
 
     # Build prompt structure
-    user_content = user_content_prefix + question
+    user_content = user_content_prefix.rstrip("\n") + question
     prompt = [{"role": "system", "content": system_content}, {"role": "user", "content": user_content}]
 
     # Extract ground truth from reward_model or fallback to golden_answers
@@ -76,13 +68,6 @@ def process_single_row(row, current_split_name, row_index):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download Search-R1 from HuggingFace, process, and save to Parquet.")
-    parser.add_argument("--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID.")
-    parser.add_argument("--local_dir", default="~/data/searchR1_processed_direct", help="Local directory to save the processed Parquet files.")
-    parser.add_argument("--hdfs_dir", default=None, help="Optional HDFS directory to copy the Parquet files to.")
-
-    args = parser.parse_args()
-
     local_save_dir = os.path.expanduser(args.local_dir)
     os.makedirs(local_save_dir, exist_ok=True)
 
@@ -142,4 +127,16 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Download Search-R1 from HuggingFace, process, and save to Parquet.")
+    parser.add_argument("--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID.")
+    parser.add_argument("--local_dir", default="~/data/searchR1_processed_direct", help="Local directory to save the processed Parquet files.")
+    parser.add_argument("--hdfs_dir", default=None, help="Optional HDFS directory to copy the Parquet files to.")
+    parser.add_argument("--config", type=str, default=os.path.join(os.path.dirname(__file__), "prompt.yaml"), help="Path to prompt.yaml")
+
+    args = parser.parse_args()
+    with open(args.config, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    # System and user content configuration
+    system_content = "You are a helpful and harmless assistant."
+    user_content_prefix = cfg["searchR1_like_prompt"]["user_content_prefix"]
     main()
