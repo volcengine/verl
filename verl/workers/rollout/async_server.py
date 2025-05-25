@@ -136,10 +136,11 @@ class ChatCompletionScheduler:
         self.max_concurrent_requests = len(server_addresses) * config.max_concurrent_requests_per_server
 
         self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+        self.heap_lock = asyncio.Lock()
 
     async def submit_single_chat_completion(
         self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
+        callback: Callable[[ChatCompletion, Dict[str, Any], str, Exception], None],
         callback_additional_info: Dict[str, Any],
         server_address: str,
         **chat_complete_request,
@@ -164,14 +165,13 @@ class ChatCompletionScheduler:
             completions = await self._chat_completions_aiohttp(server_address, **chat_complete_request)
         except Exception as e:
             # Let user handle the exception
-            print(f"Error occurred: {e}")
-            raise
+            exception = e
 
         await callback(completions, callback_additional_info, server_address, exception)
 
     async def submit_chat_completions(
         self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
+        callback: Callable[[ChatCompletion, Dict[str, Any], str, Exception], None],
         callback_additional_info: Dict[str, Any],
         **chat_complete_request,
     ):
@@ -179,7 +179,7 @@ class ChatCompletionScheduler:
         Submit a new chain of chat completion requests to the server.
 
         Args:
-            callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None], async callback function
+            callback: Callable[[ChatCompletion, Dict[str, Any], str, Exception], None], async callback function
                 to handle the response. The callback function should have the following signature:
 
                 ```python
@@ -202,19 +202,21 @@ class ChatCompletionScheduler:
 
         # Wait for available slot before selecting least-loaded server
         async with self.semaphore:
-            entry = self.weighted_addresses[0]
-            entry[0] += 1
-            server_address = entry[1]
-            heapq.heapreplace(self.weighted_addresses, entry)
+            async with self.heap_lock:
+                entry = self.weighted_addresses[0]
+                entry[0] += 1
+                server_address = entry[1]
+                heapq.heapreplace(self.weighted_addresses, entry)
             try:
                 await self.submit_single_chat_completion(callback, callback_additional_info, server_address, **chat_complete_request)
             except Exception as e:
                 print(f"Error occurred: {e}")
                 raise
             finally:
-                # decrease the load count of the server after the task is completed
-                self.addr_map[server_address][0] -= 1
-                heapq.heapify(self.weighted_addresses)
+                async with self.heap_lock:
+                    # decrease the load count of the server after the task is completed
+                    self.addr_map[server_address][0] -= 1
+                    heapq.heapify(self.weighted_addresses)
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
         client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
@@ -330,7 +332,7 @@ class AsyncLLMServerManager:
 
     def submit_chat_completions(
         self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
+        callback: Callable[[ChatCompletion, Dict[str, Any], str, Exception], None],
         callback_additional_info: Dict[str, Any],
         **chat_complete_request,
     ):
