@@ -26,9 +26,9 @@ jobs:
   test:
     name: verl Ascend test (self-host)
     runs-on: [self-hosted, npu-0]
-    timeout-minutes: 5 # Increase this timeout value as needed
+    timeout-minutes: 30 # Increase this timeout value as needed
     container:
-      image: quay.io/ascend/cann:8.0.0-910b-ubuntu22.04-py3.10
+      image: quay.io/ascend/cann:8.1.rc1-910b-ubuntu22.04-py3.10
       volumes:
         - /usr/local/dcmi:/usr/local/dcmi
         - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
@@ -42,6 +42,13 @@ jobs:
         --device /dev/hisi_hdc
         --privileged
         --network "host"
+        --shm-size 2g
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     steps:
       - name: Check npu and CANN info
         run: |
@@ -49,6 +56,42 @@ jobs:
           npu-smi info
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
-      - name: Run test
+      - name: Install torch
         run: |
-          lscpu
+          pip install torch==2.5.1+cpu  --index-url https://download.pytorch.org/whl/cpu
+          pip install torch-npu==2.5.1
+          pip install /usr/local/Ascend/ascend-toolkit/latest/lib64/te-0.4.0-py3-none-any.whl
+      - name: Install vllm
+        run: |
+          apt-get update && apt-get install -y git
+          git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm.git vllm-npu
+          cd vllm-npu
+          pip install -r requirements-build.txt
+          VLLM_TARGET_DEVICE=empty pip install -e . --extra-index https://download.pytorch.org/whl/cpu/
+      - name: Install vllm-ascend
+        run: |
+          pip list
+          pip show torch
+          git clone -b v0.7.3 --depth 1 https://github.com/vllm-project/vllm-ascend.git
+          cd vllm-ascend
+          export COMPILE_CUSTOM_KERNELS=1
+          python setup.py install
+      - name: Install the current repository
+        run: |
+          pip3 install hf_transfer peft
+          pip3 install -r requirements-npu.txt
+          pip install -e .
+      - name: Prepare gsm8k dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/gsm8k.py
+      - name: Running gsm8k e2e training tests with LoRA on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/e2e/sft/run_sft.sh
+          rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU
+        run: |
+          ray stop --force
+          bash tests/npu/run_qwen2_5_05b_grpo.sh
+          rm -rf $HOME/ckpts
