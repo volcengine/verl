@@ -209,7 +209,6 @@ class AsyncSGLangRollout(BaseRollout):
             repetition_penalty=1.0,
         )
         # supporting adding any sampling params from the config file
-        print(f"debug.asyncSglangRollout.config:---\n{config}\n---")
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
