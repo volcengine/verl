@@ -19,3 +19,4 @@ transformers
 wandb
 sglang[all]==0.4.6.post4
 torch-memory-saver>=0.0.5
+huggingface_hub
