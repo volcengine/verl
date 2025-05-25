@@ -27,7 +27,6 @@ import aiohttp
 import fastapi
 import ray
 import uvicorn
-from cachetools import LRUCache
 from omegaconf import DictConfig
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
@@ -111,14 +110,12 @@ class ChatCompletionScheduler:
         config: DictConfig,
         model_path: str,
         server_addresses: List[str],
-        max_cache_size: int = 10000,
     ):
         """
         Args:
             config: DictConfig, rollout config.
             model_path: str, model path.
             server_addresses: List[str], server addresses.
-            max_cache_size: int, max cache size of request_id to address mapping.
         """
         self.config = config
         self.model_name = "/".join(model_path.split("/")[-2:])
@@ -126,11 +123,51 @@ class ChatCompletionScheduler:
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
 
         # Least requests load balancing
-        self.weighted_addresses = [[0, address] for address in server_addresses]
+        self.weighted_addresses: List[List] = []
+        self.addr_map: Dict[str, List] = {}
+
+        for address in server_addresses:
+            entry = [0, address]
+            self.weighted_addresses.append(entry)
+            self.addr_map[address] = entry  # keep a reference to make the weight discount O(1) in finally
+
         heapq.heapify(self.weighted_addresses)
 
-        # LRU cache to map request_id to address
-        self.request_id_to_address = LRUCache(maxsize=max_cache_size)
+        self.max_concurrent_requests = len(server_addresses) * config.max_concurrent_requests_per_server
+
+        self.semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+
+    async def submit_single_chat_completion(
+        self,
+        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
+        callback_additional_info: Dict[str, Any],
+        server_address: str,
+        **chat_complete_request,
+    ):
+        """
+        Submit a single chat completion to the server.
+
+        Args:
+            callback, callback_additional_info and chat_complete_request: the same as `submit_chat_completions`
+
+            server_address: the server handling the current chain of chats. When calling submit_single_chat_completion in
+                the callback, the parameter `server_address` of the callback must be passed to submit_single_chat_completion.
+
+        """
+
+        # use new request_id to avoid duplicate request_id problem
+        chat_complete_request["extra_headers"] = {"x-request-id": uuid4().hex}
+        chat_complete_request["model"] = self.model_name
+        completions, exception = None, None
+        try:
+            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
+            completions = await self._chat_completions_aiohttp(server_address, **chat_complete_request)
+        except Exception as e:
+            # Let user handle the exception
+            print(f"Error occurred: {e}")
+            raise
+
+        await callback(completions, callback_additional_info, server_address, exception)
 
     async def submit_chat_completions(
         self,
@@ -139,18 +176,19 @@ class ChatCompletionScheduler:
         **chat_complete_request,
     ):
         """
-        Submit a chat completion request to the server with the least number of requests.
+        Submit a new chain of chat completion requests to the server.
 
         Args:
             callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None], async callback function
                 to handle the response. The callback function should have the following signature:
 
                 ```python
-                async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+                async def callback(completions: ChatCompletion, info: Dict[str, Any], server_address: str, exception: Exception):
                     ...
                 ```
                 - completions: chat completion response from server.
                 - info: user provided `callback_additional_info`.
+                - server_address: The server this chat connects to. Automatically allocated and must be passed to `submit_single_chat_completion`.
                 - exception: exception raise from OpenAI client if request failed, otherwise None.
 
                 **CAUTION**: the callback function must be async and non-blocking, if you have any blocking operation,
@@ -158,39 +196,25 @@ class ChatCompletionScheduler:
 
             callback_additional_info: Dict[str, Any], additional info to pass to the callback function.
 
-            **chat_complete_request: dict, request parameters same as OpenAI AsyncCompletions.create.
+            chat_complete_request: dict, request parameters same as OpenAI AsyncCompletions.create.
                 OpenAI API reference: https://platform.openai.com/docs/api-reference/chat/create
         """
-        if "extra_headers" not in chat_complete_request:
-            chat_complete_request["extra_headers"] = {}
 
-        extra_headers = chat_complete_request["extra_headers"]
-        request_id = extra_headers.get("x-request-id", None)
-        if request_id:
-            if request_id.startswith("chatcmpl-"):
-                request_id = request_id[len("chatcmpl-") :]
-                extra_headers["x-request-id"] = request_id
-
-            address = self.request_id_to_address.pop(request_id)
-        else:
-            address = self.weighted_addresses[0][1]
-            self.weighted_addresses[0][0] += 1
-            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
-
-        # use new request_id to avoid duplicate request_id problem
-        request_id = uuid4().hex
-        self.request_id_to_address[request_id] = address
-        chat_complete_request["extra_headers"]["x-request-id"] = request_id
-
-        completions, exception = None, None
-        try:
-            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_aiohttp(address, **chat_complete_request)
-        except Exception as e:
-            # Let user handle the exception
-            exception = e
-
-        await callback(completions, callback_additional_info, exception)
+        # Wait for available slot before selecting least-loaded server
+        async with self.semaphore:
+            entry = self.weighted_addresses[0]
+            entry[0] += 1
+            server_address = entry[1]
+            heapq.heapreplace(self.weighted_addresses, entry)
+            try:
+                await self.submit_single_chat_completion(callback, callback_additional_info, server_address, **chat_complete_request)
+            except Exception as e:
+                print(f"Error occurred: {e}")
+                raise
+            finally:
+                # decrease the load count of the server after the task is completed
+                self.addr_map[server_address][0] -= 1
+                heapq.heapify(self.weighted_addresses)
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
         client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)

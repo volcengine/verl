@@ -45,7 +45,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         kwargs.update(sampling_params)
         print(f"[NaiveChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
 
-        async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+        async def callback(completions: ChatCompletion, info: Dict[str, Any], server_address: str, exception: Exception):
             assert exception is None, f"exception: {exception}"
             conversation, batch_conversations, batch_index = (
                 info["conversation"],
@@ -62,9 +62,9 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
 
             # NOTE: we can call tools and resubmit chat completions here.
             # call_tools(completions, info)
-            # await self.submit_chat_completions(callback2, ...)
+            # await self.submit_single_chat_completion(callback2, ...)
 
-        # TODO: we may need to control max concurrent requests here, or it will harm prefix cache hit rate.
+        # NOTE: max concurrent requests have been controlled in ChatCompletionScheduler
         tasks, batch_conversations = [], [None] * len(batch)
         for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"]):
             # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
@@ -77,7 +77,6 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
                             "batch_index": batch_index,
                             "conversation": list(conversation),
                         },
-                        model=self.model_name,
                         messages=conversation.tolist(),
                         **kwargs,
                     )

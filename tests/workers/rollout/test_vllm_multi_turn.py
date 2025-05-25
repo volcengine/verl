@@ -23,6 +23,86 @@ from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompleti
 
 from tests.workers.rollout.async_rollout_utils import init_async_rollout_manager
 from verl.protocol import DataProto
+from verl.workers.rollout.async_server import ChatCompletionScheduler
+
+
+class ConcurrencyTrackingScheduler(ChatCompletionScheduler):
+    """
+    Only for checking concurrency control. NOT for production.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.current_concurrency = 0
+        self.max_concurrency_observed = 0
+        self.monitoring = True
+        self._lock = asyncio.Lock()
+
+    async def monitor_semaphore(self):
+        while self.monitoring:
+            async with self._lock:
+                running = self.max_concurrent_requests - self.semaphore._value
+                self.current_concurrency = running
+                self.max_concurrency_observed = max(self.max_concurrency_observed, running)
+            await asyncio.sleep(0.001)
+
+    async def generate_sequences(self, batch: DataProto, **sampling_params):
+        semaphore_monitor = asyncio.create_task(self.monitor_semaphore())
+
+        kwargs = dict(
+            n=1,
+            max_completion_tokens=self.config.response_length,
+            temperature=self.config.temperature,
+            top_p=self.config.top_p,
+        )
+
+        async def callback(completions: ChatCompletion, info: Dict[str, Any], server_address: str, exception: Exception):
+            assert exception is None, f"exception: {exception}"
+
+            messages, round_num, name = info["messages"], info["round"], info["name"]
+            message = completions.choices[0].message
+            messages.append({"role": message.role, "content": message.content})
+            print(f"[round {round_num}] {message.role}: {message.content}")
+
+            if round_num == 0:
+                messages.append({"role": "user", "content": "What is your name?"})
+                await self.submit_single_chat_completion(
+                    callback=callback,
+                    callback_additional_info={"messages": messages, "round": 1, "name": name},
+                    server_address=server_address,
+                    messages=messages,
+                    **kwargs,
+                )
+            elif round_num == 1:
+                messages.append({"role": "user", "content": "What is your favorite food?"})
+                await self.submit_single_chat_completion(
+                    callback=callback,
+                    callback_additional_info={"messages": messages, "round": 2, "name": name},
+                    server_address=server_address,
+                    messages=messages,
+                    **kwargs,
+                )
+            else:
+                print(f"[{name}] finished all rounds.")
+
+        tasks = []
+        for name, conversation in zip(batch.non_tensor_batch["names"], batch.non_tensor_batch["raw_prompt"]):
+            tasks.append(
+                asyncio.create_task(
+                    self.submit_chat_completions(
+                        callback=callback,
+                        callback_additional_info={"messages": list(conversation), "round": 0, "name": name},
+                        messages=conversation.tolist(),
+                        **kwargs,
+                    )
+                )
+            )
+        await asyncio.gather(*tasks)
+        self.monitoring = False
+        await semaphore_monitor
+
+        assert self.max_concurrency_observed <= self.max_concurrent_requests
+        print(f"Max concurrency observed: {self.max_concurrency_observed}")
 
 
 def init_config() -> DictConfig:
@@ -54,7 +134,6 @@ def test_vllm_multi_turn(config):
     )
 
     # =========================== 1. Init rollout manager ===========================
-    model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
     async_rollout_manager = init_async_rollout_manager(config)
 
     # test sleep and wake_up
@@ -64,31 +143,28 @@ def test_vllm_multi_turn(config):
     async_chat_scheduler = async_rollout_manager.chat_scheduler
 
     # =========================== 2. Multi turn rollout  ===========================
-    async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+    async def callback(completions: ChatCompletion, info: Dict[str, Any], server_address: str, exception: Exception):
         assert exception is None, f"exception: {exception}"
         messages, round = info["messages"], info["round"]
         message = completions.choices[0].message
         messages.append({"role": message.role, "content": message.content})
         print(f"[round={round}] role: {message.role}, content: {message.content}")
 
-        extra_headers = {"x-request-id": completions.id}
         if round == 0:
             messages.append({"role": "user", "content": "What is your name?"})
-            await async_chat_scheduler.submit_chat_completions(
+            await async_chat_scheduler.submit_single_chat_completion(
                 callback=callback,
                 callback_additional_info={"messages": messages, "round": 1},
-                model=model_name,
+                server_address=server_address,
                 messages=messages,
-                extra_headers=extra_headers,
             )
         elif round == 1:
             messages.append({"role": "user", "content": "What is your favorite color?"})
-            await async_chat_scheduler.submit_chat_completions(
+            await async_chat_scheduler.submit_single_chat_completion(
                 callback=callback,
                 callback_additional_info={"messages": messages, "round": 2},
-                model=model_name,
+                server_address=server_address,
                 messages=messages,
-                extra_headers=extra_headers,
             )
         else:
             print("Done!")
@@ -97,7 +173,6 @@ def test_vllm_multi_turn(config):
     async_rollout_manager.submit_chat_completions(
         callback=callback,
         callback_additional_info={"messages": messages, "round": 0},
-        model=model_name,
         messages=messages,
     )
     assert len(messages) == 6
@@ -144,13 +219,11 @@ async def test_vllm_streaming_response(config):
         }
     )
 
-    model_name = "/".join(config.actor_rollout_ref.model.path.split("/")[-2:])
     async_rollout_manager = init_async_rollout_manager(config)
     async_llm_server = async_rollout_manager.async_llm_servers[0]
 
     # non-streaming request
     request = ChatCompletionRequest(
-        model=model_name,
         messages=[{"role": "user", "content": "What is your name?"}],
         stream=False,
     )
@@ -168,7 +241,6 @@ async def test_vllm_streaming_response(config):
 
     # streaming request
     request = ChatCompletionRequest(
-        model=model_name,
         messages=[{"role": "user", "content": "How are you?"}],
         stream=True,
     )
@@ -189,7 +261,70 @@ async def test_vllm_streaming_response(config):
     ray.shutdown()
 
 
+def test_vllm_concurrency(config):
+    config.actor_rollout_ref.rollout.chat_scheduler = "tests.workers.rollout.test_vllm_multi_turn.ConcurrencyTrackingScheduler"
+    config.actor_rollout_ref.rollout.max_concurrent_requests_per_server = 4
+
+    # num of servers == num_gpu// rollout_tp_size
+    # max_concurrent_requests == max_concurrent_requests_per_server * num of servers
+
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+                "VLLM_USE_V1": "1",
+            }
+        }
+    )
+
+    # =========================== 1. Init rollout manager ===========================
+    async_rollout_manager = init_async_rollout_manager(config)
+    async_rollout_manager.wake_up()
+
+    names = ["Alice", "Bob", "Caroline", "David", "Eva", "Frank", "Grace", "Henry", "Ivy", "Jack", "Kathy", "Leo", "Mona", "Nick", "Olivia", "Paul", "Queen", "Robert", "Susan", "Tom", "Una", "Victor", "Wendy", "Xavier", "Yvonne", "Zach"]
+
+    foods = [
+        "apple pie",
+        "banana bread",
+        "cheesecake",
+        "dumplings",
+        "egg tart",
+        "french fries",
+        "granola",
+        "hotdog",
+        "ice cream",
+        "jelly",
+        "kimchi",
+        "lasagna",
+        "muffin",
+        "nachos",
+        "omelette",
+        "pancakes",
+        "quiche",
+        "ramen",
+        "spaghetti",
+        "tacos",
+        "udon",
+        "vanilla cake",
+        "waffles",
+        "xiaolongbao",
+        "yogurt",
+        "zucchini fries",
+    ]
+
+    raw_prompts = [[{"role": "user", "content": f"Let's play a role playing game. Your name is {name}, your favorite food is {food}."}] for name, food in list(zip(names, foods))]
+    batch = DataProto(
+        non_tensor_batch={"raw_prompt": np.array(raw_prompts), "names": np.array(names)},
+    )
+
+    async_rollout_manager.generate_sequences(prompts=batch)
+    ray.shutdown()
+
+
 if __name__ == "__main__":
     config = init_config()
     test_vllm_multi_turn(config)
     asyncio.run(test_vllm_streaming_response(config))
+    test_vllm_concurrency(config)
