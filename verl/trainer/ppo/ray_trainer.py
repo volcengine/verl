@@ -57,7 +57,7 @@ from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean, masked_var
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
@@ -977,6 +977,27 @@ class RayPPOTrainer:
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
+
+                        if 'rollout_log_probs' in batch.batch.keys():
+                            # TODO: we may want to add diff of probs too.
+                            rollout_old_log_probs = batch.batch['rollout_log_probs']
+                            actor_old_log_probs = batch.batch['old_log_probs']
+                            attention_mask = batch.batch["attention_mask"]
+                            responses = batch.batch["responses"]
+                            response_length = responses.size(1)
+                            response_mask = attention_mask[:, -response_length:]
+                            log_probs_diff = torch.abs(rollout_old_log_probs - actor_old_log_probs)
+                            log_probs_diff = torch.masked_select(log_probs_diff, response_mask.bool())
+
+                            log_probs_diff_max = torch.max(log_probs_diff)
+                            log_probs_diff_mean = torch.mean(log_probs_diff)
+                            log_probs_diff_std = torch.std(log_probs_diff)
+
+                            metrics.update({
+                                "training/log_probs_diff_max": log_probs_diff_max.detach().item(),
+                                "training/log_probs_diff_mean": log_probs_diff_mean.detach().item(),
+                                "training/log_probs_diff_std": log_probs_diff_std.detach().item(),
+                            })
 
                     if self.use_reference_policy:
                         # compute reference log_prob
