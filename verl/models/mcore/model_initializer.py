@@ -79,6 +79,7 @@ class BaseModelInitializer(ABC):
             position_embedding_type="rope",
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
+            **extra_kwargs,
         )
 
         if post_process and value:
@@ -166,13 +167,9 @@ class DeepseekV3Model(BaseModelInitializer):
 
     def initialize(
         self,
-        pre_process=None,
-        post_process=None,
-        share_embeddings_and_output_weights=False,
-        value=False,
-        freeze_moe_router=True,
         **kwargs,
     ):
+        freeze_moe_router = kwargs.get("freeze_moe_router", True)
         if freeze_moe_router:
             self.tfconfig.moe_router_load_balancing_type = "none"
         model = super().initialize(**kwargs)
