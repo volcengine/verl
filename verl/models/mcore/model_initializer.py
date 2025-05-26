@@ -17,7 +17,7 @@
 # use mcore transformer config to initialize the model
 from abc import ABC, abstractmethod
 
-from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
+from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec, get_gpt_mtp_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
 
 from .config_converter import PretrainedConfig, TransformerConfig
@@ -67,7 +67,7 @@ class BaseModelInitializer(ABC):
         """
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
-
+        mtp_block_spec = extra_kwargs.get("mtp_block_spec", None)
         model = GPTModel(
             config=self.tfconfig,
             transformer_layer_spec=transformer_layer_spec,
@@ -79,6 +79,7 @@ class BaseModelInitializer(ABC):
             position_embedding_type="rope",
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
+            mtp_block_spec=mtp_block_spec,
         )
 
         if post_process and value:
@@ -160,9 +161,13 @@ class DeepseekV3Model(BaseModelInitializer):
     """Initializer for DeepseekV3 models."""
 
     def get_transformer_layer_spec(self):
-        assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
         return transformer_layer_spec
+
+    def get_rope_scaling_args(self) -> dict:
+        """Get rope scaling args."""
+        rope_scaling_args = {}
+        return rope_scaling_args
 
     def initialize(
         self,
@@ -171,6 +176,12 @@ class DeepseekV3Model(BaseModelInitializer):
         freeze_moe_router = kwargs.get("freeze_moe_router", True)
         if freeze_moe_router:
             self.tfconfig.moe_router_load_balancing_type = "none"
+        # MTP
+        if self.tfconfig.mtp_num_layers is not None:
+            transformer_layer_spec = self.get_transformer_layer_spec()
+            mtp_block_spec = get_gpt_mtp_block_spec(self.tfconfig, transformer_layer_spec, use_transformer_engine=True)
+            kwargs["mtp_block_spec"] = mtp_block_spec
+
         model = super().initialize(**kwargs)
         if freeze_moe_router:
             for layer in model.decoder.layers:
