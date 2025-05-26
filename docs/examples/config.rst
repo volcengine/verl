@@ -370,6 +370,37 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 
 .. note:: **NOTED**: In this config field, users only need to select from ``dummy_megatron``, ``dummy_dtensor``, ``dummy_hf`` for rollout initialization and our hybrid engine will select the corresponding weight loader (i.e., ``megatron``, ``dtensor``, ``hf``) during actor/rollout weight synchronization.
 
+
+Megatron Optimizer and Optimizer Parameter Scheduler
+____________________________________________________
+
+.. code:: yaml
+
+    optim:
+      lr: 1e-6
+      clip_grad: 1.0
+      min_lr: 0.0 # minimum learning rate, default to 0.0
+      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_decay_steps: null
+      lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+      # min_lr_ratio: null   # only useful for warmup with cosine, TODO: support
+      # warmup_style: constant  # select from constant/cosine, TODO: support
+      total_training_steps: -1  # must be override by program
+      weight_decay: 0.01
+      weight_decay_incr_style: constant # select from constant/linear/cosine
+      lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
+      lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+      lr_wsd_decay_steps: null
+      use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+
+
+Notice that there are some differences between Megatron optimizer and FSDP optimizer.
+
+- Megatron optimizer does not support to adjust warmup learning rate changing style, ``warmup_style``
+- Megatron optimizer supports a decay peried of both learning rate and weights
+
+
 Critic Model
 ~~~~~~~~~~~~
 
