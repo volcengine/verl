@@ -131,9 +131,18 @@ class ActorRolloutRefWorker(MegatronWorker):
             self._is_offload_grad = self.config.actor.megatron.get("grad_offload", False)
             self._is_offload_optimizer = self.config.actor.megatron.get("optimizer_offload", False)
         elif self._is_ref:
-            if self.config.ref.get("ppo_micro_batch_size", None):
+            if self.config.ref.get("log_prob_micro_batch_size", None):
                 self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
-                self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
+                self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+                self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+            else:
+                if self.config.ref.get("log_prob_micro_batch_size_per_gpu", None):
+                    self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size_per_gpu
+                elif self.config.ref.get("ppo_micro_batch_size_per_gpu", None):
+                    self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size_per_gpu
+                else:
+                    raise ValueError("Note that for the ref policy, `log_prob_micro_batch_size_per_gpu` and `ppo_micro_batch_size_per_gpu` should not be None at the same time.")
+            print("Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `ppo_micro_batch_size_per_gpu` have the same meaning.")
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
