@@ -1,0 +1,47 @@
+name: utils_gpu_test
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  push:
+    branches:
+      - main
+      - v0.*
+  pull_request:
+    branches:
+      - main
+      - v0.*
+    paths:
+      - "**/*.py"
+      - .github/workflows/utils_gpu_test.yml
+      - "!recipe/**/*.py"
+
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Declare permissions just read content.
+permissions:
+  contents: read
+
+jobs:
+  utils_gpu_test:
+    runs-on: [L20x8]
+    timeout-minutes: 20 # Increase this timeout value as needed
+    container:
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the current repository
+        run: |
+          pip install -e .[test]
+      - name: Running utils gpu tests
+        run: |
+          cd tests/utils/gpu_tests
+          pytest -s -x --ignore=dataset/ --ignore=checkpoint/ .

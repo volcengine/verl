@@ -21,6 +21,7 @@ Data
      train_batch_size: 1024
      return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
      return_raw_chat: False
+     return_full_prompt: False
      shuffle: True
      filter_overlong_prompts: False
      filter_overlong_prompts_workers: 1
@@ -52,7 +53,9 @@ Data
   from the policy. It needs to be decoded first, then apply the RM's
   chat template. If using a model-based RM, and the policy and RM
   chat_templates are different, this flag needs to be set
-- ``data.return_raw_chat``:
+- ``data.return_raw_chat``: Whether to return the original chat (prompt)
+  without applying chat template.
+- ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
 - ``data.filter_overlong_prompts``: Default don't filter.
 - ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
@@ -89,8 +92,12 @@ Actor/Rollout/Reference Policy
     model:
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
-      override_config: { }
+      override_config:
+        model_config: {}
+        moe_config:  # Megatron only, can adjust moe configuration
+          freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
+      enable_activation_offload: False
       trust_remote_code: False
       use_remove_padding: False
     actor:
@@ -115,7 +122,8 @@ Actor/Rollout/Reference Policy
         lr: 1e-6
         lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-        min_lr_ratio: null   # only useful for warmup with cosine
+        min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
+        num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
         warmup_style: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
@@ -162,7 +170,10 @@ Actor/Rollout/Reference Policy
       # for hf rollout
       do_sample: True
       engine_kwargs: # inference engine parameters
-        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        vllm:
+          swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        sglang:
+          attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
       # number of responses (i.e. num sample times)
       n: 1 # > 1 for grpo, rloo
       val_kwargs:
@@ -187,6 +198,8 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
+  activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
 
@@ -283,9 +296,13 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.dtype``: Rollout model parameters type. This should be align with
   the actor model parameter type in FSDP/Megatron backend.
 
-- ``actor_rollout_ref.rollout.gpu_memory_utilization``: The proportion of the remaining GPU memory
-  allocated for kv cache after other models have initialized when using
-  vllm.
+- ``actor_rollout_ref.rollout.gpu_memory_utilization``:
+
+  - For vLLM v0.5.4 and v0.6.3: The proportion of the **remaining** GPU memory
+    allocated for kv cache after other models have initialized when using
+    vLLM.
+  - For vLLM v0.7.0 and later: The fraction of **total** GPU memory to be used for the vLLM instance.
+  - For SGLang: Corresponding to ``mem_fraction_static``, the fraction of the free GPU memory used for **static** memory like model weights and KV cache. 
 
 - ``actor_rollout_ref.rollout.tensor_model_parallel_size``: TP size for rollout. Only effective
   for vllm.
@@ -308,9 +325,17 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
   (top_k, top_p, temperature) to control the sampling behavior.
 
-- ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
-  - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - Positive integer, e.g., ``32`` means 32 GB.
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
+  - ``swap_space``: swap space in GB used by the inference engine.
+    - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+    - Positive integer, e.g., ``32`` means 32 GB.
+
+- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
+  - ``attention_backend``: The attention backend to use for the inference engine.
+    - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
+    - ``flashinfer``: Use flashinfer attention backend.
+    - ``triton``: Use triton attention backend.
+    - ``flashmla``: Use flashmla attention backend.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
