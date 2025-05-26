@@ -334,7 +334,7 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/geo3k.py
-      - name: Running GRPO GSM8K E2E with rmpad using fused kernel (Qwen2.5-VL)
+      - name: Running Geo3k VLM E2E with rmpad using fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
           FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
