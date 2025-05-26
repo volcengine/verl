@@ -165,6 +165,60 @@ def compute_grpo_outcome_advantage(
     return scores, scores
 
 
+def compute_grpo_passk_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+):
+    """
+    Compute advantage for Pass@k using a GRPO-style outcome reward formulation.
+    Only the best response per group gets a non-zero advantage: r_max - r_second_max.
+
+    Implemented as described in https://arxiv.org/abs/2503.19595.
+
+    Args:
+        token_level_rewards: (bs, response_length)
+        response_mask: (bs, response_length)
+        index: (bs,) → group ID per sample
+        epsilon: float for numerical stability
+        norm_adv_by_std_in_grpo: if True, normalize advantage by std within group
+
+    Returns:
+        advantages: (bs, response_length)
+        returns: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)  # (bs,)
+    advantages = torch.zeros_like(scores)
+
+    id2scores = defaultdict(list)
+    id2indices = defaultdict(list)
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            idx = index[i]
+            id2scores[idx].append(scores[i])
+            id2indices[idx].append(i)
+
+        for idx in id2scores:
+            rewards = torch.stack(id2scores[idx])  # (k,)
+            if rewards.numel() < 2:
+                raise ValueError(f"Pass@k requires at least 2 samples per group. Got {rewards.numel()} for group {idx}.")
+            topk, topk_idx = torch.topk(rewards, 2)
+            r_max, r_second_max = topk[0], topk[1]
+            i_max = id2indices[idx][topk_idx[0].item()]
+            advantage = r_max - r_second_max
+            if norm_adv_by_std_in_grpo:
+                std = torch.std(rewards)
+                advantage = advantage / (std + epsilon)
+            advantages[i_max] = advantage
+
+    advantages = advantages.unsqueeze(-1) * response_mask
+    return advantages, advantages
+
+
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor, epsilon: float = 1e-6):
     """
     Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward
@@ -360,7 +414,7 @@ def compute_policy_loss(
     cliprange_low=None,
     cliprange_high=None,
     clip_ratio_c=3.0,
-    loss_agg_mode="token-mean",
+    loss_agg_mode: str = "token-mean",
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
     Args:
@@ -380,11 +434,7 @@ def compute_policy_loss(
             The higher clip range used in PPO.
         clip_ratio_c: (float) default: 3.0
             The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
@@ -421,8 +471,8 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-def compute_entropy_loss(logits, response_mask):
-    """Compute Categorical entropy loss
+def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
+    """Compute categorical entropy loss (For backward compatibility)
 
     Args:
         logits: `(torch.Tensor)`
@@ -435,12 +485,12 @@ def compute_entropy_loss(logits, response_mask):
 
     """
     # compute entropy
-    entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
-    entropy_loss = verl_F.masked_mean(entropy, mask=response_mask)
+    token_entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
+    entropy_loss = agg_loss(loss_mat=token_entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return entropy_loss
 
 
-def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
+def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torch.Tensor, response_mask: torch.Tensor, cliprange_value: float, loss_agg_mode: str = "token-mean"):
     """Compute the value loss. Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1151
 
     Args:
@@ -450,6 +500,9 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
             Old values of value head, shape (`batch_size`, `response_length`)
         returns: (`torch.FloatTensor`):
             Ground truth returns, shape (`batch_size`, `response_length`)
+        response_mask: `(torch.Tensor)`
+            Mask for tokens to calculate value function losses. # TODO: Rename to `state_mask`.
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         vf_loss: a scalar (`torch.FloatTensor`):
@@ -461,7 +514,8 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
     vpredclipped = verl_F.clip_by_value(vpreds, values - cliprange_value, values + cliprange_value)
     vf_losses1 = (vpreds - returns) ** 2
     vf_losses2 = (vpredclipped - returns) ** 2
-    vf_loss = 0.5 * verl_F.masked_mean(torch.max(vf_losses1, vf_losses2), response_mask)
+    clipped_vf_losses = torch.max(vf_losses1, vf_losses2)
+    vf_loss = agg_loss(loss_mat=clipped_vf_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     vf_clipfrac = verl_F.masked_mean(torch.gt(vf_losses2, vf_losses1).float(), response_mask)
     return vf_loss, vf_clipfrac
 

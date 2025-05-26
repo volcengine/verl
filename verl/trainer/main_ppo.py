@@ -178,6 +178,7 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
+            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()

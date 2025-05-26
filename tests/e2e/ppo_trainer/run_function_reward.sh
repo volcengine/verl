@@ -18,7 +18,7 @@ ACTOR_FSDP_PARAM_OFFLOAD=${ACTOR_FSDP_PARAM_OFFLOAD:-False}
 ACTOR_FSDP_OPTIMIZER_OFFLOAD=${ACTOR_FSDP_OPTIMIZER_OFFLOAD:-False}
 REF_FSDP_PARAM_OFFLOAD=${REF_FSDP_PARAM_OFFLOAD:-True}
 RM_PAD=${RM_PAD:-True}
-FUSED_KERNELS=${FUSED_KERNELS:-True}
+FUSED_KERNELS=${FUSED_KERNELS:-False}
 ADV_ESTIMATOR=${ADV_ESTIMATOR:-gae}
 USE_KL=${USE_KL:-False}
 CUSTOM_REWARD_FN=${CUSTOM_REWARD_FN:-False}
@@ -29,7 +29,7 @@ TEST_FREQ=${TEST_FREQ:--1}
 # Save & Resume
 RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
-TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
+TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
 # whether to save hf_model
 SAVE_HF_MODEL=${SAVE_HF_MODEL:-False}
@@ -115,7 +115,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps="${TOT_TRAIN_STEPS}" $@ \
+    trainer.total_training_steps="${TOTAL_TRAIN_STEPS}" $@ \
     | tee "${output_file}"
 
 if [ "${CUSTOM_REWARD_FN}" = "True" ]; then
