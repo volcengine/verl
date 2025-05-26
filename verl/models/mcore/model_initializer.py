@@ -79,7 +79,6 @@ class BaseModelInitializer(ABC):
             position_embedding_type="rope",
             rotary_base=self.hf_config.rope_theta,
             **rope_scaling_args,
-            **extra_kwargs,
         )
 
         if post_process and value:
