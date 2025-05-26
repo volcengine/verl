@@ -213,7 +213,7 @@ def ceildiv(a, b):
 
 
 def roundup_divisible(a, b):
-    return a + (a % b)
+    return ((a + b - 1) // b) * b
 
 
 def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_devided_by=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
@@ -224,7 +224,7 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_dev
         batch (TensorDict): must include "attention_mask" (B*S); other fields are sliced similarly.
         max_token_len (int): max sum of attention_mask per micro-batch.
         dp_group (optional): torch.distributed group for data-parallel sync.
-        vpp_size (optional): virtual pipeline parallel size, for megatron.
+        num_batches_devided_by (optional): virtual pipeline parallel size, for megatron.
         same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
         min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
 
