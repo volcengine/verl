@@ -24,8 +24,6 @@ on:
       - "!verl/trainer/fsdp_sft_trainer.py"
       # Recipes
       - "!recipe/**"
-      # FSDP
-      - "!verl/workers/**/*dp_*.py"
       # Entrypoints
       - .github/workflows/kernels.yml
       - "tests/kernels/*"
