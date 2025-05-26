@@ -71,6 +71,124 @@ Slurm
 -----
 TBD
 
+dstack
+------
+`dstackai/dstack <https://github.com/dstackai/dstack>`_ is an open-source container orchestrator that simplifies distributed training across cloud providers and on-premises environments
+without the need to use K8S or Slurm.
+
+Prerequisite
+~~~~~~~~~~~~
+Once dstack is `installed <https://dstack.ai/docs/installation>`_, initialize the directory as a repo with ``dstack init``. 
+
+.. code-block:: bash
+
+    mkdir myproject && cd myproject
+    dstack init
+
+**Create a fleet**
+
+Before submitting distributed training jobs, create a `dstack` `fleet <https://dstack.ai/docs/concepts/fleets>`_.
+
+Run a Ray cluster task
+~~~~~~~~~~~~~~~~~~~~~~
+
+Once the fleet is created, define a Ray cluster task, e.g. in ``ray-cluster.dstack.yml``:
+
+.. code-block:: yaml
+
+    type: task
+    name: ray-verl-cluster
+
+    nodes: 2
+
+    env:
+        - WANDB_API_KEY
+        - PYTHONUNBUFFERED=1
+        - CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    
+    image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2
+    commands:
+        - git clone https://github.com/volcengine/verl
+        - cd verl
+        - pip install --no-deps -e .
+        - pip install hf_transfer hf_xet
+        - |
+        if [ $DSTACK_NODE_RANK = 0 ]; then
+            python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+            python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-7B-Instruct')" 
+            ray start --head --port=6379;
+        else
+            ray start --address=$DSTACK_MASTER_NODE_IP:6379
+        fi
+
+    # Expose Ray dashboard port
+    ports:
+        - 8265
+
+    resources:
+        gpu: 80GB:8
+        shm_size: 128GB
+
+    # Save checkpoints on the instance
+    volumes:
+        - /checkpoints:/checkpoints
+
+Now, if you run this task via `dstack apply`, it will automatically forward the Ray's dashboard port to `localhost:8265`.
+
+.. code-block:: bash
+
+    dstack apply -f ray-cluster.dstack.yml
+
+As long as the `dstack apply` is attached, you can use `localhost:8265` to submit Ray jobs for execution
+
+Submit Ray jobs
+~~~~~~~~~~~~~~~
+
+Before you can submit Ray jobs, ensure to install `ray` locally:
+   
+.. code-block:: shell
+
+    pip install ray
+
+Now you can submit the training job to the Ray cluster which is available at ``localhost:8265``:
+   
+.. code-block:: shell
+
+    $ RAY_ADDRESS=http://localhost:8265
+    $ ray job submit \
+        -- python3 -m verl.trainer.main_ppo \
+        data.train_files=/root/data/gsm8k/train.parquet \
+        data.val_files=/root/data/gsm8k/test.parquet \
+        data.train_batch_size=256 \
+        data.max_prompt_length=512 \
+        data.max_response_length=256 \
+        actor_rollout_ref.model.path=Qwen/Qwen2.5-7B-Instruct \
+        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+        actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+        critic.optim.lr=1e-5 \
+        critic.model.path=Qwen/Qwen2.5-7B-Instruct \
+        critic.ppo_micro_batch_size_per_gpu=4 \
+        algorithm.kl_ctrl.kl_coef=0.001 \
+        trainer.project_name=ppo_training \
+        trainer.experiment_name=qwen-2.5-7B \
+        trainer.val_before_train=False \
+        trainer.default_hdfs_dir=null \
+        trainer.n_gpus_per_node=8 \
+        trainer.nnodes=2 \
+        trainer.default_local_dir=/checkpoints \
+        trainer.save_freq=10 \
+        trainer.test_freq=10 \
+        trainer.total_epochs=15 2>&1 | tee verl_demo.log \
+        trainer.resume_mode=disable
+
+
+For more details on how `dstack` works, check out its `documentation <https://dstack.ai/docs>`_.
+
 How to debug?
 ---------------------
 
