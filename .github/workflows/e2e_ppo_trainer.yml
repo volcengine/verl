@@ -330,14 +330,14 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,geo,gpu,sglang]
-      - name: Prepare GSM8K dataset
+      - name: Prepare Geo3k dataset
         run: |
           ray stop --force
-          python3 examples/data_preprocess/gsm8k.py
+          python3 examples/data_preprocess/geo3k.py
       - name: Running GRPO GSM8K E2E with rmpad using fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
-          TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+          FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
