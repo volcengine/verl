@@ -377,6 +377,7 @@ ____________________________________________________
 .. code:: yaml
 
     optim:
+      optimizer: adam
       lr: 1e-6
       clip_grad: 1.0
       total_training_steps: -1  # must be override by program
