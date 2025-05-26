@@ -97,6 +97,7 @@ Actor/Rollout/Reference Policy
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
       enable_gradient_checkpointing: False
+      enable_activation_offload: False
       trust_remote_code: False
       use_remove_padding: False
     actor:
@@ -169,7 +170,10 @@ Actor/Rollout/Reference Policy
       # for hf rollout
       do_sample: True
       engine_kwargs: # inference engine parameters
-        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        vllm:
+          swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        sglang:
+          attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
       # number of responses (i.e. num sample times)
       n: 1 # > 1 for grpo, rloo
       val_kwargs:
@@ -194,6 +198,8 @@ Actor/Rollout/Reference Policy
   the model's original configurations, mainly dropout
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: Whether to
   enable gradient checkpointing for the actor
+- ``actor_rollout_ref.model.enable_activation_offload``: Whether to enable
+  activation offloading for the actor
 - ``actor_rollout_ref.model.trust_remote_code``: Whether to enable loading
   a remote code model
 
@@ -319,9 +325,17 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
   (top_k, top_p, temperature) to control the sampling behavior.
 
-- ``actor_rollout_ref.rollout.engine_kwargs.swap_space``: swap space in GB used by the inference engine.
-  - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - Positive integer, e.g., ``32`` means 32 GB.
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
+  - ``swap_space``: swap space in GB used by the inference engine.
+    - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
+    - Positive integer, e.g., ``32`` means 32 GB.
+
+- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
+  - ``attention_backend``: The attention backend to use for the inference engine.
+    - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
+    - ``flashinfer``: Use flashinfer attention backend.
+    - ``triton``: Use triton attention backend.
+    - ``flashmla``: Use flashmla attention backend.
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.

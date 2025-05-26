@@ -18,11 +18,13 @@ from typing import Optional, Union
 
 import torch
 import torch.distributed
+from accelerate import init_empty_weights
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.device import is_cuda_available
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
 from .checkpoint_manager import BaseCheckpointManager
@@ -95,8 +97,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         lr_scheduler_state_dict = extra_state_dict["lr_scheduler"]
 
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
         with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             self.model.load_state_dict(model_state_dict)
             if self.optimizer is not None:
@@ -126,8 +128,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
 
         # every rank will save its own model and optim shard
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
@@ -197,7 +199,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 else:
                     raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
 
-                with torch.device("meta"):
+                with init_empty_weights():
                     save_model = auto_model_cls.from_config(model_config, torch_dtype=torch.bfloat16)
                 save_model.to_empty(device="cpu")
 

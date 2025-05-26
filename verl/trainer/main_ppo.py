@@ -157,7 +157,7 @@ class TaskRunner:
             mapping[Role.RefPolicy] = global_pool_id
 
         reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))
-        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1)
+        val_reward_fn = load_reward_manager(config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {}))
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         from verl.utils.dataset.rl_dataset import collate_fn
@@ -178,6 +178,7 @@ class TaskRunner:
             val_dataset=val_dataset,
             collate_fn=collate_fn,
             train_sampler=train_sampler,
+            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()

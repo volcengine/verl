@@ -46,7 +46,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.torch_functional import broadcast_dict_tensor, check_cuda_is_available
+from verl.utils.torch_functional import check_cuda_is_available
 
 from .base import BaseShardingManager
 
@@ -88,6 +88,9 @@ class FSDPSGLangShardingManager(BaseShardingManager):
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
                 state_dict_config=ShardedStateDictConfig(),
             )
+
+        self.tp_size = self.device_mesh["infer_tp"].size()
+        self.tp_rank = self.device_mesh["infer_tp"].get_local_rank()
 
         # Note that torch_random_states may be different on each dp rank
         self.torch_random_states = torch.cuda.get_rng_state()
@@ -150,7 +153,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
 
     def preprocess_data(self, data: DataProto) -> DataProto:
         """All gather across tp group to make each rank has identical input."""
-        if self.device_mesh["infer_tp"].mesh.size()[0] == 1:
+        if self.tp_size == 1:
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
@@ -160,15 +163,11 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         return data
 
     def postprocess_data(self, data: DataProto) -> DataProto:
-        # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        global_rank = self.device_mesh.get_rank()
-        tp_rank = self.device_mesh["infer_tp"].get_local_rank()
-        tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
-        src_rank = global_rank // tp_size * tp_size
-        if tp_size > 1:
-            local_prompts = data.chunk(chunks=tp_size)
-            data = local_prompts[tp_rank]
-        return data
+        """Get chunk data of this tp rank since we do all gather in preprocess."""
+        if self.tp_size == 1:
+            return data
+
+        return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
 
 class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):

@@ -103,12 +103,12 @@ class AsyncRolloutRequest(BaseModel):
         }
     }
 
-    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> str:
+    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> list[int]:
         return tokenizer.apply_chat_template(  # type: ignore
             conversation=[msg.model_dump() for msg in self.messages],
             tools=[tool.model_dump() for tool in self.tools] if self.tools else None,
             add_generation_prompt=True,
-            tokenize=False,
+            tokenize=True,
         )
 
     def add_assistant_message(

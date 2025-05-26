@@ -106,6 +106,9 @@ Therefore, users may need to tune the ``*micro_batch_size_per_gpu`` to accelerat
 4. **Allow larger micro-batch sizes for Critic and Reward models**:
    micro batch size of Critic and Reward model could be larger than Actor model. This is because the actor model has much larger vocab size in the final layer.
 
+5. **Enable activation offloading**:
+   Set ``actor_rollout_ref.model.enable_activation_offload=True`` and ``critic.model.enable_activation_offload=True``.
+   This often works together with gradient checkpointing to get larger micro-batch sizes and it's only available in FSDP backend now.
 
 Tuning for Dynamic Batch Size
 -----------------------------

@@ -233,11 +233,12 @@ def llama_attn_forward(
 
 
 @dataclass
-class CausalLMOutputWithoutLogits(CausalLMOutputWithPast):
-    last_hidden_state: Optional[torch.FloatTensor] = None
+class CausalLMOutputForPPO(CausalLMOutputWithPast):
+    log_probs: Optional[torch.FloatTensor] = None
+    entropy: Optional[torch.FloatTensor] = None
 
 
-def forward_without_logits(
+def forward_for_ppo(
     self,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -251,14 +252,17 @@ def forward_without_logits(
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
     logits_to_keep: Union[int, torch.Tensor] = 0,
+    temperature: float = 1.0,
     **loss_kwargs,
-) -> Union[Tuple, CausalLMOutputWithoutLogits]:
+) -> Union[Tuple, CausalLMOutputForPPO]:
     r"""
     Copy paste LLaMa's forward
     https://github.com/linkedin/Liger-Kernel/blob/main/src/liger_kernel/transformers/model/llama.py
 
     This function should be generic enough for all pure text models.
     ```"""
+    from verl.utils.experimental.torch_functional import FusedLinearForPPO
+
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -281,13 +285,28 @@ def forward_without_logits(
 
     hidden_states = outputs[0]
 
-    if labels is not None:
-        raise NotImplementedError("forward_without_logits does not support labels")
     if not return_dict:
-        raise NotImplementedError("forward_without_logits has to return_dict")
+        raise NotImplementedError("forward_for_ppo has to return_dict")
 
-    return CausalLMOutputWithoutLogits(
-        last_hidden_state=hidden_states,
+    # Loss calculations
+    if labels is not None:
+        rolled_labels = torch.roll(labels, shifts=-1, dims=-1)
+    elif input_ids is not None:
+        rolled_labels = torch.roll(input_ids, shifts=-1, dims=-1)
+    else:
+        raise RuntimeError("To use forward_for_ppo, either labels or input_ids must be provided.")
+
+    fused_linear_for_ppo = FusedLinearForPPO()
+    log_probs, entropy = fused_linear_for_ppo.forward(
+        hidden_states=hidden_states,
+        vocab_weights=self.lm_head.weight,
+        input_ids=rolled_labels,
+        temperature=temperature,
+    )
+
+    return CausalLMOutputForPPO(
+        log_probs=log_probs,
+        entropy=entropy,
         past_key_values=outputs.past_key_values,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,

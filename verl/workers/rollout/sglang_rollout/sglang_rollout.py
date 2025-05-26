@@ -30,11 +30,12 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import TYPE_CHECKING
 
 import numpy as np
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from sglang.srt.entrypoints.verl_engine import VerlEngine
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.utils import get_ip, get_open_port
@@ -170,6 +171,9 @@ class SGLangRollout(BaseRollout):
             dist_init_addr = None
 
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
+        # copy it to avoid secretly modifying the engine config
+        engine_kwargs = {} if "engine_kwargs" not in config or "sglang" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.sglang))
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         self.inference_engine = VerlEngine(
             model_path=actor_module,
             dtype=config.dtype,
@@ -185,13 +189,15 @@ class SGLangRollout(BaseRollout):
             # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
             # when random.seed is being set during training
             port=30000 + rank,
-            # NOTE(Chenyang): if you want to debug the SGLang engine output
-            # please set the following parameters
-            # Otherwise, it will make the engine run too slow
+            # Note: Enable below to display SGLang engine logs at INFO level
             # log_level="INFO",
+            # Note: Enable below to display ReqInput in details, be careful about the log volume
             # log_requests=True,
+            # Note: Log level for ReqInput, 0 for concise, 1 for log middle leve, 2 for verbose
             # log_requests_level=2,
+            # Note: Enable below to limit the number of running requests
             # max_running_requests=1,
+            **engine_kwargs,
         )
 
         # offload

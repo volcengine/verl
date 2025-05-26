@@ -19,18 +19,19 @@ import torch
 import torch.distributed as dist
 
 from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
+from verl.utils.device import get_torch_device
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
     """Get current memory usage."""
     assert unit in ["GB", "MB", "KB"]
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
-    mem_allocated = torch.cuda.memory_allocated()
-    mem_reserved = torch.cuda.memory_reserved()
-    # use torch.cuda.mem_get_info to profile device memory
+    mem_allocated = get_torch_device().memory_allocated()
+    mem_reserved = get_torch_device().memory_reserved()
+    # use get_torch_device().mem_get_info to profile device memory
     # since vllm's sleep mode works below pytorch
     # see https://github.com/vllm-project/vllm/pull/11743#issuecomment-2754338119
-    mem_free, mem_total = torch.cuda.mem_get_info()
+    mem_free, mem_total = get_torch_device().mem_get_info()
     mem_used = mem_total - mem_free
     mem_allocated = f"{mem_allocated / divisor:.{precision}f}"
     mem_reserved = f"{mem_reserved / divisor:.{precision}f}"

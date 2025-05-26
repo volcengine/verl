@@ -163,6 +163,7 @@ class MegatronPPOCritic(BasePPOCritic):
                 returns=returns,
                 response_mask=response_mask,
                 cliprange_value=cliprange_value,
+                loss_agg_mode=self.config.loss_agg_mode,
             )
             stats = {
                 "critic/vf_loss": vf_loss.detach().item(),

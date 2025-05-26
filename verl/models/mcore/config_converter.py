@@ -23,7 +23,7 @@ from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from transformers import PretrainedConfig
 
 
-def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs) -> TransformerConfig:
+def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     """
     Create a base TransformerConfig with common parameters across different model architectures.
     TODO: (ycl) use dataclass or converter config?
@@ -31,7 +31,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     Args:
         hf_config: HuggingFace model configuration
         dtype: Data type for the model
-        **kwargs: Additional parameters to override defaults
+        override_transformer_config_kwargs: Additional parameters to override defaults
 
     Returns:
         TransformerConfig with common parameters
@@ -65,6 +65,8 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         # Parallel configuration
         "tensor_model_parallel_size": mpu.get_tensor_model_parallel_world_size(),
         "pipeline_model_parallel_size": mpu.get_pipeline_model_parallel_world_size(),
+        "expert_model_parallel_size": mpu.get_expert_model_parallel_world_size(),
+        "expert_tensor_parallel_size": mpu.get_expert_tensor_parallel_world_size(),
         "virtual_pipeline_model_parallel_size": mpu.get_virtual_pipeline_model_parallel_world_size(),
         "context_parallel_size": mpu.get_context_parallel_world_size(),
         "overlap_p2p_comm": overlap_p2p_comm,
@@ -77,28 +79,21 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     }
 
     # Update with any provided overrides
-    base_config.update(kwargs)
+    base_config.update(override_transformer_config_kwargs)
     print(f"Overridden TF init config: {base_config}")
 
     return TransformerConfig(**base_config)
 
 
-def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
     qk_layernorm = True if "Qwen3ForCausalLM" in hf_config.architectures else False
 
-    return _get_base_transformer_config(
-        hf_config=hf_config,
-        dtype=dtype,
-        use_cpu_initialization=False,
-        add_bias_linear=False,
-        add_qkv_bias=qkv_bias,
-        qk_layernorm=qk_layernorm,
-    )
+    return _get_base_transformer_config(hf_config=hf_config, dtype=dtype, use_cpu_initialization=False, add_bias_linear=False, add_qkv_bias=qkv_bias, qk_layernorm=qk_layernorm, **override_transformer_config_kwargs)
 
 
-def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     return _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -124,10 +119,11 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         # Qwen specific
         moe_router_pre_softmax=True,
         add_qkv_bias=True,
+        **override_transformer_config_kwargs,
     )
 
 
-def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     return _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -152,10 +148,11 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype) 
         apply_rope_fusion=True,
         bias_activation_fusion=True,
         bias_dropout_fusion=True,
+        **override_transformer_config_kwargs,
     )
 
 
-def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     return _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
@@ -179,19 +176,20 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype)
         # Qwen specific
         moe_router_pre_softmax=False,
         qk_layernorm=True,
+        **override_transformer_config_kwargs,
     )
 
 
-def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype) -> MLATransformerConfig:
+def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
     raise NotImplementedError("DeepseekV3ForCausalLM is not supported yet")
 
 
-def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
     raise NotImplementedError("Qwen2_5_VLForConditionalGeneration is not supported yet")
 
 
-def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype) -> TransformerConfig:
+def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Llama4ForConditionalGeneration
     raise NotImplementedError("Llama4ForConditionalGeneration is not supported yet")

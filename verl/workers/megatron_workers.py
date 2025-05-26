@@ -97,7 +97,8 @@ class ActorRolloutRefWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.actor.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.actor.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.actor.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
@@ -135,14 +136,14 @@ class ActorRolloutRefWorker(MegatronWorker):
                 self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
-    def _build_model_optimizer(self, model_path, optim_config, override_model_config):
+    def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
         self.generation_config = get_generation_config(self.local_path)
 
         def megatron_actor_model_provider(pre_process, post_process):
@@ -202,6 +203,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
+        from torch.distributed.device_mesh import init_device_mesh
+
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.weight",
@@ -247,6 +250,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
@@ -262,9 +266,20 @@ class ActorRolloutRefWorker(MegatronWorker):
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
 
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+            rollout_device_mesh = init_device_mesh("cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp"))
+
             local_path = copy_to_local(self.config.model.path)
             log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
-            rollout = SGLangRollout(actor_module=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config)
+            rollout = SGLangRollout(
+                actor_module=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                trust_remote_code=self.config.model.get("trust_remote_code", False),
+            )
             log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
 
             from verl.models.mcore import get_mcore_weight_converter
@@ -274,8 +289,50 @@ class ActorRolloutRefWorker(MegatronWorker):
                 actor_module=self.actor.actor_module,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+        elif self.config.rollout.name == "sglang_async":
+            from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.megatron_sglang import MegatronAsyncSGLangShardingManager
+
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+            rollout_device_mesh = init_device_mesh("cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp"))
+
+            local_path = copy_to_local(self.config.model.path)
+            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
+            rollout = AsyncSGLangRollout(
+                actor_module=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                trust_remote_code=trust_remote_code,
+                device_mesh=rollout_device_mesh,
+            )
+            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
+
+            from verl.models.mcore import get_mcore_weight_converter
+
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+            sharding_manager = MegatronAsyncSGLangShardingManager(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout._engine,
+                model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
+                layer_name_mapping=layer_name_mapping,
+                weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
@@ -296,6 +353,12 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.torch_dtypes import PrecisionType
 
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        if self._is_actor:
+            override_transformer_config = OmegaConf.to_container(self.config.actor.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+        elif self._is_ref:
+            override_transformer_config = OmegaConf.to_container(self.config.ref.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
+        else:
+            override_transformer_config = None
         self.param_dtype = torch.bfloat16
         log_gpu_memory_usage("Before init actor model and optimizer", logger=logger)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
@@ -306,6 +369,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_path=self.config.model.path,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
             )
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
@@ -334,6 +398,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 model_path=self.config.model.path,
                 optim_config=None,
                 override_model_config=override_model_config,
+                override_transformer_config=override_transformer_config,
             )
             log_gpu_memory_usage("After ref model init", logger=logger)
             self.ref_policy = MegatronPPOActor(
@@ -424,7 +489,16 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
 
             prompts = self.sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+            # output = self.rollout.generate_sequences(prompts=prompts)
+            if self.config.rollout.name == "sglang_async":
+                from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+
+                if isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "_tool_schemas") and len(self.rollout._tool_schemas) > 0:
+                    output = self.rollout.generate_sequences_with_tools(prompts=prompts)
+                else:
+                    output = self.rollout.generate_sequences(prompts=prompts)
+            else:
+                output = self.rollout.generate_sequences(prompts=prompts)
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
@@ -524,7 +598,8 @@ class CriticWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
@@ -543,14 +618,14 @@ class CriticWorker(MegatronWorker):
 
         # TODO(sgm): support critic model offload
 
-    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config):
+    def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron.optimizer import get_megatron_optimizer
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -601,12 +676,14 @@ class CriticWorker(MegatronWorker):
 
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
         self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
             optim_config=self.config.optim,
             override_model_config=override_model_config,
+            override_transformer_config=override_transformer_config,
         )
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.critic_module)
@@ -723,7 +800,8 @@ class RewardModelWorker(MegatronWorker):
                 pipeline_model_parallel_split_rank=None,
                 use_sharp=False,
                 context_parallel_size=self.config.megatron.context_parallel_size,
-                expert_model_parallel_size=1,
+                expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
+                expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
             )
 
@@ -734,12 +812,12 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, override_model_config):
+    def _build_rm_model(self, model_path, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron_utils import get_model
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config)
+        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config)
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -789,6 +867,7 @@ class RewardModelWorker(MegatronWorker):
 
             importlib.import_module(self.config.model.external_lib)
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
+        override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
 
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
@@ -804,6 +883,7 @@ class RewardModelWorker(MegatronWorker):
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
             override_model_config=override_model_config,
+            override_transformer_config=override_transformer_config,
         )
         # FIXME(sgm): reward model param offload is implemented in MegatronRewardModel
         # should be implemented in workers
