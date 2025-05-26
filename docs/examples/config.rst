@@ -393,6 +393,8 @@ Reward Model
      micro_batch_size_per_gpu: 16
      max_length: null
      reward_manager: naive
+     launch_reward_fn_async: False
+     reward_fn_parallel_size: 1
 
 - ``reward_model.enable``: Whether to enable reward model. If False, we
   compute the reward only with the user-defined reward functions. In
@@ -414,6 +416,8 @@ Reward Model
   of computing rule-based reward and handling different reward sources. Default
   is ``naive``. If all verification functions are multiprocessing-safe, the reward
   manager can be set to ``prime`` for parallel verification.
+- ``launch_reward_fn_async``: custom reward function executed async on CPU, during log_prob.
+- ``reward_fn_parallel_size``: parallel size for async reward function exectuion.
 
 Customized Reward Function
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
