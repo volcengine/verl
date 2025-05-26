@@ -509,6 +509,13 @@ Trainer
   for the ray register center to be ready. Default is 300 seconds.
 
 
+This figure illustrates how the configurations affect the training.
+
+https://excalidraw.com/#json=pfhkRmiLm1jnnRli9VFhb,Ut4E8peALlgAUpr7E5pPCA
+
+.. image:: https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d
+
+
 evaluation.yaml
 ---------------
 
