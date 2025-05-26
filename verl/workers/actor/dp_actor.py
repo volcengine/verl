@@ -84,6 +84,10 @@ class DataParallelPPOActor(BasePPOActor):
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
+        extra_forward_kwargs = {}
+        if self.use_fused_kernels:
+            extra_forward_kwargs["temperature"] = temperature
+
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
@@ -128,7 +132,7 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids=position_ids_rmpad,
                     **multi_modal_inputs,
                     use_cache=False,
-                    temperature=temperature,
+                    **extra_forward_kwargs,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
@@ -196,7 +200,7 @@ class DataParallelPPOActor(BasePPOActor):
                     position_ids=position_ids,
                     **multi_modal_inputs,
                     use_cache=False,
-                    temperature=temperature,
+                    **extra_forward_kwargs,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
