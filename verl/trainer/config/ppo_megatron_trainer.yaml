@@ -37,6 +37,7 @@ actor_rollout_ref:
       activations_checkpoint_granularity: null # 'selective' or 'full'
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
+    trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -185,6 +186,7 @@ critic:
       moe_config:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
+    trust_remote_code: False
     enable_gradient_checkpointing: False
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
@@ -243,6 +245,7 @@ reward_model:
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    trust_remote_code: False
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu

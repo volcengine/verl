@@ -75,8 +75,8 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     trainer.nnodes=$NODES \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    +actor_rollout_ref.model.trust_remote_code=True \
-    +critic.model.trust_remote_code=True \
+    actor_rollout_ref.model.trust_remote_code=True \
+    critic.model.trust_remote_code=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=13 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$VLLM_TP \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$PP \
