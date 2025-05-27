@@ -1,11 +1,11 @@
 MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 DATA_PATH=~/data/uground
-REWARD_FILE=verl/utils/reward_score/ui_uground.py
+REWARD_FILE=orby/reward/ui_action_description.py
 REWARD_FN=reward_func
 OUTPUT_FILE=test-output-1.parquet
 
 # Generation
-python3 -m verl.trainer.main_generation \
+python3 -m orby.trainer.main_generation \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=8 \
     data.path=$DATA_PATH/test.parquet \
@@ -25,7 +25,7 @@ python3 -m verl.trainer.main_generation \
     rollout.max_num_batched_tokens=65536
 
 # Evaluation
-python3 -m verl.trainer.main_eval \
+python3 -m orby.trainer.main_eval \
     data.path=$DATA_PATH/$OUTPUT_FILE \
     data.prompt_key=prompt \
     data.response_key=responses \

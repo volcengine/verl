@@ -70,7 +70,9 @@ def _create_dataloader(config, tokenizer, processor):
     return dataloader
 
 
-@hydra.main(config_path="config", config_name="generation", version_base=None)
+@hydra.main(
+    config_path="../../verl/trainer/config", config_name="generation", version_base=None
+)
 def main(config):
     run_generation(config)
 
