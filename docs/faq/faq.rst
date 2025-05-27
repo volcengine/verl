@@ -107,6 +107,8 @@ https://verl.readthedocs.io/en/latest/examples/config.html to disable just-in-ti
 What is the meaning of train batch size, mini batch size, and micro batch size?
 ------------------------------------------------------------------------------------------
 
-Please check out the following figure from the community (credit to @hiyouga)
+This figure illustrates the relationship between different batch size configurations.
 
-.. image:: https://github.com/hiyouga/EasyR1/blob/main/assets/easyr1_grpo.png
+https://excalidraw.com/#json=pfhkRmiLm1jnnRli9VFhb,Ut4E8peALlgAUpr7E5pPCA
+
+.. image:: https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d
