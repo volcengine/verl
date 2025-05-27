@@ -4,7 +4,7 @@
 - Run `bash orby/scripts/run_qwen2_5_vl-7b_grpo.sh` to start training with the ActionDescription dataset.
 
 # Rule-based reward
-- The rule-based reward for ActionDescription is defined in [ui_action_description.py](/verl/orby/reward/ui_action_description.py). It consists of 3 rewards: 1) whether the response contains both thinking and answer, 2) whether the action type is correct, 3) whether the action args are correct, e.g., x/y coordinate is within groundtruth bounding box.
+- The rule-based reward for ActionDescription is defined in [action_description.py](/verl/orby/reward/action_description.py). It consists of 3 rewards: 1) whether the response contains both thinking and answer, 2) whether the action type is correct, 3) whether the action args are correct, e.g., x/y coordinate is within groundtruth bounding box.
 - You can create rule-based reward for other dataset following this example. **Use Cursor to save a lot of time!**
 
 # Dataset format
