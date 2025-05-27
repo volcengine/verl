@@ -365,7 +365,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            print(f"{self.sampling_params=}")
+            # print(f"{self.sampling_params=}")
             if self._tp_rank == 0:
                 loop = asyncio.get_event_loop()
                 output = loop.run_until_complete(
