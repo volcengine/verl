@@ -38,11 +38,14 @@ from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from torchdata.stateful_dataloader import StatefulDataLoader
 
+from verl.trainer.main_ppo import create_rl_dataset
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from verl.utils.dataset.rl_dataset import collate_fn
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fs import copy_to_local
@@ -135,6 +138,8 @@ class FSDPSFTTrainer:
         # build dataloader
         # Use data parallel rank and size instead of global rank and world size
 
+
+
         # If doing SP, we need to use the local rank and size
         if self.config.ulysses_sequence_parallel_size > 1:
             rank = self.ulysses_device_mesh.get_local_rank("dp")
@@ -149,31 +154,51 @@ class FSDPSFTTrainer:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
 
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
-        self.train_dataloader = DataLoader(
-            dataset=self.train_dataset,
-            batch_size=config.data.train_batch_size,
-            sampler=self.train_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
-
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
-        self.val_dataloader = DataLoader(
-            dataset=self.val_dataset,
-            batch_size=config.data.micro_batch_size_per_gpu,
-            sampler=self.val_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
+
+        if self.config.data.get("image_key", None) is not None:
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_size=config.data.train_batch_size,
+                num_workers=8,
+                drop_last=True,
+                collate_fn=collate_fn,
+                sampler=self.train_sampler,
+            )
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_size=config.data.micro_batch_size_per_gpu,
+                num_workers=8,
+                drop_last=False,
+                shuffle=False,
+                collate_fn=collate_fn,
+                sampler=self.val_sampler,
+            )
+        else:    
+            self.train_dataloader = DataLoader(
+                dataset=self.train_dataset,
+                batch_size=config.data.train_batch_size,
+                sampler=self.train_sampler,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+            )
+
+            self.val_dataloader = DataLoader(
+                dataset=self.val_dataset,
+                batch_size=config.data.micro_batch_size_per_gpu,
+                sampler=self.val_sampler,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+            )
 
     def _build_model_optimizer(self):
         # TODO (zhangchi.usc1992):
         # 1. support pretrain from random weights
         # 2. support init directly from sharded weights
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
-
+        
         if self.config.model.get("external_lib", None) is not None:
             # This is used to import external_lib into the huggingface systems
             import importlib
@@ -192,13 +217,24 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                local_model_path,
-                config=config,
-                torch_dtype=torch.float32,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
+
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            local_model_path,
+            device_map=torch.cuda.current_device(),
+            attn_implementation="sdpa"
             )
+
+            self.model: PreTrainedModel = model
+
+            #self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+            #    local_model_path,
+            #    config=config,
+            #    torch_dtype=torch.float32,
+            #    attn_implementation="flash_attention_2",
+            #    trust_remote_code=trust_remote_code,
+            #)
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -524,19 +560,26 @@ def main(config):
     dp_size = world_size // config.ulysses_sequence_parallel_size
     ulysses_device_mesh = init_device_mesh(device_type=device_name, mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
     # build tokenizer and datasets first
-    from verl.utils import hf_tokenizer
+    from verl.utils import hf_tokenizer, hf_processor
 
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+    processor = hf_processor(local_model_path)
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, processor)
+    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer, processor)
 
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_vlm_sft_dataset(data_paths, data_config, tokenizer, processor=None):
+    return create_rl_dataset(data_paths, data_config, tokenizer, processor)
+
+def create_sft_dataset(data_paths, data_config, tokenizer, processor=None):
+
+    if data_config.get("image_key", None) is not None:
+        return create_vlm_sft_dataset(data_paths, data_config, tokenizer, processor)
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified

@@ -18,12 +18,13 @@ SFT dataset
 Each parquet file contains
 """
 
-from typing import List, Union
+from typing import List, Union, Optional
 
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
+
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
