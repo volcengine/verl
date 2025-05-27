@@ -460,7 +460,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.megatron.optimizer import get_megatron_last_lr
 
         metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
-        self.actor_lr_scheduler.step(1)
+        self.actor_optimizer_scheduler.step(1)
 
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={"metrics": metrics})
