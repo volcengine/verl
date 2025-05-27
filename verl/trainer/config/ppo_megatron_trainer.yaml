@@ -219,6 +219,7 @@ critic:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
+  loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
     contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
@@ -227,8 +228,6 @@ reward_model:
   strategy: megatron
   megatron:
     param_offload: False
-    grad_offload: False
-    optimizer_offload: False
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     expert_tensor_parallel_size: null

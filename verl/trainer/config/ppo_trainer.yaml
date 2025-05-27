@@ -28,6 +28,7 @@ actor_rollout_ref:
     external_lib: null
     override_config: { }
     enable_gradient_checkpointing: True
+    enable_activation_offload: False
     use_remove_padding: False
     use_liger: False
     use_fused_kernels: False
@@ -153,6 +154,7 @@ critic:
     override_config: { }
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: True
+    enable_activation_offload: False
     use_remove_padding: False
     trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
     fsdp_config:
@@ -177,6 +179,7 @@ critic:
   shuffle: ${actor_rollout_ref.actor.shuffle}
   grad_clip: 1.0
   cliprange_value: 0.5
+  loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
   checkpoint:
     contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
 
