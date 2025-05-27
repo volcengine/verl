@@ -57,7 +57,7 @@ from verl.utils.metric import (
     reduce_metrics,
 )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-from verl.utils.torch_functional import masked_mean, masked_var
+from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
@@ -978,10 +978,10 @@ class RayPPOTrainer:
                         old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
 
-                        if 'rollout_log_probs' in batch.batch.keys():
+                        if "rollout_log_probs" in batch.batch.keys():
                             # TODO: we may want to add diff of probs too.
-                            rollout_old_log_probs = batch.batch['rollout_log_probs']
-                            actor_old_log_probs = batch.batch['old_log_probs']
+                            rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                            actor_old_log_probs = batch.batch["old_log_probs"]
                             attention_mask = batch.batch["attention_mask"]
                             responses = batch.batch["responses"]
                             response_length = responses.size(1)
@@ -994,11 +994,13 @@ class RayPPOTrainer:
                             rollout_probs_diff_max = torch.max(rollout_probs_diff)
                             rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
                             rollout_probs_diff_std = torch.std(rollout_probs_diff)
-                            metrics.update({
-                                "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
-                                "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
-                                "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
-                            })
+                            metrics.update(
+                                {
+                                    "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                                    "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                                    "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                                }
+                            )
 
                     if self.use_reference_policy:
                         # compute reference log_prob
