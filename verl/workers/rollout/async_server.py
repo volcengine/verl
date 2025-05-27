@@ -199,7 +199,8 @@ class ChatCompletionScheduler:
     async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
         try:
             extra_headers = chat_complete_request.pop("extra_headers")
-            session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=None)
+            session = aiohttp.ClientSession(timeout=timeout)
             async with session.post(
                 url=f"http://{address}/v1/chat/completions",
                 headers={"Authorization": "Bearer token-abc123", **extra_headers},
