@@ -29,6 +29,7 @@ NVIDIA GPUs
 .. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
 .. _Qwen7b GRPO FSDP2 Script and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b-fsdp2.log
 .. _Qwen 7B SPPO Script: https://github.com/volcengine/verl/tree/main/recipe/sppo/README.md
+.. _Qwen 7B SPIN Script: https://github.com/volcengine/verl/tree/main/recipe/spin/README.md
 .. _Mixtral-8x22B-Instruct RLOO Wandb: https://api.wandb.ai/links/ppo_dev/sbuiuf2d
 
 .. To contributors: PLEASE make sure the table margins are aligned vertically, and check if the rendering is successful in preview.
@@ -52,7 +53,7 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Qwen/Qwen2-7B-Instruct           | GRPO (FSDP2)           | 89.8       |  `Qwen7b GRPO FSDP2 Script and Logs`_                                                         |
+| Qwen/Qwen2-7B-Instruct           | GRPO (FSDP2)           | 89.8       |   `Qwen7b GRPO FSDP2 Script and Logs`_                                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO (Megatron)        | 89.6       |   `Megatron Qwen2 7b GRPO Script with Math and GSM8k`_                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
@@ -64,8 +65,8 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Mixtral-8x22B-Instruct-v0.1      | RLOO (Megatron)        | 92.3       |   `Mixtral-8x22B-Instruct RLOO Wandb`_                                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-
-
+| Qwen/Qwen2.5-7B-Instruct         | SPIN                   | 92         |   `Qwen 7B SPIN Script`_                                                                      |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 AMD GPUs (MI300)
 --------------------------------

@@ -1,4 +1,4 @@
-name: e2e_sppo
+name: e2e_spin
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,7 @@ on:
       - v0.*
     paths:
       - "**/*.py"
-        # Other entrypoints
+      # Other entrypoints
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"
@@ -23,18 +23,19 @@ on:
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # Home
-      - "recipe/sppo"
+      - "recipe/spin"
       # Entrypoints
-      - ".github/workflows/e2e_sppo.yml"
+      - ".github/workflows/e2e_spin.yml"
       - "examples/data_preprocess/gsm8k.py"
-      - "tests/e2e/run_sppo.sh"
+      - "tests/e2e/run_spin.sh"
+      - "!examples"
 
 # Declare permissions just read content.
 permissions:
   contents: read
 
 jobs:
-  e2e_sppo:
+  e2e_spin:
     runs-on: [L20x8]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
@@ -53,13 +54,13 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -e .[test,gpu,sglang] --no-deps
-      - name: Prepare MATH dataset
+      - name: Prepare gsm8k dataset
         run: |
-          python3 examples/data_preprocess/math_dataset.py --local_dir ./data/math
+          python3 examples/data_preprocess/gsm8k.py --local_dir ./data/gsm8k
       - name: Prepare Model checkpoint
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ./models/Qwen2.5-0.5B-Instruct
-      - name: Running the E2E test with the SPPO algorithm
+      - name: Running the E2E test with the spin algorithm
         run: |
           ray stop --force
-          bash tests/e2e/run_sppo.sh
+          bash tests/e2e/run_spin.sh
