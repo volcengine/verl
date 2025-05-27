@@ -98,4 +98,4 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     return default_compute_score(data_source, solution_str, ground_truth, extra_info, sandbox_fusion_url, concurrent_semaphore)
 
 
-__all__ = ["default_compute_score", "_default_compute_score"]
+__all__ = ["default_compute_score"]
