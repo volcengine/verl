@@ -13,6 +13,8 @@
 # limitations under the License.
 # from . import gsm8k, math, prime_math, prime_code
 
+from verl.utils.import_utils import deprecated
+
 
 def default_compute_score(data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None):
     """Compute the score for a given solution based on the data source.
@@ -88,4 +90,12 @@ def default_compute_score(data_source, solution_str, ground_truth, extra_info=No
         return float(res[0])
 
 
-__all__ = ["default_compute_score"]
+@deprecated("verl.utils.reward_score.default_compute_score")
+def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None):
+    """
+    Legacy function API to be deprecated. Please use `default_compute_score` instead.
+    """
+    return default_compute_score(data_source, solution_str, ground_truth, extra_info, sandbox_fusion_url, concurrent_semaphore)
+
+
+__all__ = ["default_compute_score", "_default_compute_score"]
