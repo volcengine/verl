@@ -69,6 +69,8 @@ CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 
+LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-null}
+
 CHECKPOINT_CONTENTS=['model','hf_model','optimizer','extra']
 SKIP_SAVE_HF_MODEL=${SKIP_SAVE_HF_MODEL:-0}
 if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
@@ -91,7 +93,7 @@ for ENGINE in "${ENGINES[@]}"; do
         data.filter_overlong_prompts=True \
         data.truncation='error' \
         actor_rollout_ref.model.path="${MODEL_PATH}" \
-        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.actor.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
         actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
         actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$ACTOR_PP \
@@ -117,6 +119,7 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
         actor_rollout_ref.ref.megatron.param_offload=${REF_PARAM_OFFLOAD} \
         critic.optim.lr=2e-5 \
+        critic.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
         critic.model.path="${MODEL_PATH}" \
         critic.model.enable_gradient_checkpointing=False \
         critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \

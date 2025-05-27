@@ -64,7 +64,7 @@ actor_rollout_ref:
       clip_grad: 1.0
       total_training_steps: -1  # must be override by program
       lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
-      lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
+      lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
       lr_decay_steps: null
       lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
@@ -181,7 +181,7 @@ critic:
     clip_grad: 1.0
     total_training_steps: -1  # must be override by program
     lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
-    lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
+    lr_warmup_steps: null # Prioritized. None, 0 or Negative values mean delegating to lr_warmup_steps_ratio.
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
     lr_decay_steps: null
     lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
