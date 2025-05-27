@@ -370,10 +370,15 @@ class DataParallelPPOActor(BasePPOActor):
                     clip_ratio_c = self.config.get("clip_ratio_c", 3.0)
                     entropy_coeff = self.config.entropy_coeff
                     loss_agg_mode = self.config.loss_agg_mode
-
+                    use_adaptive_entropy_adjustment = self.config.get("use_adaptive_entropy_adjustment", False)
+                    target_entropy = self.config.get("target_entropy", None)
+                    entropy_coeff_delta = self.config.get("entropy_coeff_delta", None)
+                    if use_adaptive_entropy_adjustment:
+                        assert target_entropy is not None, f"target_entropy must be provided if {use_adaptive_entropy_adjustment=}, but got None."
+                        assert entropy_coeff_delta is not None, f"entropy_coeff_delta must be provided if {use_adaptive_entropy_adjustment=}, but got None."
                     # all return: (bsz, response_length)
                     calculate_entropy = False
-                    if entropy_coeff != 0:
+                    if entropy_coeff != 0 or use_adaptive_entropy_adjustment:
                         calculate_entropy = True
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
 
@@ -389,14 +394,27 @@ class DataParallelPPOActor(BasePPOActor):
                         loss_agg_mode=loss_agg_mode,
                     )
 
-                    if entropy_coeff != 0:
+                    if use_adaptive_entropy_adjustment:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-
+                        if entropy_loss.detach().item() > target_entropy:
+                            entropy_coeff = 0
+                        else:
+                            self.config.entropy_coeff += entropy_coeff_delta
+                            entropy_coeff = self.config.entropy_coeff
                         # compute policy loss
-                        policy_loss = pg_loss - entropy_loss * entropy_coeff
+                        if entropy_coeff != 0:
+                            policy_loss = pg_loss - entropy_loss * entropy_coeff
+                        else:
+                            policy_loss = pg_loss
+                        metrics["actor/entropy_coeff"] = entropy_coeff
+                        metrics["actor/entropy_loss"] = entropy_loss.detach().item()
                     else:
-                        policy_loss = pg_loss
-
+                        if entropy_coeff == 0:
+                            policy_loss = pg_loss
+                        else:
+                            entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                            policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    
                     if self.config.use_kl_loss:
                         ref_log_prob = data["ref_log_prob"]
                         # compute kl loss
