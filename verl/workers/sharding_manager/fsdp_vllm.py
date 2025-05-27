@@ -259,7 +259,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
-    def update_params(self, updated_params, peft_config = None):
+    def update_params(self, updated_params, peft_config=None):
         model = self.model_runner.model
         if peft_config:
             if self.base_sync_done:
