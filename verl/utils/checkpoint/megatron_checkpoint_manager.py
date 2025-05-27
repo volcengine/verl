@@ -30,6 +30,7 @@ from verl.utils.megatron_utils import (
     get_hf_model_checkpoint_path,
     get_model_checkpoint_path,
     get_optimizer_checkpoint_path,
+    get_optimizer_scheduler_checkpoint_path,
     get_rng_states_checkpoint_path,
 )
 
@@ -217,7 +218,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if "extra" in self.checkpoint_contents:
             self.load_rng_states(local_path)
             if self.use_checkpoint_opt_param_scheduler:
-                optimizer_scheduler_path = get_optimizer_checkpoint_path(local_path, only_rank0_save=False)
+                optimizer_scheduler_path = get_optimizer_scheduler_checkpoint_path(local_path, only_rank0_save=False)
                 if os.path.exists(optimizer_scheduler_path):
                     print(f"Loading optimizer scheduler from {optimizer_scheduler_path}")
                     state_dict = torch.load(optimizer_scheduler_path, weights_only=False)
@@ -336,7 +337,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             torch.save(rng_state, rng_state_path)
             print(f"Rank {self.rank} saving rng states to {rng_state_path}")
 
-            optimizer_scheduler_path = get_optimizer_checkpoint_path(local_path, only_rank0_save=False)
+            optimizer_scheduler_path = get_optimizer_scheduler_checkpoint_path(local_path, only_rank0_save=False)
             if self.optimizer_scheduler is not None:
                 state_dict = self.optimizer_scheduler.state_dict()
                 torch.save(state_dict, optimizer_scheduler_path)
