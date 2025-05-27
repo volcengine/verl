@@ -19,6 +19,7 @@ In megatron actor, the differences are:
 Note that our model doesn't have to be `MegatronModule` because we don't share embedding in the last layer
 """
 
+import copy
 import logging
 import os
 from functools import partial
@@ -168,9 +169,7 @@ class MegatronPPOActor(BasePPOActor):
         def compute_logprobs_fn(output, data):
             response = data["responses"]
             response_length = response.size(1)
-            logits = output
-            logits = logits[:, -response_length - 1 : -1].contiguous()
-            log_probs = vocab_parallel_log_probs_from_logits(logits, response)
+            log_probs = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             return {"log_probs": log_probs}
 
         # We make recompute_old_log_prob by default here.
@@ -290,15 +289,17 @@ class MegatronPPOActor(BasePPOActor):
         def loss_func(output, data, meta_info):
             # For memory efficiency
             # We move calculation of entropy to compute_log_probs, forward_only == True
+            device = output["log_probs"].device
             metrics = {}
             if forward_only:
                 if post_process_fn is None:
-                    metrics["logits"] = output
+                    pass
+                    # metrics["logits"] = output
                 else:
                     stats = post_process_fn(output, data)
                     metrics.update(stats)
                 if not calculate_entropy:
-                    return torch.tensor(1.0, device=output.device), metrics
+                    return torch.tensor(1.0, device=device), metrics
 
             responses = data["responses"]
             response_length = responses.size(1)
@@ -307,8 +308,7 @@ class MegatronPPOActor(BasePPOActor):
             loss_agg_mode = self.config.loss_agg_mode
 
             # compute policy loss
-            logits = output
-            logits = logits[:, -response_length - 1 : -1].contiguous()
+            log_prob = output["log_probs"][:, -response_length - 1 : -1].contiguous()
             ret_entropy = None
             if not forward_only:
                 old_log_prob = data["old_log_probs"]
@@ -318,7 +318,6 @@ class MegatronPPOActor(BasePPOActor):
                 clip_ratio_low = self.config.clip_ratio_low if self.config.clip_ratio_low is not None else clip_ratio
                 clip_ratio_high = self.config.clip_ratio_high if self.config.clip_ratio_high is not None else clip_ratio
                 clip_ratio_c = meta_info["clip_ratio_c"]
-                log_prob = vocab_parallel_log_probs_from_logits(logits, responses)
                 pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower = compute_policy_loss(
                     old_log_prob=old_log_prob,
                     log_prob=log_prob,
@@ -332,7 +331,7 @@ class MegatronPPOActor(BasePPOActor):
                 )
                 policy_loss = pg_loss
             if calculate_entropy:
-                entropy = vocab_parallel_entropy(logits)
+                entropy = output["entropy"][:, -response_length - 1 : -1].contiguous()
                 if not forward_only:
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                     entropy_coeff = meta_info["entropy_coeff"]
@@ -342,7 +341,7 @@ class MegatronPPOActor(BasePPOActor):
 
             stats = {}
             if forward_only:
-                policy_loss = torch.tensor(1.0, device=output.device)
+                policy_loss = torch.tensor(1.0, device=device)
             else:
                 if self.config.use_kl_loss:
                     ref_log_prob = data["ref_log_prob"]
@@ -378,15 +377,33 @@ class MegatronPPOActor(BasePPOActor):
                     multi_modal_inputs[key] = torch.cat(
                         [batch["multi_modal_inputs"][i][key] for i in batch['multi_modal_inputs_idx']], dim=0
                     )
+            responses = batch["responses"]
+            response_length = responses.size(1)
+            label = copy.deepcopy(position_ids)
+            label[:, -response_length - 1 : -1] = responses
+            label_mask = copy.deepcopy(attention_mask)
+            label_mask[:, : -response_length - 1] = False
+            label_mask[:, -1] = False
+
+            def logits_processor(logits, label, label_mask):
+                assert logits.shape[:2] == label.shape[:2]
+                assert label.shape == label_mask.shape
+                log_probs = vocab_parallel_log_probs_from_logits(logits, label)
+                log_probs = log_probs.masked_fill(~label_mask, 0.0)
+                ret = {"log_probs": log_probs}
+                if calculate_entropy:
+                    entropy = vocab_parallel_entropy(logits)
+                    ret["entropy"] = entropy
+                return ret
+
+            logits_processor_args = {"label": label, "label_mask": label_mask}
 
             from verl.models.mcore import get_mcore_forward_fn
 
             forward_fn = get_mcore_forward_fn(self.hf_config)
 
-            output = forward_fn(
-                model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel,
-                multi_modal_inputs=multi_modal_inputs
-            )
+            output = forward_fn(model, input_ids, attention_mask, position_ids, sequence_parallel=self.tf_config.sequence_parallel,multi_modal_inputs=multi_modal_inputs, logits_processor=logits_processor, logits_processor_args=logits_processor_args)
+
             if forward_only:
                 meta_info = None
             else:
