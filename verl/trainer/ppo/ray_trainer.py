@@ -986,17 +986,18 @@ class RayPPOTrainer:
                             responses = batch.batch["responses"]
                             response_length = responses.size(1)
                             response_mask = attention_mask[:, -response_length:]
-                            log_probs_diff = torch.abs(rollout_old_log_probs - actor_old_log_probs)
-                            log_probs_diff = torch.masked_select(log_probs_diff, response_mask.bool())
 
-                            log_probs_diff_max = torch.max(log_probs_diff)
-                            log_probs_diff_mean = torch.mean(log_probs_diff)
-                            log_probs_diff_std = torch.std(log_probs_diff)
-
+                            rollout_probs = torch.exp(rollout_old_log_probs)
+                            actor_probs = torch.exp(actor_old_log_probs)
+                            rollout_probs_diff = torch.abs(rollout_probs - actor_probs)
+                            rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                            rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                            rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                            rollout_probs_diff_std = torch.std(rollout_probs_diff)
                             metrics.update({
-                                "training/log_probs_diff_max": log_probs_diff_max.detach().item(),
-                                "training/log_probs_diff_mean": log_probs_diff_mean.detach().item(),
-                                "training/log_probs_diff_std": log_probs_diff_std.detach().item(),
+                                "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                                "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                                "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
                             })
 
                     if self.use_reference_policy:
