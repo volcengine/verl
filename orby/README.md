@@ -8,7 +8,7 @@
 - You can create rule-based reward for other dataset following this example. **Use Cursor to save a lot of time!**
 
 # Dataset format
-- VERL can read parquet files and we just need to make sure each record has the required features. Check [uground.py](/examples/data_preprocess/uground.py) to see how we convert the dataset with caveats like adjusting bbox coordinates for resized images.
+- VERL can read parquet files and we just need to make sure each record has the required features. Check [convert_action_description.py](/orby/data/convert_action_description.py) to see how we convert the dataset with caveats like adjusting bbox coordinates for resized images.
 
 # Offline generation and eval
 - Use [eval_qwen2_5_vl.sh](/verl/orby/scripts/eval_qwen2_5_vl.sh) to run model inference on a test set and evaluate the predictions using customized rule-based reward.

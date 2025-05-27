@@ -11,8 +11,8 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.path=$REWARD_FILE \
     custom_reward_function.name=$REWARD_FN \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/uground/train.parquet \
-    data.val_files=$HOME/data/uground/test.parquet \
+    data.train_files=$HOME/data/action_description/train.parquet \
+    data.val_files=$HOME/data/action_description/test.parquet \
     data.train_batch_size=64 \
     data.max_prompt_length=7936 \
     data.max_response_length=256 \
@@ -48,7 +48,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_grpo_example_uground' \
+    trainer.project_name='verl_grpo_example_action_description' \
     trainer.experiment_name='qwen2_5_vl_7b_function_rm' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
