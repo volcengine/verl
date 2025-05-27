@@ -4,7 +4,7 @@ ENGINE=${1:-vllm}
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-REWARD_FILE=orby/reward/ui_action_description.py
+REWARD_FILE=orby/reward/action_description.py
 REWARD_FN=reward_func
 
 python3 -m verl.trainer.main_ppo \

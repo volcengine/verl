@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Preprocess the UGround dataset to parquet format
+Preprocess the Action Description dataset to parquet format
 """
 
 import argparse
@@ -141,7 +141,7 @@ def process_data(df, split):
             action_desc = action_desc[:-9].strip()
 
         data = {
-            "data_source": "uground",
+            "data_source": "action_description",
             "prompt": [
                 {
                     "role": "user",
@@ -191,7 +191,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--input_file", required=True, help="Path to the input parquet file"
     )
-    parser.add_argument("--local_dir", default="~/data/uground")
+    parser.add_argument("--local_dir", default="~/data/action_description")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument(
         "--split",

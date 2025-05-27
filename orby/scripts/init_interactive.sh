@@ -20,5 +20,5 @@ pip3 install -e .[vllm]
 # Download and convert action description dev set
 # mkdir -p ~/data/action_description/raw/
 # aws s3 cp s3://orby-osu-va/mds_datasets/Q42024_Intake_Format/ActIO-ActionDescription/parquet/dev.parquet ~/data/action_description/raw/dev.parquet
-# python orby/convert_action_description.py --input_file=~/data/action_description/raw/dev.parquet --split=train
-# python orby/convert_action_description.py --input_file=~/data/action_description/raw/dev.parquet --split=test
+# python orby/data/convert_action_description.py --input_file=~/data/action_description/raw/dev.parquet --split=train
+# python orby/data/convert_action_description.py --input_file=~/data/action_description/raw/dev.parquet --split=test

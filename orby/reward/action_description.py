@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Reward scoring for UI UGround task
+Reward scoring for Action Description task
 """
 
 import re
@@ -20,8 +20,8 @@ from difflib import SequenceMatcher
 from typing import Dict, List, Tuple, Optional
 
 
-class UIGroundRewardScorer:
-    """Reward scorer for UI UGround task."""
+class ActionDescriptionRewardScorer:
+    """Reward scorer for Action Description task."""
 
     def __init__(self):
         super().__init__()
@@ -246,15 +246,15 @@ def compute_score(prediction: str, ground_truth: Dict) -> Dict:
             - score: Overall score (0-1)
             - details: Dictionary with individual check results
     """
-    scorer = UIGroundRewardScorer()
+    scorer = ActionDescriptionRewardScorer()
     result = scorer.score(prediction, ground_truth)
     return result
 
 
 def reward_func(data_source, solution_str, ground_truth, extra_info=None):
-    if data_source in ["uground"]:
-        from . import ui_action_description
+    if data_source in ["action_description"]:
+        from orby.reward import action_description
 
-        return ui_action_description.compute_score(solution_str, ground_truth)
+        return action_description.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError

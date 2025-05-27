@@ -1,6 +1,6 @@
 MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
-DATA_PATH=~/data/uground
-REWARD_FILE=orby/reward/ui_action_description.py
+DATA_PATH=~/data/action_description
+REWARD_FILE=orby/reward/action_description.py
 REWARD_FN=reward_func
 OUTPUT_FILE=test-output-1.parquet
 
