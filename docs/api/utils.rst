@@ -19,7 +19,7 @@ Tracking Utilities
 ---------------------
 
 .. automodule:: verl.utils.tracking
-   :members: Tracking, ValidationGenerationsLogger
+   :members: Tracking
 
 Metrics Utilities
 ---------------------
@@ -31,7 +31,7 @@ Checkpoint Management
 ------------------------
 
 .. automodule:: verl.utils.checkpoint.checkpoint_manager
-   :members: fins_latest_ckpt_path
+   :members: find_latest_ckpt_path
 
 .. automodule:: verl.utils.checkpoint.fsdp_checkpoint_manager
    :members: FSDPCheckpointManager
@@ -52,7 +52,7 @@ Sequence Length Balancing
 ----------------------------
 
 .. automodule:: verl.utils.seqlen_balancing
-   :members: get_reverse_idx, rearrage_micro_batches
+   :members: get_reverse_idx, rearrange_micro_batches
 
 Ulysses Utilities
 --------------------

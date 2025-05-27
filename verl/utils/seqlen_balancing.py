@@ -271,6 +271,15 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
 
 
 def get_reverse_idx(idx_map):
+    """
+    Build the inverse of an index mapping.
+
+    Args:
+        idx_map (Sequence[int]): Sequence where idx_map[i] = j.
+
+    Returns:
+        List[int]: Inverse mapping list such that output[j] = i for each i.
+    """
     reverse_idx_map = copy.deepcopy(idx_map)
 
     for i, idx in enumerate(idx_map):
