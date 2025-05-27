@@ -36,6 +36,8 @@ COMMON_PP=${COMMON_PP:-2}
 COMMON_VPP=${COMMON_VPP:-2}
 COMMON_CP=${COMMON_CP:-2}
 COMMON_TP=${COMMON_TP:-2}
+COMMON_EP=${COMMON_EP:-1}
+COMMON_ETP=${COMMON_ETP:-null}
 
 TRAIN_TP=${TRAIN_TP:-$COMMON_TP}
 INFER_TP=${INFER_TP:-$COMMON_TP}
@@ -44,19 +46,27 @@ ACTOR_PP=${ACTOR_PP:-$COMMON_PP}
 ACTOR_VPP=${ACTOR_VPP:-$COMMON_VPP}
 ACTOR_CP=${ACTOR_CP:-$COMMON_CP}
 ACTOR_TP=${ACTOR_TP:-$TRAIN_TP}
+ACTOR_EP=${ACTOR_EP:-$COMMON_EP}
+ACTOR_ETP=${ACTOR_ETP:-$COMMON_ETP}
 ROLLOUT_TP=${ROLLOUT_TP:-$INFER_TP}
 REF_PP=${REF_PP:-$COMMON_PP}
 REF_VPP=${REF_VPP:-$COMMON_VPP}
 REF_CP=${REF_CP:-$COMMON_CP}
 REF_TP=${REF_TP:-$TRAIN_TP}
+REF_EP=${REF_EP:-$COMMON_EP}
+REF_ETP=${REF_ETP:-$COMMON_ETP}
 CRITIC_PP=${CRITIC_PP:-$COMMON_PP}
 CRITIC_VPP=${CRITIC_VPP:-$COMMON_VPP}
 CRITIC_CP=${CRITIC_CP:-$COMMON_CP}
 CRITIC_TP=${CRITIC_TP:-$TRAIN_TP}
+CRITIC_EP=${CRITIC_EP:-$COMMON_EP}
+CRITIC_ETP=${CRITIC_ETP:-$COMMON_ETP}
 RM_PP=${RM_PP:-$COMMON_PP}
 RM_VPP=${RM_VPP:-$COMMON_VPP}
 RM_CP=${RM_CP:-$COMMON_CP}
 RM_TP=${RM_TP:-$TRAIN_TP}
+RM_EP=${RM_EP:-$COMMON_EP}
+RM_ETP=${RM_ETP:-$COMMON_ETP}
 
 ALL_OFFLOAD=${ALL_OFFLOAD:-False}
 COMMON_PARAM_OFFLOAD=${COMMON_PARAM_OFFLOAD:-$ALL_OFFLOAD}
@@ -78,7 +88,15 @@ if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
     CHECKPOINT_CONTENTS=['model','optimizer','extra']
 fi
 
-ENGINES=("vllm" "sglang")
+USE_DIST_CKPT=${USE_DIST_CKPT:-False}
+DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/${MODEL_ID}}
+if [ "$USE_DIST_CKPT" = "True" ]; then
+    python scripts/convert_hf_to_mcore.py \
+        --hf_model_path "${MODEL_PATH}" \
+        --output_path "${DIST_CKPT_PATH}"
+fi
+
+ENGINES=("vllm" "sglang_async")
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
@@ -103,6 +121,13 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=$ACTOR_VPP \
         actor_rollout_ref.actor.megatron.context_parallel_size=$ACTOR_CP \
         actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$ACTOR_TP \
+        actor_rollout_ref.actor.megatron.expert_model_parallel_size=$ACTOR_EP \
+        actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=$ACTOR_ETP \
+        actor_rollout_ref.actor.megatron.param_offload=${ACTOR_PARAM_OFFLOAD} \
+        actor_rollout_ref.actor.megatron.optimizer_offload=${ACTOR_OPTIMIZER_OFFLOAD} \
+        actor_rollout_ref.actor.megatron.grad_offload=${ACTOR_GRAD_OFFLOAD} \
+        actor_rollout_ref.actor.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
+        actor_rollout_ref.actor.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
         actor_rollout_ref.actor.use_kl_loss=True \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -116,7 +141,12 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.ref.megatron.virtual_pipeline_model_parallel_size=$REF_VPP \
         actor_rollout_ref.ref.megatron.context_parallel_size=$REF_CP \
         actor_rollout_ref.ref.megatron.tensor_model_parallel_size=$REF_TP \
+        actor_rollout_ref.ref.megatron.expert_model_parallel_size=$REF_EP \
+        actor_rollout_ref.ref.megatron.expert_tensor_parallel_size=$REF_ETP \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
+        actor_rollout_ref.ref.megatron.param_offload=${REF_PARAM_OFFLOAD} \
+        actor_rollout_ref.ref.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
+        actor_rollout_ref.ref.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
         critic.optim.lr=2e-5 \
         critic.model.path="${MODEL_PATH}" \
         critic.model.enable_gradient_checkpointing=False \
@@ -126,6 +156,13 @@ for ENGINE in "${ENGINES[@]}"; do
         critic.megatron.virtual_pipeline_model_parallel_size=$CRITIC_VPP \
         critic.megatron.context_parallel_size=$CRITIC_CP \
         critic.megatron.tensor_model_parallel_size=$CRITIC_TP \
+        critic.megatron.expert_model_parallel_size=$CRITIC_EP \
+        critic.megatron.expert_tensor_parallel_size=$CRITIC_ETP \
+        critic.megatron.param_offload=${CRITIC_PARAM_OFFLOAD} \
+        critic.megatron.optimizer_offload=${CRITIC_OPTIMIZER_OFFLOAD} \
+        critic.megatron.grad_offload=${CRITIC_GRAD_OFFLOAD} \
+        critic.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
+        critic.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
         critic.checkpoint.contents=$CHECKPOINT_CONTENTS \
         reward_model.enable=True \
         reward_model.model.path="${MODEL_PATH}" \
@@ -134,6 +171,11 @@ for ENGINE in "${ENGINES[@]}"; do
         reward_model.megatron.virtual_pipeline_model_parallel_size=$RM_VPP \
         reward_model.megatron.context_parallel_size=$RM_CP \
         reward_model.megatron.tensor_model_parallel_size=$RM_TP \
+        reward_model.megatron.expert_model_parallel_size=$RM_TP \
+        reward_model.megatron.expert_tensor_parallel_size=$RM_TP \
+        reward_model.megatron.param_offload=${RM_PARAM_OFFLOAD} \
+        reward_model.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
+        reward_model.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
         algorithm.use_kl_in_reward=False \
         algorithm.kl_penalty=kl \
         algorithm.kl_ctrl.kl_coef=0.001 \
