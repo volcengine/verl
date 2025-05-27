@@ -54,6 +54,8 @@ offload=True
 gen_tp=4
 fsdp_size=32
 
+# remember to set VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 for this model
+
 python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
