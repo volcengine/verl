@@ -4,8 +4,8 @@ set -x
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # download from https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data
-code_train_path=$HOME/data/math/train.parquet
-code_test_path=$HOME/data/math/test.parquet
+code_train_path=$HOME/data/code/train.parquet
+code_test_path=$HOME/data/code/test.parquet
 
 train_files="['$code_train_path']"
 test_files="['$code_test_path']"
