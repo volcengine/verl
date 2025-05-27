@@ -155,7 +155,7 @@ If you need to restart after exiting the container:
     conda activate retriever
 
     save_path=/the/path/to/save
-    python examples/sglang_multiturn/searchR1_like/local_dense_retriever/download.py --save_path $save_path
+    python examples/sglang_multiturn/search_r1_like/local_dense_retriever/download.py --save_path $save_path
     cat $save_path/part_* > $save_path/e5_Flat.index
     gzip -d $save_path/wiki-18.jsonl.gz
 
@@ -174,7 +174,7 @@ If you need to restart after exiting the container:
     retriever_name=e5
     retriever_path=intfloat/e5-base-v2
 
-    python examples/sglang_multiturn/searchR1_like/local_dense_retriever/retrieval_server.py \
+    python examples/sglang_multiturn/search_r1_like/local_dense_retriever/retrieval_server.py \
       --index_path $index_file \
       --corpus_path $corpus_file \
       --topk 3 \
@@ -208,7 +208,7 @@ Testing on 8 × H20
 
     # To define your own prompt, modify examples/data_preprocess/prompt.yaml
     # Default storage directory is ~/data/searchR1_processed_direct
-    python3 examples/data_preprocess/preprocess_searchR1_dataset.py --config examples/data_preprocess/prompt.yaml
+    python3 examples/data_preprocess/preprocess_search_r1_dataset.py --config examples/data_preprocess/prompt.yaml
 
 **Run tests**
 
@@ -221,6 +221,6 @@ Testing on 8 × H20
     # Set GPUs and run, using an appropriate log path
     export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-    nohup bash examples/sglang_multiturn/searchR1_like/run_qwen2.5-3b_instruct_search_multiturn.sh \
+    nohup bash examples/sglang_multiturn/search_r1_like/run_qwen2.5-3b_instruct_search_multiturn.sh \
       trainer.experiment_name=qwen2.5-3b-it_rm-searchR1-like-sgl-multiturn-$(now) \
       > logs/searchR1-like$(now).log 2>&1 &

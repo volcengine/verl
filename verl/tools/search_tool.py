@@ -1,5 +1,5 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
-# Copyright 2025 ModelBest Inc. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ from uuid import uuid4
 import ray
 import ray.actor
 
-from verl.utils.reward_score.searchR1_like_utils import perform_single_search_batch
+from verl.utils.reward_score.search_r1_like_utils import perform_single_search_batch
 
 from .base_tool import BaseTool
 from .schemas import OpenAIFunctionToolSchema

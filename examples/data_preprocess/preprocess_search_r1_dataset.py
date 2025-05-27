@@ -1,3 +1,18 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2023-2024 SGLang Team
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import logging
 import os
@@ -138,5 +153,5 @@ if __name__ == "__main__":
         cfg = yaml.safe_load(f)
     # System and user content configuration
     system_content = "You are a helpful and harmless assistant."
-    user_content_prefix = cfg["searchR1_like_prompt"]["user_content_prefix"]
+    user_content_prefix = cfg["search_r1_like_prompt"]["user_content_prefix"]
     main()
