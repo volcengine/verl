@@ -89,6 +89,9 @@ actor_rollout_ref:
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
+    sync_actor: False
+    sync_actor_alpha: 1.0
+    sync_steps: 10
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -251,6 +254,7 @@ trainer:
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
   max_actor_ckpt_to_keep: null
   max_critic_ckpt_to_keep: null
+  max_ref_ckpt_to_keep: null
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
   device: cuda
