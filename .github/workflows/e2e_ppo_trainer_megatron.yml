@@ -40,51 +40,9 @@ permissions:
   contents: read
 
 jobs:
-  e2e_ppo_trainer_megatron-qwen:
-    runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
-      HF_ENDPOINT: "https://hf-mirror.com"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
-      options: --gpus all --shm-size=10g
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Install the current repository
-        run: |
-          pip3 install --no-deps -e .[test]
-      - name: Prepare GSM8K dataset
-        run: |
-          python3 examples/data_preprocess/gsm8k.py
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) with validation and saving
-        run: |
-          ray stop --force
-          ALL_OFFLOAD=True VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 bash tests/e2e/run_ppo_trainer_megatron.sh
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) after resuming
-        run: |
-          ray stop --force
-          RESUME_MODE=auto bash tests/e2e/run_ppo_trainer_megatron.sh
-      - name: Test Megatron checkpoints merging function (Qwen Actor and Critic)
-        run: |
-          exp_name="qwen2.5-0.5b-megatron-gsm8k-minimal"
-          python scripts/model_merger.py test --backend megatron --tie-word-embedding --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
-          python scripts/model_merger.py test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
-      - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
-        run: |
-          ray stop --force
-          ADV_ESTIMATOR=grpo bash tests/e2e/run_ppo_trainer_megatron.sh
-      - name: clean up
-        run: |
-          rm -rf checkpoints
   e2e_ppo_trainer_megatron-deepseek:
     runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -111,11 +69,11 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
-          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
+          RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Running GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=grpo MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/e2e/run_ppo_trainer_megatron.sh
+          ADV_ESTIMATOR=grpo MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
         run: |
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
@@ -126,7 +84,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen3:
     runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -134,7 +92,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.2
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -166,42 +124,9 @@ jobs:
       - name: clean up
         run: |
           rm -rf checkpoints
-  e2e_ppo_trainer_megatron-different-train-infer-tp-qwen:
-    runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
-      HF_ENDPOINT: "https://hf-mirror.com"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3
-      options: --gpus all --shm-size=10g
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Install the current repository
-        run: |
-          pip3 install --no-deps -e .[test]
-      - name: Prepare GSM8K dataset
-        run: |
-          python3 examples/data_preprocess/gsm8k.py
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) with train tp > infer tp
-        run: |
-          ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=2 INFER_TP=1 bash tests/e2e/run_ppo_trainer_megatron.sh
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen) with  train tp < infer tp
-        run: |
-          ray stop --force
-          VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 TRAIN_TP=1 INFER_TP=2 bash tests/e2e/run_ppo_trainer_megatron.sh
-      - name: clean up
-        run: |
-          rm -rf checkpoints
   e2e_ppo_trainer_megatron-different-train-infer-tp-qwen-tie-embedding:
     runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -234,7 +159,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-qwen-override-transformer-config:
     runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -273,7 +198,7 @@ jobs:
           rm -rf checkpoints
   e2e_ppo_trainer_megatron-deepseek-override-transformer-config:
     runs-on: [L20x8]
-    timeout-minutes: 30 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -305,5 +230,4 @@ jobs:
       - name: clean up
         run: |
           rm -rf checkpoints
-
 

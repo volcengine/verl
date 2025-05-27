@@ -20,7 +20,7 @@ TEST_FREQ=${TEST_FREQ:--1}
 # Save & Resume
 RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
-TOT_TRAIN_STEPS=${TOT_TRAIN_STEPS:-1}
+TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
 train_traj_micro_bsz_per_gpu=2 # b
 n_resp_per_prompt=4 # g
@@ -94,4 +94,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq="${SAVE_FREQ}" \
     trainer.resume_mode="${RESUME_MODE}" \
     trainer.total_epochs=2 \
-    trainer.total_training_steps="${TOT_TRAIN_STEPS}" $@
+    trainer.total_training_steps="${TOTAL_TRAIN_STEPS}" $@
