@@ -108,8 +108,9 @@ verl is fast with:
    :caption: API References
 
    api/data
-   api/utils
    api/single_controller.rst
+   api/trainer.rst
+   api/utils.rst
 
 
 .. toctree::
