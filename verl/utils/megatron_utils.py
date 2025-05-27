@@ -790,7 +790,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
                 else:
                     params = [param]
 
-                merge_params = default_tp_concat_fn(name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
+                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
                 if not isinstance(merge_params, list):
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
