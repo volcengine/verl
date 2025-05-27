@@ -141,20 +141,30 @@ def greedy_partition(seqlen_list: List[int], k_partitions: int, equal_size: bool
 
 
 def get_seqlen_balanced_partitions(seqlen_list: List[int], k_partitions: int, equal_size: bool):
-    """get order of seq lengths to make partitions balanced, this is
-        used in balacing sum of seqlength across dp ranks and microbatches
-    Parameters:
-        seqlen_list (List[int]):
-            seq lengths of each items
-        k_partitions (int):
-            resulting number of partitions
-        equal_size (bool):
-            if True, number of items in each partitions must be equal.
-            if False, only consider balancing the sum, each partition can have
-            variable number of items
+    """
+    Calculates partitions of indices from seqlen_list such that the sum of sequence lengths
+    in each partition is balanced. Uses the Karmarkar-Karp differencing method.
+
+    This is useful for balancing workload across devices or batches, especially when
+    dealing with variable sequence lengths.
+
+    Args:
+        seqlen_list (List[int]): A list of sequence lengths for each item.
+        k_partitions (int): The desired number of partitions.
+        equal_size (bool): If True, ensures that each partition has the same number of items.
+                           Requires len(seqlen_list) to be divisible by k_partitions.
+                           If False, partitions can have varying numbers of items, focusing
+                           only on balancing the sum of sequence lengths.
+
     Returns:
-        partitions (List[List[int]]):
-            return k_partitions list containing the index of items.
+        List[List[int]]: A list containing k_partitions lists. Each inner list contains the
+                         original indices of the items assigned to that partition. The indices
+                         within each partition list are sorted.
+
+    Raises:
+        AssertionError: If len(seqlen_list) < k_partitions.
+        AssertionError: If equal_size is True and len(seqlen_list) is not divisible by k_partitions.
+        AssertionError: If any resulting partition is empty.
     """
     assert len(seqlen_list) >= k_partitions, f"number of items:[{len(seqlen_list)}] < k_partitions:[{k_partitions}]"
 
@@ -261,6 +271,15 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
 
 
 def get_reverse_idx(idx_map):
+    """
+    Build the inverse of an index mapping.
+
+    Args:
+        idx_map (Sequence[int]): Sequence where idx_map[i] = j.
+
+    Returns:
+        List[int]: Inverse mapping list such that output[j] = i for each i.
+    """
     reverse_idx_map = copy.deepcopy(idx_map)
 
     for i, idx in enumerate(idx_map):
