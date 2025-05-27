@@ -25,9 +25,7 @@ from torch.nn.parallel import DistributedDataParallel as torchDDP
 from verl.utils.megatron_utils import print_rank_0, unwrap_model
 
 
-def _megatron_calc_global_rank(
-    tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0, cp_rank: int = 0, ep_rank: int = 0
-):
+def _megatron_calc_global_rank(tp_rank: int = 0, dp_rank: int = 0, pp_rank: int = 0, cp_rank: int = 0, ep_rank: int = 0):
     """Calculate global rank with support for CP/EP parallelism"""
 
     # Get parallel sizes for each dimension
@@ -39,9 +37,7 @@ def _megatron_calc_global_rank(
 
     # Verify total GPU count matches (must be consistent with parallel_state.py)
     total_size = tp_size * dp_size * pp_size * cp_size
-    assert total_size == torch.distributed.get_world_size(), (
-        f"{tp_size}x{dp_size}x{pp_size}x{cp_size} != {torch.distributed.get_world_size()}"
-    )
+    assert total_size == torch.distributed.get_world_size(), f"{tp_size}x{dp_size}x{pp_size}x{cp_size} != {torch.distributed.get_world_size()}"
 
     # Core calculation logic (corresponds to RankGenerator order parameter)
     # Assumes default order is "tp-cp-ep-dp-pp"
@@ -66,9 +62,7 @@ def _megatron_calc_layer_map(config):
 
     for pp_rank_idx in range(pp_size):
         for virtual_pp_rank_idx in range(virtual_pp_size):
-            layer_offset = (
-                virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
-            )
+            layer_offset = virtual_pp_rank_idx * (config.num_hidden_layers // virtual_pp_size) + pp_rank_idx * num_layers_per_model
             for layer_idx in range(num_layers_per_model):
                 layer_map[layer_offset + layer_idx] = (
                     pp_rank_idx,
@@ -121,11 +115,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
 
     for i, wrapped_model in enumerate(wrapped_models):
         models[i] = unwrap_model(wrapped_model, (torchDDP, LocalDDP, Float16Module))
-        assert len(models[i].decoder.layers) == num_layers_per_model, (
-            "len model layers {} not equal to num_layers_per_model {}".format(
-                len(models[i].decoder.layers), num_layers_per_model
-            )
-        )
+        assert len(models[i].decoder.layers) == num_layers_per_model, "len model layers {} not equal to num_layers_per_model {}".format(len(models[i].decoder.layers), num_layers_per_model)
 
     state_dict = dict()
 
@@ -306,10 +296,10 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
             q_weight_list = []
             k_weight_list = []
             v_weight_list = []
-            hidden_size_per_head = config.hidden_size // config.num_attention_heads
+            hidden_size_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
             if config.num_key_value_heads >= tp_size:
-                q_size_tp = config.hidden_size // tp_size
+                q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
                 kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
                 total_size = q_size_tp + 2 * kv_size_tp
                 for i in range(tp_size):
@@ -325,7 +315,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                         k_weight_list.append(k_part)
                         v_weight_list.append(v_part)
             else:
-                q_size_tp = config.hidden_size // tp_size
+                q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
                 kv_size_tp = hidden_size_per_head
                 total_size = q_size_tp + 2 * kv_size_tp
                 for i in range(tp_size):
@@ -378,6 +368,18 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
+            if gpt_model_module.config.qk_layernorm:
+                _broadcast_tensor(
+                    sync_layer.self_attention.q_layernorm.weight,
+                    f"{layer_name}.self_attn.q_norm.weight",
+                    src_pp_rank=src_pp_rank,
+                )
+                _broadcast_tensor(
+                    sync_layer.self_attention.k_layernorm.weight,
+                    f"{layer_name}.self_attn.k_norm.weight",
+                    src_pp_rank=src_pp_rank,
+                )
+                
             _broadcast_tp_shard_tensor_qkv(
                 sync_layer.self_attention.linear_qkv.weight,
                 f"{layer_name}.self_attn.q_proj.weight",
@@ -386,10 +388,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                 src_pp_rank=src_pp_rank,
             )
 
-            if (
-                getattr(sync_layer.self_attention.linear_qkv, "bias", None) is not None
-                and sync_layer.self_attention.linear_qkv.bias.numel() > 0
-            ):
+            if gpt_model_module.config.add_qkv_bias:
                 _broadcast_tp_shard_tensor_qkv(
                     sync_layer.self_attention.linear_qkv.bias,
                     f"{layer_name}.self_attn.q_proj.bias",
@@ -464,12 +463,13 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
     return state_dict
 
 
-def merge_megatron_ckpt_gptmodel_qwen_moe(
-    wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False
-):
+def merge_megatron_ckpt_gptmodel_qwen_moe(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen_moe is not implemented")
 
 def merge_megatron_ckpt_gptmodel_qwen2_5_vl (
     wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False
 ):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen2_5_vl is not implemented")
+
+def merge_megatron_ckpt_gptmodel_mixtral(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+    raise NotImplementedError("merge_megatron_ckpt_gptmodel_mixtral is not implemented")

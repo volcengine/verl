@@ -4,6 +4,9 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
+    branches:
+      - main
+      - v0.*
   pull_request:
     branches:
       - main
@@ -11,9 +14,14 @@ on:
       - "**/*.py"
       - .github/workflows/e2e_ascend.yml
 
+# Cancel jobs on the same ref if a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
-  
+
 jobs:
   test:
     name: verl Ascend test (self-host)

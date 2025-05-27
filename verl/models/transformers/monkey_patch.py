@@ -15,10 +15,13 @@
 Apply monkey-patch function to models
 """
 
+import importlib.metadata
 import sys
+from functools import lru_cache
 from typing import Optional
 
 import torch
+from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
@@ -93,9 +96,7 @@ def _ulysses_flash_attention_forward(
         position_ids = torch.concat(position_ids_list, dim=-1)
 
     # (bsz, seq_len, n_head/n, head_dim)
-    attn_output = _flash_attention_forward(
-        query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs
-    )
+    attn_output = _flash_attention_forward(query_states, key_states, value_states, *args, position_ids=position_ids, **kwargs)
 
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
@@ -105,47 +106,75 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def apply_monkey_patch(model: PreTrainedModel, ulysses_sp_size: int):
+def apply_monkey_patch(
+    model: PreTrainedModel,
+    ulysses_sp_size: int = 1,
+    use_remove_padding: bool = True,
+    use_fused_kernels: bool = False,
+):
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
     num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
-    assert num_attention_heads % ulysses_sp_size == 0, (
-        f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
-    )
+    assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
-        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
-        f"or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,"
-        f"kv heads are repeated to ensure correctness."
+        f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
     )
     # TODO: VLM models only, unify monkey patch to LLM models.
-    if model.config.model_type in ("qwen2_vl", "qwen2_5_vl"):  # patch remove padding for qwen2vl mrope
-        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFlashAttention2
-        from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLFlashAttention2
+    if model.config.model_type == "qwen2_5_vl":
+        from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+            Qwen2_5_VLFlashAttention2,
+            Qwen2_5_VLForConditionalGeneration,
+        )
 
-        from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
 
-        Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
-        Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
-        print("Monkey patch FlashAttention2.forward in Qwen2VL")
+            Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_5_vl import forward_without_logits
+
+            Qwen2_5_VLForConditionalGeneration.forward = forward_without_logits
+
+        return
+
+    elif model.config.model_type == "qwen2_vl":
+        from transformers.models.qwen2_vl.modeling_qwen2_vl import (
+            Qwen2VLFlashAttention2,
+            Qwen2VLForConditionalGeneration,
+        )
+
+        if use_remove_padding or ulysses_sp_size > 1:
+            from verl.models.transformers.qwen2_vl import ulysses_flash_attn_forward
+
+            Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in Qwen2VL")
+
+        if use_fused_kernels:
+            from verl.models.transformers.qwen2_vl import forward_without_logits
+
+            Qwen2VLForConditionalGeneration.forward = forward_without_logits
+
         return
 
     # transformers<=4.47.1
-    if hasattr(module, "_flash_attention_forward"):
-        module._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {model.__module__}")
-    else:
-        # transformers>=4.48.0
-        from transformers.integrations import flash_attention
+    if use_remove_padding or ulysses_sp_size > 1:
+        if hasattr(module, "_flash_attention_forward"):
+            module._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {model.__module__}")
+        else:
+            # transformers>=4.48.0
+            from transformers.integrations import flash_attention
 
-        flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
-        print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
+            flash_attention._flash_attention_forward = _ulysses_flash_attention_forward
+            print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
+    if use_fused_kernels:
+        from verl.models.transformers.llama import forward_without_logits
 
-import importlib.metadata
-from functools import lru_cache
-
-from packaging import version
+        model.__class__.forward = forward_without_logits
 
 
 @lru_cache
@@ -153,8 +182,8 @@ def is_transformers_version_in_range(min_version: str, max_version: str) -> bool
     try:
         # Get the installed version of the transformers library
         transformers_version = importlib.metadata.version("transformers")
-    except importlib.metadata.PackageNotFoundError:
-        raise ModuleNotFoundError("The `transformers` package is not installed.")
+    except importlib.metadata.PackageNotFoundError as e:
+        raise ModuleNotFoundError("The `transformers` package is not installed.") from e
 
     # Check if the version is within the specified range
     return version.parse(min_version) <= version.parse(transformers_version) <= version.parse(max_version)

@@ -10,6 +10,7 @@ data:
   val_batch_size: null
   return_raw_input_ids: False  # This should be set to true when the tokenizer between policy and rm differs
   return_raw_chat: False
+  return_full_prompt: False
   shuffle: True
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
@@ -29,8 +30,10 @@ actor_rollout_ref:
     enable_gradient_checkpointing: True
     use_remove_padding: False
     use_liger: False
+    use_fused_kernels: False
+    trust_remote_code: False
   actor:
-    strategy: fsdp  # This is for backward-compatibility
+    strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
@@ -57,7 +60,8 @@ actor_rollout_ref:
       lr: 1e-6
       lr_warmup_steps: -1 # Prioritized. Negative values mean delegating to lr_warmup_steps_ratio.
       lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-      min_lr_ratio: null   # only useful for warmup with cosine
+      min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
+      num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
       warmup_style: constant  # select from constant/cosine
       total_training_steps: -1  # must be override by program
       weight_decay: 0.01
@@ -67,11 +71,14 @@ actor_rollout_ref:
         min_num_params: 0
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   ref:
     strategy: fsdp
     fsdp_config:
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -83,6 +90,8 @@ actor_rollout_ref:
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: vllm
+    mode: sync # sync: LLM, async: AsyncLLM
+    chat_scheduler: null # async chat scheduler, e.g examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -111,7 +120,10 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times)
     n: 1 # > 1 for grpo
     engine_kwargs: # inference engine parameters
-      swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+      vllm:
+        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+      sglang:
+        attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:
       # sampling parameters for validation
       top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -119,10 +131,15 @@ actor_rollout_ref:
       temperature: 0
       n: 1
       do_sample: False # default eager for validation
+    multi_turn:
+      enable: False  # should set rollout.name to sglang_async if True
+      max_turns: null  # null for no limit (default max_length // 3)
+      tool_config_path: null  # null for no tool
+      format: chatml  # chatml, more formats will be supported in the future
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: fsdp
+  strategy: fsdp # [fsdp, fsdp2]
   optim:
     lr: 1e-5
     lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
@@ -137,9 +154,12 @@ critic:
     external_lib: ${actor_rollout_ref.model.external_lib}
     enable_gradient_checkpointing: True
     use_remove_padding: False
+    trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
     fsdp_config:
       param_offload: False
       optimizer_offload: False
+      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
@@ -168,10 +188,12 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
+    trust_remote_code: False
     fsdp_config:
       wrap_policy:
         min_num_params: 0
       param_offload: False
+      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null # set a number
@@ -181,7 +203,9 @@ reward_model:
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
-
+  sandbox_fusion:
+    url: null # faas url to run code in cloud sandbox
+    max_concurrent: 64 # max concurrent requests to sandbox
 custom_reward_function:
   path: null
   name: compute_score
@@ -207,6 +231,8 @@ trainer:
   experiment_name: gsm8k
   logger: [ 'console', 'wandb' ]
   log_val_generations: 0
+  rollout_data_dir: null # directory for logging the rollout data, no dump if null
+  validation_data_dir: null # directory for logging the validation data, no dump if null
   nnodes: 1
   n_gpus_per_node: 8
   save_freq: -1

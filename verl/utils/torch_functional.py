@@ -15,6 +15,8 @@
 Contain small torch utilities
 """
 
+import math
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -22,6 +24,9 @@ import torch.distributed
 import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import nn
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LambdaLR
+from transformers import PreTrainedTokenizer
 
 try:
     from flash_attn.ops.triton.cross_entropy import cross_entropy_loss
@@ -64,9 +69,7 @@ def logprobs_from_logits(logits, labels, inplace_backward=True):
 
 def logprobs_from_logits_flash_attn(logits, labels, inplace_backward=True):
     output = cross_entropy_loss(logits, labels, inplace_backward=inplace_backward)
-    assert isinstance(output, tuple), (
-        "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
-    )
+    assert isinstance(output, tuple), "please make sure flash-attn>=2.4.3 where cross_entropy_loss returns Tuple[losses, z_losses]."
     return -output[0]
 
 
@@ -83,7 +86,7 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
     if logits.dtype in [torch.float32, torch.float64]:
         logits_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
         # loop to reduce peak mem consumption
-        logsumexp_values = torch.stack([torch.logsumexp(l, dim=-1) for l in logits])
+        logsumexp_values = torch.stack([torch.logsumexp(logit, dim=-1) for logit in logits])
         logprobs_labels = logits_labels - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
     else:
         # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
@@ -174,7 +177,6 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
-    total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
@@ -225,9 +227,7 @@ def allgather_dict_tensors(tensors: Union[Dict[str, torch.Tensor], TensorDict], 
 
 
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> List[TensorDict]:
-    assert tensors.batch_size[0] % batch_size == 0, (
-        f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
-    )
+    assert tensors.batch_size[0] % batch_size == 0, f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
     return tensors.split(batch_size)
 
 
@@ -247,10 +247,10 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
     pad a 2D tensors (e.g. responses, logprobs) in the last dim to max_seq_length.
     input shape: [bs, seq_length]
     output shape: [bs, max_seq_length]
-    (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     """
     if tensors.shape[-1] >= max_seq_len:
         return tensors
+    # (0, max_seq_len - tensors.shape[-1]) means right pad to max_seq_length and no left pad
     pad_tuple = (max_seq_len - tensors.shape[-1], 0) if left_pad else (0, max_seq_len - tensors.shape[-1])
     return F.pad(tensors, pad_tuple, "constant", pad_token_id)
 
@@ -263,20 +263,26 @@ def postprocess_data(
     left_pad=True,
     truncation="error",
 ):
+    """Process tokenizer outputs to consistent shapes via padding/truncation.
+
+    Args:
+        input_ids: Token indices [batch_size, seq_len]
+        attention_mask: Mask [batch_size, seq_len]
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: "left", "right" or "error"
+
+    Returns:
+        (input_ids, attention_mask) padded/truncated to max_length
     """
-    input_data is the output from tokenizer.
-    """
-    assert truncation in ["left", "right", "error"]
+    assert truncation in ["left", "right", "middle", "error"]
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
     if sequence_length < max_length:
-        input_ids = pad_sequence_to_length(
-            input_ids, max_seq_len=max_length, pad_token_id=pad_token_id, left_pad=left_pad
-        )
-        attention_mask = pad_sequence_to_length(
-            attention_mask, max_seq_len=max_length, pad_token_id=0, left_pad=left_pad
-        )
+        input_ids = pad_sequence_to_length(input_ids, max_seq_len=max_length, pad_token_id=pad_token_id, left_pad=left_pad)
+        attention_mask = pad_sequence_to_length(attention_mask, max_seq_len=max_length, pad_token_id=0, left_pad=left_pad)
     elif sequence_length > max_length:
         if truncation == "left":
             # actually, left truncation may not be reasonable
@@ -285,12 +291,38 @@ def postprocess_data(
         elif truncation == "right":
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
+        elif truncation == "middle":
+            left_half = max_length // 2
+            right_half = max_length - left_half
+            input_ids = torch.cat([input_ids[:, :left_half], input_ids[:, -right_half:]], dim=-1)
+            attention_mask = torch.cat([attention_mask[:, :left_half], attention_mask[:, -right_half:]], dim=-1)
         elif truncation == "error":
             raise NotImplementedError(f"{sequence_length=} is larger than {max_length=}")
         else:
             raise NotImplementedError(f"Unknown truncation method {truncation}")
 
     return input_ids, attention_mask
+
+
+def tokenize_and_postprocess_data(prompt: str, tokenizer: PreTrainedTokenizer, max_length: int, pad_token_id: int, left_pad=True, truncation="error"):
+    """Tokenize text and process outputs to consistent tensor shapes.
+
+    Args:
+        prompt: Input text to tokenize
+        tokenizer: HuggingFace tokenizer instance
+        max_length: Target sequence length
+        pad_token_id: Padding token ID
+        left_pad: Pad left if True
+        truncation: Truncation strategy ("left"/"right"/"error")
+
+    Returns:
+        Tuple of (input_ids, attention_mask) from postprocess_data
+    """
+    input_data = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+    input_ids = input_data["input_ids"]
+    attention_mask = input_data["attention_mask"]
+
+    return postprocess_data(input_ids, attention_mask, max_length, pad_token_id, left_pad, truncation)
 
 
 def remove_pad_token(input_ids: torch.Tensor, attention_mask: torch.Tensor):
@@ -344,9 +376,7 @@ def log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad
     input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
     full_log_probs_rmpad = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)  # (total_nnz,)
-    full_output = pad_input(
-        hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
-    )
+    full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
     output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
 
@@ -372,9 +402,7 @@ def log_probs_from_logits_all_rmpad(input_ids_rmpad, logits_rmpad, indices, batc
     input_ids_rmpad = input_ids_rmpad.squeeze(-1)
     input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=0)
     full_log_probs_rmpad = logprobs_from_logits(logits=logits_rmpad, labels=input_ids_rmpad_rolled)  # (total_nnz,)
-    full_output = pad_input(
-        hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
-    )
+    full_output = pad_input(hidden_states=full_log_probs_rmpad.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
     output = full_output.squeeze(-1)[:, -response_length - 1 : -1]  # [batch_size, response_length]
     return output
 
@@ -393,11 +421,6 @@ def post_process_logits(input_ids, logits, temperature, top_k, top_p):
 """
 Optimizer related
 """
-
-import math
-
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR
 
 
 def get_cosine_schedule_with_warmup(
@@ -429,16 +452,17 @@ def get_cosine_schedule_with_warmup(
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
+    min_lr_ratio = 0.0 if min_lr_ratio is None else min_lr_ratio
     assert min_lr_ratio >= 0 and min_lr_ratio <= 1.0
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
-        return max(0.0, x * coef + intercept)
+        return max(min_lr_ratio, x * coef + intercept)
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
@@ -449,7 +473,9 @@ def get_constant_schedule_with_warmup(
     last_epoch: int = -1,
 ):
     def lr_lambda(current_step):
-        return min(1, float(current_step) / float(max(1, num_warmup_steps)))
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1.0, num_warmup_steps))
+        return 1.0
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
@@ -467,12 +493,8 @@ def prepare_decoder_attention_mask(attention_mask, input_shape, inputs_embeds):
 
     if attention_mask is not None:
         # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-        expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(
-            inputs_embeds.device
-        )
-        combined_attention_mask = (
-            expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
-        )
+        expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(inputs_embeds.device)
+        combined_attention_mask = expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
 
     return combined_attention_mask
 
@@ -570,3 +592,81 @@ def get_wsd_schedule_with_warmup(
         return min_lr_ratio
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+@contextmanager
+def check_cuda_is_available():
+    """
+    Some modules must be imported after CUDA is initialized. Such as sglang's sharding manager.
+
+    This context manager checks if CUDA is available and raises an error if it is not.
+    """
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA must be initialized before importing this module.")
+
+    yield
+
+
+def distributed_mean_max_min_std(local_tensor, compute_max=True, compute_min=True, compute_std=True):
+    """Compute distributed statistics across all processes.
+
+    Args:
+        local_tensor: Tensor containing local values
+        compute_max: Include maximum value calculation
+        compute_min: Include minimum value calculation
+        compute_std: Include standard deviation calculation
+
+    Returns:
+        Tuple containing (mean, max, min, std) in this order. None for disabled metrics.
+    """
+    # Sum the local tensor across all processes
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.tensor(torch.numel(local_tensor), device="cuda")
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+
+    if compute_max:
+        local_max = torch.max(local_tensor)
+        torch.distributed.all_reduce(local_max, op=torch.distributed.ReduceOp.MAX)
+    else:
+        local_max = None
+
+    if compute_min:
+        local_min = torch.min(local_tensor)
+        torch.distributed.all_reduce(local_min, op=torch.distributed.ReduceOp.MIN)
+    else:
+        local_min = None
+
+    if compute_std:
+        square_diff = torch.sum(torch.pow(local_tensor - global_mean, 2))
+        torch.distributed.all_reduce(square_diff, op=torch.distributed.ReduceOp.SUM)
+        global_std = torch.sqrt(square_diff / (local_num - 1))
+    else:
+        global_std = None
+
+    return global_mean, local_max, local_min, global_std
+
+
+def distributed_masked_mean(local_tensor, local_mask):
+    """Compute global mean of non-masked elements across distributed processes.
+
+    Args:
+        local_tensor (torch.Tensor): Input tensor with local values
+        local_mask (torch.Tensor): Binary mask (1=valid, 0=ignore) matching local_tensor shape
+
+    Returns:
+        torch.Tensor: Global mean of all valid elements across processes
+    """
+    local_tensor = local_tensor * local_mask
+
+    local_sum = torch.sum(local_tensor)
+    local_num = torch.sum(local_mask)
+
+    torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(local_num, op=torch.distributed.ReduceOp.SUM)
+
+    global_mean = local_sum / local_num
+    return global_mean

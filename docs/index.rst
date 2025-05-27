@@ -1,9 +1,7 @@
 Welcome to verl's documentation!
 ================================================
 
-.. _hf_arxiv: https://arxiv.org/pdf/2409.19256
-
-verl is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <hf_arxiv>`_ paper.
+verl is a flexible, efficient and production-ready RL training framework designed for large language models (LLMs) post-training. It is an open source implementation of the `HybridFlow <https://arxiv.org/pdf/2409.19256>`_ paper.
 
 verl is flexible and easy to use with:
 
@@ -33,12 +31,14 @@ verl is fast with:
    start/install
    start/quickstart
    start/multinode
+   start/ray_debug_tutorial
 
 .. toctree::
    :maxdepth: 4
    :caption: Programming guide
 
    hybrid_flow
+   single_controller
 
 .. toctree::
    :maxdepth: 5
@@ -59,6 +59,14 @@ verl is fast with:
 
    examples/ppo_code_architecture
    examples/gsm8k_example
+   examples/multi_modal_example
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Algorithms
+
+   experiment/ppo
+
 
 .. toctree:: 
    :maxdepth: 1
@@ -79,25 +87,29 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: Experimental Results
+   :caption: Adding new models
 
-   experiment/ppo
+   advance/fsdp_extension
+   advance/megatron_extension
 
 .. toctree::
    :maxdepth: 1
-   :caption: Advance Usage and Extension
+   :caption: Advanced Features
 
+   advance/checkpoint
+   advance/rope
+   sglang_multiturn/multiturn.rst
    advance/placement
    advance/dpo_extension
-   advance/fsdp_extension
-   advance/megatron_extension
-   advance/checkpoint
+   examples/sandbox_fusion_example
 
 .. toctree::
    :maxdepth: 1
    :caption: API References
 
-   data.rst
+   api/data
+   api/utils
+   api/single_controller.rst
 
 
 .. toctree::
@@ -118,12 +130,6 @@ Contributions from the community are welcome! Please check out our `project road
 Code Linting and Formatting
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. warning::
-   We are `immigrating to ``ruff`` as the linter and formatter and ``pre-commit`` as the managing tool <https://github.com/volcengine/verl/pull/1010>`_.
-
-   You are only expected to fix the linting errors in the files you changed.
-   Our pre-commit hook and CI action only checks the files you changed for now.
-
 We use pre-commit to help improve code quality. To initialize pre-commit, run:
 
 .. code-block:: bash
@@ -131,7 +137,7 @@ We use pre-commit to help improve code quality. To initialize pre-commit, run:
    pip install pre-commit
    pre-commit install
 
-You can also manually run pre-commit by:
+To resolve CI errors locally, you can also manually run pre-commit by:
 
 .. code-block:: bash
 

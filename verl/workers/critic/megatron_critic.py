@@ -131,9 +131,7 @@ class MegatronPPOCritic(BasePPOCritic):
     def forward_backward_batch(self, data: DataProto, forward_only=False):
         # broadcast from last pp rank to all other pp ranks
         data.batch = data.batch.contiguous()
-        broadcast_dict_tensor(
-            data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group()
-        )
+        broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches
         data.batch["attention_mask"] = data.batch["attention_mask"].to(bool)
         batches = split_dict_tensor_into_batches(data.batch, batch_size=self.config.ppo_micro_batch_size_per_gpu)

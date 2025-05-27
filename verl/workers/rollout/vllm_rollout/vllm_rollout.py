@@ -76,14 +76,10 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), (
-            "disable CUDA graph (enforce_eager = False) if free cache engine"
-        )
+        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), (
-            "tensor parallel size should be less than or equal to the world size"
-        )
+        assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
         max_num_batched_tokens = int(self.config.get("max_num_batched_tokens", 8192))
 
         if kwargs.get("train_tp") is not None:
@@ -98,17 +94,13 @@ class vLLMRollout(BaseRollout):
                 "0.5.4",
                 "0.6.3",
             ):
-                vllm_ps.initialize_parallel_state(
-                    tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp
-                )
+                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
 
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, (
-            "model context length should be greater than total sequence length"
-        )
+        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
+        if not rope_scaling_config:
+            assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
 
-        max_model_len = (
-            self.config.max_model_len if self.config.max_model_len else config.prompt_length + config.response_length
-        )
+        max_model_len = self.config.max_model_len if self.config.max_model_len else config.prompt_length + config.response_length
         max_model_len = int(max_model_len)
 
         if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
@@ -118,7 +110,7 @@ class vLLMRollout(BaseRollout):
             )
 
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
@@ -261,9 +253,7 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(
-            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
-        )
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Union
 
 
 class Tracking:
-    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console"]
+    supported_backend = ["wandb", "mlflow", "swanlab", "vemlp_wandb", "tensorboard", "console", "clearml"]
 
     def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
         if isinstance(default_backend, str):
@@ -32,7 +32,7 @@ class Tracking:
             if backend == "tracking":
                 import warnings
 
-                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning)
+                warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning, stacklevel=2)
             else:
                 assert backend in self.supported_backend, f"{backend} is not supported"
 
@@ -70,10 +70,13 @@ class Tracking:
             SWANLAB_MODE = os.environ.get("SWANLAB_MODE", "cloud")
             if SWANLAB_API_KEY:
                 swanlab.login(SWANLAB_API_KEY)  # NOTE: previous login information will be overwritten
+            
+            if config is None:
+                config = {} # make sure config is not None, otherwise **config will raise error
             swanlab.init(
                 project=project_name,
                 experiment_name=experiment_name,
-                config={"FRAMEWORK": "veRL", **config},
+                config={"FRAMEWORK": "verl", **config},
                 logdir=SWANLAB_LOG_DIR,
                 mode=SWANLAB_MODE,
             )
@@ -108,6 +111,9 @@ class Tracking:
             self.console_logger = LocalLogger(print_to_console=True)
             self.logger["console"] = self.console_logger
 
+        if "clearml" in default_backend:
+            self.logger["clearml"] = ClearMLLogger(project_name, experiment_name, config)
+
     def log(self, data, step, backend=None):
         for default_backend, logger_instance in self.logger.items():
             if backend is None or default_backend in backend:
@@ -122,6 +128,63 @@ class Tracking:
             self.logger["vemlp_wandb"].finish(exit_code=0)
         if "tensorboard" in self.logger:
             self.logger["tensorboard"].finish()
+
+        if "clearnml" in self.logger:
+            self.logger["clearnml"].finish()
+
+
+class ClearMLLogger:
+    def __init__(self, project_name: str, experiment_name: str, config):
+        self.project_name = project_name
+        self.experiment_name = experiment_name
+
+        import clearml
+
+        self._task: clearml.Task = clearml.Task.init(
+            task_name=experiment_name,
+            project_name=project_name,
+            continue_last_task=True,
+            output_uri=False,
+        )
+
+        self._task.connect_configuration(config, name='Hyperparameters')
+
+    def _get_logger(self):
+        return self._task.get_logger()
+
+    def log(self, data, step):
+        import numpy as np
+        import pandas as pd
+
+        # logs = self._rewrite_logs(data)
+        logger = self._get_logger()
+        for k, v in data.items():
+            title, series = k.split('/', 1)
+
+            if isinstance(v, (int, float, np.floating, np.integer)):
+                logger.report_scalar(
+                    title=title,
+                    series=series,
+                    value=v,
+                    iteration=step,
+                )
+            elif isinstance(v, pd.DataFrame):
+                logger.report_table(
+                    title=title,
+                    series=series,
+                    table_plot=v,
+                    iteration=step,
+                )
+            else:
+                logger.warning(
+                    'Trainer is attempting to log a value of '
+                    f'"{v}" of type {type(v)} for key "{k}". '
+                    "This invocation of ClearML logger's function "
+                    'is incorrect so this attribute was dropped. '
+                )
+
+    def finish(self):
+        self._task.mark_completed()
 
 
 class _TensorboardAdapter:
@@ -196,14 +259,15 @@ class ValidationGenerationsLogger:
         if "mlflow" in loggers:
             self.log_generations_to_mlflow(samples, step)
 
+        if "clearml" in loggers:
+            self.log_generation_to_clearml(samples, step)
+
     def log_generations_to_wandb(self, samples, step):
         """Log samples to wandb as a table"""
         import wandb
 
         # Create column names for all samples
-        columns = ["step"] + sum(
-            [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
-        )
+        columns = ["step"] + sum([[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], [])
 
         if not hasattr(self, "validation_table"):
             # Initialize the table on first call
@@ -268,3 +332,31 @@ class ValidationGenerationsLogger:
                 mlflow.log_artifact(validation_gen_step_file)
         except Exception as e:
             print(f"WARNING: save validation generation file to mlflow failed with error {e}")
+
+    def log_generation_to_clearml(self, samples, step):
+        """ Log validation generation to clearml as table"""
+
+        import clearml
+        import pandas as pd
+
+        task: clearml.Task | None = clearml.Task.current_task()
+        if task is None:
+            return
+
+        table = [
+            {
+                "step": step,
+                "input": sample[0],
+                "output": sample[1],
+                "score": sample[2],
+            }
+            for sample in samples
+        ]
+
+        logger = task.get_logger()
+        logger.report_table(
+            series="Validation generations",
+            title="Validation",
+            table_plot=pd.DataFrame.from_records(table),
+            iteration=step,
+        )
