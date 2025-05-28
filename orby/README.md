@@ -10,19 +10,12 @@
 # Dataset format
 - VERL can read parquet files and we just need to make sure each record has the required features. Check [convert_action_description.py](/orby/data/convert_action_description.py) to see how we convert the dataset with caveats like adjusting bbox coordinates for resized images.
 
-# Training scripts
+# Supported tasks / datasets
 - Grounding
-  - [GRPO on action description dataset](/orby/scripts/run_qwen2_5_7b_grpo.sh)
-  - [GRPO on uground dataset](/orby/scripts/run_uground_grpo.sh)
+  - Action description dataset: [GRPO training](/orby/scripts/run_qwen2_5_vl_7b_grpo.sh), [offline eval](/orby/scripts/eval_qwen2_5_vl.sh) 
+  - Uground dataset: [GRPO training](/orby/scripts/run_uground_grpo.sh)
+  - ScreenSpot: [Offline eval](/orby/scripts/eval_screenspot.sh)
 - Subtask
-
-# Offline generation and eval
-
-These scripts run model inference on a test set and evaluate the predictions using customized rule-based reward. They should work with any model checkpoint (SFT or GRPO).
-
-- Grounding
-  - [Action description eval](/orby/scripts/eval_qwen2_5_vl.sh) 
-  - [ScreenSpot eval](/orby/scripts/eval_screenspot.sh)
 
 # TODO
 - Tune batch size, max seq length, etc to obtain best GPU utilization and performance.
