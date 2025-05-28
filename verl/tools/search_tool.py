@@ -154,7 +154,7 @@ class SearchTool(BaseTool):
         # Worker and rate limiting configuration
         self.num_workers = config.get("num_workers", 120)
         self.rate_limit = config.get("rate_limit", 120)
-        self.default_timeout = config.get("default_timeout", 30)
+        self.timeout = config.get("timeout", 30)
 
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
         self.execution_pool = init_search_execution_pool(num_workers=self.num_workers, enable_global_rate_limit=self.enable_global_rate_limit, rate_limit=self.rate_limit, mode=PoolMode.ThreadMode)
@@ -224,7 +224,7 @@ class SearchTool(BaseTool):
             tool_reward_score: The step reward score of the tool.
             tool_metrics: The metrics of the tool.
         """
-        timeout = self.default_timeout
+        timeout = self.timeout
         query_list_from_params = parameters.get("query_list")
 
         if not query_list_from_params or not isinstance(query_list_from_params, list):

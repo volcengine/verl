@@ -4,7 +4,7 @@ tools:
       retrieval_service_url: http://127.0.0.1:8000/retrieve
       num_workers: 120
       rate_limit: 120
-      default_timeout: 30
+      timeout: 30
     tool_schema:
       type: function
       function:
