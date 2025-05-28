@@ -281,6 +281,10 @@ algorithm:
     kl_coef: 0.001
     horizon: 10000
     target_kl: 0.1
+  use_pf_ppo: False
+  pf_ppo:
+    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    weight_pow: 2.0
 
 trainer:
   balance_batch: True
