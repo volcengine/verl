@@ -133,11 +133,16 @@ actor_rollout_ref:
     
     # Whether to use custom fused kernels (e.g., FlashAttention, fused MLP)
     use_fused_kernels: false
+
+    # Options for fused kernels. If use_fused_kernels is true, this will be used.
+    fused_kernel_options:
+
+      # Implementation backend for fused kernels. Options: "triton" or "torch".
+      impl_backend: torch
     
     # Whether to enable loading a remote code model
     trust_remote_code: false
 
-  # configs for the actor
   actor:
   
     # fsdp, fsdp2 or megatron. fsdp backend used here.

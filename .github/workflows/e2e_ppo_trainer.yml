@@ -61,7 +61,7 @@ jobs:
 
   e2e_ppo_trainer_vllm:
     runs-on: [L20x8]
-    timeout-minutes: 40 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -161,6 +161,14 @@ jobs:
         run: |
           ray stop --force
           LIGER=True bash tests/e2e/ppo_trainer/run_model_reward.sh
+      - name: Running GSM8K E2E with rmpad using model rm with Fused Kernel enabled
+        run: |
+          ray stop --force
+          FUSED_KERNELS=True bash tests/e2e/ppo_trainer/run_model_reward.sh
+      - name: Running GSM8K E2E with rmpad using model rm with Fused Kernel enabled
+        run: |
+          ray stop --force
+          FUSED_KERNEL=True FUSED_KERNEL_BACKEND=triton bash tests/e2e/ppo_trainer/run_model_reward.sh
 
   e2e_ppo_trainer_vllm_vlm:
     runs-on: [L20x8]
@@ -195,6 +203,27 @@ jobs:
             MODEL_ID=Qwen/Qwen2-VL-2B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
             SP_SIZE=2 \
+            bash tests/e2e/ppo_trainer/run_function_reward.sh
+      - name: Running Geo3k VLM E2E with rmpad using torch fused kernel (Qwen2.5-VL)
+        run: |
+          ray stop --force
+          FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+            MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
+            MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct \
+            ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
+            GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
+            ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
+            bash tests/e2e/ppo_trainer/run_function_reward.sh
+      - name: Running Geo3k VLM E2E with rmpad using triton fused kernel (Qwen2.5-VL)
+        run: |
+          ray stop --force
+          FUSED_KERNELS=True FUSED_KERNEL_BACKEND=triton \
+            TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+            MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
+            MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct \
+            ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
+            GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
+            ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/e2e/ppo_trainer/run_function_reward.sh
 
   e2e_ppo_trainer_sglang:
@@ -262,7 +291,7 @@ jobs:
   e2e_ppo_trainer_sglang_vlm:
     runs-on: [L20x8]
     needs: pre_commit_for_ppo
-    timeout-minutes: 40 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -294,71 +323,21 @@ jobs:
             ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
             ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/e2e/ppo_trainer/run_function_reward.sh
-
-  e2e_ppo_trainer_fused_kernels_vllm:
-    runs-on: [L20x8]
-    needs: pre_commit_for_ppo
-    timeout-minutes: 40 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
-      HF_ENDPOINT: "https://hf-mirror.com"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.3-flashinfer0.2.2-cxx11abi0
-      options: --gpus all --shm-size=50g # Visual dataloader requires large memory
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Install the current repository
-        run: |
-          pip3 install -e .[test,geo,vllm]
-      # Geo3k
-      - name: Prepare Geo3k dataset
-        run: |
-          ray stop --force
-          python3 examples/data_preprocess/geo3k.py
-      - name: Running Geo3k VLM E2E with rmpad using fused kernel (Qwen2.5-VL)
+      - name: Running Geo3k VLM E2E with rmpad using torch fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
           FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \
-            GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
+            ENGINE=sglang GPU_MEMORY_UTILIZATION=0.6 ACTOR_FSDP_PARAM_OFFLOAD=True \
             ACTOR_FSDP_OPTIMIZER_OFFLOAD=True REF_FSDP_PARAM_OFFLOAD=True \
             bash tests/e2e/ppo_trainer/run_function_reward.sh
-
-  e2e_ppo_trainer_fused_kernels_sglang:
-    runs-on: [L20x8]
-    needs: pre_commit_for_ppo
-    timeout-minutes: 40 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
-      HF_ENDPOINT: "https://hf-mirror.com"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    container:
-      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
-      options: --gpus all --shm-size=50g # Visual dataloader requires large memory
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Install the current repository
-        run: |
-          pip3 install -e .[test,geo,gpu,sglang]
-      - name: Prepare Geo3k dataset
+      - name: Running Geo3k VLM E2E with rmpad using triton fused kernel (Qwen2.5-VL)
         run: |
           ray stop --force
-          python3 examples/data_preprocess/geo3k.py
-      - name: Running Geo3k VLM E2E with rmpad using fused kernel (Qwen2.5-VL)
-        run: |
-          ray stop --force
-          FUSED_KERNELS=True TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
+          FUSED_KERNELS=True FUSED_KERNEL_BACKEND=triton \
+            TRAIN_FILES=$HOME/data/geo3k/train.parquet VAL_FILES=$HOME/data/geo3k/test.parquet \
             MAX_PROMPT_LEN=1536 MAX_RESPONSE_LEN=1536 \
             MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct \
             ADV_ESTIMATOR=grpo RM_PAD=True USE_KL=True ENABLE_CHUNKED_PREFILL=False \

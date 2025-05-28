@@ -29,12 +29,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import typing
 
 import torch
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.experimental.torch_functional import FusedLinearForPPO
+from verl.utils.kernel import linear_cross_entropy
 from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
@@ -78,7 +80,7 @@ def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, lab
     return logprobs.squeeze(0), entropy.squeeze(0)
 
 
-MAX_TEST_CASES = 5
+MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 
 class TestLinearCrossEntropy:
@@ -121,7 +123,7 @@ class TestLinearCrossEntropy:
             self.hidden_size = 4096
             self.vocab_size = 102400
         else:
-            raise ValueError(f"Invalid test case index: {test_case_idx}")
+            raise ValueError(f"Invalid test case index: {self.test_case_idx}")
 
     def generate_forward_inputs(self):
         hidden = torch.empty((self.batch_size, self.num_tokens, self.hidden_size), dtype=self.dtype, device="cuda").uniform_(-0.5, 0.5).requires_grad_()
@@ -144,6 +146,8 @@ class TestLinearCrossEntropy:
         verl_backward_latency = list()
         verl_fused_forward_latency = list()
         verl_fused_backward_latency = list()
+        kernel_forward_latency = list()
+        kernel_backward_latency = list()
 
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -170,12 +174,26 @@ class TestLinearCrossEntropy:
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
 
+            start_event.record()
+            (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, "none", self.temperature)
+            end_event.record()
+            torch.cuda.synchronize()
+            kernel_forward_latency.append(start_event.elapsed_time(end_event))
+
             torch.testing.assert_close(torch_logprobs, verl_logprobs, atol=1e-4, rtol=1e-4)
             torch.testing.assert_close(torch_entropy, verl_entropy, atol=1e-4, rtol=1e-4)
+
             torch.testing.assert_close(torch_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
             torch.testing.assert_close(torch_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
             torch.testing.assert_close(verl_logprobs, verl_fused_logprobs, atol=1e-4, rtol=1e-4)
             torch.testing.assert_close(verl_entropy, verl_fused_entropy, atol=1e-4, rtol=1e-4)
+
+            torch.testing.assert_close(torch_logprobs, kernel_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(torch_entropy, kernel_entropy, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_logprobs, kernel_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_entropy, kernel_entropy, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_fused_logprobs, kernel_logprobs, atol=1e-4, rtol=1e-4)
+            torch.testing.assert_close(verl_fused_entropy, kernel_entropy, atol=1e-4, rtol=1e-4)
 
             # backward
             g_entropy, g_logprobs = self.generate_backward_inputs()
@@ -198,12 +216,25 @@ class TestLinearCrossEntropy:
             torch.cuda.synchronize()
             verl_fused_backward_latency.append(start_event.elapsed_time(end_event))
 
+            start_event.record()
+            (d_kernel_hidden, d_kernel_weight) = torch.autograd.grad((kernel_entropy, kernel_logprobs), (hidden, weight), (g_entropy, g_logprobs), retain_graph=False)
+            end_event.record()
+            torch.cuda.synchronize()
+            kernel_backward_latency.append(start_event.elapsed_time(end_event))
+
             torch.testing.assert_close(d_torch_hidden, d_verl_hidden, atol=1e-2, rtol=1e-4)
             torch.testing.assert_close(d_torch_weight, d_verl_weight, atol=1e-2, rtol=1e-4)
             torch.testing.assert_close(d_torch_hidden, d_verl_fused_hidden, atol=1e-2, rtol=1e-4)
             torch.testing.assert_close(d_torch_weight, d_verl_fused_weight, atol=1e-2, rtol=1e-4)
             torch.testing.assert_close(d_verl_hidden, d_verl_fused_hidden, atol=1e-2, rtol=1e-4)
             torch.testing.assert_close(d_verl_weight, d_verl_fused_weight, atol=1e-2, rtol=1e-4)
+
+            torch.testing.assert_close(d_torch_hidden, d_verl_hidden, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(d_torch_weight, d_verl_weight, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(d_torch_hidden, d_kernel_hidden, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(d_torch_weight, d_kernel_weight, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(d_verl_hidden, d_kernel_hidden, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(d_verl_weight, d_kernel_weight, atol=1e-2, rtol=1e-4)
 
         # remove first latency
         torch_forward_latency = torch_forward_latency[1:]
@@ -212,6 +243,8 @@ class TestLinearCrossEntropy:
         verl_backward_latency = verl_backward_latency[1:]
         verl_fused_forward_latency = verl_fused_forward_latency[1:]
         verl_fused_backward_latency = verl_fused_backward_latency[1:]
+        kernel_forward_latency = kernel_forward_latency[1:]
+        kernel_backward_latency = kernel_backward_latency[1:]
 
         print("\n[INFO]: Verified forward & backward correctness.")
 
@@ -221,6 +254,8 @@ class TestLinearCrossEntropy:
         print(f"[INFO]: Backward pass: VeRL implementation average time: {sum(verl_backward_latency) / len(verl_backward_latency):.2f} ms")
         print(f"[INFO]: Forward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_forward_latency) / len(verl_fused_forward_latency):.2f} ms")
         print(f"[INFO]: Backward pass: VeRL Fused Entropy implementation average time: {sum(verl_fused_backward_latency) / len(verl_fused_backward_latency):.2f} ms")
+        print(f"[INFO]: Forward pass: Kernel implementation average time: {sum(kernel_forward_latency) / len(kernel_forward_latency):.2f} ms")
+        print(f"[INFO]: Backward pass: kernel implementation average time: {sum(kernel_backward_latency) / len(kernel_backward_latency):.2f} ms")
 
     def check_storage(self, method_name, run_forward):
         self.cleanup()
@@ -246,6 +281,7 @@ class TestLinearCrossEntropy:
         self.check_storage("Torch", run_torch_entropy)
         self.check_storage("VeRL", run_verl_original_entropy)
         self.check_storage("VeRL Torch Fused", run_verl_torch_fused_entropy)
+        self.check_storage("Kernel", linear_cross_entropy)
 
 
 if __name__ == "__main__":

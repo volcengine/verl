@@ -129,11 +129,15 @@ class PRIMERewardModelWorker(Worker):
                 trust_remote_code=trust_remote_code,
             )
 
+            fused_kernel_options = config.model.get("fused_kernel_options", None)
+            fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+
             apply_monkey_patch(
                 model=reward_module,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_remove_padding=config.model.get("use_remove_padding", False),
                 use_fused_kernels=config.model.get("use_fused_kernels", False),
+                fused_kernels_backend=fused_kernels_backend,
             )
 
             # some parameters may not in torch_dtype
