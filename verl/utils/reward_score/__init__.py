@@ -15,7 +15,7 @@
 
 
 def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None, sandbox_fusion_url=None, concurrent_semaphore=None):
-    if data_source == "openai/gsm8k" or data_source == "gsm8k":
+    if data_source == "openai/gsm8k":
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
