@@ -19,6 +19,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from tensordict import TensorDict
 
 from verl.protocol import DataProto
+from verl.single_controller.base.decorator import Dispatch, register
 from verl.workers.rollout.async_server import ChatCompletionScheduler
 
 
@@ -28,6 +29,7 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
     only do single-turn chat completion.
     """
 
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     async def generate_sequences(self, batch: DataProto, **sampling_params) -> DataProto:
         kwargs = dict(
             n=self.config.n,
@@ -111,8 +113,8 @@ class NaiveChatCompletionScheduler(ChatCompletionScheduler):
         # TODO: mask out tools calling tokens?
         responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
 
-        prompts = self.tokenizer(prompts, return_tensors="pt", padding="longest", padding_side="left")
-        responses = self.tokenizer(responses, return_tensors="pt", padding="longest", padding_side="right")
+        prompts = {"input_ids": batch.batch["input_ids"], "attention_mask": batch.batch["attention_mask"]}
+        responses = self.tokenizer(responses, return_tensors="pt", padding="max_length", max_length=self.config.response_length, padding_side="right")
         if n > 1:
             prompts["input_ids"] = prompts["input_ids"].repeat_interleave(n, dim=0)
             prompts["attention_mask"] = prompts["attention_mask"].repeat_interleave(n, dim=0)

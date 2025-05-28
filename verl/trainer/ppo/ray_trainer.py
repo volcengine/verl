@@ -18,6 +18,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import importlib
 import json
 import os
 import uuid
@@ -675,7 +676,7 @@ class RayPPOTrainer:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 self.async_rollout_manager.wake_up()
-                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+                test_output_gen_batch_padded = self.chat_scheduler_wg.generate_sequences(test_gen_batch_padded)
                 self.async_rollout_manager.sleep()
 
             # unpad
@@ -818,6 +819,22 @@ class RayPPOTrainer:
                 config=self.config.actor_rollout_ref,
                 worker_group=self.actor_rollout_wg,
             )
+
+            chat_scheduler_num = self.config.actor_rollout_ref.rollout.chat_scheduler_num
+            server_addresses = self.async_rollout_manager.server_addresses
+            assert chat_scheduler_num % len(server_addresses) == 0 or len(server_addresses) % chat_scheduler_num == 0
+
+            module_path, class_name = self.config.actor_rollout_ref.rollout.chat_scheduler.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            scheduler_cls = getattr(module, class_name)
+            resource_pool = RayResourcePool([chat_scheduler_num], use_gpu=False, max_colocate_count=1)
+            cls_with_args = RayClassWithInitArgs(
+                cls=ray.remote(scheduler_cls),
+                config=self.config.actor_rollout_ref.rollout,
+                model_path=self.config.actor_rollout_ref.model.path,
+                server_addresses=server_addresses,
+            )
+            self.chat_scheduler_wg = RayWorkerGroup(resource_pool, cls_with_args)
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
@@ -984,7 +1001,7 @@ class RayPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             self.async_rollout_manager.wake_up()
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                            gen_batch_output = self.chat_scheduler_wg.generate_sequences(gen_batch)
                             self.async_rollout_manager.sleep()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
