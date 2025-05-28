@@ -25,7 +25,6 @@ from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
-from verl.models.transformers.llama import forward_for_ppo
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -173,7 +172,7 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     if use_fused_kernels:
-        from verl.models.transformers.llama import forward_for_ppo
+        from verl.models.transformers.dense_common import forward_for_ppo
 
         model.__class__.forward = forward_for_ppo
 
