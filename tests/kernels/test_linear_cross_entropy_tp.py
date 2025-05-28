@@ -79,7 +79,7 @@ MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 
 class TestLinearCrossEntropy_TensorParallel:
-    def __init__(self, test_case_idx: int):
+    def __init__(self, test_case_idx: int, temperature: float = 1.5):
         dist.init_process_group(backend="nccl")
         self.group = dist.group.WORLD
 
@@ -89,6 +89,8 @@ class TestLinearCrossEntropy_TensorParallel:
         torch.cuda.set_device(device)
         print(f"[INFO]: Local rank: {self.local_rank}, World size: {self.world_size}")
         self.test_case_idx = test_case_idx
+
+        self.temperature = temperature
 
     def shutdown(self):
         dist.destroy_process_group()
@@ -142,11 +144,11 @@ class TestLinearCrossEntropy_TensorParallel:
         g_logprobs = torch.empty((self.num_tokens,), dtype=self.dtype, device="cuda").uniform_(-1, 1)
         return g_entropy, g_logprobs
 
-    def verify_torch_itself(self):
+    def verify_torch_itself(self, iterations: int = 5):
         self.cleanup()
         self.generate_hyper()
 
-        for i in range(self.iterations):
+        for i in range(iterations):
             hidden, weight, labels = self.generate_forward_inputs()
 
             # NOTE: we need to manually synchronize hidden and labels among Process Group
@@ -230,7 +232,7 @@ class TestLinearCrossEntropy_TensorParallel:
             print(f"[INFO]: Torch Forward pass peak memory: {forward_max_memory:.2f} MB")
             print(f"[INFO]: Torch Backward pass peak memory: {backward_max_memory:.2f} MB")
 
-    def verify_kernel_correctness(self):
+    def verify_kernel_correctness(self, iterations: int = 5):
         self.cleanup()
         self.generate_hyper()
 
@@ -242,7 +244,7 @@ class TestLinearCrossEntropy_TensorParallel:
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
 
-        for i in range(self.iterations):
+        for i in range(iterations):
             hidden, weight, labels = self.generate_forward_inputs()
 
             # NOTE: we need to manually synchronize hidden and labels among Process Group

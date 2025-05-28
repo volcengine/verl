@@ -44,10 +44,11 @@ fused_linear_for_ppo = FusedLinearForPPO()
 fused_linear_for_ppo.compile(dynamic=True)
 
 
-def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction="none") -> typing.List[torch.Tensor]:
+def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
     hidden = hidden.squeeze(0).to(torch.float32)
     weight = weight.transpose(0, 1).to(torch.float32)
     logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
+    logits /= temperature
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
     entropy_a = torch.logsumexp(logits, dim=-1)  # [num_tokens]
     entropy_b = torch.sum(pd * logits, dim=-1)  # [num_tokens]
@@ -57,10 +58,16 @@ def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.
     return logprobs, entropy
 
 
-def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor) -> typing.List[torch.Tensor]:
+def run_verl_original_entropy(
+    hidden: torch.Tensor,
+    weight: torch.Tensor,
+    labels: torch.Tensor,
+    temperature: float,
+) -> typing.List[torch.Tensor]:
     hidden = hidden.squeeze(0).to(torch.float32)
     weight = weight.transpose(0, 1).to(torch.float32)
     logits = torch.matmul(hidden, weight)  # [num_tokens, vocab_size]
+    logits /= temperature
     # compute entropy
     entropy = compute_entropy_from_logits(logits)  # ((total_nnz / sp) + pad)
     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -69,23 +76,27 @@ def run_verl_original_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels
 
 
 # To be tested
-def run_verl_torch_fused_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor):
+def run_verl_torch_fused_entropy(
+    hidden: torch.Tensor,
+    weight: torch.Tensor,
+    labels: torch.Tensor,
+    temperature: float,
+):
     hidden = hidden.to(torch.float32)
     weight = weight.to(torch.float32)
     logprobs, entropy = fused_linear_for_ppo(
         hidden,
         weight,
         labels,
+        temperature=temperature,
     )
     return logprobs.squeeze(0), entropy.squeeze(0)
 
 
-MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
-
-
 class TestLinearCrossEntropy:
-    def __init__(self, test_case_idx: int) -> None:
+    def __init__(self, test_case_idx: int, temperature: float = 1.5) -> None:
         self.test_case_idx = test_case_idx
+        self.temperature = temperature
 
     def cleanup(self):
         torch.cuda.empty_cache()
@@ -283,6 +294,8 @@ class TestLinearCrossEntropy:
         self.check_storage("VeRL Torch Fused", run_verl_torch_fused_entropy)
         self.check_storage("Kernel", linear_cross_entropy)
 
+
+MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 if __name__ == "__main__":
     # torch.cuda.memory._record_memory_history()
