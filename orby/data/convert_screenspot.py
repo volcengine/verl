@@ -33,6 +33,13 @@ from verl.utils.hdfs_io import copy, makedirs
 MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"
 PROCESSOR = AutoProcessor.from_pretrained(MODEL_PATH)
 
+_SOURCE_MAP = {
+    "ios": "mobile",
+    "android": "mobile",
+    "windows": "desktop",
+    "macos": "desktop",
+}
+
 
 def get_resized_wh(image):
     """
@@ -69,6 +76,8 @@ if __name__ == "__main__":
             instruction = example.pop("instruction").strip()
             bbox = example.pop("bbox")
             data_type = example.pop("data_type")
+            data_source = example.pop("data_source")
+            device = _SOURCE_MAP.get(data_source, "web")
 
             # Get image and resize ratios
             if isinstance(image, bytes):
@@ -86,6 +95,7 @@ if __name__ == "__main__":
             ground_truth = {
                 "bbox": bbox,
                 "data_type": data_type,
+                "device": device,
             }
 
             data = {

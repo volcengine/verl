@@ -89,6 +89,9 @@ class ScreenspotRewardScorer:
         pred_x, pred_y = self._extract_coordinates(pred_answer)
 
         bbox = ground_truth.get("bbox")
+        data_type = ground_truth.get("data_type")
+        device = ground_truth.get("device")
+
         coordinates_correct = False
         if bbox is not None and pred_x is not None and pred_y is not None:
             coordinates_correct = self._check_coordinates_in_bbox(pred_x, pred_y, bbox)
@@ -109,11 +112,18 @@ class ScreenspotRewardScorer:
             "has_thinking": has_thinking,
             "has_answer": has_answer,
             "format_score": format_score,
-            "coordinates_predicted": str((pred_x, pred_y))
-            if pred_x is not None and pred_y is not None
-            else "None",
+            "coordinates_predicted": (
+                str((pred_x, pred_y))
+                if pred_x is not None and pred_y is not None
+                else "None"
+            ),
             "coordinates_ground_truth": str(bbox),
             "coordinates_score": coord_score,
+            f"{device}/{data_type}/score": overall_score,
+            f"{device}/{data_type}/has_thinking": has_thinking,
+            f"{device}/{data_type}/has_answer": has_answer,
+            f"{device}/{data_type}/format_score": format_score,
+            f"{device}/{data_type}/coordinates_score": coord_score,
         }
 
         return details
