@@ -725,9 +725,8 @@ class ActorRolloutRefWorker(Worker):
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-        log_gpu_memory_usage("After offload actor model during compute_log_prob", logger=logger)
+            log_gpu_memory_usage("After offload actor model during compute_log_prob", logger=logger)
 
-        torch.cuda.empty_cache()
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
