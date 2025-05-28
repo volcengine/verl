@@ -2,6 +2,12 @@ tools:
   - class_name: "verl.tools.sandbox_fusion_tools.SandboxFusionTool"
     config: 
       sandbox_fusion_url: "https://xxx.apigateway-cn-beijing.volceapi.com/run_code"
+      num_workers: 10
+      enable_global_rate_limit: true
+      rate_limit: 10
+      default_timeout: 30
+      default_language: "python"
+
     tool_schema:
       type: "function"
       function:
