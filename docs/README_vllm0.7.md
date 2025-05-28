@@ -49,7 +49,7 @@ After installation, examples using FSDP as training backends can be used. By def
 
 ```
 actor_rollout_ref.rollout.enforce_eager=False \
-actor_rollout_ref.rollout.free_cache_engine=False \
+actor_rollout_ref.rollout.free_cache_engine=True \
 
 ```
 

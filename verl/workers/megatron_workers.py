@@ -253,6 +253,7 @@ class ActorRolloutRefWorker(MegatronWorker):
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
                 transformer_config=self.tf_config,
+                rollout_config=self.config.rollout,
                 layer_name_mapping=layer_name_mapping,
                 actor_module=self.actor.actor_module,
                 weight_converter=weight_converter,
