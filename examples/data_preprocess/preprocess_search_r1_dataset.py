@@ -19,7 +19,6 @@ import os
 import tempfile
 
 import pandas as pd
-import yaml
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
 
@@ -28,6 +27,19 @@ from verl.utils.hdfs_io import copy, makedirs
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# Configuration constants
+DEFAULT_SYSTEM_CONTENT = "You are a helpful and harmless assistant."
+DEFAULT_USER_CONTENT_PREFIX = (
+    "Answer the given question. You must conduct reasoning inside <think> and </think> "
+    "first every time you get new information. After reasoning, if you find you lack "
+    "some knowledge, you can call a search engine by <tool_call> query </tool_call> "
+    "and it will return the top searched results between <tool_response> and "
+    "</tool_response>. You can search as many times as your want. If you find no "
+    "further external knowledge needed, you can directly provide the answer inside "
+    "<answer> and </answer>, without detailed illustrations. For example, "
+    "<answer> Beijing </answer>. Question: "
+)
 
 
 def process_single_row(row, current_split_name, row_index):
@@ -146,12 +158,11 @@ if __name__ == "__main__":
     parser.add_argument("--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID.")
     parser.add_argument("--local_dir", default="~/data/searchR1_processed_direct", help="Local directory to save the processed Parquet files.")
     parser.add_argument("--hdfs_dir", default=None, help="Optional HDFS directory to copy the Parquet files to.")
-    parser.add_argument("--config", type=str, default="./examples/data_preprocess/config/search_r1_like_data.yaml", help="Path to Dataset yaml")
 
     args = parser.parse_args()
-    with open(args.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+
     # System and user content configuration
-    system_content = "You are a helpful and harmless assistant."
-    user_content_prefix = cfg["search_r1_like_prompt"]["user_content_prefix"]
+    system_content = DEFAULT_SYSTEM_CONTENT
+    user_content_prefix = DEFAULT_USER_CONTENT_PREFIX
+
     main()
