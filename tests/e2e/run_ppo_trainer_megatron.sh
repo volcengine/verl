@@ -91,7 +91,7 @@ fi
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
 DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/${MODEL_ID}}
 if [ "$USE_DIST_CKPT" = "True" ]; then
-    python scripts/convert_hf_to_mcore.py \
+    python scripts/converter_hf_to_mcore.py \
         --hf_model_path "${MODEL_PATH}" \
         --output_path "${DIST_CKPT_PATH}"
 fi
