@@ -94,6 +94,16 @@ def process_single_response(response, new_messages):
         new_messages.append({'role': 'tool', 'name': 'execute_python_script', 'content': '{}'.format(intepreter_output)},)
 
         if len(response) > 0:
+            # extract <code></code> and <interpreter></interpreter>
+            # extract last box from response
+
+            if '<answer>' in response:
+                last_box = last_boxed_only_string(response)
+                answer = remove_boxed(last_box)
+
+                response = response.split('<answer>')[0]
+                response += f'Answer: {answer}'
+
             new_messages.append({'role': 'assistant', 'content': response},)
         else:
             # consecutive function calls
@@ -128,13 +138,7 @@ def make_map_fn(split):
                 process_single_response(response, new_messages)
 
         except Exception as e:
-            print(e)
-
-        # extract <code></code> and <interpreter></interpreter>
-
-        # extract last box from response
-        # last_box = last_boxed_only_string(response)
-        # answer = remove_boxed(last_box)
+            new_messages = []
 
         return {
             'messages': new_messages
@@ -144,3 +148,4 @@ def make_map_fn(split):
 
 
 sft_dataset = sft_dataset.map(function=make_map_fn("train"), with_indices=True)
+sft_dataset = sft_dataset.filter(lambda x: len(x['messages']) > 0)
