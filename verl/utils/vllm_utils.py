@@ -47,10 +47,7 @@ from vllm.lora.request import LoRARequest
 
 from verl.third_party.vllm import get_version
 from vllm.lora.utils import get_adapter_absolute_path
-try:
-    from vllm.lora.peft_helper import PEFTHelper
-except ImportError:
-    PEFTHelper = None
+
 from msgspec import field
 
 from packaging import version as vs
@@ -125,6 +122,7 @@ class VLLMHijack():
                 expected_lora_modules = list(set(expected_lora_modules))
 
                 lora_tensors = None
+                from vllm.lora.peft_helper import PEFTHelper
                 if isinstance(lora_request, TensorLoRARequest):
                     peft_config = lora_request.peft_config
                     lora_tensors = lora_request.lora_tensors
