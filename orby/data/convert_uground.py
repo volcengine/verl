@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Preprocess the Screenspot dataset to parquet format
+Preprocess the Uground dataset to parquet format
 """
 
 import argparse
@@ -52,21 +52,23 @@ def get_resized_wh(image):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/screenspot")
+    parser.add_argument("--local_dir", default="~/data/uground")
     parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument("--data_files", default="shard_0000.parquet")
+    parser.add_argument("--output_filename", default="train")
 
     args = parser.parse_args()
 
     data_source = "osunlp/UGround-V1-Data-Box"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
-    dataset = datasets.load_dataset(data_source, data_files="shard_0000.parquet")
+    dataset = datasets.load_dataset(data_source, data_files=args.data_files)
 
     dataset = dataset["train"]
 
     def make_map_fn(split):
         def process_fn(example, idx):
             image = example.pop("image")
-            conversation = example.pop("conversation").strip()
+            conversation = example.pop("conversations").strip()
             # Use the first message for now. Uground has multiple grounding
             # commands / groundtruths in the conversation.
             command, label = json.loads(conversation)[:2]
@@ -132,7 +134,7 @@ if __name__ == "__main__":
     local_dir = os.path.expanduser(args.local_dir)
     os.makedirs(local_dir, exist_ok=True)
 
-    dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
+    dataset.to_parquet(os.path.join(local_dir, f"{args.output_filename}.parquet"))
 
     if args.hdfs_dir is not None:
         makedirs(args.hdfs_dir)
