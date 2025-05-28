@@ -365,7 +365,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            print(f"{self.sampling_params=}")
+            # print(f"{self.sampling_params=}")
             if self._tp_rank == 0:
                 loop = asyncio.get_event_loop()
                 output = loop.run_until_complete(
@@ -390,11 +390,11 @@ class AsyncSGLangRollout(BaseRollout):
             out = _post_process_outputs(self.tokenizer, output)
 
             response = out[0].to(idx.device)
-            # log_probs = out[1].to(idx.device)
+            rollout_log_probs = out[1].to(idx.device)
 
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+                rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
 
             # utilize current sampling params
             if self.sampling_params.get("n", 1) > 1 and do_sample:
@@ -428,7 +428,7 @@ class AsyncSGLangRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                # 'old_log_probs': log_probs, # we will recompute old log prob with actor
+                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },

@@ -146,6 +146,22 @@ class ResourcePoolManager:
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl", multi_turn=False):
+    """Apply KL penalty to the token-level rewards.
+
+    This function computes the KL divergence between the reference policy and current policy,
+    then applies a penalty to the token-level rewards based on this divergence.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+        kl_ctrl (core_algos.AdaptiveKLController): Controller for adaptive KL penalty.
+        kl_penalty (str, optional): Type of KL penalty to apply. Defaults to "kl".
+        multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
+
+    Returns:
+        tuple: A tuple containing:
+            - The updated data with token-level rewards adjusted by KL penalty
+            - A dictionary of metrics related to the KL penalty
+    """
     responses = data.batch["responses"]
     response_length = responses.size(1)
     token_level_scores = data.batch["token_level_scores"]
@@ -179,6 +195,17 @@ def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, 
 
 
 def compute_response_mask(data: DataProto):
+    """Compute the attention mask for the response part of the sequence.
+
+    This function extracts the portion of the attention mask that corresponds to the model's response,
+    which is used for masking computations that should only apply to response tokens.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+
+    Returns:
+        torch.Tensor: The attention mask for the response tokens.
+    """
     responses = data.batch["responses"]
     response_length = responses.size(1)
     attention_mask = data.batch["attention_mask"]
@@ -186,6 +213,23 @@ def compute_response_mask(data: DataProto):
 
 
 def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True):
+    """Compute advantage estimates for policy optimization.
+
+    This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
+    The advantage estimates are used to guide policy optimization in RL algorithms.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+        adv_estimator: The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
+        gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
+        lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
+        num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
+        multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
+        norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in GRPO. Defaults to True.
+
+    Returns:
+        DataProto: The updated data with computed advantages and returns.
+    """
     # Back-compatible with trainers that do not compute response mask in fit
     if "response_mask" not in data.batch:
         data.batch["response_mask"] = compute_response_mask(data)
@@ -266,6 +310,18 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
 @contextmanager
 def _timer(name: str, timing_raw: Dict[str, float]):
+    """Context manager for timing code execution.
+
+    This utility function measures the execution time of code within its context
+    and accumulates the timing information in the provided dictionary.
+
+    Args:
+        name (str): The name/identifier for this timing measurement.
+        timing_raw (Dict[str, float]): Dictionary to store timing information.
+
+    Yields:
+        None: This is a context manager that yields control back to the code block.
+    """
     with Timer(name=name, logger=None) as timer:
         yield
     if name not in timing_raw:
@@ -296,6 +352,8 @@ class RayPPOTrainer:
         train_sampler: Optional[Sampler] = None,
         device_name="cuda",
     ):
+        """Initialize distributed PPO trainer with Ray backend."""
+
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -679,7 +737,12 @@ class RayPPOTrainer:
         return metric_dict
 
     def init_workers(self):
-        """Init resource pool and worker group"""
+        """Initialize distributed training workers using Ray backend.
+
+        Creates:
+        1. Ray resource pools from configuration
+        2. Worker groups for each role (actor, critic, etc.)
+        """
         self.resource_pool_manager.create_resource_pool()
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
@@ -977,6 +1040,30 @@ class RayPPOTrainer:
                         metrics.update(old_log_prob_metrics)
                         old_log_prob.batch.pop("entropys")
                         batch = batch.union(old_log_prob)
+
+                        if "rollout_log_probs" in batch.batch.keys():
+                            # TODO: we may want to add diff of probs too.
+                            rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                            actor_old_log_probs = batch.batch["old_log_probs"]
+                            attention_mask = batch.batch["attention_mask"]
+                            responses = batch.batch["responses"]
+                            response_length = responses.size(1)
+                            response_mask = attention_mask[:, -response_length:]
+
+                            rollout_probs = torch.exp(rollout_old_log_probs)
+                            actor_probs = torch.exp(actor_old_log_probs)
+                            rollout_probs_diff = torch.abs(rollout_probs - actor_probs)
+                            rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                            rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                            rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                            rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                            metrics.update(
+                                {
+                                    "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                                    "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                                    "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                                }
+                            )
 
                     if self.use_reference_policy:
                         # compute reference log_prob
