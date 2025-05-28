@@ -41,6 +41,7 @@ install_requires = [
     "transformers",
     "wandb",
     "packaging>=20.0",
+    "tensorboard",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy"]
