@@ -1,8 +1,7 @@
 tools:
   - class_name: "verl.tools.sandbox_fusion_tools.SandboxFusionTool"
-    config: {
-      "sandbox_fusion_url": "https://xxx.apigateway-cn-beijing.volceapi.com/run_code"
-    }
+    config: 
+      sandbox_fusion_url: "https://xxx.apigateway-cn-beijing.volceapi.com/run_code"
     tool_schema:
       type: "function"
       function:

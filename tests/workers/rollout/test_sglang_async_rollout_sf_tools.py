@@ -34,11 +34,13 @@ from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPro
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 
-sandbox_url = "https://sd04qmtd8e6v9i08l9l00.apigateway-cn-beijing.volceapi.com/run_code"
+sandbox_url = ""
 
 
-def get_sandbox_fusion_data():
-    prompt = """
+def get_sandbox_fusion_messages():
+    user_prompt = {
+        "role": "user",
+        "content": """
             Solve the following problem step by step. You now have the ability to selectively 
             write executable Python code to enhance your reasoning process. \n\n**user question:**\nThere 
             are 152 students at Dala High School. Assume the following: \n- 100 students take a Math class \n- 94 
@@ -47,49 +49,82 @@ def get_sandbox_fusion_data():
             class and an English class \n- 22 students take a Math class and a Science class and an English class\n \nHow 
             many students take neither a Math class nor a Science class nor an Eglish class?\n\nRemember to place the final 
             answer in the last part using the format: \n<answer>\n\boxed{'The final answer goes here.'}\n</answer>
-        """
+        """,
+    }
+    expect_turn_0_msg = {
+        "role": "assistant",
+        "content": """
+            Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, 
+            Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets 
+            and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
+            principle for three sets says that the total number of students taking at least one of the classes is equal to the 
+            sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in 
+            all three classes. Then, subtract that total from the overall number of students to get those not taking any of the 
+            three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. 
+            Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the 
+            numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging 
+            these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure 
+            accuracy.\n
+        """,
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "code_interpreter",
+                    "arguments": {
+                        "code": """M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 
+                        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)""",
+                    },
+                },
+            }
+        ],
+    }
 
-    expect_turn_0 = """
-        Okay, so I need to find out how many students at Dala High School are not taking any of the three classes: Math, 
-        Science, or English. The total number of students is 152. Let me see... I remember this is a problem about sets 
-        and maybe using the principle of inclusion-exclusion. Let me recall how that works.\n\nFirst, the inclusion-exclusion 
-        principle for three sets says that the total number of students taking at least one of the classes is equal to the 
-        sum of the numbers in each individual class, minus the sum of the numbers in each pair of classes, plus the number in 
-        all three classes. Then, subtract that total from the overall number of students to get those not taking any of the 
-        three. \n\nLet me write that down step by step. Let M be the set of students taking Math, S for Science, and E for English. 
-        Then:\n\nTotal in at least one class = |M ∪ S ∪ E| = |M| + |S| + |E| - |M ∩ S| - |M ∩ E| - |S ∩ E| + |M ∩ S ∩ E|\n\nGiven the 
-        numbers:\n\n|M| = 100\n\n|S| = 94\n\n|E| = 57\n\n|M ∩ S| = 73\n\n|M ∩ E| = 24\n\n|S ∩ E| = 27\n\n|M ∩ S ∩ E| = 22\n\nSo plugging 
-        these into the formula:\n\nTotal = 100 + 94 + 57 - 73 - 24 - 27 + 22\n\nLet me compute that step by step using code to ensure 
-        accuracy.\n\n<tool_call>[{"arguments": {"code": "M = 100\\nS = 94\\nE = 57\\nM_S = 73\\nM_E = 24\\nS_E = 27\\nM_S_E = 
-        22\\n\\ntotal_in_any = M + S + E - M_S - M_E - S_E + M_S_E\\nstudents_neither = 152 - total_in_any\\nprint(students_neither)", "language": "python"}, 
-        "name": "code_interpreter"}]</tool_call>\n
-        """
+    tool_return_0_msg = {
+        "role": "tool",
+        "content": """3""",
+    }
 
-    tool_return_0 = """3"""
+    expect_turn_1_msg = {
+        "role": "assistant",
+        "content": """
+            The code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each
+            category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English:
+            24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science:
+            94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n
+        """,
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "code_interpreter",
+                    "arguments": {
+                        "code": """only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S -
+                        only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify
+                        = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)""",
+                    },
+                },
+            }
+        ],
+    }
 
-    expect_turn_1 = """
-        \nThe code returns 3, indicating that 3 students take none of the classes. To verify, I'll break down each 
-        category to ensure the total matches:\n\n- Only Math and Science: 73 - 22 = 51\n- Only Math and English: 
-        24 - 22 = 2\n- Only Science and English: 27 - 22 = 5\n- Only Math: 100 - 51 - 2 - 22 = 25\n- Only Science: 
-        94 - 51 - 5 - 22 = 16\n- Only English: 57 - 2 - 5 - 22 = 28\n\nSumming all categories:\n\n<tool_call>[{"arguments": 
-        {"code": "only_M_S = 73 - 22\\nonly_M_E = 24 - 22\\nonly_S_E = 27 - 22\\n\\nonly_M = 100 - only_M_S - 
-        only_M_E - 22\\nonly_S = 94 - only_M_S - only_S_E - 22\\nonly_E = 57 - only_M_E - only_S_E - 22\\n\\ntotal_verify 
-        = only_M + only_S + only_E + only_M_S + only_M_E + only_S_E + 22\\nprint(total_verify)", "language": "python"}, 
-        "name": "code_interpreter"}]</tool_call>\n
-        """
+    tool_return_1_msg = {
+        "role": "tool",
+        "content": """149""",
+    }
+    expect_turn_2_msg = {
+        "role": "assistant",
+        "content": """
+            The verification total is 149, so students not taking any classes are 152 - 149 = 3, confirming the initial
+            result.\n\n<answer>\n\\boxed{3}\n</answer>
+        """,
+    }
 
-    tool_return_1 = """149"""
+    user_prompts = [user_prompt]
+    expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg, expect_turn_2_msg]
+    tool_return_array = [tool_return_0_msg, tool_return_1_msg]
 
-    expect_turn_2 = """
-        \nThe verification total is 149, so students not taking any classes are 152 - 149 = 3, confirming the initial 
-        result.\n\n<answer>\n\\boxed{3}\n</answer>
-        """
-
-    preencode_prompts = [[{"role": "user", "content": prompt, "tool_calls": None}]]
-    expect_turn_array = [expect_turn_0, expect_turn_1, expect_turn_2]
-    tool_return_array = [tool_return_0, tool_return_1]
-
-    return preencode_prompts, expect_turn_array, tool_return_array
+    return user_prompts, expect_turn_array, tool_return_array
 
 
 def skip_if_valid_sandbox(url):
@@ -120,8 +155,12 @@ class TestRolloutWithTools:
         return config
 
     @pytest.fixture
-    def sandbox_fusion_data(self):
-        return get_sandbox_fusion_data()
+    def sandbox_fusion_data(self, qwen_tokenizer):
+        user_prompt, expect_turn_array, tool_return_array = get_sandbox_fusion_messages()
+        prompts = [[message] for message in user_prompt]
+        preencode_turn_array = [qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=False) for turn in expect_turn_array]
+        preencode_tool_return_array = [qwen_tokenizer.apply_chat_template([turn], tokenize=False, add_generation_prompt=True) for turn in tool_return_array]
+        return prompts, preencode_turn_array, preencode_tool_return_array
 
     @pytest.fixture
     def sandbox_fusion_rollout_config(self):
@@ -214,6 +253,7 @@ class TestRolloutWithTools:
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
+
         _, expect_turn_array, tool_return_array = sandbox_fusion_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         rollout._handle_engine_call = MagicMock()
@@ -273,7 +313,7 @@ class TestRolloutWithTools:
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
         # here we verify whether the code sandbox is executed correctly
-        assert output_req.reward_scores == {"code_interpreter": ["3", "149"]}
+        assert output_req.metrics == {"code_interpreter": ["3", "149"]}
         assert rollout._handle_engine_call.call_count == 3
         assert len(output_req.messages) == 6  # user + 3*assistant + 2*tool_call
         code_counter = 0
@@ -332,7 +372,7 @@ class TestRolloutWithTools:
             for output_req in output_req_list:
                 assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
                 # here we verify whether the code sandbox is executed correctly
-                assert output_req.reward_scores == {"code_interpreter": ["3", "149"]}
+                assert output_req.metrics == {"code_interpreter": ["3", "149"]}
                 assert len(output_req.messages) == 6  # user + 3*assistant + 2*tool_call
                 code_counter = 0
                 for msg in output_req.messages:
@@ -528,6 +568,6 @@ class TestMultiNodeRateLimiterCase(RayMultiProcessTestCase):
             # # we have 6 task each node * 2node = 12 task, each task take 2 second.
             # with rate limit of 6,
             # therefore we need at least 2 round: 12/6*2=4 seconds
-            assert total_cost > 4
+            assert total_cost > 4, total_cost
         else:
             time.sleep(10)

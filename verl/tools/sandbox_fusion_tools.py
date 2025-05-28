@@ -162,10 +162,8 @@ class SandboxFusionTool(BaseTool, DatasetIrrelevantTool):
             code = str(code)
 
         result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
-        # FIXME: this is a hack to make test easier
-        self._instance_dict[instance_id]["reward"].append(result.strip())
 
-        return result, result, {}
+        return result, result, result.strip()
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
         result_status, metadata = _process_single_case(0, None, None, self.sandbox_fusion_url, code, timeout, language)

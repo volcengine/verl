@@ -84,6 +84,7 @@ class AsyncRolloutRequest(BaseModel):
     reward_scores: Dict[str, float]
     max_response_len: int = 8192
     max_model_len: int = 32768
+    metrics: Dict[str, List[Any]] = {}
 
     format_config: dict = {
         "chatml": {
@@ -203,6 +204,14 @@ class AsyncRolloutRequest(BaseModel):
             raise ValueError(f"Unsupported format: {format}")
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+
+    def update_metrics(self, metrics: Any, tool_id: str) -> None:
+        """
+        metrics: should be a dict of tools_name -> Any
+        """
+        if self.metrics.get(tool_id) is None:
+            self.metrics[tool_id] = []
+        self.metrics[tool_id].append(metrics)
 
     def finalize(
         self,

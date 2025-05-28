@@ -441,7 +441,7 @@ class AsyncSGLangRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": rollout_log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
@@ -480,6 +480,7 @@ class AsyncSGLangRollout(BaseRollout):
                     )
                     for i, (tool_call, (resp, reward, metrics)) in enumerate(zip(parsed_tool_calls, tool_call_results)):
                         _req.add_tool_response_message(self.tokenizer, resp, (i == len(parsed_tool_calls) - 1), format=self.config.multi_turn.format)
+                        _req.update_metrics(metrics, tool_call.function.name)
                         if len(_req.input_ids) >= self.config.max_model_len:
                             break
                     if len(_req.input_ids) >= self.config.max_model_len:
