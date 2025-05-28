@@ -40,8 +40,28 @@ from . import kernels
 class LinearCrossEntropy(torch.autograd.Function):
     @staticmethod
     def forward(ctx, hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction: typing.Optional[str] = "mean", temperature: typing.Optional[float] = 1.0, dist_process_group: typing.Optional[dist.ProcessGroup] = None) -> typing.List[torch.Tensor]:
+        """_summary_
+
+        Args:
+            ctx (_type_): _description_
+            hidden (torch.Tensor): (batch_size, num_tokens, hidden_size) -> (batch_size * num_tokens, hidden_size)
+            weight (torch.Tensor): (vocab_size, hidden_size)
+            labels (torch.Tensor): (batch_size, num_tokens) -> (batch_size * num_tokens, )
+            reduction (typing.Optional[str], optional): _description_. Defaults to "mean".
+            temperature (typing.Optional[float], optional): _description_. Defaults to 1.0.
+            dist_process_group (typing.Optional[dist.ProcessGroup], optional): _description_. Defaults to None.
+
+        Returns:
+            typing.List[torch.Tensor]: _description_
+        """
+
         with torch.cuda.nvtx.range("LinearCrossEntropy-forward"):
             REDUCTION = kernels.get_entropy_reduction_enum_number(reduction.lower())
+
+            if len(hidden.shape) != 2:
+                hidden = hidden.view(-1, hidden.shape[-1])  # (batch_size * num_tokens, hidden_size)
+            if len(labels.shape) != 1:
+                labels = labels.view(-1)
 
             logprobs, entropy, _maximum, _accumulate, _entropy_b = kernels.efficient_entropy_forward(hidden, weight, labels, REDUCTION, temperature, dist_process_group)
 
