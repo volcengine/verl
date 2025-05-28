@@ -86,12 +86,13 @@ if __name__ == "__main__":
                 image = Image.open(io.BytesIO(image))
             resized_height, resized_width = get_resized_wh(image)
 
-            # Adjust bbox based on resize ratios
+            # Adjust bbox based on resize ratios. Uground labels range from
+            # [0, 999]
             bbox = [
-                bbox[0] * resized_width,
-                bbox[1] * resized_height,
-                bbox[2] * resized_width,
-                bbox[3] * resized_height,
+                bbox[0] * resized_width / 999.0,
+                bbox[1] * resized_height / 999.0,
+                bbox[2] * resized_width / 999.0,
+                bbox[3] * resized_height / 999.0,
             ]
 
             ground_truth = {
