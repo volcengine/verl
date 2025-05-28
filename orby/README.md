@@ -18,11 +18,11 @@
 
 # Offline generation and eval
 
-These scripts run model inference on a test set and evaluate the predictions using customized rule-based reward.
+These scripts run model inference on a test set and evaluate the predictions using customized rule-based reward. They should work with any model checkpoint (SFT or GRPO).
 
 - Grounding
-  - Action description eval: [eval_qwen2_5_vl.sh](/orby/scripts/eval_qwen2_5_vl.sh) 
-  - ScreenSpot eval: [eval_screenspot.sh](/orby/scripts/eval_screenspot.sh)
+  - [Action description eval](/orby/scripts/eval_qwen2_5_vl.sh) 
+  - [ScreenSpot eval](/orby/scripts/eval_screenspot.sh)
 
 # TODO
 - Tune batch size, max seq length, etc to obtain best GPU utilization and performance.
