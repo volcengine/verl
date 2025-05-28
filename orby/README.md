@@ -1,6 +1,6 @@
 # Run VERL on interative instance
 - Run `mcli interactive --max-duration 120 --gpus 8 --tmux --cluster r7z24p1 --image=whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2` to create the interactive instance with VERL docker image, following [VERL installation instructions](https://verl.readthedocs.io/en/latest/start/install.html#install-from-docker-image).
-- Use `init_interactive.sh` to init the instance. Change commands to your own config. You can also convert the ActionDescription dataset to the format required by VERL.
+- Use [init_interactive.sh](/orby/scripts/init_interactive.sh) to init the instance. Change commands to your own config. You can also convert the ActionDescription dataset to the format required by VERL.
 - Run `bash orby/scripts/run_qwen2_5_vl-7b_grpo.sh` to start training with the ActionDescription dataset.
 
 # Rule-based reward
@@ -12,6 +12,7 @@
 
 # Offline generation and eval
 - Use [eval_qwen2_5_vl.sh](/orby/scripts/eval_qwen2_5_vl.sh) to run model inference on a test set and evaluate the predictions using customized rule-based reward.
+- ScreenSpot eval: [eval_screenspot.sh](orby/scripts/eval_screenspot.sh)
 
 # TODO
 - Tune batch size, max seq length, etc to obtain best GPU utilization and performance.
