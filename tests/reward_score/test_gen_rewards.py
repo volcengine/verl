@@ -29,8 +29,8 @@ class TestGenerativeRewardManager(unittest.TestCase):
         mock_yaml_load.return_value = {
             "scoring_prompt": "Score the response based on the reference from range 1 - 5. Embrace your score with \\bold{}. Only the \\bold score is needed. {response}",
             "timeout": 30,
-            "api_key": "sk-wcTYtsfUa5xQ0Lfpnr3FDWpiAz6Gt8EgpkkSUvam1i3w1s3e",
-            "api_base": "http://35.220.164.252:3888/v1",
+            "api_key": "sk-1232434",
+            "api_base": "http://128.0.0.1:8000/v1",
             "max_retries": 3,
             "tokenizer": None,
             "apply_chat_template": False,
