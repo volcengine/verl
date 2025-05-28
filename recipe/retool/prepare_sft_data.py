@@ -129,8 +129,6 @@ def make_map_fn(split):
 
         except Exception as e:
             print(e)
-            from IPython import embed
-            embed()
 
         # extract <code></code> and <interpreter></interpreter>
 
