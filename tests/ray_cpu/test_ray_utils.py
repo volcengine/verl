@@ -36,8 +36,8 @@ def test_parallel_put_basic(init_ray):
 
 def test_parallel_put_empty(init_ray):
     data = []
-    refs = parallel_put(data)
-    assert len(refs) == 0
+    with pytest.raises(AssertionError):
+        _ = parallel_put(data)
 
 
 def test_parallel_put_workers(init_ray):
