@@ -1,3 +1,5 @@
+set -e
+
 MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 DATA_PATH=~/data/screenspot
 REWARD_FILE=orby/reward/screenspot.py

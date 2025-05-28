@@ -21,6 +21,8 @@ import os
 import logging
 
 import datasets
+from datasets import Sequence
+from datasets import Image as ImageData
 from PIL import Image
 from transformers import AutoProcessor
 from qwen_vl_utils import smart_resize
@@ -116,7 +118,10 @@ if __name__ == "__main__":
 
         return process_fn
 
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
+    test_dataset = test_dataset.map(
+        function=make_map_fn("test"), with_indices=True, num_proc=16
+    )
+    test_dataset = test_dataset.cast_column("images", Sequence(ImageData()))
 
     local_dir = os.path.expanduser(args.local_dir)
     os.makedirs(local_dir, exist_ok=True)
