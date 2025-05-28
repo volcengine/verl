@@ -20,25 +20,26 @@ from uuid import uuid4
 
 from verl.utils.reward_score import gsm8k
 
-from .base import BaseFeedback
+from .base import BaseInteraction
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class Gsm8kFeedback(BaseFeedback):
-    """A demo feedback for calculating the reward of gsm8k.
+class Gsm8kInteraction(BaseInteraction):
+    """A demo interaction for calculating the reward of gsm8k.
 
-    - `create`: create a feedback instance for a trajectory.
-    - `get_feedback`: get the feedback of the user.
-    - `release`: release the feedback instance.
+    - `start_interaction`: start a interaction instance for a trajectory.
+    - `generate_response`: generate the response of the user.
+    - `calculate_score`: calculate the score of the interaction.
+    - `finalize_interaction`: finalize the interaction instance.
     """
 
     def __init__(self, config: dict):
         super().__init__(config)
         self._instance_dict = {}
 
-    async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
+    async def start_interaction(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
         if instance_id is None:
             instance_id = str(uuid4())
         self._instance_dict[instance_id] = {
@@ -48,12 +49,12 @@ class Gsm8kFeedback(BaseFeedback):
         }
         return instance_id
 
-    async def get_feedback(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[str, float, dict]:
-        content = ''
+    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[str, float, dict]:
+        content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]
-            if item.get('role') == 'user':
-                content = item.get('content')
+            if item.get("role") == "user":
+                content = item.get("content")
                 break
 
         if content.startswith("#### "):
@@ -61,17 +62,17 @@ class Gsm8kFeedback(BaseFeedback):
         else:
             self._instance_dict[instance_id]["response"] = "#### " + content
 
-        reward = await self.calc_reward(instance_id)
+        reward = await self.calculate_score(instance_id)
         if reward == 1.0:
             feedback = "Your response is correct!"
-            go_on = False
+            should_terminate_sequence = True
         else:
             feedback = "Your response is incorrect! You need to reflect on your answer and try again."
-            go_on = True
+            should_terminate_sequence = False
 
-        return f"{feedback=} {reward=}", go_on, {}
+        return should_terminate_sequence, f"{feedback=}", reward, {}
 
-    async def calc_reward(self, instance_id: str, **kwargs) -> float:
+    async def calculate_score(self, instance_id: str, **kwargs) -> float:
         return gsm8k.compute_score(
             self._instance_dict[instance_id]["response"],
             self._instance_dict[instance_id]["ground_truth"],
@@ -80,5 +81,5 @@ class Gsm8kFeedback(BaseFeedback):
             score=1.0,
         )
 
-    async def release(self, instance_id: str, **kwargs) -> None:
+    async def finalize_interaction(self, instance_id: str, **kwargs) -> None:
         del self._instance_dict[instance_id]

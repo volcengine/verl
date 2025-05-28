@@ -118,6 +118,7 @@ class AsyncSGLangRollout(BaseRollout):
         self.train_tp = kwargs.get("train_tp", None)
         if self.train_tp is not None:
         self.feedback = self._intitalize_feedback(config)
+        self.interaction = self._intitalize_interaction(config)
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
 
@@ -238,16 +239,18 @@ class AsyncSGLangRollout(BaseRollout):
 
         self.tokenizer = tokenizer
         self.pad_token_id = tokenizer.pad_token_id
-    
-    def _intitalize_feedback(self, config):
-        from omegaconf import OmegaConf
+
+    def _intitalize_interaction(self, config):
         import importlib.util
         import sys
-        if config.multi_turn.feedback_config_path is None:
+
+        from omegaconf import OmegaConf
+
+        if config.multi_turn.interaction_config_path is None:
             return None
-        feedback_config_file = config.multi_turn.feedback_config_path
-        feedback_config = OmegaConf.load(feedback_config_file).feedback[0]
-        cls_name = feedback_config.class_name
+        interaction_config_file = config.multi_turn.interaction_config_path
+        interaction_config = OmegaConf.load(interaction_config_file).interaction[0]
+        cls_name = interaction_config.class_name
         module_name, class_name = cls_name.rsplit(".", 1)
         if module_name not in sys.modules:
             spec = importlib.util.find_spec(module_name)
@@ -257,10 +260,10 @@ class AsyncSGLangRollout(BaseRollout):
         else:
             module = sys.modules[module_name]
 
-        feedback_cls = getattr(module, class_name)
+        interaction_cls = getattr(module, class_name)
 
-        feedback = feedback_cls(config=OmegaConf.to_container(feedback_config.config, resolve=True))
-        return feedback
+        interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
+        return interaction
 
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
@@ -493,6 +496,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         current_turns = 0
         user_turns = 0
+        user_turn_rewards = []
         while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
@@ -503,9 +507,9 @@ class AsyncSGLangRollout(BaseRollout):
                         create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                         tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
                     await asyncio.gather(*tool_creation_coroutines)
-                if _req.feedback_kwargs is not None:
-                    feedback_kwargs = _req.feedback_kwargs
-                    await self.feedback.create(_req.request_id, **feedback_kwargs)
+                if _req.interaction_kwargs is not None:
+                    interaction_kwargs = _req.interaction_kwargs
+                    await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
@@ -575,22 +579,23 @@ class AsyncSGLangRollout(BaseRollout):
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             if len(_req.input_ids) >= self.config.max_model_len:
                                 break
-                            if _req.feedback_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
+                            if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
                                 _req.state = AsyncRolloutRequestStateEnum.WAITING
                             else:
                                 _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                                 break
                     else:
                         _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
-                        if _req.feedback_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
+                        if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
                             _req.state = AsyncRolloutRequestStateEnum.WAITING
                         else:
                             break
             elif _req.state == AsyncRolloutRequestStateEnum.WAITING:
                 user_turns += 1
                 messages = [{"role": x.role, "content": x.content} for x in _req.messages]
-                content, go_on, metrics = await self.feedback.get_feedback(_req.request_id, messages, **_req.feedback_kwargs)
-                if not go_on:
+                should_terminate_sequence, content, reward, metrics = await self.interaction.generate_response(_req.request_id, messages, **_req.interaction_kwargs)
+                user_turn_rewards.append(reward)
+                if should_terminate_sequence:
                     finish_reason_type = FinishReasonTypeEnum.STOP
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                     break
@@ -617,7 +622,8 @@ class AsyncSGLangRollout(BaseRollout):
             tool_reward_tasks.append(calc_reward_and_release_fn(name, tool))
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
-        _req.finalize(self.tokenizer, tool_reward_scores, finish_reason_type)
+        all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
+        _req.finalize(self.tokenizer, all_rewards, finish_reason_type)
 
         return _req
 
@@ -823,10 +829,10 @@ class AsyncSGLangRollout(BaseRollout):
                     _position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
                     _tool_schemas = []
                     _tools_kwargs = {}
-                if self.feedback is not None:
-                    _feedback_kwargs = prompts.non_tensor_batch["feedback_kwargs"][data_idx]
+                if self.interaction is not None:
+                    _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
                 else:
-                    _feedback_kwargs = {}
+                    _interaction_kwargs = {}
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
@@ -835,7 +841,7 @@ class AsyncSGLangRollout(BaseRollout):
                     messages=[Message.model_validate(msg) for msg in raw_prompt],
                     tools=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
-                    feedback_kwargs=_feedback_kwargs,
+                    interaction_kwargs=_interaction_kwargs,
                     input_ids=_input_ids,
                     prompt_ids=_input_ids,
                     response_ids=[],

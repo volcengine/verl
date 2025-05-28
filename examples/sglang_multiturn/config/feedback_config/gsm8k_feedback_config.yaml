@@ -1,3 +1,0 @@
-feedback:
-  - class_name: "verl.feedbacks.gsm8k_feedback.Gsm8kFeedback"
-    config: {}

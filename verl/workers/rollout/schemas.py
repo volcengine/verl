@@ -83,7 +83,7 @@ class AsyncRolloutRequest(BaseModel):
     loss_mask: List[int]
     prompt_loss_mask: List[int]
     response_loss_mask: List[int]
-    reward_scores: Dict[str, float]
+    reward_scores: Dict[str, List[float]]
     max_response_len: int = 8192
     max_model_len: int = 32768
     metrics: Dict[str, List[Any]] = {}
@@ -108,7 +108,7 @@ class AsyncRolloutRequest(BaseModel):
         },
             "user_prefix_msg": "\n<|im_start|>user",
             "user_suffix_msg": "<|im_end|>",
-        }
+        },
     }
 
     def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> list[int]:
@@ -118,6 +118,7 @@ class AsyncRolloutRequest(BaseModel):
             add_generation_prompt=True,
             tokenize=True,
         )
+
     def add_user_message(
         self,
         tokenizer: PreTrainedTokenizer,
@@ -158,7 +159,7 @@ class AsyncRolloutRequest(BaseModel):
             raise ValueError(f"Unsupported format: {format}")
         assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Request {self.request_id} has different length of {len(self.input_ids)=}, 
             {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
-    
+
     def add_assistant_message(
         self,
         tokenizer: PreTrainedTokenizer,
@@ -263,7 +264,7 @@ class AsyncRolloutRequest(BaseModel):
     def finalize(
         self,
         tokenizer: PreTrainedTokenizer,
-        reward_scores: Dict[str, float],
+        reward_scores: Dict[str, List[float]],
         finish_reason_type: FinishReasonTypeEnum = FinishReasonTypeEnum.STOP,
     ) -> None:
         self.state = AsyncRolloutRequestStateEnum.COMPLETED
