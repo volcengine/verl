@@ -167,7 +167,7 @@ class FSDPSFTTrainer:
                 collate_fn=collate_fn,
                 sampler=self.val_sampler,
             )
-        else:    
+        else:
             self.train_dataloader = DataLoader(
                 dataset=self.train_dataset,
                 batch_size=config.data.train_batch_size,
@@ -219,15 +219,17 @@ class FSDPSFTTrainer:
             attn_implementation="sdpa"
             )
 
-            self.model: PreTrainedModel = model
+            if self.config.data.image_key is not None:
+                 self.model: PreTrainedModel = model
 
-            #self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-            #    local_model_path,
-            #    config=config,
-            #    torch_dtype=torch.float32,
-            #    attn_implementation="flash_attention_2",
-            #    trust_remote_code=trust_remote_code,
-            #)
+            else:
+                self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                    local_model_path,
+                    config=config,
+                    torch_dtype=torch.float32,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=trust_remote_code,
+                )
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -319,7 +321,79 @@ class FSDPSFTTrainer:
         input_ids = batch["input_ids"].cuda()
         attention_mask = batch["attention_mask"].cuda()
         position_ids = batch["position_ids"].cuda()
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).cuda()
+        print("okay, I'm in the compute function")
+        raw_prompt_ids = batch["raw_prompt_ids"]
+        raw_prompt_ids_data = batch["raw_prompt_ids"]
+        multi_modal_inputs = batch.get("multi_modal_inputs", {})
+        print("multi_modal_inputs", multi_modal_inputs)
+        #print(batch["multi_modal_data"])
+        # COMPREHENSIVE DEBUG
+        print("=== TENSOR DEBUG ===")
+        print(f"input_ids shape: {input_ids.shape}")
+        print(f"attention_mask shape: {attention_mask.shape}")
+        print(f"position_ids shape: {position_ids.shape}")
+        print(f"position_ids dtype: {position_ids.dtype}")
+        print(f"position_ids min/max: {position_ids.min()}/{position_ids.max()}")
+        
+        # Check if position_ids has the right dimensions
+        if len(position_ids.shape) == 3:
+            print(f"position_ids is 3D: {position_ids.shape}")
+            print(f"position_ids[0] shape: {position_ids[0].shape}")
+            print(f"Sample position_ids[0, :, :10]: {position_ids[0, :, :10]}")
+        else:
+            print(f"position_ids is 2D: {position_ids.shape}")
+            print(f"Sample position_ids[0, :10]: {position_ids[0, :10]}")
+        
+
+        if len(multi_modal_inputs) > 0:
+            print("=== MULTIMODAL DEBUG ===")
+            print(f"multi_modal_inputs type: {type(multi_modal_inputs)}")
+            
+        # Extract from NonTensorData if needed
+        actual_inputs = {}
+        if hasattr(multi_modal_inputs, 'data'):
+            print(f"NonTensorData with {len(multi_modal_inputs.data)} items")
+            for i, item in enumerate(multi_modal_inputs.data):
+                print(f"Item {i}: {list(item.keys()) if isinstance(item, dict) else type(item)}")
+                if isinstance(item, dict):
+                    actual_inputs.update(item)
+        else:
+            actual_inputs = multi_modal_inputs
+        
+        print(f"Actual multimodal inputs: {list(actual_inputs.keys())}")
+        for key, value in actual_inputs.items():
+            if isinstance(value, torch.Tensor):
+                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+            else:
+                print(f"  {key}: type={type(value)}, value={value}")
+        
+        if "loss_mask" in batch:
+            loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).cuda()
+        else:
+            print("creating loss mask")
+            batch_size, seq_len = input_ids.shape
+            loss_mask_list = []
+            for i in range(batch_size):
+                print("processed {} out of {}".format(i, batch_size))
+                sample_attention = attention_mask[i]
+                sample_raw_prompt_list = raw_prompt_ids[i]
+                raw_prompt_length = len(sample_raw_prompt_list)
+
+                sample_loss_mask = sample_attention.clone()
+
+                if raw_prompt_length > 1:
+                    # Don't learn from prompt tokens (question + image)
+                    sample_loss_mask[: min(raw_prompt_length, sample_loss_mask.size(0)) - 1] = 0
+            
+                # Don't learn from last token
+                last_token_idx = sample_attention.sum().item() - 1
+                if last_token_idx >= 0 and last_token_idx < sample_loss_mask.size(0):
+                    sample_loss_mask[last_token_idx] = 0
+            
+                loss_mask_list.append(sample_loss_mask)
+        
+            # Stack and reshape for loss computation
+            loss_mask = torch.stack(loss_mask_list)[:, :-1].reshape(-1).cuda()
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
@@ -328,7 +402,43 @@ class FSDPSFTTrainer:
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
-                output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
+                model_kwargs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "use_cache": False
+                }
+
+                if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
+                    batch_size = input_ids.shape[0]
+                    
+                    # Collect all pixel_values and image_grid_thw from the 32 items
+                    pixel_values_list = []
+                    image_grid_thw_list = []
+                    
+                    for item in multi_modal_inputs.data:
+                        if isinstance(item, dict):
+                            if 'pixel_values' in item:
+                                pixel_values_list.append(item['pixel_values'])
+                            if 'image_grid_thw' in item:
+                                image_grid_thw_list.append(item['image_grid_thw'])
+                    
+                    # Batch them: 32 items -> 4 batches of 8 items each
+                    if pixel_values_list:
+                        # Concatenate all pixel values and reshape for batch
+                        all_pixel_values = torch.cat(pixel_values_list, dim=0)  # [total_patches, 1176]
+                        patches_per_sample = all_pixel_values.shape[0] // batch_size
+                        batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
+                        model_kwargs['pixel_values'] = batched_pixel_values.cuda()
+                    
+                    if image_grid_thw_list:
+                        all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                        model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
+                    
+                    print(f"Batched pixel_values: {model_kwargs.get('pixel_values', 'None')}")
+                    print(f"Batched image_grid_thw: {model_kwargs.get('image_grid_thw', 'None')}")
+                output = self.fsdp_model(**model_kwargs) 
+                #output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
                 logits = output.logits
 
                 shift_logits = logits[..., :-1, :].contiguous()
@@ -361,14 +471,43 @@ class FSDPSFTTrainer:
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size())
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+                model_kwargs = {
+                    "input_ids": input_ids_rmpad_sliced,
+                    "attention_mask": None,
+                    "position_ids": position_ids_rmpad_padded,
+                    "use_cache": False,
+                }
 
+                if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
+                    batch_size = input_ids.shape[0]
+                    
+                    pixel_values_list = []
+                    image_grid_thw_list = []
+                    
+                    for item in multi_modal_inputs.data:
+                        if isinstance(item, dict):
+                            if 'pixel_values' in item:
+                                pixel_values_list.append(item['pixel_values'])
+                            if 'image_grid_thw' in item:
+                                image_grid_thw_list.append(item['image_grid_thw'])
+                    
+                    if pixel_values_list:
+                        all_pixel_values = torch.cat(pixel_values_list, dim=0)
+                        patches_per_sample = all_pixel_values.shape[0] // batch_size
+                        batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
+                        model_kwargs['pixel_values'] = batched_pixel_values.cuda()
+                    
+                    if image_grid_thw_list:
+                        all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                        model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
                 # Forward pass
-                output = self.fsdp_model(
-                    input_ids=input_ids_rmpad_sliced,
-                    attention_mask=None,  # Not needed with flash attention varlen
-                    position_ids=position_ids_rmpad_padded,
-                    use_cache=False,
-                )
+                output = self.fsdp_model(**model_kwargs)
+                #output = self.fsdp_model(
+                #    input_ids=input_ids_rmpad_sliced,
+                #    attention_mask=None,  # Not needed with flash attention varlen
+                #    position_ids=position_ids_rmpad_padded,
+                #    use_cache=False,
+                #)
 
                 # Compute loss locally then aggregate
                 logits_rmpad = output.logits.squeeze(0)
