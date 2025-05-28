@@ -20,6 +20,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+import hashlib
 
 try:
     from hdfs_io import copy, exists, makedirs  # for internal use only
@@ -78,6 +79,83 @@ def get_local_temp_path(hdfs_path: str, cache_dir: str) -> str:
     dst = os.path.join(temp_dir, os.path.basename(hdfs_path))
     return dst
 
+def verify_copy(src: str, dest: str) -> bool:
+    """
+    verify the copy of src to dest by comparing their sizes and file structures.
+
+    return:
+        bool: True if the copy is verified, False otherwise.
+    """
+    if not os.path.exists(src):
+        return False
+    if not os.path.exists(dest):
+        return False
+
+    if os.path.isfile(src) != os.path.isfile(dest):
+        return False
+
+    if os.path.isfile(src):
+        src_size = os.path.getsize(src)
+        dest_size = os.path.getsize(dest)
+        if src_size != dest_size:
+            return False
+        return True
+
+    src_files = set()
+    dest_files = set()
+
+    for root, dirs, files in os.walk(src):
+        rel_path = os.path.relpath(root, src)
+        dest_root = os.path.join(dest, rel_path) if rel_path != '.' else dest
+
+        if not os.path.exists(dest_root):
+            return False
+
+        for entry in os.listdir(root):
+            src_entry = os.path.join(root, entry)
+            src_files.add(os.path.relpath(src_entry, src))
+
+        for entry in os.listdir(dest_root):
+            dest_entry = os.path.join(dest_root, entry)
+            dest_files.add(os.path.relpath(dest_entry, dest))
+
+    if src_files != dest_files:
+        return False
+
+    for rel_path in src_files:
+        src_entry = os.path.join(src, rel_path)
+        dest_entry = os.path.join(dest, rel_path)
+
+        if os.path.isdir(src_entry) != os.path.isdir(dest_entry):
+            return False
+
+        if os.path.isfile(src_entry):
+            src_size = os.path.getsize(src_entry)
+            dest_size = os.path.getsize(dest_entry)
+            if src_size != dest_size:
+                return False
+
+    return True
+
+
+def copy_to_shm(src:str):
+    """
+        Load the model into   /dev/shm   to make the process of loading the model multiple times more efficient.
+    """
+    shm_model_root = '/dev/shm/verl-cache/'
+    src_abs = os.path.abspath(os.path.normpath(src))
+    dest = os.path.join(shm_model_root, hashlib.md5(src_abs.encode('utf-8')).hexdigest())
+    os.makedirs(dest, exist_ok=True)
+    dest = os.path.join(dest, os.path.basename(src_abs))
+    if os.path.exists(dest) and verify_copy(src, dest):
+        # inform user and depends on him
+        print(f"[WARNING]: The memory model path {dest} already exists. If it is not you want, please clear it and restart the task.")
+    else:
+        if os.path.isdir(src):
+            shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dest)
+    return dest
 
 def _record_directory_structure(folder_path):
     record_file = os.path.join(folder_path, ".directory_record.txt")
@@ -110,7 +188,7 @@ def _check_directory_structure(folder_path, record_file):
     return existing_entries == recorded_entries
 
 
-def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
+def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False, use_shm:bool=False) -> str:
     """Copy files/directories from HDFS to local cache with validation.
 
     Args:
@@ -119,12 +197,17 @@ def copy_to_local(src: str, cache_dir=None, filelock=".file.lock", verbose=False
         filelock (str): Base name for file lock. Defaults to ".file.lock"
         verbose (bool): Enable copy operation logging. Defaults to False
         always_recopy (bool): Force fresh copy ignoring cache. Defaults to False
+        use_shm (bool): Enable shared memory copy. Defaults to False
 
     Returns:
         str: Local filesystem path to copied resource
     """
-    return copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
-
+    # Save to a local path for persistence.
+    local_path = copy_local_path_from_hdfs(src, cache_dir, filelock, verbose, always_recopy)
+    # Load into shm to improve efficiency.
+    if use_shm:
+        return copy_to_shm(local_path)
+    return local_path
 
 def copy_local_path_from_hdfs(src: str, cache_dir=None, filelock=".file.lock", verbose=False, always_recopy=False) -> str:
     """Deprecated. Please use copy_to_local instead."""
