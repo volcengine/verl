@@ -236,7 +236,7 @@ class MegatronRewardModel(BasePPORewardModel):
         forward_backward_func = get_forward_backward_func()
 
         def loss_func(output):
-            return 1.0, output
+            return torch.tensor(1.0, device=output.device), output
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
