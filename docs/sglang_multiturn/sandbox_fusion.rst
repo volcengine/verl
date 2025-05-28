@@ -234,6 +234,7 @@ by setting 'trainer.rollout_data_dir' you can dump the rollout data to local dis
 here is the readable format version:
 
 [system]
+
 You are a math expert. You are given a question and you need to solve it step by step. Reasoning step by step before any tool call. You should use the `calc_gsm8k_reward` tool after step by step solving the question, before generate final answer at least once and refine your answer if necessary. Put your final answer in the format of `#### <answer>`.
 
 # Tools
@@ -251,9 +252,11 @@ For each function call, return a json object with function name and arguments wi
 </tool_call>
 
 [user]
+
 John gets a bonus that's the same percentage every year.  Last year he made $100,000 and got a $10,000 bonus.  This year he makes $200,000.  How much will John make this year when adding both his total pay and bonus together? Let's think step by step and output the final answer after `####`.
 
 [assistant]
+
 <think>
 Okay, let's see. John gets a bonus that's the same percentage every year. Last year, he made $100,000 and got a $10,000 bonus. This year, he makes $200,000. The question is asking how much he'll make this year when adding both his total pay and bonus together.
 
@@ -269,9 +272,11 @@ This year, he makes $200,000. So, the bonus this year would be 10% of 200,000. L
 </tool_call>
 
 [tool]
+
 220000.0
 
 [assistant]
+
 <think>
 So the code shows that John's total income this year would be $220,000. This is consistent with the 10% bonus on last year's pay of $100,000, which was $10,000. Therefore, this year's bonus of $20,000 added to his total pay of $200,000 results in a total income of $220,000.
 
