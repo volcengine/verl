@@ -59,7 +59,7 @@ jobs:
           pip3 install --no-deps -e .[test]
       - name: Testing LinearCrossEntropy Correction, Computation Time and Memory Consumption
         run: |
-          python3 tests/kernels/test_linear_cross_entropy.py
+          python3 tests/kernels/p.py
       - name: Testing LinearCrossEntropyTP Correction, Computation Time and Memory Consumption
         run: |
           torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/kernel/test_linear_cross_entropy_tp.py

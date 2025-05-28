@@ -275,7 +275,7 @@ class TestLinearCrossEntropy:
         hidden, weight, labels = self.generate_forward_inputs()
 
         torch.cuda.reset_peak_memory_stats()
-        (logprobs, entropy) = run_forward(hidden, weight, labels)
+        (logprobs, entropy) = run_forward(hidden, weight, labels, self.temperature)
         torch.cuda.synchronize()
         torch_max_memory = torch.cuda.max_memory_allocated() / 1024 / 1024
         print(f"[INFO]: {method_name} Forward pass peak memory: {torch_max_memory:.2f} MB")
