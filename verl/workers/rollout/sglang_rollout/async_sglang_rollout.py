@@ -101,7 +101,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         self._init_distributed_env(device_mesh_cpu=device_mesh, **kwargs)
 
-        self._verrify_config(model_hf_config=model_hf_config)
+        self._verify_config(model_hf_config=model_hf_config)
         # initialize the inference engine
         self._init_inference_engine(trust_remote_code, actor_module, port)
 
@@ -151,7 +151,7 @@ class AsyncSGLangRollout(BaseRollout):
         self.visible_devices_set = set(",".join(visible_devices).split(","))
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
 
-    def _verrify_config(self, model_hf_config):
+    def _verify_config(self, model_hf_config):
         if not self.config.get("max_model_len", None):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
         assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
