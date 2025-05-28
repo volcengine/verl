@@ -36,6 +36,7 @@ from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.debug import log_gpu_memory_usage
+from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -55,8 +56,6 @@ from verl.utils.fsdp_utils import (
 from verl.utils.import_utils import import_external_libs
 from verl.utils.model import compute_position_id_with_mask
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
-
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -230,11 +229,15 @@ class ActorRolloutRefWorker(Worker):
 
                 _apply_liger_kernel_to_instance(model=actor_module)
 
+            fused_kernel_options = self.config.model.get("fused_kernel_options", None)
+            fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+
             apply_monkey_patch(
                 model=actor_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_fused_kernels=use_fused_kernels,
+                fused_kernels_backend=fused_kernels_backend,
             )
 
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
@@ -1130,10 +1133,15 @@ class RewardModelWorker(Worker):
                 trust_remote_code=trust_remote_code,
             )
 
+            fused_kernel_options = config.model.get("fused_kernel_options", None)
+            fused_kernels_backend = fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
+
             apply_monkey_patch(
                 model=reward_module,
                 use_remove_padding=config.model.get("use_remove_padding", False),
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_fused_kernels=self.config.model.get("use_fused_kernels", False),
+                fused_kernels_backend=fused_kernels_backend,
             )
 
             reward_module.to(torch.bfloat16)
@@ -1181,7 +1189,7 @@ class RewardModelWorker(Worker):
         if is_cuda_available:
             from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
         elif is_npu_available:
-            from transformers.integrations.npu_flash_attention import pad_input, unpad_input, rearrange, index_first_axis
+            from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
         from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 
