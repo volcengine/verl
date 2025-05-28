@@ -151,7 +151,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
@@ -634,7 +634,7 @@ class CriticWorker(MegatronWorker):
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
