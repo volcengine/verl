@@ -75,12 +75,12 @@ def compute_gae_advantage_return(
 
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         values: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
-        gamma: `(float)`
+            shape is (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
+        gamma is `(float)`
             discounted factor used in RL
         lam: `(float)`
             lambda value when computing Generalized Advantage Estimation (https://arxiv.org/abs/1506.02438)
@@ -122,9 +122,9 @@ def compute_grpo_outcome_advantage(
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         norm_adv_by_std_in_grpo: (bool)
             whether to scale the GRPO advantage.
             If True, the advantage is scaled by the std, as in the original GRPO.
@@ -132,9 +132,9 @@ def compute_grpo_outcome_advantage(
 
     Returns:
         advantages: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         Returns: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
     """
     scores = token_level_rewards.sum(dim=-1)
 
@@ -371,15 +371,12 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     """
     Aggregate the loss matrix into a scalar.
     Args:
-        loss_mat: `(torch.Tensor)`
+        loss_mat: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_mask: `(torch.Tensor)`
+        loss_mask: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) choices:
+            method to aggregate the loss matrix into a scalar.
     Returns:
         loss: `a scalar torch.Tensor`
             aggregated loss
