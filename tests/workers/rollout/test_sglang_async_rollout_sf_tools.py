@@ -165,7 +165,6 @@ class TestRolloutWithTools:
     @pytest.fixture
     def sandbox_fusion_rollout_config(self):
         max_prompt_length = 1024
-        max_prompt_length = 1024
         max_response_length = 1024
         dtype = "bfloat16"
         tensor_parallel_size = 1

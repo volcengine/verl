@@ -727,16 +727,10 @@ class AsyncSGLangRollout(BaseRollout):
         for data_idx, raw_prompt in enumerate(prompts.non_tensor_batch["raw_prompt"]):
             for rollout_offset in range(n):
                 if self._tool_schemas:
-                    data_tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx] if "tools_kwargs" in prompts.non_tensor_batch else {}
+                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
                     _tool_schemas = []
-                    _tools_kwargs = {}
-                    # this is used for datasets
-                    for k in data_tools_kwargs.keys():
-                        if k not in self._tool_map:
-                            # logger.warning(f"Tool {k} not found in tool map,skip this tool")
-                            continue
+                    for k in _tools_kwargs.keys():
                         _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
-                        _tools_kwargs[k] = data_tools_kwargs[k]
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
                         conversation=raw_prompt,
                         tools=[tool.model_dump() for tool in _tool_schemas],
