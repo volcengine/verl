@@ -22,15 +22,18 @@ SAVE_FREQ=${SAVE_FREQ:--1}
 TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
 USE_DYNAMIC_BSZ=${USE_DYNAMIC_BSZ:-True}
-ppo_max_token_len_per_gpu=2400
-forward_max_token_len_per_gpu=4800
-train_traj_micro_bsz_per_gpu=2 # b
+ppo_max_token_len_per_gpu={$PPO_MAX_TOKEN_LEN:-2400}
+forward_max_token_len_per_gpu={$FWD_MAX_TOKEN_LEN:4800}
+train_traj_micro_bsz_per_gpu=${MICRO_BSZ:-2} # b
 n_resp_per_prompt=4 # g
 
 train_traj_micro_bsz=$((train_traj_micro_bsz_per_gpu * NUM_GPUS)) # b * n
 train_traj_mini_bsz=$((train_traj_micro_bsz * 2)) # 2 * b * n
 train_prompt_mini_bsz=$((train_traj_mini_bsz * n_resp_per_prompt)) # 2 * b * n / g
 train_prompt_bsz=$((train_prompt_mini_bsz * 2)) # 4 * b * n / g
+
+MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-512}
+MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-512}
 
 COMMON_PP=${COMMON_PP:-2}
 COMMON_VPP=${COMMON_VPP:-2}
@@ -107,8 +110,8 @@ for ENGINE in "${ENGINES[@]}"; do
         data.train_files="${TRAIN_FILES}" \
         data.val_files="${VAL_FILES}" \
         data.train_batch_size=${train_prompt_bsz} \
-        data.max_prompt_length=512 \
-        data.max_response_length=512 \
+        data.max_prompt_length=${MAX_PROMPT_LENGTH} \
+        data.max_response_length=${MAX_RESPONSE_LENGTH} \
         data.filter_overlong_prompts=True \
         data.truncation='error' \
         actor_rollout_ref.model.path="${MODEL_PATH}" \
