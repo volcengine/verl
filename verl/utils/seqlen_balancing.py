@@ -222,7 +222,11 @@ def ceildiv(a, b):
     return -(a // -b)
 
 
-def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
+def roundup_divisible(a, b):
+    return ((a + b - 1) // b) * b
+
+
+def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_divided_by=None, same_micro_num_in_dp=True, min_num_micro_batch=None):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
 
@@ -230,6 +234,7 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
         batch (TensorDict): must include "attention_mask" (B*S); other fields are sliced similarly.
         max_token_len (int): max sum of attention_mask per micro-batch.
         dp_group (optional): torch.distributed group for data-parallel sync.
+        num_batches_divided_by (optional): virtual pipeline parallel size, for megatron.
         same_micro_num_in_dp (bool): if True and dp_group set, pad all ranks to the same count.
         min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
 
@@ -251,6 +256,8 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, same_micro_num_
         num_micro_batches = torch.tensor([num_micro_batches], device="cuda")
         dist.all_reduce(num_micro_batches, op=dist.ReduceOp.MAX, group=dp_group)
         num_micro_batches = num_micro_batches.cpu().item()
+    if num_batches_divided_by is not None:
+        num_micro_batches = roundup_divisible(num_micro_batches, num_batches_divided_by)
 
     seq_len_effective = seq_len_effective.tolist()
     assert num_micro_batches <= len(seq_len_effective)
