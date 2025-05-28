@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Preprocess the Screenspot dataset to parquet format
+Preprocess the Uground dataset to parquet format
 """
 
 import argparse
 import io
+import json
 import os
-import logging
 
 import datasets
 from datasets import Sequence
@@ -32,13 +32,6 @@ from verl.utils.hdfs_io import copy, makedirs
 
 MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"
 PROCESSOR = AutoProcessor.from_pretrained(MODEL_PATH)
-
-_SOURCE_MAP = {
-    "ios": "mobile",
-    "android": "mobile",
-    "windows": "desktop",
-    "macos": "desktop",
-}
 
 
 def get_resized_wh(image):
@@ -59,25 +52,34 @@ def get_resized_wh(image):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/screenspot")
+    parser.add_argument("--local_dir", default="~/data/uground")
     parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument("--data_files", default="shard_0000.parquet")
+    parser.add_argument("--output_filename", default="train")
 
     args = parser.parse_args()
 
-    data_source = "rootsautomation/ScreenSpot"
+    data_source = "osunlp/UGround-V1-Data-Box"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
-    dataset = datasets.load_dataset(data_source)
+    dataset = datasets.load_dataset(data_source, data_files=args.data_files)
 
-    test_dataset = dataset["test"]
+    dataset = dataset["train"]
 
     def make_map_fn(split):
         def process_fn(example, idx):
             image = example.pop("image")
-            instruction = example.pop("instruction").strip()
-            bbox = example.pop("bbox")
-            data_type = example.pop("data_type")
-            data_source = example.pop("data_source")
-            device = _SOURCE_MAP.get(data_source, "web")
+            conversation = example.pop("conversations").strip()
+            # Use the first message for now. Uground has multiple grounding
+            # commands / groundtruths in the conversation.
+            command, label = json.loads(conversation)[:2]
+            assert command["from"] == "human" and label["from"] == "gpt"
+            instruction = command["value"]
+            label_text = label["value"]
+
+            # Parse the label text as "(x1, y1, x2, y2)" format
+            label_text = label_text.strip("()")
+            bbox = [int(x.strip()) for x in label_text.split(",")]
+            assert len(bbox) == 4, f"Expected 4 coordinates, got {len(bbox)}"
 
             # Get image and resize ratios
             if isinstance(image, bytes):
@@ -94,12 +96,10 @@ if __name__ == "__main__":
 
             ground_truth = {
                 "bbox": bbox,
-                "data_type": data_type,
-                "device": device,
             }
 
             data = {
-                "data_source": "screenspot",
+                "data_source": "uground",
                 "prompt": [
                     {
                         "role": "user",
@@ -128,15 +128,13 @@ if __name__ == "__main__":
 
         return process_fn
 
-    test_dataset = test_dataset.map(
-        function=make_map_fn("test"), with_indices=True, num_proc=16
-    )
-    test_dataset = test_dataset.cast_column("images", Sequence(ImageData()))
+    dataset = dataset.map(function=make_map_fn("train"), with_indices=True, num_proc=16)
+    dataset = dataset.cast_column("images", Sequence(ImageData()))
 
     local_dir = os.path.expanduser(args.local_dir)
     os.makedirs(local_dir, exist_ok=True)
 
-    test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
+    dataset.to_parquet(os.path.join(local_dir, f"{args.output_filename}.parquet"))
 
     if args.hdfs_dir is not None:
         makedirs(args.hdfs_dir)

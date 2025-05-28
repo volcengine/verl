@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Reward scoring for UI Screenspot task
+Reward scoring for UI UGround task
 """
 
 import re
 from typing import Dict, List, Tuple, Optional
 
 
-class ScreenspotRewardScorer:
-    """Reward scorer for UI Screenspot task."""
+class UGroundRewardScorer:
+    """Reward scorer for UI UGround task."""
 
     def __init__(self):
         super().__init__()
@@ -72,7 +72,6 @@ class ScreenspotRewardScorer:
             prediction: Model prediction string
             ground_truth: Dictionary containing ground truth information
                 - bbox: Bounding box [x1, y1, x2, y2]
-                - data_type: Type of data (optional)
 
         Returns:
             Dictionary containing:
@@ -89,8 +88,6 @@ class ScreenspotRewardScorer:
         pred_x, pred_y = self._extract_coordinates(pred_answer)
 
         bbox = ground_truth.get("bbox")
-        data_type = ground_truth.get("data_type")
-        device = ground_truth.get("device")
 
         coordinates_correct = False
         if bbox is not None and pred_x is not None and pred_y is not None:
@@ -119,11 +116,6 @@ class ScreenspotRewardScorer:
             ),
             "coordinates_ground_truth": str(bbox),
             "coordinates_score": coord_score,
-            f"{device}/{data_type}/score": overall_score,
-            f"{device}/{data_type}/has_thinking": has_thinking,
-            f"{device}/{data_type}/has_answer": has_answer,
-            f"{device}/{data_type}/format_score": format_score,
-            f"{device}/{data_type}/coordinates_score": coord_score,
         }
 
         return details
@@ -136,22 +128,21 @@ def compute_score(prediction: str, ground_truth: Dict) -> Dict:
         prediction: Prediction string
         ground_truth: Dictionary containing ground truth information
             - bbox: Bounding box [x1, y1, x2, y2]
-            - data_type: Type of data (optional)
 
     Returns:
         Dictionary containing:
             - score: Overall score (0-1)
             - details: Dictionary with individual check results
     """
-    scorer = ScreenspotRewardScorer()
+    scorer = UGroundRewardScorer()
     result = scorer.score(prediction, ground_truth)
     return result
 
 
 def reward_func(data_source, solution_str, ground_truth, extra_info=None):
-    if data_source in ["screenspot"]:
-        from orby.reward import screenspot
+    if data_source in ["uground"]:
+        from orby.reward import uground
 
-        return screenspot.compute_score(solution_str, ground_truth)
+        return uground.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
