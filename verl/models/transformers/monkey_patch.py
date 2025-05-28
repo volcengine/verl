@@ -25,6 +25,7 @@ from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
+from verl.models.transformers.llama import forward_for_ppo
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -134,9 +135,9 @@ def apply_monkey_patch(
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
 
         if use_fused_kernels:
-            from verl.models.transformers.qwen2_5_vl import forward_without_logits
+            from verl.models.transformers.qwen2_5_vl import forward_for_ppo
 
-            Qwen2_5_VLForConditionalGeneration.forward = forward_without_logits
+            Qwen2_5_VLForConditionalGeneration.forward = forward_for_ppo
 
         return
 
@@ -153,9 +154,9 @@ def apply_monkey_patch(
             print("Monkey patch FlashAttention2.forward in Qwen2VL")
 
         if use_fused_kernels:
-            from verl.models.transformers.qwen2_vl import forward_without_logits
+            from verl.models.transformers.qwen2_vl import forward_for_ppo
 
-            Qwen2VLForConditionalGeneration.forward = forward_without_logits
+            Qwen2VLForConditionalGeneration.forward = forward_for_ppo
 
         return
 
@@ -172,9 +173,9 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     if use_fused_kernels:
-        from verl.models.transformers.llama import forward_without_logits
+        from verl.models.transformers.llama import forward_for_ppo
 
-        model.__class__.forward = forward_without_logits
+        model.__class__.forward = forward_for_ppo
 
 
 @lru_cache

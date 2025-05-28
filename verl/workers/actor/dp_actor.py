@@ -30,18 +30,18 @@ import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
-from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 
 if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
+    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
 elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input, rearrange, index_first_axis
+    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 
 __all__ = ["DataParallelPPOActor"]
@@ -71,15 +71,6 @@ class DataParallelPPOActor(BasePPOActor):
             else verl_F.entropy_from_logits
         )
         self.device_name = get_device_name()
-
-        if self.use_fused_kernels:
-            from verl.utils.experimental.torch_functional import FusedLinearForPPO
-
-            self.fused_linear_for_ppo = FusedLinearForPPO()
-
-            # FusedLinearForPPO has an error when compiled, disable for now
-            # if self.config.get("use_torch_compile", True):
-            #     self.fused_linear_for_ppo.compile(dynamic=True)
 
     def _forward_micro_batch(self, micro_batch, temperature, calculate_entropy=False) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -131,29 +122,25 @@ class DataParallelPPOActor(BasePPOActor):
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
 
                 # only pass input_ids and position_ids to enable flash_attn_varlen
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
+
                 output = self.actor_module(
                     input_ids=input_ids_rmpad,
                     attention_mask=None,
                     position_ids=position_ids_rmpad,
                     **multi_modal_inputs,
                     use_cache=False,
+                    **extra_args,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    hidden_states = output.last_hidden_state
-                    vocab_weights = self.actor_module.lm_head.weight
-
-                    log_probs, entropy_rmpad = self.fused_linear_for_ppo(
-                        hidden_states=hidden_states.squeeze(0),
-                        vocab_weights=vocab_weights,
-                        input_ids=input_ids_rmpad_rolled,
-                        temperature=temperature,
-                    )
+                    log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
+                    entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-
-                    # logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -207,24 +194,21 @@ class DataParallelPPOActor(BasePPOActor):
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
+                extra_args = {}
+                if self.use_fused_kernels:
+                    extra_args["temperature"] = temperature
                 output = self.actor_module(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     position_ids=position_ids,
                     **multi_modal_inputs,
                     use_cache=False,
+                    **extra_args,
                 )  # prevent model thinks we are generating
 
                 if self.use_fused_kernels:
-                    hidden_states = output.last_hidden_state
-                    vocab_weights = self.actor_module.lm_head.weight
-
-                    log_probs, entropy = self.fused_linear_for_ppo(
-                        hidden_states=hidden_states[:, -response_length - 1 : -1, :],
-                        vocab_weights=vocab_weights,
-                        input_ids=micro_batch["responses"],
-                        temperature=temperature,
-                    )
+                    log_probs = output.log_probs[:, -response_length - 1 : -1]
+                    entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
                 else:
                     logits = output.logits

@@ -131,9 +131,11 @@ class ActorRolloutRefWorker(MegatronWorker):
             self._is_offload_grad = self.config.actor.megatron.get("grad_offload", False)
             self._is_offload_optimizer = self.config.actor.megatron.get("optimizer_offload", False)
         elif self._is_ref:
-            if self.config.ref.get("ppo_micro_batch_size", None):
+            if self.config.ref.get("log_prob_micro_batch_size", None):
                 self.config.ref.log_prob_micro_batch_size //= mpu.get_data_parallel_world_size()
-                self.config.ref.ppo_micro_batch_size_per_gpu = self.config.ref.ppo_micro_batch_size
+                self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
+            else:
+                assert self.config.ref.get("log_prob_micro_batch_size_per_gpu", None) is not None, "Please note that in the ref policy configuration, `log_prob_micro_batch_size_per_gpu` and `log_prob_micro_batch_size` should not be None at the same time."
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
@@ -149,7 +151,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         def megatron_actor_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=self.share_embeddings_and_output_weights, value=False, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
@@ -203,6 +205,8 @@ class ActorRolloutRefWorker(MegatronWorker):
         return actor_module, actor_optimizer, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
+        from torch.distributed.device_mesh import init_device_mesh
+
         layer_name_mapping = {
             "qkv_layer_name": "self_attention.linear_qkv.",
             "gate_proj_layer_name": "linear_fc1.weight",
@@ -264,9 +268,20 @@ class ActorRolloutRefWorker(MegatronWorker):
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
             from verl.workers.sharding_manager.megatron_sglang import MegatronSGLangShardingManager
 
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+            rollout_device_mesh = init_device_mesh("cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp"))
+
             local_path = copy_to_local(self.config.model.path)
             log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
-            rollout = SGLangRollout(actor_module=local_path, config=self.config.rollout, tokenizer=self.tokenizer, model_hf_config=self.actor_model_config)
+            rollout = SGLangRollout(
+                actor_module=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                trust_remote_code=self.config.model.get("trust_remote_code", False),
+            )
             log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
 
             from verl.models.mcore import get_mcore_weight_converter
@@ -276,8 +291,50 @@ class ActorRolloutRefWorker(MegatronWorker):
                 actor_module=self.actor.actor_module,
                 inference_engine=rollout.inference_engine,
                 model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
                 layer_name_mapping=layer_name_mapping,
                 weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
+            )
+            log_gpu_memory_usage("After building sharding manager", logger=logger)
+        elif self.config.rollout.name == "sglang_async":
+            from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+
+            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to SGLang's model_runner would check CUDA device capability.
+            # However, due to verl's setting, the main process of ray can not find any CUDA device, which would potentially lead to:
+            # "RuntimeError: No CUDA GPUs are available".
+            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and we import it here use the abs path.
+            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+            from verl.workers.sharding_manager.megatron_sglang import MegatronAsyncSGLangShardingManager
+
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            assert self.world_size % infer_tp == 0, f"rollout world_size: {self.world_size} is not divisible by infer_tp: {infer_tp}"
+            rollout_device_mesh = init_device_mesh("cpu", mesh_shape=(dp, infer_tp, 1), mesh_dim_names=("dp", "tp", "pp"))
+
+            local_path = copy_to_local(self.config.model.path)
+            log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=None)
+            rollout = AsyncSGLangRollout(
+                actor_module=local_path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=self.actor_model_config,
+                trust_remote_code=trust_remote_code,
+                device_mesh=rollout_device_mesh,
+            )
+            log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=None)
+
+            from verl.models.mcore import get_mcore_weight_converter
+
+            weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
+            sharding_manager = MegatronAsyncSGLangShardingManager(
+                actor_module=self.actor.actor_module,
+                inference_engine=rollout._engine,
+                model_config=self.actor_model_config,
+                transformer_config=self.tf_config,
+                layer_name_mapping=layer_name_mapping,
+                weight_converter=weight_converter,
+                device_mesh=rollout_device_mesh,
             )
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
@@ -434,7 +491,16 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
 
             prompts = self.sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+            # output = self.rollout.generate_sequences(prompts=prompts)
+            if self.config.rollout.name == "sglang_async":
+                from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+
+                if isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "_tool_schemas") and len(self.rollout._tool_schemas) > 0:
+                    output = self.rollout.generate_sequences_with_tools(prompts=prompts)
+                else:
+                    output = self.rollout.generate_sequences(prompts=prompts)
+            else:
+                output = self.rollout.generate_sequences(prompts=prompts)
             output = self.sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
@@ -445,14 +511,16 @@ class ActorRolloutRefWorker(MegatronWorker):
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     def compute_ref_log_prob(self, data: DataProto):
-        data = data.to("cuda")
         assert self._is_ref
         if self._ref_is_offload_param:
             load_megatron_model_to_gpu(self.ref_module, load_grad=False)
             log_gpu_memory_usage("After load ref params and grad during compute_ref_log_prob", logger=logger)
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
+        data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
+        data = data.to(torch.cuda.current_device())
         output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
         output = DataProto.from_dict(tensors={"ref_log_prob": output})
         output = output.to("cpu")
@@ -469,14 +537,14 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module, load_grad=False)
             log_gpu_memory_usage("After load actor params and grad during compute_log_prob", logger=logger)
-        data = data.to("cuda")
-        output = data
         # we should always recompute old_log_probs when it is HybridEngine
-        output.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        output.meta_info["temperature"] = self.config.rollout.temperature
-        old_log_probs, entropys = self.actor.compute_log_prob(data=output, calculate_entropy=True)
-        output.batch["old_log_probs"] = old_log_probs
-        output.batch["entropys"] = entropys
+        data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
+        data.meta_info["temperature"] = self.config.rollout.temperature
+        data = data.to(torch.cuda.current_device())
+        output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+        output = DataProto.from_dict(tensors={"old_log_probs": output, "entropys": entropys}, meta_info={"temperature": self.config.rollout.temperature})
         output = output.to("cpu")
         # clear kv cache
         if self._is_offload_param:
@@ -566,7 +634,7 @@ class CriticWorker(MegatronWorker):
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
 
-            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, fix_moe_router=override_model_config.get("moe_config", {}).get("fix_moe_router", False))
+            parallel_model = init_mcore_model(self.tf_config, self.hf_config, pre_process, post_process, share_embeddings_and_output_weights=False, value=True, freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False))
             parallel_model.cuda()
             return parallel_model
 
@@ -653,7 +721,11 @@ class CriticWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_values(self, data: DataProto):
-        data = data.to("cuda")
+        micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+        data = data.to(torch.cuda.current_device())
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
         values = self.critic.compute_values(data=data)
@@ -665,7 +737,7 @@ class CriticWorker(MegatronWorker):
 
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
-        data = data.to("cuda")
+        data = data.to(torch.cuda.current_device())
 
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.critic_module)
@@ -837,7 +909,10 @@ class RewardModelWorker(MegatronWorker):
     # the input_ids, responses, attention_mask and position_ids may be different!
     @register(dispatch_mode=Dispatch.MEGATRON_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
-        data.batch = data.batch.cuda()
+        data.meta_info["micro_batch_size"] = self.config.micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = self.config.forward_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
+        data = data.to(torch.cuda.current_device())
         output = self.rm.compute_reward(data)
         output = output.to("cpu")
         return output

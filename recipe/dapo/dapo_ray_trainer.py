@@ -33,7 +33,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     reduce_metrics,
 )
-from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage
+from verl.trainer.ppo.ray_trainer import AdvantageEstimator, RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage, compute_response_mask
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -92,10 +92,10 @@ class RayDAPOTrainer(RayPPOTrainer):
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 num_gen_batches += 1
                 # pop those keys for generation
-                if "multi_modal_inputs" in new_batch.non_tensor_batch.keys():
+                if "multi_modal_data" in new_batch.non_tensor_batch.keys():
                     gen_batch = new_batch.pop(
                         batch_keys=["input_ids", "attention_mask", "position_ids"],
-                        non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data", "multi_modal_inputs"],
+                        non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data"],
                     )
                 else:
                     gen_batch = new_batch.pop(
@@ -208,6 +208,10 @@ class RayDAPOTrainer(RayPPOTrainer):
                             # Align the batch
                             traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                             batch = batch[:traj_bsz]
+
+                    # === Updating ===
+
+                    batch.batch["response_mask"] = compute_response_mask(batch)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.

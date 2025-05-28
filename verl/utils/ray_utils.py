@@ -16,11 +16,26 @@ Contains commonly used utilities for ray
 """
 
 import concurrent.futures
+from typing import Any, List, Optional
 
 import ray
 
 
-def parallel_put(data_list, max_workers=None):
+def parallel_put(data_list: List[Any], max_workers: Optional[int] = None):
+    """
+    Puts a list of data into the Ray object store in parallel using a thread pool.
+
+    Args:
+        data_list (List[Any]): A list of Python objects to be put into the Ray object store.
+        max_workers (int, optional): The maximum number of worker threads to use.
+                                     Defaults to min(len(data_list), 16).
+
+    Returns:
+        List[ray.ObjectRef]: A list of Ray object references corresponding to the input data_list,
+                             maintaining the original order.
+    """
+    assert len(data_list) > 0, "data_list must not be empty"
+
     def put_data(index, data):
         return index, ray.put(data)
 

@@ -191,6 +191,7 @@ reward_model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
+    use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
     trust_remote_code: False
     fsdp_config:
       wrap_policy:
@@ -225,6 +226,10 @@ algorithm:
     kl_coef: 0.001
     horizon: 10000
     target_kl: 0.1
+  use_pf_ppo: False
+  pf_ppo:
+    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    weight_pow: 2.0
 
 trainer:
   balance_batch: True
@@ -252,6 +257,7 @@ trainer:
   max_critic_ckpt_to_keep: null
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300
+  device: cuda
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
