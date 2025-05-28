@@ -168,19 +168,19 @@ class TestLinearCrossEntropy:
             hidden, weight, labels = self.generate_forward_inputs()
 
             start_event.record()
-            (torch_logprobs, torch_entropy) = run_torch_entropy(hidden, weight, labels)
+            (torch_logprobs, torch_entropy) = run_torch_entropy(hidden, weight, labels, self.temperature)
             end_event.record()
             torch.cuda.synchronize()
             torch_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (verl_logprobs, verl_entropy) = run_verl_original_entropy(hidden, weight, labels)
+            (verl_logprobs, verl_entropy) = run_verl_original_entropy(hidden, weight, labels, self.temperature)
             end_event.record()
             torch.cuda.synchronize()
             verl_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(hidden, weight, labels)
+            (verl_fused_logprobs, verl_fused_entropy) = run_verl_torch_fused_entropy(hidden, weight, labels, self.temperature)
             end_event.record()
             torch.cuda.synchronize()
             verl_fused_forward_latency.append(start_event.elapsed_time(end_event))
