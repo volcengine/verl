@@ -69,6 +69,38 @@ TOOLS = [
 ]
 
 
+def process_single_response(response, new_messages):
+    if '\n</code>\n' not in response:
+        new_messages.append({
+            'role': 'assistant',
+            'content': response
+        })
+    else:
+        assert '\n</code>\n' in response
+        code, intepreter_response = response.split('\n</code>\n')
+        new_messages.append({'role': 'assistant', 'content': '', 'tool_calls': [
+            {'type': 'function', 'function': {'name': 'execute_python_script', 'arguments': {'script': '{}'.format(code)}}},
+        ]},)
+
+        intepreter_response = intepreter_response.split('<interpreter>\n')[1]
+
+        if '\n</interpreter>\n\n' in intepreter_response:
+            intepreter_output, response = intepreter_response.split('\n</interpreter>\n\n')
+        elif '\n</interpreter>\n' in intepreter_response:
+            intepreter_output, response = intepreter_response.split('\n</interpreter>\n')
+        else:
+            raise ValueError(intepreter_response)
+
+        new_messages.append({'role': 'tool', 'name': 'execute_python_script', 'content': '{}'.format(intepreter_output)},)
+
+        if len(response) > 0:
+            new_messages.append({'role': 'assistant', 'content': response},)
+        else:
+            # consecutive function calls
+            pass
+        # rewrite answer to follow DAPO reward manager
+
+
 def make_map_fn(split):
     def process_fn(example, idx):
         messages = example.pop("messages")
@@ -93,33 +125,12 @@ def make_map_fn(split):
 
         try:
             for response in responses:
-                if '\n</code>\n' not in response:
-                    new_messages.append({
-                        'role': 'assistant',
-                        'content': response
-                    })
-                else:
-                    assert '\n</code>\n' in response
-                    code, intepreter_response = response.split('\n</code>\n')
-                    new_messages.append({'role': 'assistant', 'content': '', 'tool_calls': [
-                        {'type': 'function', 'function': {'name': 'execute_python_script', 'arguments': {'script': '{}'.format(code)}}},
-                    ]},)
+                process_single_response(response, new_messages)
 
-                    intepreter_response = intepreter_response.split('<interpreter>\n')[1]
-                    intepreter_output, response = intepreter_response.split('\n</interpreter>\n\n')
-
-                    new_messages.append({'role': 'tool', 'name': 'execute_python_script', 'content': '{}'.format(intepreter_output)},)
-
-                    if len(response) > 0:
-                        new_messages.append({'role': 'assistant', 'content': response},)
-                    else:
-                        # consecutive function calls
-                        pass
-                    # rewrite answer to follow DAPO reward manager
         except Exception as e:
             print(e)
-            # from IPython import embed
-            # embed()
+            from IPython import embed
+            embed()
 
         # extract <code></code> and <interpreter></interpreter>
 
