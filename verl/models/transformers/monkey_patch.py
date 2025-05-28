@@ -238,7 +238,7 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     if use_fused_kernels:
-        from verl.models.transformers.llama import forward_for_ppo
+        from verl.models.transformers.dense_common import forward_for_ppo
 
         model.__class__.forward = forward_for_ppo
 
