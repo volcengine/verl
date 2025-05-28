@@ -24,9 +24,9 @@ import ray
 import ray.actor
 import ray.util.multiprocessing
 
+from verl.tools.base_tool import BaseTool
 from verl.utils.reward_score.sandbox_fusion.utils import _process_single_case
 
-from .base_tool import BaseTool, DatasetIrrelevantTool
 from .schemas import OpenAIFunctionToolSchema
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def init_execution_pool(num_workers: int, enable_global_rate_limit=True, rate_li
         # return ray.util.multiprocessing.Pool(processes=num_workers)
 
 
-class SandboxFusionTool(BaseTool, DatasetIrrelevantTool):
+class SandboxFusionTool(BaseTool):
     """A tool for executing the code using sanbox fusion image.
 
     - `to_openai_function_tool_schema`: return the tool schema in OpenAI format.
@@ -140,9 +140,6 @@ class SandboxFusionTool(BaseTool, DatasetIrrelevantTool):
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return self.tool_schema
-
-    def dataset_irrelevant(self):
-        return True
 
     async def create(self, instance_id: Optional[str] = None, ground_truth: Optional[str] = None, **kwargs) -> str:
         if instance_id is None:

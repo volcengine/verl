@@ -39,7 +39,7 @@ from transformers import PreTrainedTokenizer
 
 from verl import DataProto
 from verl.third_party.sglang import parallel_state as sglang_ps
-from verl.tools.base_tool import BaseTool, DatasetIrrelevantTool
+from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.model import compute_position_id_with_mask
@@ -737,12 +737,6 @@ class AsyncSGLangRollout(BaseRollout):
                             continue
                         _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
                         _tools_kwargs[k] = data_tools_kwargs[k]
-                    # add for dataset-irrelevant tools
-                    for tool_key in self._tool_map.keys():
-                        # TODO: redesign this logic
-                        if tool_key not in _tools_kwargs and isinstance(self._tool_map[tool_key], DatasetIrrelevantTool) and self._tool_map[tool_key].dataset_irrelevant():
-                            _tools_kwargs[tool_key] = {}
-                            _tool_schemas.append(self._tool_map[tool_key].get_openai_tool_schema())
                     prompt_with_chat_template = self.tokenizer.apply_chat_template(
                         conversation=raw_prompt,
                         tools=[tool.model_dump() for tool in _tool_schemas],
