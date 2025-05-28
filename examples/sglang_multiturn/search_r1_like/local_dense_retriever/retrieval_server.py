@@ -307,11 +307,25 @@ app = FastAPI()
 def retrieve_endpoint(request: QueryRequest):
     """
     Endpoint that accepts queries and performs retrieval.
+
     Input format:
     {
       "queries": ["What is Python?", "Tell me about neural networks."],
       "topk": 3,
       "return_scores": true
+    }
+
+    Output format (when return_scores=True，similarity scores are returned):
+    {
+        "result": [
+            [   # Results for each query
+                {
+                    {"document": doc, "score": score}
+                },
+                # ... more documents
+            ],
+            # ... results for other queries
+        ]
     }
     """
     if not request.topk:
