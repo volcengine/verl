@@ -25,7 +25,7 @@ from uuid import uuid4
 import ray
 import ray.actor
 
-from verl.utils.reward_score.search_r1_like_utils import perform_single_search_batch
+from verl.tools.utils.search_r1_like_utils import perform_single_search_batch
 
 from .base_tool import BaseTool
 from .schemas import OpenAIFunctionToolSchema
@@ -224,7 +224,7 @@ class SearchTool(BaseTool):
             tool_reward_score: The step reward score of the tool.
             tool_metrics: The metrics of the tool.
         """
-        timeout = parameters.get("timeout", self.default_timeout)
+        timeout = self.default_timeout
         query_list_from_params = parameters.get("query_list")
 
         if not query_list_from_params or not isinstance(query_list_from_params, list):

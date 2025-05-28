@@ -146,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--hf_repo_id", default="PeterJinGo/nq_hotpotqa_train", help="HuggingFace dataset repository ID.")
     parser.add_argument("--local_dir", default="~/data/searchR1_processed_direct", help="Local directory to save the processed Parquet files.")
     parser.add_argument("--hdfs_dir", default=None, help="Optional HDFS directory to copy the Parquet files to.")
-    parser.add_argument("--config", type=str, default=os.path.join(os.path.dirname(__file__), "prompt.yaml"), help="Path to prompt.yaml")
+    parser.add_argument("--config", type=str, default="./examples/data_preprocess/config/search_r1_like_data.yaml", help="Path to Dataset yaml")
 
     args = parser.parse_args()
     with open(args.config, encoding="utf-8") as f:
