@@ -34,6 +34,7 @@ def parallel_put(data_list: List[Any], max_workers: Optional[int] = None):
         List[ray.ObjectRef]: A list of Ray object references corresponding to the input data_list,
                              maintaining the original order.
     """
+    assert len(data_list) > 0, "data_list must not be empty"
 
     def put_data(index, data):
         return index, ray.put(data)
