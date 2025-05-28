@@ -2,14 +2,17 @@ from datasets import load_dataset
 import json
 import os
 import re
+import random
 from tqdm import tqdm
 import hashlib
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
+import sys
+sys.set_int_max_str_digits(1000000)
 
 print("Loading tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/Qwen3-8B")
-# tokenizer = AutoTokenizer.from_pretrained("/home/yangkai/models/Qwen2.5-32B")
+# tokenizer = AutoTokenizer.from_pretrained("/home/share/reasoning/Qwen3-8B")
+tokenizer = AutoTokenizer.from_pretrained("/home/yangkai/models/Qwen2.5-32B")
 
 print("Loading math classification model...")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -20,20 +23,27 @@ math_model.eval()
 id2label = math_model.config.id2label
 
 # Create output directory
-# output_dir = "/home/yangkai/data/data_process"
+output_dir = "/home/yangkai/data/data_process"
 # merged_data_path = os.path.join(output_dir, "rl_math_data.jsonl")
-output_dir = "/home/share/reasoning"
-merged_data_path = os.path.join(output_dir, "rl_math_data.jsonl")
+# output_dir = "/home/share/reasoning"
+merged_data_path = os.path.join(output_dir, "raw_merged_math_data.jsonl")
 
 # Path for the final processed data
-# data_dir = "/home/yangkai/data/data_process"
-data_dir = "/home/share/reasoning/raw_data"
+data_dir = "/home/yangkai/data/data_process"
+# data_dir = "/home/share/reasoning/raw_data"
 orz_math_path = os.path.join(data_dir, "orz_math_13k_collection_hard.json")
 additional_dataset_path = os.path.join(data_dir, "hard_problems_with_rate.jsonl")
 big_math_rl_processed_path = os.path.join(data_dir, "big_math_rl_filtered.jsonl")
 dapo_math_processed_path = os.path.join(data_dir, "dapo_math_filtered.jsonl")
 skywork_math_processed_path = os.path.join(data_dir, "skywork_math_filtered.jsonl")
 
+def is_valid_float(s):
+    s = s.strip()
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
 
 def classify_math_question(question):
     inputs = math_tokenizer(question, return_tensors="pt", truncation=True, max_length=512).to(device)
@@ -42,7 +52,6 @@ def classify_math_question(question):
         logits = outputs.logits
         predicted_class_id = torch.argmax(logits, dim=-1).item()
     return id2label[predicted_class_id]
-
 
 # Function to create a hash of the question content for deduplication
 def get_question_hash(question):
@@ -109,6 +118,9 @@ try:
                         answer = item[1]["ground_truth"].get("value", "")
 
                 question  = format_question(question)
+
+                if not is_valid_float(answer):
+                    continue
                 
                 # Skip if token length exceeds limits
                 if not check_token_lengths(question, answer):
@@ -121,7 +133,7 @@ try:
                         "question": question,
                         "answer": answer,
                         "extra_params": {
-                            "level": 3,
+                            "level": "",
                             "source": "orz_math_data"
                         }
                     }
@@ -165,23 +177,17 @@ try:
                 
                 if not question:
                     continue
+
+                if not is_valid_float(answer):
+                    continue
                 
                 # Get accuracy/solve rate if available
                 accuracy = item.get("accuracy", None) or item.get("solve_rate", None)
                 
                 # Determine level based on accuracy
-                level = None
                 if accuracy is None:
                     continue
-                if 0.3 <= accuracy <= 0.4:
-                    level = 1
-                elif accuracy < 0.1:
-                    level = 3
-                elif 0.1 <= accuracy <= 0.2:
-                    level = 2
-                else:
-                    # Skip items that don't match our level criteria
-                    continue
+                level = accuracy
                 
                 question = format_question(question)
 
@@ -246,7 +252,10 @@ try:
                 solve_rate = item.get("llama8b_solve_rate")
                 
                 # Skip if the item doesn't have llama8b_solve_rate or it's not <= 0.4
-                if solve_rate is None or solve_rate > 0.15:
+                if solve_rate is None:
+                    continue
+
+                if not is_valid_float(answer):
                     continue
                 
                 problem = format_question(problem)
@@ -257,16 +266,7 @@ try:
                     continue
                 
                 # Determine level based on solve rate
-                level = None
-                if 0.1 <= solve_rate <= 0.15:
-                    level = 1
-                    big_math_filtered_by_rate += 1
-                elif 0.05 <= solve_rate < 0.1:
-                    level = 2
-                    big_math_filtered_by_rate += 1
-                elif solve_rate < 0.05:
-                    level = 3
-                    big_math_filtered_by_rate += 1
+                level = solve_rate
                 
                 if level is not None:
                     # Create standardized item format with extra_params
@@ -327,9 +327,12 @@ try:
                 solve_rate = item.get("Qwen3-32B_solve_rate")
                 
                 # Skip if the item doesn't have Qwen3-32B_solve_rate or it's > 0.5
-                if solve_rate is None or solve_rate > 0.5:
+                if solve_rate is None:
                     continue
                 
+                if not is_valid_float(answer):
+                    continue
+
                 # Format question with instructions
                 question = format_question(prompt)
 
@@ -339,19 +342,7 @@ try:
                     continue
                 
                 # Determine level based on solve rate
-                level = None
-                if 0.3 <= solve_rate <= 0.4:
-                    level = 1
-                    dapo_math_filtered_by_rate += 1
-                elif 0.1 <= solve_rate < 0.3:
-                    level = 2
-                    dapo_math_filtered_by_rate += 1
-                elif solve_rate < 0.1:
-                    level = 3
-                    dapo_math_filtered_by_rate += 1
-                else:
-                    # Should not happen given our filtering, but just in case
-                    continue
+                level = solve_rate
                 
                 # Create standardized item format with extra_params
                 standardized_item = {
@@ -416,9 +407,10 @@ try:
                     continue
                 model_difficulty = item.get("extra_info", None)["model_difficulty"]["DeepSeek-R1-Distill-Qwen-7B"]
                 
-                
-                
-                if model_difficulty is None or model_difficulty < 5:
+                if model_difficulty is None:
+                    continue
+
+                if not is_valid_float(answer):
                     continue
                 
                 # Skip if token length exceeds limits
@@ -427,19 +419,7 @@ try:
                     continue
                 
                 # Determine level based on solve rate
-                level = None
-                if 5 <= model_difficulty <= 8:
-                    level = 1
-                    skywork_math_filtered_by_rate += 1
-                elif 9 <= model_difficulty <= 11:
-                    level = 2
-                    skywork_math_filtered_by_rate += 1
-                elif 12 <= model_difficulty <= 15:
-                    level = 3
-                    skywork_math_filtered_by_rate += 1
-                else:
-                    # Should not happen given our filtering, but just in case
-                    continue
+                level = model_difficulty
                 
                 # Create standardized item format with extra_params
                 standardized_item = {
@@ -481,6 +461,8 @@ for item in tqdm(all_items):
         item["extra_params"]["math_category"] = "Unknown"
 
 # Write the final merged and deduplicated dataset
+random.seed(2025)
+random.shuffle(all_items)
 with open(merged_data_path, 'w', encoding='utf-8') as outfile:
     for item in all_items:
         outfile.write(json.dumps(item, ensure_ascii=False) + "\n")
