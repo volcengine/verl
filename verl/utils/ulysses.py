@@ -242,6 +242,21 @@ def gather_outpus_and_unpad(
     grad_scaler: bool = True,
     group: Optional[dist.ProcessGroup] = None,
 ):
+    """
+    Gather a tensor across a process group and optionally unpad its padded elements.
+
+    Args:
+        x (Tensor): Input tensor to gather.
+        gather_dim (int): Dimension along which to gather across ranks.
+        unpad_dim (int, optional): Dimension from which to remove padding. If None, no unpadding.
+        padding_size (int): Number of padding elements to remove on `unpad_dim`. Defaults to 0.
+        grad_scaler (bool): Whether to apply gradient scaling during gather. Defaults to True.
+        group (ProcessGroup, optional): Process group for gathering. If None, uses
+            `get_ulysses_sequence_parallel_group()`. If still None, returns `x` unchanged.
+
+    Returns:
+        Tensor: The gathered tensor, with padding removed if requested.
+    """
     group = get_ulysses_sequence_parallel_group() if group is None else group
     if group is None:
         return x
