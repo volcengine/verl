@@ -321,60 +321,18 @@ class FSDPSFTTrainer:
         input_ids = batch["input_ids"].cuda()
         attention_mask = batch["attention_mask"].cuda()
         position_ids = batch["position_ids"].cuda()
-        print("okay, I'm in the compute function")
         raw_prompt_ids = batch["raw_prompt_ids"]
-        raw_prompt_ids_data = batch["raw_prompt_ids"]
-        multi_modal_inputs = batch.get("multi_modal_inputs", {})
-        print("multi_modal_inputs", multi_modal_inputs)
-        #print(batch["multi_modal_data"])
-        # COMPREHENSIVE DEBUG
-        print("=== TENSOR DEBUG ===")
-        print(f"input_ids shape: {input_ids.shape}")
-        print(f"attention_mask shape: {attention_mask.shape}")
-        print(f"position_ids shape: {position_ids.shape}")
-        print(f"position_ids dtype: {position_ids.dtype}")
-        print(f"position_ids min/max: {position_ids.min()}/{position_ids.max()}")
-        
-        # Check if position_ids has the right dimensions
-        if len(position_ids.shape) == 3:
-            print(f"position_ids is 3D: {position_ids.shape}")
-            print(f"position_ids[0] shape: {position_ids[0].shape}")
-            print(f"Sample position_ids[0, :, :10]: {position_ids[0, :, :10]}")
-        else:
-            print(f"position_ids is 2D: {position_ids.shape}")
-            print(f"Sample position_ids[0, :10]: {position_ids[0, :10]}")
-        
+        multi_modal_inputs = batch.get("multi_modal_inputs", {})   
 
-        if len(multi_modal_inputs) > 0:
-            print("=== MULTIMODAL DEBUG ===")
-            print(f"multi_modal_inputs type: {type(multi_modal_inputs)}")
-            
-        # Extract from NonTensorData if needed
-        actual_inputs = {}
-        if hasattr(multi_modal_inputs, 'data'):
-            print(f"NonTensorData with {len(multi_modal_inputs.data)} items")
-            for i, item in enumerate(multi_modal_inputs.data):
-                print(f"Item {i}: {list(item.keys()) if isinstance(item, dict) else type(item)}")
-                if isinstance(item, dict):
-                    actual_inputs.update(item)
-        else:
-            actual_inputs = multi_modal_inputs
-        
-        print(f"Actual multimodal inputs: {list(actual_inputs.keys())}")
-        for key, value in actual_inputs.items():
-            if isinstance(value, torch.Tensor):
-                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
-            else:
-                print(f"  {key}: type={type(value)}, value={value}")
-        
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            position_ids = position_ids.transpose(0, 1)
+
         if "loss_mask" in batch:
             loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).cuda()
         else:
-            print("creating loss mask")
             batch_size, seq_len = input_ids.shape
             loss_mask_list = []
             for i in range(batch_size):
-                print("processed {} out of {}".format(i, batch_size))
                 sample_attention = attention_mask[i]
                 sample_raw_prompt_list = raw_prompt_ids[i]
                 raw_prompt_length = len(sample_raw_prompt_list)
@@ -423,20 +381,23 @@ class FSDPSFTTrainer:
                             if 'image_grid_thw' in item:
                                 image_grid_thw_list.append(item['image_grid_thw'])
                     
-                    # Batch them: 32 items -> 4 batches of 8 items each
                     if pixel_values_list:
-                        # Concatenate all pixel values and reshape for batch
-                        all_pixel_values = torch.cat(pixel_values_list, dim=0)  # [total_patches, 1176]
-                        patches_per_sample = all_pixel_values.shape[0] // batch_size
-                        batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
-                        model_kwargs['pixel_values'] = batched_pixel_values.cuda()
+                        if batch_size == 1:
+                            model_kwargs['pixel_values'] = pixel_values_list[0].unsqueeze(0).cuda()
+                        else:
+                            # Concatenate all pixel values and reshape for batch
+                            all_pixel_values = torch.cat(pixel_values_list, dim=0)  # [total_patches, 1176]
+                            patches_per_sample = all_pixel_values.shape[0] // batch_size
+                            batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
+                            model_kwargs['pixel_values'] = batched_pixel_values.cuda()
                     
                     if image_grid_thw_list:
-                        all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
-                        model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
+                        if batch_size == 1:
+                            model_kwargs['image_grid_thw'] = image_grid_thw_list[0].cuda()
+                        else:
+                            all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                            model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
                     
-                    print(f"Batched pixel_values: {model_kwargs.get('pixel_values', 'None')}")
-                    print(f"Batched image_grid_thw: {model_kwargs.get('image_grid_thw', 'None')}")
                 output = self.fsdp_model(**model_kwargs) 
                 #output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
                 logits = output.logits
@@ -492,14 +453,21 @@ class FSDPSFTTrainer:
                                 image_grid_thw_list.append(item['image_grid_thw'])
                     
                     if pixel_values_list:
-                        all_pixel_values = torch.cat(pixel_values_list, dim=0)
-                        patches_per_sample = all_pixel_values.shape[0] // batch_size
-                        batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
-                        model_kwargs['pixel_values'] = batched_pixel_values.cuda()
+                        if batch_size == 1:
+                            # For micro-batch size 1, pass the tensor directly
+                            model_kwargs['pixel_values'] = pixel_values_list[0].unsqueeze(0).cuda()
+                        else:
+                            all_pixel_values = torch.cat(pixel_values_list, dim=0)
+                            patches_per_sample = all_pixel_values.shape[0] // batch_size
+                            batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
+                            model_kwargs['pixel_values'] = batched_pixel_values.cuda()
                     
                     if image_grid_thw_list:
-                        all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
-                        model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
+                        if batch_size == 1:
+                            model_kwargs['image_grid_thw'] = image_grid_thw_list[0].cuda()
+                        else:
+                            all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                            model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
                 # Forward pass
                 output = self.fsdp_model(**model_kwargs)
                 #output = self.fsdp_model(
