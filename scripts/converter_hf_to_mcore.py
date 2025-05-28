@@ -35,6 +35,7 @@ def _init_args():
     parser.add_argument("--output_path", type=str, required=True, help="The path for the output mcore model")
     parser.add_argument("--use_cpu_initialization", action="store_true", help="Whether to use cpu initialization")
     parser.add_argument("--test", action="store_true", help="Whether to test the conversion")
+    parser.add_argument("--trust_remote_code", action="store_true", help="Whether to trust remote code")
     args = parser.parse_args()
     return args
 
@@ -210,7 +211,7 @@ def convert_checkpoint_from_transformers_to_megatron_dpskv3(hf_model, model, hf_
             model.output_layer.weight.copy_(hf_model.lm_head.weight)
 
 
-def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False, test=False):
+def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False, test=False, trust_remote_code=False):
     os.makedirs(output_path, exist_ok=True)
     if len(os.listdir(output_path)) > 0 and not test:
         print(f"Output path {output_path} is not empty, skipping conversion")
@@ -265,7 +266,7 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
         warnings.simplefilter("ignore")
 
     # init hf model
-    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=True)
+    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=trust_remote_code)
     hf_state_dict = hf_model.state_dict()
 
     # load hf state dict to megatron model
@@ -299,4 +300,4 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
 
 if __name__ == "__main__":
     args = _init_args()
-    convert_hf_to_mcore(args.hf_model_path, args.output_path, args.use_cpu_initialization, args.test)
+    convert_hf_to_mcore(args.hf_model_path, args.output_path, args.use_cpu_initialization, args.test, args.trust_remote_code)
