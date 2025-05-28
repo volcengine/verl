@@ -89,7 +89,7 @@ if __name__ == "__main__":
             }
 
             data = {
-                "data_source": data_source,
+                "data_source": "screenspot",
                 "prompt": [
                     {
                         "role": "user",
