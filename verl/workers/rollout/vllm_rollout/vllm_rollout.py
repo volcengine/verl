@@ -103,6 +103,12 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            swap_space=90,
+            cpu_offload_gb=40,
+            kv_cache_dtype=config.kv_cache_dtype,
+            # calculate_kv_scales= (config.kv_cache_dtype == "fp8"),
+            enable_prefix_caching=False,
+            preemption_mode="swap",
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -110,7 +116,7 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
         )
 

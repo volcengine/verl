@@ -76,4 +76,4 @@ class NaiveRewardManager:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
 
-        return reward_tensor
+        return reward_tensor, {}

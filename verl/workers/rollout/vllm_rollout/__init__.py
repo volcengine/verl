@@ -25,9 +25,17 @@ def get_version(pkg):
 package_name = 'vllm'
 package_version = get_version(package_name)
 
+# check if TOOL_USE_VLLM is set in the environment variables
+import os
+TOOL_USE_VLLM = os.getenv('TOOL_USE_VLLM', 'false').lower() == 'true'
+
 if package_version <= '0.6.3':
     vllm_mode = 'customized'
     from .vllm_rollout import vLLMRollout
 else:
     vllm_mode = 'spmd'
-    from .vllm_rollout_spmd import vLLMRollout
+    if TOOL_USE_VLLM:
+        print("NOTE: Using vLLM rollout with self, please make sure you have vllm >= 0.6.4 installed.")
+        from .vllm_rollout_spmd import vLLMRolloutWithSelf as vLLMRollout
+    else:
+        from .vllm_rollout_spmd import vLLMRollout

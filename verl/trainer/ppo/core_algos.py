@@ -250,11 +250,22 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 
-    pg_losses = -advantages * ratio
-    pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
+    clipped_ratio = torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
 
-    pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
+    pg_losses = -advantages * ratio
+    pg_losses2 = -advantages * clipped_ratio
+
+    # pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
+    # pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
+
+    # Instead of using the max (only clipping the positive side), we use max when adv is postive and min when adv is negative. This is more stable according to https://filecdn.minimax.chat/_Arxiv_MiniMax_01_Report.pdf
+    max_clip = torch.max(pg_losses, pg_losses2)
+    min_clip = torch.min(pg_losses, pg_losses2)
+    pg_loss = verl_F.masked_mean(torch.where(advantages > 0, max_clip, min_clip), eos_mask)
+    
+    gt_count = torch.gt(pg_losses2, pg_losses).float()
+    lt_count = torch.lt(pg_losses2, pg_losses).float()
+    pg_clipfrac = verl_F.masked_mean(torch.where(advantages > 0, gt_count, lt_count), eos_mask)
     return pg_loss, pg_clipfrac, ppo_kl
 
 

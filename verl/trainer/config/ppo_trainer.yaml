@@ -82,6 +82,7 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
     enable_chunked_prefill: True # could get higher throughput
+    kv_cache_dtype: auto
     # for hf rollout
     do_sample: True
     # number of responses (i.e. num sample times)

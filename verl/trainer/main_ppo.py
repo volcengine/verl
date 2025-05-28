@@ -15,7 +15,6 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-
 import ray
 import hydra
 
@@ -33,7 +32,7 @@ def run_ppo(config, compute_score=None):
     ray.get(main_task.remote(config, compute_score))
 
 
-@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+@ray.remote #(num_cpus=1)  # please make sure main_task is not scheduled on head
 def main_task(config, compute_score=None):
     from verl.utils.fs import copy_local_path_from_hdfs
     # print initial config
@@ -48,6 +47,11 @@ def main_task(config, compute_score=None):
     # instantiate tokenizer
     from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer(local_path)
+
+    # Adjust LR based on batch size
+    base_lr = config.actor_rollout_ref.actor.optim.lr
+    batchsize = config.actor_rollout_ref.actor.ppo_mini_batch_size
+    config.actor_rollout_ref.actor.optim.lr = base_lr * batchsize / 128
 
     # define worker classes
     if config.actor_rollout_ref.actor.strategy == 'fsdp':

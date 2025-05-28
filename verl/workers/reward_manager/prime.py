@@ -20,9 +20,10 @@ import torch
 
 from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
+import traceback
 
 
-async def single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.):
+async def single_compute_score(evaluation_func, completion, reference, response_length, task, executor, timeout=600.):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
@@ -30,7 +31,7 @@ async def single_compute_score(evaluation_func, completion, reference, task, exe
             asyncio.wait_for(
                 loop.run_in_executor(
                     executor,
-                    partial(evaluation_func, task, completion, reference)  # Ensure synchronous
+                    partial(evaluation_func, task, completion, reference, response_length)  # Ensure synchronous
                 ),
                 timeout=timeout)
         ]
@@ -40,16 +41,17 @@ async def single_compute_score(evaluation_func, completion, reference, task, exe
         return None  # Default value for timed-out rows
     except Exception as e:
         print(f"Error processing completion: {completion[:10]}, Error: {e}")
+        traceback.print_exc()
         return None  # Default value for failed rows
 
 
-async def parallel_compute_score_async(evaluation_func, completions, references, tasks, num_processes=64):
+async def parallel_compute_score_async(evaluation_func, completions, references, response_lengths, tasks, num_processes=64):
     scores = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all rows
         tasks_async = [
-            single_compute_score(evaluation_func, completion, reference, task, executor, timeout=300.)
-            for completion, reference, task in zip(completions, references, tasks)
+            single_compute_score(evaluation_func, completion, reference, response_length, task, executor, timeout=300.)
+            for completion, reference, response_length, task in zip(completions, references, response_lengths, tasks)
         ]
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
@@ -62,16 +64,28 @@ async def parallel_compute_score_async(evaluation_func, completions, references,
                     print('shut down failed: ' + str(kill_err))
             raise
 
+    metrics = {}
     # Process results
     for result, completion, reference, task in zip(results, completions, references, tasks):
         if isinstance(result, Exception) or result is None:
             # Handle failed or timed-out tasks
             scores.append(0.0)
-        elif isinstance(result[0], (int, float, bool)):
-            scores.append(float(result[0]))
+            metric = {}
         else:
-            scores.append(float(result[0][0]))
-    return scores
+            # print(result)
+            result, metric = result[0]
+            if isinstance(result, (int, float, bool)):
+                scores.append(float(result))
+            else:
+                scores.append(float(result[0]))
+
+        for k in metric.keys():
+            if k in metrics.keys():
+                metrics[k].append(metric[k])
+            else:
+                metrics[k] = []
+
+    return scores, metrics
 
 
 class PrimeRewardManager:
@@ -101,24 +115,36 @@ class PrimeRewardManager:
 
         response_ids = data.batch['responses']
         valid_response_length = data.batch['attention_mask'][:, prompt_length:].sum(dim=-1)
-        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+        valid_response_length_list = valid_response_length.cpu().tolist()
+
+        # decode the response_ids
+        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=False)
+        # remove the padding tokens
+        sequences_str = [sequences_str.replace(self.tokenizer.pad_token, '') for sequences_str in sequences_str]
+
+
         ground_truth = [data_item.non_tensor_batch['reward_model']['ground_truth'] for data_item in data]
         data_sources = data.non_tensor_batch['data_source']
 
         assert len(sequences_str) == len(ground_truth) == len(data_sources)
         try:
-            scores = asyncio.run(
+            scores, metrics = asyncio.run(
                 parallel_compute_score_async(self.compute_score,
                                              sequences_str,
                                              ground_truth,
+                                             valid_response_length_list,
                                              data_sources,
-                                             num_processes=64))
+                                             num_processes=256))
         except asyncio.TimeoutError as e:
             print('Global timeout in reward computing! Setting all as 0.')
-            scores = [0. for _ in range(len(sequences_str))]
+            scores = [-1. for _ in range(len(sequences_str))]
         except Exception as e:
             print(f"Unexpected error in batched reward computing. Setting all as 0.: {e}")
-            scores = [0. for _ in range(len(sequences_str))]
+
+            import traceback
+            traceback.print_exc()
+
+            scores = [-1. for _ in range(len(sequences_str))]
 
         for i in range(len(data)):
             data_source = data_sources[i]
@@ -129,6 +155,6 @@ class PrimeRewardManager:
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print(sequences_str)
+                print(sequences_str[0])
 
-        return reward_tensor
+        return reward_tensor, metrics

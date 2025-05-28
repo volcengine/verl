@@ -14,26 +14,27 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def _default_compute_score(data_source, solution_str, ground_truth, response_length, extra_info=None):
     if data_source == 'openai/gsm8k':
         from . import gsm8k
-        res = gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
-        from . import math
-        res = math.compute_score(solution_str, ground_truth)
+        res, metrics = gsm8k.compute_score(solution_str, ground_truth)
+    # elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
+    #     from . import math
+    #     res, metrics = math.compute_score(solution_str, ground_truth)
     elif data_source in [
             'numina_aops_forum', 'numina_synthetic_math', 'numina_amc_aime', 'numina_synthetic_amc', 'numina_cn_k12',
             'numina_olympiads'
     ]:
         from . import prime_math
-        res = prime_math.compute_score(solution_str, ground_truth)
+        res, metrics = prime_math.compute_score(solution_str, ground_truth)
     elif data_source in ['codecontests', 'apps', 'codeforces', 'taco']:
         from . import prime_code
-        res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+        res, metrics = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     else:
-        raise NotImplementedError
+        from . import math_general
+        res, metrics = math_general.compute_score(solution_str, ground_truth, response_length)
 
     if isinstance(res, (int, float, bool)):
-        return float(res)
+        return float(res), metrics
     else:
-        return float(res[0])
+        return float(res[0]), metrics

@@ -267,10 +267,20 @@ def compute_data_metrics(batch, use_critic=True):
         # response length
         'response_length/mean':
             torch.mean(response_length).detach().item(),
+        'response_length/mean_correct': # mean of responses with reward > 0
+            torch.mean(torch.masked_select(response_length, sequence_reward > 0)).detach().item(),
+        'response_length/mean_incorrect':
+            torch.mean(torch.masked_select(response_length, sequence_reward < 0)).detach().item(),
         'response_length/max':
             torch.max(response_length).detach().item(),
         'response_length/min':
             torch.min(response_length).detach().item(),
+        'response_length/75th_percentile':
+            torch.quantile(response_length, 0.75).detach().item(),
+        'response_length/25th_percentile':
+            torch.quantile(response_length, 0.25).detach().item(),
+        'response_length/median':
+            torch.median(response_length).detach().item(),
         'response_length/clip_ratio':
             torch.mean(torch.eq(response_length, max_response_length).float()).detach().item(),
         # prompt length
@@ -493,7 +503,7 @@ class RayPPOTrainer(object):
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=len(self.val_dataset),
                                          shuffle=True,
-                                         drop_last=True,
+                                         drop_last=False,
                                          collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
@@ -537,11 +547,12 @@ class RayPPOTrainer(object):
         samples.sort(key=lambda x: x[0])  # Sort by input text
 
         # Use fixed random seed for deterministic shuffling
-        rng = np.random.RandomState(42)
-        rng.shuffle(samples)
+        # rng = np.random.RandomState(42)
+        # rng.shuffle(samples)
 
-        # Take first N samples after shuffling
-        samples = samples[:generations_to_log]
+        if generations_to_log > 0 and len(samples) > generations_to_log:
+            # Take first N samples after shuffling
+            samples = samples[:generations_to_log]
 
         # Create column names for all samples
         columns = ["step"] + sum([[f"input_{i+1}", f"output_{i+1}", f"score_{i+1}"] for i in range(len(samples))], [])
@@ -574,6 +585,7 @@ class RayPPOTrainer(object):
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
+        sample_answers = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -584,7 +596,8 @@ class RayPPOTrainer(object):
 
             # Store original inputs
             input_ids = test_batch.batch['input_ids']
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=False) for ids in input_ids]
+            input_texts = [text.replace(self.tokenizer.pad_token, '') for text in input_texts]
             sample_inputs.extend(input_texts)
 
             test_gen_batch = test_batch.pop(['input_ids', 'attention_mask', 'position_ids'])
@@ -601,17 +614,21 @@ class RayPPOTrainer(object):
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-            print('validation generation end')
+            # print('validation generation end')
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch['responses']
-            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=False) for ids in output_ids]
+            output_texts = [text.replace(self.tokenizer.pad_token, '') for text in output_texts]
             sample_outputs.extend(output_texts)
 
             test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
-            reward_tensor = self.val_reward_fn(test_batch)
+            reward_tensor, reward_metrics = self.val_reward_fn(test_batch)
+
+            # Store answers and solutions
+            sample_answers.extend(reward_metrics["no_wandb_ans"])
 
             # Store scores
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -620,22 +637,87 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
 
+
+        inputs_to_log, outputs_to_log, scores_to_log = [], [], []
         # evaluate test_score based on data source
         data_source_reward = {}
+        data_source_answer = {}
+        data_source_extracted = {}
         for i in range(reward_tensor.shape[0]):
             data_source = data_sources[i]
+            question = sample_inputs[i]
             if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
+                data_source_reward[data_source] = {}
+                data_source_answer[data_source] = {}
+                data_source_extracted[data_source] = {}
+            if question not in data_source_reward[data_source]:
+                data_source_reward[data_source][question] = []
+                data_source_answer[data_source][question] = []
+                data_source_extracted[data_source][question] = []
+
+            data_source_reward[data_source][question].append(reward_tensor[i].item())
+            data_source_answer[data_source][question].append(sample_outputs[i])
+            # data_source_extracted[data_source][question].append(sample_answers[i])
+
+        for data_source, question_to_rewards in data_source_reward.items():
+            # print(f'Validation data source: {data_source}')
+            for question, rewards in question_to_rewards.items():
+                # print(f'Question: {question}, rewards: {rewards}')
+                inputs_to_log.append(question)
+                # sampled_answer = np.random.choice(data_source_answer[data_source][question])
+                sampled_index = np.random.randint(len(data_source_answer[data_source][question]))
+                sampled_answer = data_source_answer[data_source][question][sampled_index]
+                sampled_score = rewards[sampled_index]
+                outputs_to_log.append(sampled_answer)
+
+                # Compute the majority vote for the extracted answers, ignore None
+                majority_score = 0.
+                # extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+                # if len(extracted_answers) > 0:
+                #     majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+                #     # check if the majority_answer corresponds to a reward of 1
+                #     majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+                #     if majority_idx != -1:
+                #         majority_score = rewards[majority_idx]
+
+                scores_to_log.append("{}, avg{}, maj{}, max{}, n{}".format(sampled_score, np.mean(rewards), majority_score, np.max(rewards), len(rewards)))
+
+        self._maybe_log_val_generations_to_wandb(inputs=inputs_to_log, outputs=outputs_to_log, scores=scores_to_log)
 
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        for data_source, question_to_rewards in data_source_reward.items():
+            
+            # compute average reward for each question
+            rewards = []
+            for _, rewards_lst in question_to_rewards.items():
+                rewards.append(np.mean(rewards_lst))
+
+            metric_dict[f'val/{data_source}/average_of_n'] = np.mean(rewards)
+
+            # compute best reward for each question
+            rewards = []
+            for _, rewards_lst in question_to_rewards.items():
+                rewards.append(np.max(rewards_lst))
+            
+            metric_dict[f'val/{data_source}/best_of_n'] = np.mean(rewards)
+
+            # compute the appoximate majority score for each question based on the answer and the extracted answers
+            # rewards = []
+            # for question, rewards_lst in question_to_rewards.items():
+            #     majority_score = 0.
+            #     extracted_answers = [ans for ans in data_source_extracted[data_source][question] if ans is not None]
+            #     if len(extracted_answers) > 0:
+            #         majority_answer = max(set(extracted_answers), key=extracted_answers.count)
+            #         # check if the majority_answer corresponds to a reward of 1
+            #         majority_idx = extracted_answers.index(majority_answer) if majority_answer in extracted_answers else -1
+            #         if majority_idx != -1:
+            #             majority_score = rewards[majority_idx]
+            #     rewards.append(majority_score)
+
+            # metric_dict[f'val/{data_source}/majority_of_n'] = np.mean(rewards)
 
         return metric_dict
 
@@ -745,7 +827,7 @@ class RayPPOTrainer(object):
 
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
-            NotImplementedError('load from hdfs is not implemented yet')
+            raise NotImplementedError('load from hdfs is not implemented yet')
         else:
             checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
             if not os.path.isabs(checkpoint_folder):
@@ -860,7 +942,7 @@ class RayPPOTrainer(object):
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
-                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor, _ = self.reward_fn(batch)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
                             batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
@@ -910,7 +992,13 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = self.reward_fn(batch)
+                        reward_tensor, reward_metrics = self.reward_fn(batch)
+                        
+                        reward_metrics = {
+                            f"verifier/{k}": np.mean(v) for k, v in reward_metrics.items() if "no_wandb" not in k
+                        }
+                        metrics.update(reward_metrics)
+
                         batch.batch['token_level_scores'] = reward_tensor
 
                         # compute rewards. apply_kl_penalty if available
