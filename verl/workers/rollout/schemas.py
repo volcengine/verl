@@ -100,7 +100,7 @@ class AsyncRolloutRequest(BaseModel):
             "tool_suffix_msg": "<|im_end|>",
             "tool_response_prefix_msg": "\n<tool_response>\n",
             "tool_response_suffix_msg": "\n</tool_response>",
-        }
+        },
     }
 
     def get_generation_prompt(self, tokenizer: PreTrainedTokenizer) -> list[int]:
@@ -177,9 +177,9 @@ class AsyncRolloutRequest(BaseModel):
             prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
             suffix_msg = self.format_config[format]["tool_suffix_msg"]
             suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
-            prefix_resp = self.format_config[format].get("tool_response_prefix_msg", '')
+            prefix_resp = self.format_config[format].get("tool_response_prefix_msg", "")
             prefix_resp_token_ids = tokenizer.encode(prefix_resp, add_special_tokens=False)
-            suffix_resp = self.format_config[format].get("tool_response_suffix_msg", '')
+            suffix_resp = self.format_config[format].get("tool_response_suffix_msg", "")
             suffix_resp_token_ids = tokenizer.encode(suffix_resp, add_special_tokens=False)
             full_suffix_token_ids = suffix_resp_token_ids + (suffix_token_ids if last_tool or not merge_tool_responses else [])
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)

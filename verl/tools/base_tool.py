@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Protocol, Tuple, runtime_checkable
 from uuid import uuid4
 
 from .schemas import OpenAIFunctionToolSchema
@@ -84,3 +84,9 @@ class BaseTool:
             instance_id: The instance id of the tool.
         """
         pass
+
+
+@runtime_checkable
+class DatasetIrrelevantTool(Protocol):
+    def dataset_irrelevant(self) -> bool:
+        return False
