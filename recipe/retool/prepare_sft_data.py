@@ -17,6 +17,58 @@ Remember to place the final answer in the last part using the format:
 <answer>\n\\boxed{{'The final answer goes here.'}}\n</answer>'''
 
 
+from transformers.utils import get_json_schema
+
+import sys
+from io import StringIO
+
+class CaptureOutput:
+    def __enter__(self):
+        # Save the original streams and create new ones for capture
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        self.stdout_capture = StringIO()
+        self.stderr_capture = StringIO()
+        sys.stdout = self.stdout_capture
+        sys.stderr = self.stderr_capture
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Restore the original streams
+        sys.stdout = self.original_stdout
+        sys.stderr = self.original_stderr
+        # Get the captured content
+        self.stdout = self.stdout_capture.getvalue()
+        self.stderr = self.stderr_capture.getvalue()
+        # Close the capture streams
+        self.stdout_capture.close()
+        self.stderr_capture.close()
+        return False  # Do not suppress exceptions
+
+
+def execute_python_script(script: str):
+    """
+    Execute a python script and return the stdout and stderr
+    
+    Args:
+        script: the python script to execute
+    """
+    with CaptureOutput() as captured:
+        exec(script)
+    output = captured.stdout + '\n' + captured.stderr
+    return output
+    
+execute_python_script_schema = get_json_schema(execute_python_script)
+
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": execute_python_script_schema
+    },
+]
+
+
 def make_map_fn(split):
     def process_fn(example, idx):
         messages = example.pop("messages")
@@ -26,52 +78,60 @@ def make_map_fn(split):
 
         # rewrite prompt to follow DAPO reward manager
 
+        new_messages = []
+
         # step 1: extract raw problem
-        raw_problem = prompt.split('*user question:*')[1].split('Remember to place the final answer in the last part using the format: \n<answer>')[0]
+        raw_problem = prompt.split('*user question:*\n')[1].split('Remember to place the final answer in the last part using the format: \n<answer>')[0]
+        prompt = raw_problem + "\nRemember to put your answer on its own line after \"Answer:\"."
 
-        removed_instruction = '''The last part of your response should be in the following format:
-<answer>\n\\boxed{{'The final answer goes here.'}}\n</answer>'''
+        new_messages.append({
+            'role': 'user',
+            'content': prompt
+        })
 
-        prompt = prompt.replace(removed_instruction, '')
+        responses = response.split('\n<code>\n')
 
-        removed_instruction = '''Remember to place the final answer in the last part using the format: 
-<answer>\n\\boxed{{'The final answer goes here.'}}\n</answer>'''
+        try:
+            for response in responses:
+                if '\n</code>\n' not in response:
+                    new_messages.append({
+                        'role': 'assistant',
+                        'content': response
+                    })
+                else:
+                    assert '\n</code>\n' in response
+                    code, intepreter_response = response.split('\n</code>\n')
+                    new_messages.append({'role': 'assistant', 'content': '', 'tool_calls': [
+                        {'type': 'function', 'function': {'name': 'execute_python_script', 'arguments': {'script': '{}'.format(code)}}},
+                    ]},)
 
-        prompt = prompt.replace(removed_instruction, '')
+                    intepreter_response = intepreter_response.split('<interpreter>\n')[1]
+                    intepreter_output, response = intepreter_response.split('\n</interpreter>\n\n')
 
-        prompt = prompt + "Remember to put your answer on its own line after \"Answer:\"."
+                    new_messages.append({'role': 'tool', 'name': 'execute_python_script', 'content': '{}'.format(intepreter_output)},)
+
+                    if len(response) > 0:
+                        new_messages.append({'role': 'assistant', 'content': response},)
+                    else:
+                        # consecutive function calls
+                        pass
+                    # rewrite answer to follow DAPO reward manager
+        except Exception as e:
+            print(e)
+            # from IPython import embed
+            # embed()
+
+        # extract <code></code> and <interpreter></interpreter>
 
         # extract last box from response
-        last_box = last_boxed_only_string(response)
-        answer = remove_boxed(last_box)
-        
-        raw_solution = response.split('<answer>')[0]
+        # last_box = last_boxed_only_string(response)
+        # answer = remove_boxed(last_box)
 
-        new_solution = raw_solution + f'\nAnswer: {answer}'
-
-        question = question_raw + " " + instruction_following
-
-        answer_raw = example.pop("answer")
-        solution = extract_solution(answer_raw)
-        data = {
-            "data_source": data_source,
-            "prompt": [
-                {
-                    "role": "user",
-                    "content": question,
-                }
-            ],
-            "ability": "math",
-            "reward_model": {"style": "rule", "ground_truth": solution},
-            "extra_info": {
-                "split": split,
-                "index": idx,
-                "answer": answer_raw,
-                "question": question_raw,
-            },
+        return {
+            'messages': new_messages
         }
-        return data
-
+       
     return process_fn
 
 
+sft_dataset = sft_dataset.map(function=make_map_fn("train"), with_indices=True)
