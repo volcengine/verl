@@ -379,7 +379,7 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
                     f"{layer_name}.self_attn.k_norm.weight",
                     src_pp_rank=src_pp_rank,
                 )
-                
+
             _broadcast_tp_shard_tensor_qkv(
                 sync_layer.self_attention.linear_qkv.weight,
                 f"{layer_name}.self_attn.q_proj.weight",
@@ -465,6 +465,10 @@ def merge_megatron_ckpt_gptmodel(wrapped_models, config, dtype, is_value_model=F
 
 def merge_megatron_ckpt_gptmodel_qwen_moe(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
     raise NotImplementedError("merge_megatron_ckpt_gptmodel_qwen_moe is not implemented")
+
+
+def merge_megatron_ckpt_gptmodel_dpskv3(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
+    raise NotImplementedError("merge_megatron_ckpt_gptmodel_dpskv3 is not implemented")
 
 
 def merge_megatron_ckpt_gptmodel_mixtral(wrapped_models, config, dtype, is_value_model=False, tie_word_embeddings=False):
