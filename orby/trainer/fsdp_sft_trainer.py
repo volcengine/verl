@@ -436,44 +436,13 @@ class FSDPSFTTrainer:
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size())
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-                model_kwargs = {
-                    "input_ids": input_ids_rmpad_sliced,
-                    "attention_mask": None,
-                    "position_ids": position_ids_rmpad_padded,
-                    "use_cache": False,
-                }
-
-                if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
-                    batch_size = input_ids.shape[0]
-                    
-                    pixel_values_list = []
-                    image_grid_thw_list = []
-                    
-                    for item in multi_modal_inputs.data:
-                        if isinstance(item, dict):
-                            if 'pixel_values' in item:
-                                pixel_values_list.append(item['pixel_values'])
-                            if 'image_grid_thw' in item:
-                                image_grid_thw_list.append(item['image_grid_thw'])
-                    
-                    if pixel_values_list:
-                        if batch_size == 1:
-                            # For micro-batch size 1, pass the tensor directly
-                            model_kwargs['pixel_values'] = pixel_values_list[0].unsqueeze(0).cuda()
-                        else:
-                            all_pixel_values = torch.cat(pixel_values_list, dim=0)
-                            patches_per_sample = all_pixel_values.shape[0] // batch_size
-                            batched_pixel_values = all_pixel_values.view(batch_size, patches_per_sample, -1)
-                            model_kwargs['pixel_values'] = batched_pixel_values.cuda()
-                    
-                    if image_grid_thw_list:
-                        if batch_size == 1:
-                            model_kwargs['image_grid_thw'] = image_grid_thw_list[0].cuda()
-                        else:
-                            all_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
-                            model_kwargs['image_grid_thw'] = all_image_grid_thw.cuda()
                 # Forward pass
-                output = self.fsdp_model(**model_kwargs)
+                output = self.fsdp_model(
+                    input_ids=input_ids_rmpad_sliced,
+                    attention_mask=None,  # Not needed with flash attention varlen
+                    position_ids=position_ids_rmpad_padded,
+                    use_cache=False,
+                )
 
                 # Compute loss locally then aggregate
                 logits_rmpad = output.logits.squeeze(0)
