@@ -1,0 +1,60 @@
+data:
+  train_batch_size: 256
+  micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
+  micro_batch_size_per_gpu: 4  # this is also val batch size
+  train_files: ~/data/gsm8k/train.parquet
+  val_files: ~/data/gsm8k/test.parquet
+  # Single-turn settings
+  prompt_key: question
+  response_key: answer
+  prompt_dict_keys: ['question']
+  response_dict_keys: ['answer']
+  # Multi-turn settings
+  multiturn:
+    enable: false  # Set to true to use multi-turn dataset
+    messages_key: messages  # Key for messages list in multi-turn mode
+  max_length: 1024
+  truncation: error
+  balance_dp_token: False
+  chat_template: null
+  custom_cls:
+    path: null
+    name: null
+  image_key: null                          # Specify the column name for images in your dataset
+  processor:
+    use_fast: True                             # Use fast tokenization
+    trust_remote_code: True                    # Trust remote code for processor
+model:
+  partial_pretrain: ~/models/gemma-1.1-7b-it
+  name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
+  fsdp_config:
+    wrap_policy:
+      min_num_params: 0
+    cpu_offload: False
+    offload_params: False
+  external_lib: null
+  enable_gradient_checkpointing: False
+  trust_remote_code: True                      
+  lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
+  lora_alpha: 16  # LoRA scaling factor
+  target_modules: all-linear  # Target modules for LoRA adaptation
+  use_liger: False
+optim:
+  lr: 1e-5
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps_ratio: 0.1
+  clip_grad: 1.0
+  lr_scheduler: cosine
+ulysses_sequence_parallel_size: 1
+use_remove_padding: False
+trainer:
+  default_local_dir: /tmp/sft_model
+  default_hdfs_dir: hdfs://tmp/experiments/gsm8k/gemma-1.1-7b-it/ # change the hdfs path here
+  resume_path: null
+  project_name: gsm8k-sft
+  experiment_name: test
+  total_epochs: 4
+  total_training_steps: null
+  logger: ['console']
+  seed: 1
