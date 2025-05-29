@@ -27,6 +27,7 @@ Data
      filter_overlong_prompts_workers: 1
      truncation: error
      image_key: images
+     trust_remote_code: True
      custom_cls:
         path: null
         name: null
@@ -67,6 +68,8 @@ Data
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+- ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 
+  using remote tokenizer. For example: moonshotai/Moonlight-16B-A3B-Instruct
 
 Customized Dataset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
