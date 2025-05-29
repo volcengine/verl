@@ -82,3 +82,7 @@ jobs:
         run: |
           cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_tools.py
+      - name: Test the latest SGLang Rollout async with sandbox fusion tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_sf_tools.py
