@@ -39,7 +39,7 @@ from . import kernels
 
 class LinearCrossEntropy(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, reduction: typing.Optional[str] = "none", temperature: typing.Optional[float] = 1.0, dist_process_group: typing.Optional[dist.ProcessGroup] = None) -> typing.List[torch.Tensor]:
+    def forward(ctx, hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: typing.Optional[float] = 1.0, reduction: typing.Optional[str] = "none", dist_process_group: typing.Optional[dist.ProcessGroup] = None) -> typing.List[torch.Tensor]:
         """_summary_
 
         Args:
@@ -47,14 +47,16 @@ class LinearCrossEntropy(torch.autograd.Function):
             hidden (torch.Tensor): (batch_size, num_tokens, hidden_size) -> (batch_size * num_tokens, hidden_size)
             weight (torch.Tensor): (vocab_size, hidden_size)
             labels (torch.Tensor): (batch_size, num_tokens) -> (batch_size * num_tokens, )
-            reduction (typing.Optional[str], optional): _description_. Defaults to "none".
             temperature (typing.Optional[float], optional): _description_. Defaults to 1.0.
+            reduction (typing.Optional[str], optional): _description_. Defaults to "none".
             dist_process_group (typing.Optional[dist.ProcessGroup], optional): _description_. Defaults to None.
 
         Returns:
             typing.List[torch.Tensor]: _description_
         """
 
+        assert isinstance(temperature, float), f"temperature must be a float, but got {type(temperature)}"
+        assert isinstance(reduction, str), f"reduction must be a str, but got {type(reduction)}"
         with torch.cuda.nvtx.range("LinearCrossEntropy-forward"):
             REDUCTION = kernels.get_entropy_reduction_enum_number(reduction.lower())
 

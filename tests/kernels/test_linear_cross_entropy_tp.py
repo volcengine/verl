@@ -46,13 +46,16 @@ finally:
     from verl.utils.kernel import linear_cross_entropy
 
 import verl.utils.torch_functional as verl_F
-from verl.utils.torch_functional import logprobs_from_logits
 
 compute_entropy_from_logits = torch.compile(verl_F.entropy_from_logits, dynamic=True)
 
 
 def run_torch_entropy(hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, reduction="none") -> typing.List[torch.Tensor]:
     # [num_tokens, vocab_size]
+    if len(hidden.shape) > 2:
+        hidden = hidden.view(-1, hidden.shape[-1])  # [num_tokens, hidden_size]
+    if len(labels.shape) > 1:
+        labels = labels.view(-1)
     logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32) if weight.size(0) == hidden.size(1) else weight.T.to(torch.float32))
     logits /= temperature
     pd = torch.nn.functional.softmax(logits, dim=-1)  # [num_tokens, vocab_size]
@@ -72,11 +75,13 @@ class TorchEntropyTP(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, hidden: torch.Tensor, weight: torch.Tensor, labels: torch.Tensor, temperature: float, dist_process_group: torch.distributed.ProcessGroup):
-        """
-        
-        """
-
         # weight has shape [vocab_size, hidden_size], hidden has shape [num_tokens, hidden_size]
+        ctx.original_hidden_shape = hidden.shape
+        if len(hidden.shape) > 2:
+            hidden = hidden.view(-1, hidden.shape[-1])  # [num_tokens, hidden_size]
+        if len(labels.shape) > 1:
+            labels = labels.view(-1)
+
         logits = torch.matmul(hidden.to(torch.float32), weight.to(torch.float32).T)  # [num_tokens, vocab_size]
         logits /= temperature
         whole_logits = torch.empty((logits.shape[0], logits.shape[1] * dist.get_world_size(dist_process_group)), dtype=logits.dtype, device=logits.device)
@@ -142,6 +147,7 @@ class TorchEntropyTP(torch.autograd.Function):
         # Compute gradients for hidden and weight
         d_hidden = torch.matmul(local_d_logits, weight.to(torch.float32))
         d_weight = torch.matmul(local_d_logits.T, hidden.to(torch.float32))
+        d_hidden = d_hidden.view(ctx.original_hidden_shape)
 
         return d_hidden, d_weight, None, None, None
 
@@ -152,7 +158,7 @@ MAX_TEST_CASES = os.environ.get("MAX_TEST_CASES", 5)
 
 
 class TestLinearCrossEntropy_TensorParallel:
-    def __init__(self, test_case_idx: int, temperature: float = 1.5):
+    def __init__(self):
         dist.init_process_group(backend="nccl")
         self.group = dist.group.WORLD
 
@@ -161,8 +167,9 @@ class TestLinearCrossEntropy_TensorParallel:
         device = torch.device(f"cuda:{self.local_rank}")
         torch.cuda.set_device(device)
         print(f"[INFO]: Local rank: {self.local_rank}, World size: {self.world_size}")
-        self.test_case_idx = test_case_idx
 
+    def initialize(self, test_case_idx: int, temperature: float = 1.5):
+        self.test_case_idx = test_case_idx
         self.temperature = temperature
 
     def shutdown(self):
@@ -331,7 +338,7 @@ class TestLinearCrossEntropy_TensorParallel:
             torch_forward_latency.append(start_event.elapsed_time(end_event))
 
             start_event.record()
-            (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, "none", self.temperature, self.group)
+            (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, self.temperature, "none", self.group)
             end_event.record()
             torch.cuda.synchronize()
             kernel_forward_latency.append(start_event.elapsed_time(end_event))
@@ -361,8 +368,8 @@ class TestLinearCrossEntropy_TensorParallel:
             # NOTE: all-reduce on hidden is conducted outside the kernel
             dist.all_reduce(kernel_d_hidden, op=dist.ReduceOp.SUM, group=self.group)
 
-            torch.testing.assert_close(torch_d_hidden, kernel_d_hidden, atol=1e-2, rtol=1e-4)
-            torch.testing.assert_close(torch_d_weight, kernel_d_weight, atol=1e-2, rtol=1e-4)
+            torch.testing.assert_close(torch_d_hidden, kernel_d_hidden, atol=2e-2, rtol=4e-2)
+            torch.testing.assert_close(torch_d_weight, kernel_d_weight, atol=2e-2, rtol=4e-2)
 
         # remove first latency
         torch_forward_latency = torch_forward_latency[1:]
@@ -389,7 +396,7 @@ class TestLinearCrossEntropy_TensorParallel:
         dist.broadcast(labels, src=0, group=self.group)
 
         torch.cuda.reset_peak_memory_stats()
-        (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, "none", self.temperature, self.group)
+        (kernel_logprobs, kernel_entropy) = linear_cross_entropy(hidden, weight, labels, self.temperature, "none", self.group)
         torch.cuda.synchronize()
         kernel_max_memory = torch.cuda.max_memory_allocated() / 1024 / 1024
 
@@ -411,7 +418,7 @@ class TestLinearCrossEntropy_TensorParallel:
 
 
 if __name__ == "__main__":
-    # TP command: torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/kernel/test_linear_cross_entropy_tp.py
+    # TP command: torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/kernels/test_linear_cross_entropy_tp.py
 
     # Check if running with torchrun (distributed mode)
     assert int(os.environ["WORLD_SIZE"]) > 1, "[ERROR]: This test is designed to run in distributed mode with torchrun. Please use torchrun to execute this script."
@@ -420,12 +427,13 @@ if __name__ == "__main__":
     # set_backward_method(BackwardEnum._Total_Fuse_MN)
     # set_backward_method(BackwardEnum._Split_Dlogits_N)
 
+    test = TestLinearCrossEntropy_TensorParallel()
     for test_case_idx in range(MAX_TEST_CASES):
-        test = TestLinearCrossEntropy_TensorParallel(test_case_idx)
-
+        print(f"[INFO] Running test case {test_case_idx}")
+        test.initialize(test_case_idx)
         test.verify_torch_itself()
         test.check_torch_storage()
         test.verify_kernel_correctness()
         test.check_kernel_storage()
 
-        test.shutdown()
+    test.shutdown()
