@@ -234,13 +234,16 @@ def ulysses_flash_attn_forward(
     key_states = self.k_proj(hidden_states)
     value_states = self.v_proj(hidden_states)
 
+    # in vit, q_dim equals kv_dim. ulysses logic is not applied in vit.
+    in_vit_block = key_states.size(-1) == query_states.size(-1)
+
     query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
     key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
     value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
-    if ulysses_sp_size > 1:
+    if ulysses_sp_size > 1 and not in_vit_block:
         validate_ulysses_config(self.num_heads, ulysses_sp_size)
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -284,7 +287,7 @@ def ulysses_flash_attn_forward(
         use_top_left_mask=self._flash_attn_uses_top_left_mask,
         position_ids=position_ids,  # important: pass position ids
     )  # (batch_size, seq_length, num_head / sp_size, head_size)
-    if ulysses_sp_size > 1:
+    if ulysses_sp_size > 1 and not in_vit_block:
         attn_output = gather_heads_scatter_seq(attn_output, head_dim=2, seq_dim=1)
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()

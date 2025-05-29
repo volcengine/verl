@@ -20,6 +20,7 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VLCausalLMOutputWithPast,
     Qwen2_5_VLForConditionalGeneration,
 )
+from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
 
 
 @dataclass
@@ -125,6 +126,10 @@ def forward_for_ppo(
                 delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+    if ulysses_sp_size > 1:
+        inputs_embeds = slice_input_tensor(inputs_embeds, dim=1, padding=False)
 
     outputs = self.model(
         input_ids=None,
