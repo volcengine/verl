@@ -436,26 +436,7 @@ def test_dataproto_unfold_column_chunks():
 
     expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
     expect_obs2 = torch.tensor([[1, 2], [1, 2], [5, 6], [5, 6], [9, 10], [9, 10]])
-    expect_labels = [
-        [
-            "a1",
-        ],
-        [
-            "a2",
-        ],
-        [
-            "b1",
-        ],
-        [
-            "b2",
-        ],
-        [
-            "c1",
-        ],
-        [
-            "c2",
-        ],
-    ]
+    expect_labels = [["a1"], ["a2"], ["b1"], ["b2"], ["c1"], ["c2"]]
     assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
     assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
     assert (ret.non_tensor_batch["labels"] == expect_labels).all()
