@@ -374,3 +374,13 @@ def test_old_vs_new_from_single_dict():
     cust = CustomProto.from_single_dict(sample)
     # new behavior: respects subclass
     assert type(cust) is CustomProto
+
+
+def test_dataproto_no_batch():
+    labels = ["a", "b", "c"]
+    data = DataProto.from_dict(non_tensors={"labels": labels}, meta_info={"info": "test_info"})
+    selected = data.select(non_tensor_batch_keys=["labels"])
+    assert (selected.non_tensor_batch["labels"] == labels).all()
+    pop_data = data.pop(non_tensor_batch_keys=["labels"])
+    assert (pop_data.non_tensor_batch["labels"] == labels).all()
+    assert data.non_tensor_batch == {}
