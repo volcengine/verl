@@ -15,7 +15,7 @@
 """
 usage: torchrun --standalone --nnodes=1 \
     --nproc_per_node=2 $(which pytest) \
-    -s test_sglang_async_rollout_w_tools.py
+    -s test_sglang_async_rollout_w_interaction.py
 """
 
 import numpy as np
@@ -39,7 +39,7 @@ from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLang
 from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
 
-def test_async_sglang_rollout_w_tool():
+def test_async_sglang_rollout_w_interaction():
     assert torch.cuda.device_count() >= 2
     initialize_global_process_group()
     clean_torchelastic_env()
@@ -60,6 +60,11 @@ def test_async_sglang_rollout_w_tool():
             "What's the best way to learn python?",
         ]
     ]
+    interaction_kwargs = [
+        {"query": "Who won the Champions League in 2019?", "ground_truth": "Real Madrid"},
+        {"query": "The founder of Apple is", "ground_truth": "Steve Jobs"},
+        {"query": "What's the best way to learn python?", "ground_truth": "Learn python from scratch"},
+    ]
     prompts = [tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True) for message in preencode_prompts]
     input_ids, attention_mask, position_ids = prepare_inputs(tokenizer, prompts, max_prompt_length)
 
@@ -77,7 +82,7 @@ def test_async_sglang_rollout_w_tool():
         device_mesh=fsdp_device_mesh,
     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None)
+    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size)
     rollout = AsyncSGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
 
     rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
@@ -100,7 +105,7 @@ def test_async_sglang_rollout_w_tool():
         print(f"preprocessed {input_ids.shape=}")
 
         messages = np.asarray(preencode_prompts)
-        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages})
+        prompts = DataProto(batch=prompt_dict, non_tensor_batch={"raw_prompt": messages, "interaction_kwargs": np.asarray(interaction_kwargs)})
 
         prompts.meta_info.update(
             {
@@ -123,11 +128,11 @@ def test_async_sglang_rollout_w_tool():
     print(f"hf response: {hf_response_tokens}")
     print(f"sglang response: {sglang_response_tokens}")
     assert are_lists_similar(hf_response_tokens, sglang_response_tokens)
-    print("SGLang w tool Test Passed!")
+    print("SGLang w interaction Test Passed!")
 
     torch.distributed.barrier()
     torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":
-    test_async_sglang_rollout_w_tool()
+    test_async_sglang_rollout_w_interaction()

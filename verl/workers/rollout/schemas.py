@@ -57,7 +57,7 @@ class AsyncRolloutRequestStateEnum(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TOOL_CALLING = "tool_calling"
-    WAITING = "waiting"
+    INTERACTING = "interacting"
 
 
 class AsyncRolloutRequest(BaseModel):
@@ -70,7 +70,7 @@ class AsyncRolloutRequest(BaseModel):
     messages: List[Message]
     tools: Optional[List[OpenAIFunctionToolSchema]] = None
     tools_kwargs: Dict[str, Any] = {}
-    feedback_kwargs: Dict[str, Any] = {}
+    interaction_kwargs: Dict[str, Any] = {}
     input_ids: List[int]
     prompt_ids: List[int]
     response_ids: List[int]
@@ -105,7 +105,6 @@ class AsyncRolloutRequest(BaseModel):
             "tool_suffix_msg": "<|im_end|>",
             "tool_response_prefix_msg": "\n<tool_response>\n",
             "tool_response_suffix_msg": "\n</tool_response>",
-        },
             "user_prefix_msg": "\n<|im_start|>user",
             "user_suffix_msg": "<|im_end|>",
         },

@@ -381,7 +381,7 @@ class RayPPOTrainer:
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get('lora_rank', 0) > 0
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -664,8 +664,8 @@ class RayPPOTrainer:
                 non_tensor_batch_keys_to_pop.append("raw_prompt")
             if "tools_kwargs" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("tools_kwargs")
-            if "feedback_kwargs" in test_batch.non_tensor_batch:
-                non_tensor_batch_keys_to_pop.append("feedback_kwargs")
+            if "interaction_kwargs" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("interaction_kwargs")
             test_gen_batch = test_batch.pop(
                 batch_keys=batch_keys_to_pop,
                 non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
@@ -981,8 +981,8 @@ class RayPPOTrainer:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")
-                if "feedback_kwargs" in batch.non_tensor_batch:
-                    non_tensor_batch_keys_to_pop.append("feedback_kwargs")
+                if "interaction_kwargs" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("interaction_kwargs")
                 gen_batch = batch.pop(
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,

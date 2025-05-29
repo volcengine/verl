@@ -96,6 +96,7 @@ class AsyncSGLangRollout(BaseRollout):
         self.config = config
 
         self._tool_schemas, self._tool_map, self._tool_call_parser_type, self._sgl_tools, self._function_call_parser = self._initialize_tools(config, tokenizer)
+        self.interaction = self._intitalize_interaction(config)
         assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
         logger.info(f"tool_schemas: {self._tool_schemas}, tool_map: {self._tool_map}, tool_call_parser_type: {self._tool_call_parser_type}, sgl_tools: {self._sgl_tools}, function_call_parser: {self._function_call_parser}")
 
@@ -117,12 +118,6 @@ class AsyncSGLangRollout(BaseRollout):
         assert self.tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
         self.train_tp = kwargs.get("train_tp", None)
         if self.train_tp is not None:
-        self.feedback = self._intitalize_feedback(config)
-        self.interaction = self._intitalize_interaction(config)
-        tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= dist.get_world_size(), "tensor parallel size should be less than or equal to the world size"
-
-        if kwargs.get("train_tp", None) is not None:
             # deployed with megatron
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
@@ -236,9 +231,6 @@ class AsyncSGLangRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
-
-        self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_token_id
 
     def _intitalize_interaction(self, config):
         import importlib.util
@@ -497,19 +489,9 @@ class AsyncSGLangRollout(BaseRollout):
         current_turns = 0
         user_turns = 0
         user_turn_rewards = []
-        while current_turns < self.config.multi_turn.max_turns:
+        while current_turns < self.config.multi_turn.max_assistant_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
-                if _req.tools is not None:
-                    tool_creation_coroutines = []
-                    for tool_schema in _req.tools:
-                        tool = self._tool_map[tool_schema.function.name]
-                        create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
-                        tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
-                    await asyncio.gather(*tool_creation_coroutines)
-                if _req.interaction_kwargs is not None:
-                    interaction_kwargs = _req.interaction_kwargs
-                    await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
@@ -579,18 +561,18 @@ class AsyncSGLangRollout(BaseRollout):
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             if len(_req.input_ids) >= self.config.max_model_len:
                                 break
-                            if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
-                                _req.state = AsyncRolloutRequestStateEnum.WAITING
+                            if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
+                                _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                             else:
                                 _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                                 break
                     else:
                         _req.add_assistant_message(self.tokenizer, content, format=self.config.multi_turn.format)
-                        if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.user_max_turns and current_turns < self.config.multi_turn.max_turns:
-                            _req.state = AsyncRolloutRequestStateEnum.WAITING
+                        if _req.interaction_kwargs is not None and user_turns < self.config.multi_turn.max_user_turns and current_turns < self.config.multi_turn.max_assistant_turns:
+                            _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                         else:
                             break
-            elif _req.state == AsyncRolloutRequestStateEnum.WAITING:
+            elif _req.state == AsyncRolloutRequestStateEnum.INTERACTING:
                 user_turns += 1
                 messages = [{"role": x.role, "content": x.content} for x in _req.messages]
                 should_terminate_sequence, content, reward, metrics = await self.interaction.generate_response(_req.request_id, messages, **_req.interaction_kwargs)
@@ -607,7 +589,7 @@ class AsyncSGLangRollout(BaseRollout):
                     else:
                         _req.state = AsyncRolloutRequestStateEnum.RUNNING
 
-        if current_turns >= self.config.multi_turn.max_turns:
+        if current_turns >= self.config.multi_turn.max_assistant_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
 
         # Calculate the reward for each tool
@@ -673,10 +655,13 @@ class AsyncSGLangRollout(BaseRollout):
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
+        if _req.interaction_kwargs is not None:
+            interaction_kwargs = _req.interaction_kwargs
+            await self.interaction.start_interaction(_req.request_id, **interaction_kwargs)
 
     @GPUMemoryLogger(role="sglang async rollout", logger=logger)
     @torch.no_grad()
-    def generate_sequences_with_tools(self, prompts: DataProto, **kwargs) -> DataProto:
+    def generate_sequences_multi_turns(self, prompts: DataProto, **kwargs) -> DataProto:
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
@@ -832,7 +817,7 @@ class AsyncSGLangRollout(BaseRollout):
                 if self.interaction is not None:
                     _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
                 else:
-                    _interaction_kwargs = {}
+                    _interaction_kwargs = None
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
