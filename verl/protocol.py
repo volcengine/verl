@@ -457,7 +457,7 @@ class DataProto:
 
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities
-            selected_batch = TensorDict(source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,))
+            selected_batch = TensorDict(source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,), device=self.batch.device)
         else:
             selected_batch = None
 
