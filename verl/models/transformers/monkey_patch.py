@@ -107,7 +107,7 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
-def patch_vlm_for_ulysses_input_slicing(model_class: type, model_name_for_print: str):
+def patch_vlm_for_ulysses_input_slicing(model_class: type):
     """
     Applies a monkey patch to the forward method of a given model class
     to enable Ulysses sequence parallelism input slicing.
@@ -135,7 +135,7 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type, model_name_for_print:
     original_forward = model_class.forward
     wrapped_forward = _create_ulysses_wrapped_decoder_forward(original_forward)
     model_class.forward = wrapped_forward
-    print(f"Monkey patch {model_class.__name__}.forward in {model_name_for_print} for Ulysses SP input slicing.")
+    print(f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing.")
 
 
 def apply_monkey_patch(
@@ -166,7 +166,7 @@ def apply_monkey_patch(
             Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
 
-            patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel, "Qwen2.5VL")
+            patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
 
         if use_fused_kernels:
             from verl.models.transformers.qwen2_5_vl import forward_for_ppo
