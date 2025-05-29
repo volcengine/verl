@@ -18,10 +18,12 @@ from typing import Optional, Union
 
 import torch
 import torch.distributed
+from accelerate import init_empty_weights
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
+from verl.utils.device import is_cuda_available
 from verl.utils.fs import copy_to_local, is_non_local
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
@@ -30,17 +32,20 @@ from .checkpoint_manager import BaseCheckpointManager
 
 class FSDPCheckpointManager(BaseCheckpointManager):
     """
-    A checkpoint manager that saves and loads
-    - model
-    - optimizer
-    - lr_scheduler
-    - extra_states
-    in a SPMD way.
+    Manage FSDP checkpointing in SPMD training.
 
-    We save
-    - sharded model states and optimizer states
-    - full lr_scheduler states
-    - huggingface tokenizer/processor and config for ckpt merge
+    - Saves/loads per-rank sharded model & optimizer states
+    - Persists full lr_scheduler and RNG state
+    - Stores HF tokenizer/processor and model/config for unified restore
+
+    Args:
+        model (FSDP): Wrapped model instance.
+        optimizer (Optimizer): Training optimizer.
+        lr_scheduler (LRScheduler): Learning-rate scheduler.
+        processing_class (PreTrainedTokenizer or ProcessorMixin, optional):
+            Pre-/post-processing artifact handler.
+        checkpoint_contents (list[str], optional):
+            Components to include; must contain 'model', 'optimizer', 'extra'.
     """
 
     def __init__(
@@ -69,6 +74,18 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         )
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
+        """
+        Load an FSDP checkpoint for this rank.
+
+        Downloads and loads:
+          - model and optimizer shards
+          - extra state dict (scheduler + RNG)
+
+        Args:
+            local_path: Directory with per-rank checkpoint files.
+            hdfs_path: Unused (for API compatibility).
+            del_local_after_load: Remove local files after loading.
+        """
         if local_path is None:
             return
 
@@ -95,8 +112,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         lr_scheduler_state_dict = extra_state_dict["lr_scheduler"]
 
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
         with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             self.model.load_state_dict(model_state_dict)
             if self.optimizer is not None:
@@ -110,6 +127,23 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
     def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+        """
+        Save an FSDP checkpoint for this rank.
+
+        Writes:
+          - model & optimizer shard files
+          - extra state dict (scheduler + RNG)
+          - HF tokenizer/processor and model/config on rank 0
+          - optional full HF model under 'huggingface/' if requested
+
+        Rotates old checkpoints, keeping at most `max_ckpt_to_keep`.
+
+        Args:
+            local_path: Target directory for checkpoint files.
+            hdfs_path: Unused (for API compatibility).
+            global_step: Current training step (used for bookkeeping).
+            max_ckpt_to_keep: Number of recent checkpoints to retain.
+        """
         if local_path is None:
             return
 
@@ -126,8 +160,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
 
         # every rank will save its own model and optim shard
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
@@ -197,7 +231,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 else:
                     raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
 
-                with torch.device("meta"):
+                with init_empty_weights():
                     save_model = auto_model_cls.from_config(model_config, torch_dtype=torch.bfloat16)
                 save_model.to_empty(device="cpu")
 

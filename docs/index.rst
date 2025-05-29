@@ -38,11 +38,6 @@ verl is fast with:
    :caption: Programming guide
 
    hybrid_flow
-
-.. toctree::
-   :maxdepth: 4
-   :caption: Design of Single Controller
-
    single_controller
 
 .. toctree::
@@ -113,8 +108,9 @@ verl is fast with:
    :caption: API References
 
    api/data
-   api/utils
    api/single_controller.rst
+   api/trainer.rst
+   api/utils.rst
 
 
 .. toctree::

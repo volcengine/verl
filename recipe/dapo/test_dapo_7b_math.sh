@@ -2,7 +2,7 @@
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-7b-MATH-0519a1'
+exp_name='DAPO-Qwen2.5-7b-MATH-0527a1'
 
 adv_estimator=grpo
 
@@ -27,10 +27,11 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
 # Ray
-RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-4}
+# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
+NNODES=${NNODES:-8}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen2.5-Math-7B"}
@@ -53,6 +54,8 @@ offload=True
 gen_tp=4
 fsdp_size=32
 
+# remember to set VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 for this model
+
 python3 -m verl.trainer.main_ppo \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
@@ -71,6 +74,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.model.use_remove_padding=True \
+    +actor_rollout_ref.model.override_config.max_position_embeddings=32768 \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -113,12 +117,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
     trainer.nnodes="${NNODES}" \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.test_freq=10 \
     trainer.save_freq=10 \
     trainer.total_epochs=10 \
+    trainer.total_training_steps=200 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
     trainer.log_val_generations=10

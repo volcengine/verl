@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 import time
@@ -95,13 +96,17 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None):
+    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
             return self.pgs
 
         pg_name_prefix = name if name else f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
-        pg_scheme = [[{"CPU": self.max_colocate_count, "GPU": 1} if self.use_gpu else {"CPU": self.max_colocate_count} for _ in range(process_count)] for process_count in self._store]
+        if device_name == "npu":
+            device_name = "NPU"
+        elif device_name == "cuda":
+            device_name = "GPU"
+        pg_scheme = [[{"CPU": self.max_colocate_count, device_name: 1} if self.use_gpu else {"CPU": self.max_colocate_count} for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
 
@@ -174,7 +179,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         """
         self._options.update(options)
 
-    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None) -> Any:
+    def __call__(self, placement_group, placement_group_bundle_idx, use_gpu: bool = True, num_gpus=1, sharing_with=None, device_name="cuda") -> Any:
         """Create and return a Ray actor with the configured options.
 
         Args:
@@ -183,6 +188,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
             use_gpu: Whether to use GPU resources
             num_gpus: Number of GPUs to allocate
             sharing_with: Actor to share resources with
+            device_name: Device for training
 
         Returns:
             A Ray actor handle with the configured options
@@ -196,8 +202,10 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         options = {"scheduling_strategy": PlacementGroupSchedulingStrategy(placement_group=placement_group, placement_group_bundle_index=placement_group_bundle_idx)}
         options.update(self._options)
 
-        if use_gpu:
+        if use_gpu and device_name == "cuda":
             options["num_gpus"] = num_gpus
+        if use_gpu and device_name == "npu":
+            options["resources"] = {"NPU": num_gpus}
 
         if len(self._additional_resource) > 1:
             for k, v in self._additional_resource.items():
@@ -227,6 +235,7 @@ class RayWorkerGroup(WorkerGroup):
         worker_names=None,
         worker_handles: List[ray.actor.ActorHandle] = None,
         ray_wait_register_center_timeout: int = 300,
+        device_name="cuda",
         **kwargs,
     ) -> None:
         """Initialize a RayWorkerGroup.
@@ -249,6 +258,7 @@ class RayWorkerGroup(WorkerGroup):
         self.fused_worker_used = ray_cls_with_init.fused_worker_used
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to this WorkerGroup.
         self.sub_cls_name = ""
+        self.device_name = device_name
 
         if worker_names is not None and (not self.fused_worker_used):
             assert self._is_init_with_detached_workers
@@ -300,7 +310,7 @@ class RayWorkerGroup(WorkerGroup):
         strategy = "PACK"
         if bin_pack:
             strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy)
+        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
         world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
@@ -339,7 +349,7 @@ class RayWorkerGroup(WorkerGroup):
                     ray_cls_with_init.update_options({"lifetime": "detached"})
 
                 # create a worker
-                worker = ray_cls_with_init(placement_group=pg, placement_group_bundle_idx=local_rank, use_gpu=use_gpu, num_gpus=num_gpus)
+                worker = ray_cls_with_init(placement_group=pg, placement_group_bundle_idx=local_rank, use_gpu=use_gpu, num_gpus=num_gpus, device_name=self.device_name)
                 self._workers.append(worker)
                 self._worker_names.append(name)
 
@@ -624,7 +634,13 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
                     # dispatch to the actual worker
                     return getattr(self.worker_dict[key], name)(*args, **kwargs)
 
-                return func  # noqa: B023
+                async def async_func(self, *args, **kwargs):
+                    # dispatch to the actual worker
+                    return await getattr(self.worker_dict[key], name)(*args, **kwargs)
+
+                wrapper = async_func if inspect.iscoroutinefunction(method) else func  # noqa: B023
+
+                return wrapper
 
             func = generate_function(method_name)
             # pass MAGIC_ATTR for outer worker group

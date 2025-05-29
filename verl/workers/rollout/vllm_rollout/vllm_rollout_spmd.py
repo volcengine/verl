@@ -29,12 +29,13 @@ When working with Megatron:
 import logging
 import os
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
@@ -45,6 +46,7 @@ from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
+from vllm.lora.request import LoRARequest
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -107,7 +109,7 @@ class vLLMRollout(BaseRollout):
             else:
                 vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
-        rope_scaling_config = getattr(model_hf_config, 'rope_scaling', None)
+        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
             max_position_embeddings = None
             if hasattr(model_hf_config, "max_position_embeddings"):
@@ -136,6 +138,15 @@ class vLLMRollout(BaseRollout):
         if config.get("limit_images", None):  # support for multi-image data
             limit_mm_per_prompt = {"image": config.get("limit_images")}
 
+        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        self.lora_kwargs = lora_kwargs
+        # copy it to avoid secretly modifying the engine config
+        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+        # For each vLLM engine parameter,
+        # - `None` means not setting it, so we pop it, and leave it to vLLM default value
+        #    (which can vary across different vLLM versions);
+        # - Otherwise it's the desired value we want to explicitly set.
+        engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=True,
@@ -156,6 +167,8 @@ class vLLMRollout(BaseRollout):
             enable_prefix_caching=True,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            **lora_kwargs,
+            **engine_kwargs,
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -263,11 +276,19 @@ class vLLMRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
 
+        lora_requests = None
+        if self.lora_kwargs:
+            lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
+            if len(lora_int_ids) > 0:
+                lora_int_id=lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
+
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             outputs = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
+                lora_request=lora_requests,
                 use_tqdm=False,
             )
 
@@ -275,19 +296,25 @@ class vLLMRollout(BaseRollout):
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
+            rollout_log_probs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
-                    response.append(output.outputs[sample_id].token_ids)
+                    response_ids = output.outputs[sample_id].token_ids
+                    response.append(response_ids)
+                    curr_log_prob = []
+                    for i, logprob in enumerate(output.outputs[sample_id].logprobs):
+                        curr_log_prob.append(logprob[response_ids[i]].logprob)
+                    rollout_log_probs.append(curr_log_prob)
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
+            rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
+            rollout_log_probs = rollout_log_probs.to(torch.float32)
 
             if self.sampling_params.n > 1 and do_sample:
                 idx = _repeat_interleave(idx, self.sampling_params.n)
                 attention_mask = _repeat_interleave(attention_mask, self.sampling_params.n)
                 position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
                 batch_size = batch_size * self.sampling_params.n
-                if "multi_modal_inputs" in non_tensor_batch.keys():
-                    non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(non_tensor_batch["multi_modal_inputs"], self.sampling_params.n)
                 # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
                 if "tools_kwargs" in non_tensor_batch.keys():
                     non_tensor_batch["tools_kwargs"] = _repeat_interleave(non_tensor_batch["tools_kwargs"], self.sampling_params.n)
@@ -315,7 +342,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                # 'old_log_probs': log_probs, # we will recompute old log prob with actor
+                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },

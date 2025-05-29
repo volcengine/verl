@@ -47,6 +47,7 @@ from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+from vllm.lora.request import LoRARequest
 
 # TODO
 # 1. support pp in vllm
@@ -96,7 +97,7 @@ class vLLMRollout(BaseRollout):
             ):
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
 
-        rope_scaling_config = getattr(model_hf_config, 'rope_scaling', None)
+        rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
         if not rope_scaling_config:
             assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
 
@@ -110,12 +111,14 @@ class vLLMRollout(BaseRollout):
             )
 
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config else OmegaConf.to_container(deepcopy(config.engine_kwargs))
+        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        self.lora_kwargs = lora_kwargs
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -130,6 +133,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            **lora_kwargs,
             **engine_kwargs,
         )
 
@@ -217,23 +221,31 @@ class vLLMRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
 
+        lora_requests = None
+        if self.lora_kwargs:
+            # self.inference_engine.llm_engine.list_loras
+            lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
+            if len(lora_int_ids) > 0:
+                lora_int_id=lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             output = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
                 prompt_token_ids=idx_list,
+                lora_request=lora_requests,
                 use_tqdm=False,
             )
 
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
             response = output[0].to(idx.device)
-            # log_probs = output[1].to(idx.device)
+            log_probs = output[1].to(idx.device)
 
             if response.shape[1] < self.config.response_length:
                 response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
+                log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
             # utilize current sampling params
             if self.sampling_params.n > 1 and do_sample:
@@ -262,7 +274,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                # 'old_log_probs': log_probs, # we will recompute old log prob with actor
+                'rollout_log_probs': log_probs, # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
