@@ -18,6 +18,7 @@ data:
   truncation: error
   image_key: images
   video_key: videos
+  trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
       path: null
       name: null
