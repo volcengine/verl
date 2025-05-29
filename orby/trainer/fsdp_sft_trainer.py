@@ -385,24 +385,17 @@ class FSDPSFTTrainer:
                                 pixel_values_list.append(item['pixel_values'])
                             if 'image_grid_thw' in item:
                                 image_grid_thw_list.append(item['image_grid_thw'])
-                    
                     if pixel_values_list:
-                        if len(pixel_values_list) == 1:
-                            model_kwargs['pixel_values'] = pixel_values_list[0].unsqueeze(0).cuda()
-                        else:
-                            concatenated_pixel_values = torch.cat(pixel_values_list, dim=0)
-                            model_kwargs['pixel_values'] = concatenated_pixel_values.unsqueeze(0).cuda()
-
+                        # Concatenate all pixel values and add batch dimension
+                        concatenated_pixel_values = torch.cat(pixel_values_list, dim=0)
+                        model_kwargs['pixel_values'] = concatenated_pixel_values.unsqueeze(0).cuda()
 
                     if image_grid_thw_list:
-                        if len(image_grid_thw_list) == 1:
-                            model_kwargs['image_grid_thw'] = image_grid_thw_list[0].cuda()
-                        else:
-                            # For Qwen2.5-VL, image_grid_thw should be concatenated, not stacked
-                            # Each tensor in the list represents grid info for one sample
-                            concatenated_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
-                            model_kwargs['image_grid_thw'] = concatenated_image_grid_thw.cuda()
+                        # Concatenate all image grid info
+                        concatenated_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                        model_kwargs['image_grid_thw'] = concatenated_image_grid_thw.cuda()
                     
+
                 output = self.fsdp_model(**model_kwargs) 
                 logits = output.logits
 
