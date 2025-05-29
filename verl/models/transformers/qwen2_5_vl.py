@@ -20,7 +20,6 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VLCausalLMOutputWithPast,
     Qwen2_5_VLForConditionalGeneration,
 )
-from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
 
 
 @dataclass
@@ -58,9 +57,7 @@ def forward_for_ppo(
     from verl.utils.experimental.torch_functional import FusedLinearForPPO
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    )
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     if inputs_embeds is None:
@@ -71,9 +68,7 @@ def forward_for_ppo(
             n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
             n_image_features = image_embeds.shape[0]
             if n_image_tokens != n_image_features:
-                raise ValueError(
-                    f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
-                )
+                raise ValueError(f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}")
 
             mask = input_ids == self.config.image_token_id
             mask_unsqueezed = mask.unsqueeze(-1)
@@ -89,9 +84,7 @@ def forward_for_ppo(
             n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
             n_video_features = video_embeds.shape[0]
             if n_video_tokens != n_video_features:
-                raise ValueError(
-                    f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}"
-                )
+                raise ValueError(f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}")
 
             mask = input_ids == self.config.video_token_id
             mask_unsqueezed = mask.unsqueeze(-1)
@@ -126,10 +119,6 @@ def forward_for_ppo(
                 delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
-    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
-    if ulysses_sp_size > 1:
-        inputs_embeds = slice_input_tensor(inputs_embeds, dim=1, padding=False)
 
     outputs = self.model(
         input_ids=None,

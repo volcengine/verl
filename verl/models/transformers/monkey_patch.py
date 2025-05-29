@@ -25,12 +25,12 @@ from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
-from verl.models.transformers.llama import forward_for_ppo
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
 )
 
 
@@ -107,6 +107,37 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
+def patch_vlm_for_ulysses_input_slicing(model_class: type, model_name_for_print: str):
+    """
+    Applies a monkey patch to the forward method of a given model class
+    to enable Ulysses sequence parallelism input slicing.
+    """
+
+    def _create_ulysses_wrapped_decoder_forward(original_forward):
+        def ulysses_wrapped_decoder_forward(self, *args, **kwargs):
+            inputs_embeds = kwargs.get("inputs_embeds")
+            call_kwargs = kwargs.copy()
+
+            current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+            slice_now = inputs_embeds is not None and current_ulysses_sp_size > 1 and getattr(self, "_needs_initial_slice", True)
+            if slice_now:
+                call_kwargs["inputs_embeds"] = slice_input_tensor(inputs_embeds, dim=1, padding=False)
+                self._needs_initial_slice = False
+            try:
+                return original_forward(self, *args, **call_kwargs)
+            finally:
+                if slice_now:
+                    self._needs_initial_slice = True
+
+        return ulysses_wrapped_decoder_forward
+
+    original_forward = model_class.forward
+    wrapped_forward = _create_ulysses_wrapped_decoder_forward(original_forward)
+    model_class.forward = wrapped_forward
+    print(f"Monkey patch {model_class.__name__}.forward in {model_name_for_print} for Ulysses SP input slicing.")
+
+
 def apply_monkey_patch(
     model: PreTrainedModel,
     ulysses_sp_size: int = 1,
@@ -126,6 +157,7 @@ def apply_monkey_patch(
         from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
             Qwen2_5_VLFlashAttention2,
             Qwen2_5_VLForConditionalGeneration,
+            Qwen2_5_VLModel,
         )
 
         if use_remove_padding or ulysses_sp_size > 1:
@@ -133,6 +165,8 @@ def apply_monkey_patch(
 
             Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
+
+            patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel, "Qwen2.5VL")
 
         if use_fused_kernels:
             from verl.models.transformers.qwen2_5_vl import forward_for_ppo
