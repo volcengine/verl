@@ -11,8 +11,13 @@ save_path=$2
 # Shift the arguments so $@ refers to the rest
 shift 2
 
+# Changes to run orby.trainer.fsdp_sft_trainer
+cd "$(dirname "$(dirname "$(dirname "$(realpath "$0")")")")"
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
+
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
-     -m verl.trainer.fsdp_sft_trainer \
+     -m orby.trainer.fsdp_sft_trainer \
     data.train_batch_size=8 \
     data.micro_batch_size_per_gpu=1 \
     data.train_files=$HOME/data/geo3k/train_clean.parquet \
