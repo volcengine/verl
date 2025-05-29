@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 import time
@@ -633,7 +634,13 @@ def _bind_workers_method_to_parent(cls, key, user_defined_cls):
                     # dispatch to the actual worker
                     return getattr(self.worker_dict[key], name)(*args, **kwargs)
 
-                return func  # noqa: B023
+                async def async_func(self, *args, **kwargs):
+                    # dispatch to the actual worker
+                    return await getattr(self.worker_dict[key], name)(*args, **kwargs)
+
+                wrapper = async_func if inspect.iscoroutinefunction(method) else func  # noqa: B023
+
+                return wrapper
 
             func = generate_function(method_name)
             # pass MAGIC_ATTR for outer worker group
