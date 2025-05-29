@@ -20,8 +20,10 @@ data:
   custom_cls:
     path: null
     name: null
+  use_shm: False
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
+  use_shm: False
   fsdp_config:
     wrap_policy:
       min_num_params: 0
