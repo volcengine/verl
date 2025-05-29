@@ -17,10 +17,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 from uuid import uuid4
 
 import numpy as np
@@ -213,9 +214,11 @@ class AsyncSGLangRollout(BaseRollout):
         else:
             self._engine = None
 
+        self.sharding_manager = None
         # offload
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
+        self.is_sleep = True
 
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
@@ -790,3 +793,84 @@ class AsyncSGLangRollout(BaseRollout):
                 req_list.append(req)
 
         return req_list
+
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        if method == "chat_completion":
+            json_request = args[0]
+
+            formatted_messages = []
+            for msg in json_request["messages"]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                formatted_messages.append(f"{role}: {content}")
+            prompt_str = "\n".join(formatted_messages)
+
+            sampling_params_dict = {
+                "n": json_request.get("n", 1),
+                "max_new_tokens": json_request.get("max_completion_tokens", self.config.response_length),
+                "temperature": json_request.get("temperature", 1.0),
+                "top_p": json_request.get("top_p", 1.0),
+            }
+            output = None
+            if self._tp_rank == 0:
+                loop = asyncio.get_event_loop()
+                output = loop.run_until_complete(
+                    self._engine.async_generate(
+                        prompt=prompt_str,
+                        sampling_params=sampling_params_dict,
+                        return_logprob=True,
+                    )
+                )
+            output = broadcast_pyobj(
+                data=[output],
+                rank=self._rank,
+                dist_group=self._device_mesh_cpu["tp"].get_group(),
+                src=self._device_mesh_cpu["tp"].mesh[0].item(),
+                force_cpu_device=False,
+            )
+
+            # only return value from master rank
+            if self._tp_rank != 0:
+                return None
+            # build openai chat completion format
+            choices = []
+            id = None
+            for i, content in enumerate(output):
+                choices.append(
+                    {
+                        "index": i,
+                        "message": {
+                            "role": "assistant",
+                            "content": content["text"],
+                        },
+                        "finish_reason": content["meta_info"]["finish_reason"]["type"],
+                    }
+                )
+                id = content["meta_info"]["id"]
+
+            return {
+                "id": "chatcmpl-" + id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": json_request.get("model", "sglang_model"),
+                "choices": choices,
+            }
+        else:
+            raise ValueError(f"not supported method : {method}")
+
+        # this function is left for uniform train-inference resharding
+
+    def resume(self):
+        if not self.is_sleep:
+            return
+        self.sharding_manager.__enter__()  # pylint: disable=C2801
+
+        self.is_sleep = False
+
+    # this function is left for uniform train-inference resharding
+    def offload(self):
+        if self.is_sleep:
+            return
+
+        self.sharding_manager.__exit__(None, None, None)
+        self.is_sleep = True
