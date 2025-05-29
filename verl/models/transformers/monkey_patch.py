@@ -157,7 +157,6 @@ def apply_monkey_patch(
         from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
             Qwen2_5_VLFlashAttention2,
             Qwen2_5_VLForConditionalGeneration,
-            Qwen2_5_VLModel,
         )
 
         if use_remove_padding or ulysses_sp_size > 1:
@@ -166,7 +165,13 @@ def apply_monkey_patch(
             Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
 
-            patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
+            else:
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
 
         if use_fused_kernels:
             from verl.models.transformers.qwen2_5_vl import forward_for_ppo
@@ -186,6 +191,14 @@ def apply_monkey_patch(
 
             Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2VL")
+
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
+            else:
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
 
         if use_fused_kernels:
             from verl.models.transformers.qwen2_vl import forward_for_ppo
@@ -213,12 +226,21 @@ def apply_monkey_patch(
 
 
 @lru_cache
-def is_transformers_version_in_range(min_version: str, max_version: str) -> bool:
+def is_transformers_version_in_range(min_version: Optional[str] = None, max_version: Optional[str] = None) -> bool:
     try:
         # Get the installed version of the transformers library
-        transformers_version = importlib.metadata.version("transformers")
+        transformers_version_str = importlib.metadata.version("transformers")
     except importlib.metadata.PackageNotFoundError as e:
         raise ModuleNotFoundError("The `transformers` package is not installed.") from e
 
-    # Check if the version is within the specified range
-    return version.parse(min_version) <= version.parse(transformers_version) <= version.parse(max_version)
+    transformers_version = version.parse(transformers_version_str)
+
+    lower_bound_check = True
+    if min_version is not None:
+        lower_bound_check = version.parse(min_version) <= transformers_version
+
+    upper_bound_check = True
+    if max_version is not None:
+        upper_bound_check = transformers_version <= version.parse(max_version)
+
+    return lower_bound_check and upper_bound_check

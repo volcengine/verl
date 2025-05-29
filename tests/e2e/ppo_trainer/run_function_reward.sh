@@ -40,7 +40,7 @@ TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 # whether to save hf_model
 SAVE_HF_MODEL=${SAVE_HF_MODEL:-False}
 FSDP_SIZE=${FSDP_SIZE:--1}
-SP_SIZE=${SP_SIZE:-2}
+SP_SIZE=${SP_SIZE:-1}
 
 if [ "${SAVE_HF_MODEL}" = "True" ]; then
     CHECKPOINT_CONTENTS="['model','hf_model','optimizer','extra']"
