@@ -446,41 +446,68 @@ class ActorRolloutRefWorker(Worker):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
 
         elif rollout_name == "sglang":
-            from verl.workers.rollout.sglang_rollout import SGLangRollout
+            if self.config.rollout.mode == "sync":
+                from verl.workers.rollout.sglang_rollout import SGLangRollout
 
-            # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
-            # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
-            # the main process of ray can not find any CUDA device, which would potentially lead to:
-            # "RuntimeError: No CUDA GPUs are available".
-            # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
-            # we import it here use the abs path.
-            # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-            from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+                # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
+                # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
+                # the main process of ray can not find any CUDA device, which would potentially lead to:
+                # "RuntimeError: No CUDA GPUs are available".
+                # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
+                # we import it here use the abs path.
+                # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
+                from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
-            log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
-            local_path = copy_to_local(self.config.model.path)
-            rollout = SGLangRollout(
-                actor_module=local_path,
-                config=self.config.rollout,
-                tokenizer=self.tokenizer,
-                model_hf_config=self.actor_model_config,
-                trust_remote_code=trust_remote_code,
-            )
-            log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
+                log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
+                local_path = copy_to_local(self.config.model.path)
+                rollout = SGLangRollout(
+                    actor_module=local_path,
+                    config=self.config.rollout,
+                    tokenizer=self.tokenizer,
+                    model_hf_config=self.actor_model_config,
+                    trust_remote_code=trust_remote_code,
+                )
+                log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=logger)
 
-            if torch.distributed.get_world_size() == 1:
-                self.config.rollout.load_format = "dummy_hf"
-            rollout_sharding_manager = FSDPSGLangShardingManager(
-                module=self.actor_module_fsdp,
-                inference_engine=rollout.inference_engine,
-                model_config=self.actor_model_config,
-                full_params="hf" in self.config.rollout.load_format,
-                device_mesh=rollout_device_mesh,
-                offload_param=self._is_offload_param,
-            )
-            log_gpu_memory_usage("After building sharding manager", logger=logger)
+                if torch.distributed.get_world_size() == 1:
+                    self.config.rollout.load_format = "dummy_hf"
+                rollout_sharding_manager = FSDPSGLangShardingManager(
+                    module=self.actor_module_fsdp,
+                    inference_engine=rollout.inference_engine,
+                    model_config=self.actor_model_config,
+                    full_params="hf" in self.config.rollout.load_format,
+                    device_mesh=rollout_device_mesh,
+                    offload_param=self._is_offload_param,
+                )
+                log_gpu_memory_usage("After building sharding manager", logger=logger)
+            elif self.config.rollout.mode == "async":
+                from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
+                from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
+                local_path = copy_to_local(self.config.model.path)
+                log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=None)
+                rollout = AsyncSGLangRollout(
+                    actor_module=local_path,
+                    config=self.config.rollout,
+                    tokenizer=self.tokenizer,
+                    model_hf_config=self.actor_model_config,
+                    trust_remote_code=trust_remote_code,
+                )
+                log_gpu_memory_usage(f"After building {rollout_name} rollout", logger=None)
+
+                if torch.distributed.get_world_size() == 1:
+                    self.config.rollout.load_format = "dummy_hf"
+                rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
+                    module=self.actor_module_fsdp,
+                    inference_engine=rollout._engine,
+                    model_config=self.actor_model_config,
+                    full_params="hf" in self.config.rollout.load_format,
+                    device_mesh=rollout_device_mesh,
+                    offload_param=self._is_offload_param,
+                )
+                log_gpu_memory_usage("After building sharding manager", logger=None)
         elif rollout_name == "sglang_async":
+            # TODO replace by rollout.mode == "async"
             from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
             from verl.workers.sharding_manager.fsdp_sglang import FSDPAsyncSGLangShardingManager
 
@@ -1476,3 +1503,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
         if self.vllm_tp_rank == 0 and method != "execute_model":
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
         return self.rollout.execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def resume(self):
+        return self.rollout.resume()
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def offload(self):
+        return self.rollout.offload()
