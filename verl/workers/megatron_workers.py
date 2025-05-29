@@ -226,7 +226,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             rollout_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
-            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get('use_shm', False))
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             if vllm_mode == "customized":
                 rollout = vLLMRollout(
                     actor_module=self.actor_module,
@@ -877,7 +877,7 @@ class RewardModelWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
 
-        use_shm = self.config.model.get('use_shm', False)
+        use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
         rm_tokenizer_path = self.config.model.get("rm_tokenizer", None)
@@ -891,7 +891,7 @@ class RewardModelWorker(MegatronWorker):
 
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
-            rm_tokenizer=rm_tokenizer,
+            tokenizer=rm_tokenizer,
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
         )
