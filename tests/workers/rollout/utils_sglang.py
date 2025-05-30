@@ -120,7 +120,7 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path):
+def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path, interaction_config_path):
     sampling_params = dict(
         n=1,
         temperature=0,
@@ -153,7 +153,7 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
                 "max_user_turns": 1,
                 "enable": True,
                 "tool_config_path": tool_config_path,
-                "interaction_config_path": "examples/sglang_multiturn/config/interaction_config/gsm8k_interaction_config.yaml",
+                "interaction_config_path": interaction_config_path,
                 "format": "qwen",
             },
             "max_model_len": None,

@@ -24,7 +24,6 @@ from typing import Union
 
 import psutil
 import torch
-import torch.distributed
 import torch.distributed as dist
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict

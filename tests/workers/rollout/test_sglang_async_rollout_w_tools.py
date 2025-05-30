@@ -77,7 +77,7 @@ def test_async_sglang_rollout_w_tool():
         device_mesh=fsdp_device_mesh,
     )
 
-    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None)
+    rollout_config = get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, None, None)
     rollout = AsyncSGLangRollout(actor_module=local_model_path, config=rollout_config, tokenizer=tokenizer, model_hf_config=actor_model.config)
 
     rollout_sharding_manager = FSDPAsyncSGLangShardingManager(
