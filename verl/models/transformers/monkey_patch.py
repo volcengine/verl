@@ -147,7 +147,11 @@ def apply_monkey_patch(
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
-    num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    try:
+        num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    except AttributeError:
+        num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
+    
     assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
@@ -204,6 +208,20 @@ def apply_monkey_patch(
             from verl.models.transformers.qwen2_vl import forward_for_ppo
 
             Qwen2VLForConditionalGeneration.forward = forward_for_ppo
+
+        return
+
+    elif model.config.model_type == "kimi_vl":
+        if use_remove_padding or ulysses_sp_size > 1:
+            # TODO: Changes need to be made when transformers are adapted.
+            from verl.models.transformers.kimi_vl import _merge_with_image_features, _ulysses_flash_attn_forward
+
+            module.KimiVLForConditionalGeneration._merge_with_image_features = _merge_with_image_features
+            module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in KimiVL")
+            
+        if use_fused_kernels:
+            print(f"Not support fused kernels for KimiVL")
 
         return
 

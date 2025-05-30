@@ -15,15 +15,15 @@
 import inspect
 import logging
 import os
-
 import time
+from collections import OrderedDict
 from typing import List
+
 import torch
+from peft import PeftModel
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
-from peft import PeftModel
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
-from collections import OrderedDict
 
 try:
     # for torch 2.5+
@@ -31,19 +31,19 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
+from dataclasses import asdict
+
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu, layered_summon_lora_params
-from verl.utils.torch_functional import check_cuda_is_available
-from verl.utils.vllm_utils import VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader, TensorLoRARequest
 from verl.utils.device import get_torch_device
+from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.torch_functional import check_cuda_is_available
+from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
-
-from dataclasses import asdict
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -287,7 +287,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         patch_vllm_moe_model_weight_loader(model)
         device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
         loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()))
-        logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))
 
         self.base_sync_done = True
-        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params)}")
+        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params) if loaded_params else -1}")

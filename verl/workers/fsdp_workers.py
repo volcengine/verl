@@ -207,7 +207,11 @@ class ActorRolloutRefWorker(Worker):
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+        actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2")
+                
+        # patch for kimi-vl
+        if getattr(actor_model_config, "model_type", None) == "kimi_vl":
+            actor_model_config.text_config.topk_method = "greedy"
 
         self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
@@ -235,7 +239,6 @@ class ActorRolloutRefWorker(Worker):
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=actor_model_config,
-                attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
             )
 
@@ -921,8 +924,11 @@ class CriticWorker(Worker):
 
         from transformers import AutoConfig, AutoModelForTokenClassification
 
-        critic_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=config.model.get("trust_remote_code", False))
+        critic_model_config = AutoConfig.from_pretrained(local_path, attn_implementation="flash_attention_2", trust_remote_code=config.model.get("trust_remote_code", False))
         critic_model_config.num_labels = 1
+        # patch for kimi-vl
+        if getattr(critic_model_config, "model_type", None) == "kimi_vl":
+            critic_model_config.text_config.topk_method = "greedy"
 
         init_context = get_init_weight_context_manager(use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh)
 
@@ -934,7 +940,6 @@ class CriticWorker(Worker):
                 pretrained_model_name_or_path=local_path,
                 torch_dtype=torch_dtype,
                 config=critic_model_config,
-                attn_implementation="flash_attention_2",
                 trust_remote_code=config.model.get("trust_remote_code", False),
             )
 
