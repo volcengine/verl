@@ -89,6 +89,14 @@ vllm & vllm-ascend
 -----------------------------------
 正式使用前，建议您通过对Qwen2.5-0.5B GRPO的训练尝试以检验环境准备和安装的正确性。
 
+1.下载数据集并将数据集预处理为parquet格式，以便包含计算RL奖励所需的必要字段
+
+.. code-block:: bash
+
+    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+
+2.执行训练
+
 .. code-block:: bash
 
     set -x
