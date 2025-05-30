@@ -65,7 +65,8 @@ verl is fast with:
    :maxdepth: 1
    :caption: Algorithms
 
-   experiment/ppo
+   experiment/ppo.md
+   experiment/baseline.rst
 
 
 .. toctree:: 
