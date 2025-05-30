@@ -19,40 +19,53 @@ For more technical details regarding PPO, we suggest reading the introduction in
 
 - Clipped Surrogate Objective: The core of PPO is implemented through the clipped surrogate objective function that limits policy updates.
 
+- KL Divergence Control: Options to prevent the policy from diverging too far from a reference policy. Two mechanisms are available: KL reward penalty and KL loss.
+
 ## Configuration
 
-### Actor and Critic Configs
+- actor_rollout.ref.rollout.n: For each prompt, sample n times. Default to 1
 
-Most critic configs are similar to those of actors. We list a few key configs under `actor_rollout_ref.actor` below. Note that all configs containing `micro_batch_size` are used to configure the maximum sample or token count per forward or backward pass to avoid GPU OOMs, whose value should not change algorithmic/convergence behavior.
+- data.train_batch_size: The global batch size of prompts used to generate a set of sampled trajectories/rollouts. The number of responses/trajectories is `data.train_batch_size * actor_rollout.ref.rollout.n`
 
-- data.train_batch_size: The global batch size used to generate a set of sampled trajectories/rollouts.
+Note that all configs containing `micro_batch_size` are used to configure the maximum sample or token count per forward or backward pass to avoid GPU OOMs, whose value should not change algorithmic/convergence behavior.
 
-- ppo_mini_batch_size: A set of sampled trajectories is split into multiple sub-batches with batch_size=ppo_mini_batch_size for PPO updates. The ppo_mini_batch_size is a global size across all workers/gpus
+### `actor_rollout_ref.actor.*`, `actor_rollout_ref.critic.*`
 
-- actor_rollout_ref.actor.use_kl_loss: to use kl loss in actor. When used, we are not applying KL in the reward function.
+Most critic configs are similar to those of actors. We list a few key configs under `actor_rollout_ref.actor` below. 
 
-- actor_rollout_ref.actor.clip_ratio: PPO clip ratio
+- ppo_mini_batch_size: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO updates. The ppo_mini_batch_size is a global size across all workers
 
-- actor_rollout_ref.actor.ppo_epochs: Number of epochs for PPO updates on one set of sampled data
+- clip_ratio: The PPO clip range. Default to 0.2
 
-- actor_rollout_ref.actor.use_kl_loss: Whether to enable kl loss. Default is False.
+- ppo_epochs: Number of epochs for PPO updates on one set of sampled trajectories
 
-- actor_rollout_ref.actor.kl_loss_coef: The coefficient of kl loss. Default is 0.001.
+Options to use KL loss for KL divergence control: 
 
-- actor_rollout_ref.actor.kl_loss_type: Support kl, abs, mse, low_var_kl and full. How to calculate the kl divergence between actor and reference policy. For
-specific options, refer to kl_penalty()
+- use_kl_loss: to use kl loss in the actor. When used, we are not applying KL in the reward function. Default is False
 
-gemma: discount factor
+- kl_loss_coef: The coefficient of kl loss. Default is 0.001.
 
-lam: Trade-off between bias and variance in the GAE estimator
+- kl_loss_type: Support kl, abs, mse, low_var_kl and full. How to calculate the kl divergence between actor and reference policy. For specific options, refer to kl_penalty()
 
-adv_estimator: Support gae, grpo, reinforce_plus_plus, reinforce_plus_plus_baseline, rloo
+### `algorithm.*`
 
-use_kl_in_reward: Whether to enable in-reward kl penalty. Default is False.
+- gemma: discount factor
 
-kl_penalty: Support kl, abs, mse, low_var_kl and full. How to calculate the kl divergence between actor and reference policy. For specific options, refer to kl_penalty() in core_algos.py .
+- lam: The lambda term that trades off between bias and variance in the GAE estimator
 
-kl_ctrl: Config for in-reward kl_penalty controller - kl_coef: The (initial) coefficient of in-reward kl_penalty. Default is 0.001. - type: ‘fixed’ for FixedKLController and ‘adaptive’ for AdaptiveKLController. - horizon and target_kl: See source code of AdaptiveKLController for details.
+- adv_estimator: Support gae, grpo, reinforce_plus_plus, reinforce_plus_plus_baseline, rloo
+
+Options to use KL penalty in the reward:
+
+- use_kl_in_reward: Whether to enable in-reward kl penalty. Default is False.
+
+- kl_penalty: Support kl, abs, mse, low_var_kl and full. This defines the way to calculate the kl divergence between actor and reference policy. For specific options, refer to kl_penalty() in core_algos.py .
+
+- kl_ctrl: Config for in-reward kl_penalty controller
+
+- kl_coef: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
+  - type: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
+  - horizon and target_kl: See source code of AdaptiveKLController for details.
 
 
 
