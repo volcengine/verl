@@ -1475,7 +1475,8 @@ class RewardModelWorker(Worker):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        self.reward_module._handle.reshard(True)
+        if self.world_size > 1 and fsdp_version(self.reward_module) == 1:
+            self.reward_module._handle.reshard(True)
 
         output = output.to("cpu")
         return output
