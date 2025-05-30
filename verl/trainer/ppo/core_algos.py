@@ -370,6 +370,7 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
 def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str):
     """
     Aggregate the loss matrix into a scalar.
+
     Args:
         loss_mat: `(torch.Tensor)`:
             shape: (bs, response_length)
@@ -413,35 +414,33 @@ def compute_policy_loss(
     clip_ratio_c=3.0,
     loss_agg_mode: str = "token-mean",
 ):
-    """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
-    Args:
-        old_log_prob: `(torch.Tensor)`
-            shape: (bs, response_length)
-        log_prob: `(torch.Tensor)`
-            shape: (bs, response_length)
-        advantages: `(torch.Tensor)`
-            shape: (bs, response_length)
-        response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
-        cliprange: (float)
-            The clip range used in PPO. See https://arxiv.org/abs/1707.06347
-        cliprange_low: (float)
-            The lower clip range used in PPO.
-        cliprange_high: (float)
-            The higher clip range used in PPO.
-        clip_ratio_c: (float) default: 3.0
-            The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) see `agg_loss`
+    """
+    Compute the clipped policy objective and related metrics for PPO.
 
-    Returns:
-        pg_loss: `a scalar torch.Tensor`
-            policy gradient loss computed via PPO
-        pg_clipfrac: (float)
-            the fraction of policy gradient loss being clipped
-        ppo_kl: (float)
-            the estimated KL divergence between the latest updating policy and the old sampling policy
-        pg_clipfrac_lower: (float)
-            the fraction of policy gradient loss being clipped when the advantage is negative
+    Adapted from
+    https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        cliprange (float, optional):
+            Clipping parameter ε for standard PPO. See https://arxiv.org/abs/1707.06347.
+            Defaults to None (must be provided).
+        cliprange_low (float, optional):
+            Lower clip range for dual-clip PPO. Defaults to same as `cliprange`.
+        cliprange_high (float, optional):
+            Upper clip range for dual-clip PPO. Defaults to same as `cliprange`.
+        clip_ratio_c (float, optional):
+            Lower bound of the ratio for dual-clip PPO. See https://arxiv.org/pdf/1912.09729.
+            Defaults to 3.0.
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. Defaults to "token-mean".
     """
     assert clip_ratio_c > 1.0, "The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0," + f" but get the value: {clip_ratio_c}."
 
@@ -472,10 +471,8 @@ def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean
     """Compute categorical entropy loss (For backward compatibility)
 
     Args:
-        logits: `(torch.Tensor)`
-            shape: (bs, response_length, vocab_size)
-        response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
+        logits (torch.Tensor): shape is (bs, response_length, vocab_size)
+        response_mask (torch.Tensor): shape is (bs, response_length)
 
     Returns:
         entropy: a scalar torch.Tensor
@@ -488,25 +485,30 @@ def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean
 
 
 def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torch.Tensor, response_mask: torch.Tensor, cliprange_value: float, loss_agg_mode: str = "token-mean"):
-    """Compute the value loss. Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1151
+    """
+    Compute the clipped value-function loss for PPO.
+
+    Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1151
 
     Args:
-        vpreds (`torch.FloatTensor`):
-            Predicted values of the value head, shape (`batch_size`, `response_length`)
-        values (`torch.FloatTensor`):
-            Old values of value head, shape (`batch_size`, `response_length`)
-        returns: (`torch.FloatTensor`):
-            Ground truth returns, shape (`batch_size`, `response_length`)
-        response_mask: `(torch.Tensor)`
-            Mask for tokens to calculate value function losses. # TODO: Rename to `state_mask`.
-        loss_agg_mode: (str) see `agg_loss`
+        vpreds (torch.FloatTensor):
+            Predicted values from the value head, shape (batch_size, response_length).
+        values (torch.FloatTensor):
+            Old (baseline) values from the value head, shape (batch_size, response_length).
+        returns (torch.FloatTensor):
+            Ground-truth returns, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the value loss calculation.
+        cliprange_value (float):
+            Clip range for value prediction updates.
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. Defaults to "token-mean".
 
     Returns:
-        vf_loss: a scalar (`torch.FloatTensor`):
-            value function loss
-        vf_clipfrac: a float
-            The ratio of vf being clipped
-
+        vf_loss (torch.FloatTensor):
+            A scalar tensor containing the aggregated value-function loss.
+        vf_clipfrac (float):
+            Fraction of elements where the clipped loss was used.
     """
     vpredclipped = verl_F.clip_by_value(vpreds, values - cliprange_value, values + cliprange_value)
     vf_losses1 = (vpreds - returns) ** 2
@@ -567,6 +569,7 @@ def compute_pf_ppo_reweight_data(
     Returns:
 
     """
+
     @torch.no_grad()
     def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
         if reweight_method == "pow":
@@ -607,6 +610,7 @@ def compute_pf_ppo_reweight_data(
             resampled_meta_info[key] = value
 
     from copy import deepcopy
+
     resampled_data = deepcopy(data)
     resampled_data.batch = type(data.batch)(resampled_batch)
     resampled_data.batch.batch_size = data.batch.batch_size
