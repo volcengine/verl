@@ -27,6 +27,7 @@ Data
      filter_overlong_prompts_workers: 1
      truncation: error
      image_key: images
+     trust_remote_code: True
      custom_cls:
         path: null
         name: null
@@ -67,6 +68,8 @@ Data
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+- ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 
+  using remote tokenizer. For example: moonshotai/Moonlight-16B-A3B-Instruct
 
 Customized Dataset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,7 +112,7 @@ Actor/Rollout/Reference Policy
       ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
       grad_clip: 1.0
       clip_ratio: 0.2
-      entropy_coeff: 0.001
+      entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
@@ -229,7 +232,7 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
-  calculating PPO loss
+  calculating PPO loss. The default value is changed to 0.0 since v0.3.x
 
 - ``actor_rollout_ref.actor.ppo_epochs``: Number of epochs for PPO
   updates on one set of sampled data

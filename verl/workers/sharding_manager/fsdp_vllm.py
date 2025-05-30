@@ -15,8 +15,12 @@
 import inspect
 import logging
 import os
+import time
+from collections import OrderedDict
+from typing import List
 
 import torch
+from peft import PeftModel
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
@@ -27,20 +31,23 @@ try:
 except ImportError:
     from torch.distributed._tensor import DTensor
 
+from dataclasses import asdict
+
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
-from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.torch_functional import check_cuda_is_available
-from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 from verl.utils.device import get_torch_device
+from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.torch_functional import check_cuda_is_available
+from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 
 
 class FSDPVLLMShardingManager(BaseShardingManager):
@@ -53,6 +60,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
         offload_param: bool = False,
+        load_format: str = 'dummy_hf',
+        layered_summon: bool = True
     ):
         self.module = module
         # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
@@ -69,6 +78,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.model_config = model_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
+        self.load_format = load_format
+        self.layered_summon = layered_summon
 
         # Full params
         self.full_params = full_params
@@ -95,8 +106,57 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         else:
             self.gen_random_states = None
 
+        self.base_sync_done: bool = 'dummy' not in load_format
+        if is_version_ge(pkg='vllm', minver='0.7.3'):
+            VLLMHijack.hijack()
+
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __enter__(self):
+        def __collect_lora_params()->OrderedDict:
+            """
+            collect lora params or full params if base model is not ready in vllm
+            work with if isinstance(self.module._fsdp_wrapped_module, PeftModel)
+            """
+            from peft.utils.save_and_load import get_peft_model_state_dict
+
+            lora_params = OrderedDict()
+            if fsdp_version(self.module) > 0:
+                if self.layered_summon:
+                    if not self.base_sync_done:
+                        raise ValueError("To use layered_summon, you must make sure base-model is preloaded in vllm, e.g. let rollout.load_format=safetensors")
+                    lora_params = layered_summon_lora_params(self.module)
+                else:
+                    with FSDP.summon_full_params(self.module, writeback=False):
+                        if self.base_sync_done:
+                            lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
+                            lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu() 
+                                        for name, param in lora_params.items()}
+                        else:
+                            model = self.module._fsdp_wrapped_module.base_model.model
+                            orig_dev = 'cpu' if 'cpu' in next(model.parameters()).device else 'cuda'
+                            model = model.to('cpu')
+                            for name, param in model.state_dict().items():
+                                if any(x in name for x in ['_flat_param', 'lora_']):
+                                    continue
+                                name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
+                                lora_params[name] = param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
+                            model = model.to(orig_dev)
+                    torch.cuda.empty_cache()
+            else:
+                if self.base_sync_done:
+                    lora_params = get_peft_model_state_dict(self.module._fsdp_wrapped_module)
+                else:
+                    model = self.module._fsdp_wrapped_module.base_model.model
+                    orig_dev = 'cpu' if 'cpu' in next(model.parameters()).device else 'cuda'
+                    model = model.to('cpu')
+                    for name, param in model.state_dict().items():
+                        if any(x in name for x in ['_flat_param', 'lora_']):
+                            continue
+                        name = name.replace("_fsdp_wrapped_module.","").replace(".base_layer","")
+                        lora_params[name] = param.detach().cpu()
+                    model = model.to(orig_dev)
+            return lora_params
+
         # NOTE: Basically, we only need `get_torch_device().empty_cache()` before vllm wake_up and
         # after vllm sleep, since vllm has its own caching memory allocator CuMemAllocator.
         # Out of vllm scope, we should avoid empty cache to let pytorch using caching memory
@@ -109,8 +169,15 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
         if self.offload_param:
             load_fsdp_model_to_gpu(self.module)
-        params = self.module.state_dict()
+
+        peft_config = None
+        if isinstance(self.module._fsdp_wrapped_module, PeftModel):
+            peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
+            params = __collect_lora_params()
+        else:
+            params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
+
         # Copy, not share memory
         load_format = "hf" if self.full_params else "dtensor"
 
@@ -128,7 +195,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 self.inference_engine.wake_up()
 
             # update model params
-            self.update_params(params)
+            self.update_params(params, peft_config=peft_config)
             log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
             del params
             if self.offload_param:
@@ -192,9 +259,34 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         return data.chunk(chunks=self.tp_size)[self.tp_rank]
 
-    def update_params(self, updated_params):
+    def update_params(self, updated_params, peft_config=None):
         model = self.model_runner.model
+        if peft_config:
+            if self.base_sync_done:
+                lora_int_id=int(time.time_ns() % 0x7FFFFFFF)
+                lora_reqest = TensorLoRARequest(
+                    lora_name=f"{lora_int_id}",
+                    lora_int_id=lora_int_id,
+                    lora_path="simon_lora_path",
+                    peft_config=asdict(peft_config),
+                    lora_tensors=updated_params,
+                )
+                self.inference_engine.llm_engine.add_lora(lora_reqest)
+                logger.info(f"vLLM load weights, loaded_params: {len(updated_params)}")
+                return
+            else:
+                def replace_lora_wrapper(k):
+                    stacked_params = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
+                    if any([k.endswith(f"{s}.weight") for s in stacked_params]):
+                        return k.replace(".weight", ".base_layer.weight")
+                    if any([k.endswith(f"{s}.bias") for s in stacked_params]):
+                        return k.replace(".bias", ".base_layer.bias")
+                    return k
+                updated_params = {replace_lora_wrapper(k): v for k, v in updated_params.items()}
+
         patch_vllm_moe_model_weight_loader(model)
         device = get_torch_device().current_device()  # used when fsdp2 set cpu_offload_policy
         loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()))
-        logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))
+
+        self.base_sync_done = True
+        logger.info(f"vLLM load weights, loaded_params: {len(loaded_params) if loaded_params else -1}")

@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
+  trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
       path: null
       name: null
