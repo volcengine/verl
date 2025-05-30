@@ -177,8 +177,8 @@ Actor/Rollout/Reference Policy
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
-      # number of responses (i.e. num sample times)
-      n: 1 # > 1 for grpo, rloo
+
+      n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
       val_kwargs:
         # sampling parameters for validation
         top_k: -1 # 0 for hf rollout, -1 for vllm rollout
