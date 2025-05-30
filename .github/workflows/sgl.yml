@@ -86,3 +86,7 @@ jobs:
         run: |
           cd tests/workers/rollout
           pytest -s test_sglang_async_rollout_sf_tools.py
+      - name: Test the latest SGLang Rollout async with search tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_search_tools.py

@@ -36,6 +36,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 T = TypeVar("T")
 
 
+# Adapted from verl/tools/sandbox_fusion_tools.py
 class PoolMode(Enum):
     """Execution pool mode enumeration."""
 
@@ -77,7 +78,7 @@ class SearchExecutionWorker:
 
     def _init_rate_limit(self, rate_limit):
         """Initialize singleton rate limiter."""
-        return TokenBucketWorker.options(name="search-rate-limiter", get_if_exists=True).remote(rate_limit)
+        return TokenBucketWorker.options(name="rate-limiter", get_if_exists=True).remote(rate_limit)
 
     def ping(self):
         """Health check method."""
@@ -92,8 +93,8 @@ class SearchExecutionWorker:
                 try:
                     return fn(*fn_args, **fn_kwargs)
                 except Exception as e:
+                    # TODO we should make this available to the tool caller
                     logger.warning(f"Error when executing search: {e}")
-                    raise
         else:
             return fn(*fn_args, **fn_kwargs)
 
