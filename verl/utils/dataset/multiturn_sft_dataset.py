@@ -132,54 +132,41 @@ class MultiTurnSFTDataset(Dataset):
         # Create loss mask by identifying assistant responses
         loss_mask = torch.zeros_like(input_ids, dtype=torch.long)
 
-        # Process each message to find assistant responses
-        for i, msg in enumerate(messages):
-            # Get tokens for messages up to this point to find the start position
-            prefix_messages = messages[: i + 1]
-            try:
-                prefix_tokens = tokenizer.apply_chat_template(
-                    prefix_messages,
-                    tools=tools,
-                    tokenize=True,
-                    return_tensors="pt",
-                    add_generation_prompt=False,
-                    enable_thinking=enable_thinking,
-                )
-            except Exception as e:
-                print(f"Error applying chat template: {e}")
-                print(f"Prefix messages: {prefix_messages}")
-                print(f"Tools: {tools}")
-                print(f"Enable thinking: {enable_thinking}")
-                raise e
-
-            # Get tokens for messages up to previous point
-            try:
-                prev_tokens = (
-                    tokenizer.apply_chat_template(
-                        messages[:i],
-                    tools=tools,
-                    tokenize=True,
-                    return_tensors="pt",
-                    add_generation_prompt=True,
-                    enable_thinking=enable_thinking,
-                    )
-                    if i > 0
-                    else None
-                )
-            except Exception as e:
-                print(f"Error applying chat template: {e}")
-                print(f"Messages: {messages}")
-                print(f"Tools: {tools}")
-                print(f"Enable thinking: {enable_thinking}")
-                raise e
-
-            # Calculate start and end positions
-            start_pos = prev_tokens[0].shape[0] if prev_tokens is not None else 0
-            end_pos = prefix_tokens[0].shape[0]
-
-            # If this is an assistant message, set loss mask
-            if msg["role"] == "assistant":
+        i = 0
+        while i < len(messages):
+            cur_messages = messages[i]
+            if cur_messages["role"] == "assistant":
+                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                
+                # Get token positions for the assistant response
+                prev_tokens = tokenizer.encode(prev_applied_text, add_special_tokens=False)
+                cur_tokens = tokenizer.encode(cur_applied_text, add_special_tokens=False)
+                start_pos = len(prev_tokens)
+                end_pos = len(cur_tokens)
+                
+                # Set loss mask for assistant response
                 loss_mask[start_pos:end_pos] = 1
+                i += 1
+            elif cur_messages["role"] == "tool":
+                st = i
+                ed = i + 1
+                while ed < len(messages) and messages[ed]["role"] == "tool":
+                    ed += 1
+                prev_applied_text = tokenizer.apply_chat_template(messages[st:ed], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[st:ed+1], tokenize=False, add_generation_prompt=False)
+                
+                i = ed
+            elif cur_messages["role"] == "user":
+                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                i += 1
+            elif cur_messages["role"] == "system":
+                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                i += 1
+            else:
+                raise ValueError(f"Unknown role: {cur_messages['role']}")
 
         # Handle sequence length
         sequence_length = input_ids.shape[0]
