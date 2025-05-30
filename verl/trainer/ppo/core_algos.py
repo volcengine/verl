@@ -441,6 +441,16 @@ def compute_policy_loss(
             Defaults to 3.0.
         loss_agg_mode (str, optional):
             Aggregation mode for `agg_loss`. Defaults to "token-mean".
+
+    Returns:
+        pg_loss: `a scalar torch.Tensor`
+            policy gradient loss computed via PPO
+        pg_clipfrac: (float)
+            the fraction of policy gradient loss being clipped
+        ppo_kl: (float)
+            the estimated KL divergence between the latest updating policy and the old sampling policy
+        pg_clipfrac_lower: (float)
+            the fraction of policy gradient loss being clipped when the advantage is negative
     """
     assert clip_ratio_c > 1.0, "The lower bound of the clip_ratio_c for dual-clip PPO should be greater than 1.0," + f" but get the value: {clip_ratio_c}."
 
