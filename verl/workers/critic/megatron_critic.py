@@ -88,7 +88,7 @@ class MegatronPPOCritic(BasePPOCritic):
 
     @GPUMemoryLogger("megatron critic", logger=logger)
     def compute_values(self, data: DataProto) -> DataProto:
-        # data.batch = data.batch.to(self.critic_module.module.device)
+        # data.batch = data.batch.to(self.critic_module.module.device) 
         data.to(torch.cuda.current_device())
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]

@@ -80,6 +80,18 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     def __enter__(self):
         per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.layer_name_mapping)
         self.inference_engine.resume_memory_occupation()
+        
+        # Ensure all tensors are detached before passing to inference engine
+        def ensure_detached(params):
+            for name, param in params:
+                if isinstance(param, torch.Tensor):
+                    yield name, param.detach()
+                elif isinstance(param, (list, tuple)):
+                    yield name, [p.detach() if isinstance(p, torch.Tensor) else p for p in param]
+                else:
+                    yield name, param
+                    
+        per_tensor_param = ensure_detached(per_tensor_param)
         self.inference_engine.update_weights_from_tensor(per_tensor_param, load_format=None)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)

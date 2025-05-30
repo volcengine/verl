@@ -701,7 +701,8 @@ def per_tensor_generator(actor_module, model_config, weight_converter, layer_nam
 
     def tensor_generator():
         for scan_vpp_idx in range(vpp_size):
-            yield from actor_module[scan_vpp_idx].named_parameters()
+            for name, param in actor_module[scan_vpp_idx].named_parameters():
+                yield name, param.detach()
 
     # we need first make all rank get full model information
     meta_info = []
