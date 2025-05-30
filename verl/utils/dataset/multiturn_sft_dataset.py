@@ -54,6 +54,7 @@ class MultiTurnSFTDataset(Dataset):
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
         self.tools_key = multiturn_config.get("tools_key", "tools")
+        self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
 
         assert self.truncation in ["error", "left", "right"]
 
@@ -94,6 +95,11 @@ class MultiTurnSFTDataset(Dataset):
             self.tools = self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive).tolist()
         else:
             self.tools = None
+        # Extract enable_thinking list from dataframe
+        if self.enable_thinking_key in self.dataframe.columns:
+            self.enable_thinking = self.dataframe[self.enable_thinking_key].tolist()
+        else:
+            self.enable_thinking = None
 
     def __len__(self):
         return len(self.messages)
@@ -102,15 +108,24 @@ class MultiTurnSFTDataset(Dataset):
         tokenizer = self.tokenizer
         messages = self.messages[item]
         tools = self.tools[item] if self.tools is not None else None
+        enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
         # First, get the full conversation tokens
-        full_tokens = tokenizer.apply_chat_template(
-            messages,
-            tools=tools,
-            tokenize=True,
-            return_tensors="pt",
-            add_generation_prompt=False,
-        )
+        try:
+            full_tokens = tokenizer.apply_chat_template(
+                messages,
+                tools=tools,
+                tokenize=True,
+                return_tensors="pt",
+                add_generation_prompt=False,
+                enable_thinking=enable_thinking,
+            )
+        except Exception as e:
+            print(f"Error applying chat template: {e}")
+            print(f"Messages: {messages}")
+            print(f"Tools: {tools}")
+            print(f"Enable thinking: {enable_thinking}")
+            raise e
         input_ids = full_tokens[0]  # The output is already a tensor
         attention_mask = torch.ones_like(input_ids)
 
@@ -121,26 +136,42 @@ class MultiTurnSFTDataset(Dataset):
         for i, msg in enumerate(messages):
             # Get tokens for messages up to this point to find the start position
             prefix_messages = messages[: i + 1]
-            prefix_tokens = tokenizer.apply_chat_template(
-                prefix_messages,
-                tools=tools,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=False,
-            )
+            try:
+                prefix_tokens = tokenizer.apply_chat_template(
+                    prefix_messages,
+                    tools=tools,
+                    tokenize=True,
+                    return_tensors="pt",
+                    add_generation_prompt=False,
+                    enable_thinking=enable_thinking,
+                )
+            except Exception as e:
+                print(f"Error applying chat template: {e}")
+                print(f"Prefix messages: {prefix_messages}")
+                print(f"Tools: {tools}")
+                print(f"Enable thinking: {enable_thinking}")
+                raise e
 
             # Get tokens for messages up to previous point
-            prev_tokens = (
-                tokenizer.apply_chat_template(
-                    messages[:i],
+            try:
+                prev_tokens = (
+                    tokenizer.apply_chat_template(
+                        messages[:i],
                     tools=tools,
                     tokenize=True,
                     return_tensors="pt",
                     add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                    )
+                    if i > 0
+                    else None
                 )
-                if i > 0
-                else None
-            )
+            except Exception as e:
+                print(f"Error applying chat template: {e}")
+                print(f"Messages: {messages}")
+                print(f"Tools: {tools}")
+                print(f"Enable thinking: {enable_thinking}")
+                raise e
 
             # Calculate start and end positions
             start_pos = prev_tokens[0].shape[0] if prev_tokens is not None else 0
