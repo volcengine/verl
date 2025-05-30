@@ -90,7 +90,7 @@ verl is fast with:
 - DeepSeek 671b optimizations with Megatron v0.11 https://github.com/volcengine/verl/issues/708
 - Multi-turn rollout optimizations https://github.com/volcengine/verl/pull/1037 https://github.com/volcengine/verl/pull/1138
 - Environment interactions https://github.com/volcengine/verl/issues/1172
-- List of breaking changes since v0.3 https://github.com/volcengine/verl/discussions/943
+- List of breaking changes since v0.3 https://github.com/volcengine/verl/discussions/943, entropy_coeff defaults to 0
 - Lora for RL https://github.com/volcengine/verl/pull/1127 
 
 ## Getting Started
