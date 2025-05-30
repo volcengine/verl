@@ -62,12 +62,11 @@ verl is fast with:
    examples/multi_modal_example
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Algorithms
 
    experiment/ppo.md
    experiment/baseline.rst
-
 
 .. toctree:: 
    :maxdepth: 1
