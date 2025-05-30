@@ -40,6 +40,7 @@ TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 # whether to save hf_model
 SAVE_HF_MODEL=${SAVE_HF_MODEL:-False}
 FSDP_SIZE=${FSDP_SIZE:--1}
+SP_SIZE=${SP_SIZE:-1}
 
 if [ "${SAVE_HF_MODEL}" = "True" ]; then
     CHECKPOINT_CONTENTS="['model','hf_model','optimizer','extra']"
@@ -92,6 +93,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=${ACTOR_FSDP_PARAM_OFFLOAD} \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${ACTOR_FSDP_OPTIMIZER_OFFLOAD} \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=${FSDP_SIZE} \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SP_SIZE}" \
     actor_rollout_ref.actor.checkpoint.contents=${CHECKPOINT_CONTENTS} \
     actor_rollout_ref.actor.use_kl_loss="${USE_KL}" \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
