@@ -895,7 +895,12 @@ class AsyncSGLangRollout(BaseRollout):
             "n": json_request.get("n", 1),
             "max_new_tokens": json_request.get("max_completion_tokens", self.config.response_length),
             "temperature": json_request.get("temperature", 1.0),
+            "top_k": json_request.get("top_k", -1),
             "top_p": json_request.get("top_p", 1.0),
+            "presence_penalty": json_request.get("presence_penalty", 0.0),
+            "frequency_penalty": json_request.get("frequency_penalty", 0.0),
+            "repetition_penalty": json_request.get("repetition_penalty", 1.0),
+            "ignore_eos": json_request.get("ignore_eos", False),
         }
         output = await self._engine.async_generate(
             prompt=prompt_str,

@@ -44,15 +44,16 @@ class AsyncSglangServer(AsyncServerBase):
         all_actors = ray.util.list_named_actors(all_namespaces=True)
         matched_actors = [actor for actor in all_actors if actor.get("name", None).startswith(self.wg_prefix + "WorkerDict_")]
 
-        # TODO support multi node
         for matched_actor in matched_actors:
-            current_rank = int(matched_actor["name"].split(":")[-1])
+            fields = matched_actor["name"].split(":")
+            assert len(fields) == 2, f"invalid actor name: {matched_actor['name']}"
+            pg_index, local_rank = int(fields[0].split("_")[-1]), int(fields[1])
 
-            if current_rank >= self._dp_rank * self._tp_size and current_rank < (self._dp_rank + 1) * self._tp_size:
-                wroker = ray.get_actor(**matched_actor)
-                self.workers.append(wroker)
-                if current_rank == self._dp_rank * self._tp_size:
-                    self.master_worker = wroker
+            if (self._dp_size * pg_index + local_rank) // self._tp_size == self._dp_rank:
+                worker = ray.get_actor(**matched_actor)
+                self.workers.append(worker)
+                if (self._dp_size * pg_index + local_rank) / self._tp_size == self._dp_rank:
+                    self.master_worker = worker
 
     async def chat_completion(self, raw_request: Request):
         request = await raw_request.json()
