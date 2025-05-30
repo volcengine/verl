@@ -602,7 +602,6 @@ def get_wsd_schedule_with_warmup(
     1. Warmup: Learning rate increases linearly from 0 to the initial LR
     2. Stable: Learning rate remains constant at the initial LR
     3. Decay: Learning rate decreases following a cosine curve to min_lr_ratio * initial LR
-
     Args:
         optimizer (:class:`~torch.optim.Optimizer`):
             The optimizer for which to schedule the learning rate.
@@ -619,14 +618,12 @@ def get_wsd_schedule_with_warmup(
         stable_ratio (:obj:`float`, `optional`, defaults to 0.0):
             The ratio of non-warmup steps that should maintain a constant learning rate.
             Set to 0.0 to behave exactly like cosine schedule.
-
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
     remaining_steps = max(0, num_training_steps - num_warmup_steps)
     num_stable_steps = int(remaining_steps * stable_ratio)
     num_decay_steps = remaining_steps - num_stable_steps
-
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
             return float(current_step) / float(max(1, num_warmup_steps))
