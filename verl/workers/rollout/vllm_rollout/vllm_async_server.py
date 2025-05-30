@@ -26,6 +26,7 @@ from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest, ChatCompletionResponse, ErrorResponse
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_models import BaseModelPath, OpenAIServingModels
+from vllm.transformers_utils.config import try_get_generation_config
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.executor.abstract import Executor
 from vllm.worker.worker_base import WorkerWrapperBase
@@ -143,6 +144,11 @@ class AsyncvLLMServer(AsyncServerBase):
         local_path = copy_to_local(model_path)
         trust_remote_code = config.model.get("trust_remote_code", False)
         config = config.rollout
+        # Ensure config.response_length really works, releated to https://github.com/vllm-project/vllm/pull/12242
+        gen_config = try_get_generation_config(model=local_path, trust_remote_code=True)
+        if gen_config is not None and gen_config.max_new_tokens:
+            if config.response_length > gen_config.max_new_tokens:
+                raise ValueError(f"[ERROR]: response_length={config.response_length} should be less than max_new_tokens={gen_config.max_new_tokens} in generation config for VLLM, please modify your generation_config.json")
 
         tensor_parallel_size = config.get("tensor_model_parallel_size", 1)
         max_num_batched_tokens = config.get("max_num_batched_tokens", 8192)
@@ -154,7 +160,7 @@ class AsyncvLLMServer(AsyncServerBase):
         kwargs = dict(
             n=1,
             logprobs=0,
-            max_tokens=config.response_length,
+            max_completion_tokens=config.response_length,
         )
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
