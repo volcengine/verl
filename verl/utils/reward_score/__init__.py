@@ -79,6 +79,9 @@ def default_compute_score(data_source, solution_str, ground_truth, extra_info=No
         from . import geo3k
 
         res = geo3k.compute_score(solution_str, ground_truth)
+    elif data_source in ['code']:
+        from . import coder1
+        res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
