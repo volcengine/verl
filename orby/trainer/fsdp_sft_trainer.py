@@ -159,6 +159,9 @@ class FSDPSFTTrainer:
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
 
+        # For multimodal inputs, use StatefulDataLoader
+        # which supports multimodal batching and includes a collate_fn for properly handling images
+
         if self.config.data.get("image_key", None) is not None:
             self.train_dataloader = StatefulDataLoader(
                 dataset=self.train_dataset,
@@ -373,7 +376,8 @@ class FSDPSFTTrainer:
                     "position_ids": position_ids,
                     "use_cache": False
                 }
-
+                
+                # For multimodal inputs, collect all pixel_values and image_grid dimensions
                 if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
                     # Collect all pixel_values and image_grid_thw
                     pixel_values_list = []
@@ -510,7 +514,10 @@ class FSDPSFTTrainer:
         return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
     
     def _split_batch_with_indices(self, batch: TensorDict, micro_batch_size: int):
-        """Split batch into micro-batches while preserving original indices for multimodal inputs"""
+        """
+        Split batch into micro-batches for gradient accumulation while preserving text-image correspondence.
+        by pairing each text sample with only its corresponding images.
+        """
         batch_size = batch.batch_size[0]
         micro_batches = []
         
@@ -613,6 +620,7 @@ class FSDPSFTTrainer:
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
+                        # mostly for last batch: If validation set size isn't divisible by micro_batch_size
                         batch_size = len(val_data['input_ids']) if 'input_ids' in val_data else len(next(iter(val_data.values())))
                         val_data = TensorDict(val_data, batch_size=batch_size).cuda()
                         #val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
@@ -633,7 +641,6 @@ class FSDPSFTTrainer:
             for data in self.val_dataloader:
                 batch_size = len(data['input_ids']) if 'input_ids' in data else len(next(iter(data.values())))
                 data = TensorDict(data, batch_size=batch_size).cuda()
-                #data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:
