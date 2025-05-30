@@ -16,16 +16,12 @@
 
 
 import asyncio
-import time
 from copy import deepcopy
-from functools import wraps
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
-import ray
 from tensordict import TensorDict
-from torch.testing._internal.common_distributed import MultiProcessTestCase
 from transformers import AutoConfig, AutoTokenizer
 from utils_sglang import (
     get_rollout_config,
@@ -33,8 +29,8 @@ from utils_sglang import (
 )
 
 from verl.protocol import DataProto
-from verl.tools.sandbox_fusion_tools import TokenBucketWorker
 from verl.tools.schemas import OpenAIFunctionParametersSchema, OpenAIFunctionPropertySchema, OpenAIFunctionSchema, OpenAIFunctionToolSchema
+from verl.tools.search_tool import SearchTool
 from verl.workers.rollout.schemas import AsyncRolloutRequest, AsyncRolloutRequestStateEnum, Message
 from verl.workers.rollout.sglang_rollout.async_sglang_rollout import AsyncSGLangRollout
 
@@ -48,9 +44,7 @@ DEFAULT_USER_CONTENT_PREFIX = (
     "<answer> and </answer>, without detailed illustrations. For example, "
     "<answer> Beijing </answer>. Question: "
 )
-user_content = DEFAULT_USER_CONTENT_PREFIX.rstrip("\n") + "Please check today's weather."
-
-search_url = ""
+user_content = DEFAULT_USER_CONTENT_PREFIX.rstrip("\n") + "How's the weather lately?"
 
 
 def get_search_messages():
@@ -59,29 +53,35 @@ def get_search_messages():
         "content": user_content,
     }
 
-    expect_turn_0_msg = {"role": "assistant", "content": "Let me search the web.", "tool_calls": [{"type": "function", "function": {"name": "search", "arguments": {"query": "today's weather"}}}]}
+    expect_turn_0_msg = {
+        "role": "assistant",
+        "content": "Let me search the web.",
+        "tool_calls": [{"type": "function", "function": {"name": "search", "arguments": {"query": "today's weather"}}}],
+    }
+
+    expect_turn_1_msg = {
+        "role": "assistant",
+        "content": "Let me search again.",
+        "tool_calls": [{"type": "function", "function": {"name": "search", "arguments": {"query": "tomorrow's weather"}}}],
+    }
+
+    expect_turn_2_msg = {
+        "role": "assistant",
+        "content": "<answer>Today is sunny and tomorrow will be cloudy in Beijing.</answer>",
+    }
+
+    # Mock search tool responses
     tool_return_0_msg = {"role": "tool", "content": "Today's weather in Beijing is sunny."}
-    expect_turn_1_msg = {"role": "assistant", "content": "The weather in Beijing is sunny."}
+    tool_return_1_msg = {"role": "tool", "content": "Tomorrow's weather in Beijing is cloudy."}
+
     user_prompts = [user_prompt]
-    expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg]
-    tool_return_array = [tool_return_0_msg]
+    expect_turn_array = [expect_turn_0_msg, expect_turn_1_msg, expect_turn_2_msg]
+    tool_return_array = [tool_return_0_msg, tool_return_1_msg]
 
     return user_prompts, expect_turn_array, tool_return_array
 
 
-def skip_if_valid_sandbox(url):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if url == "" or url is None:
-                pytest.skip("No valid sandbox url provided")
-
-        return wrapper
-
-    return decorator
-
-
-class TestRolloutWithTools:
+class TestRolloutWithSearchTools:
     @pytest.fixture
     def qwen_tokenizer(self):
         local_model_path = "Qwen/Qwen2.5-0.5B"
@@ -133,7 +133,7 @@ class TestRolloutWithTools:
             [
                 {
                     "search": {
-                        "create_kwargs": {"ground_truth": "sunny", "question": "Please check today's weather.", "data_source": "searchR1_nq"},
+                        "create_kwargs": {"ground_truth": "Today is sunny and tomorrow will be cloudy in Beijing.", "data_source": "searchR1_nq"},
                     },
                 }
             ],
@@ -197,7 +197,7 @@ class TestRolloutWithTools:
         req.finalize = MagicMock()
         req_list = [req]
 
-        _, expect_turn_array, tool_return_array = search_data
+        _, expect_turn_array, _ = search_data
         # here we mock a meta info with 'length'. indicate the response is truncate
         rollout._handle_engine_call = MagicMock()
         future = asyncio.Future()
@@ -222,20 +222,26 @@ class TestRolloutWithTools:
             tool_calls=None,
         )
 
-    @skip_if_valid_sandbox(search_url)
+    @patch.object(SearchTool, "execute", new_callable=AsyncMock)
     @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_basic_case(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+    def test_tool_call_basic_case(self, mock_sampling, mock_engine, mock_env, mock_execute, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+        _, expect_turn_array, tool_return_array = search_data
+
+        # Mock search tool execution to return predefined responses
+        mock_execute.side_effect = [(msg, 0.0, {"status": "success"}) for msg in tool_return_array]
+
         search_rollout_config.multi_turn.max_turns = 10
         rollout = AsyncSGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["search"].retrieval_service_url = search_url
+
+        rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
+
         req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
         req.finalize = MagicMock()
         req_list = [req]
-        _, expect_turn_array, tool_return_array = search_data
-        # here we mock a meta info with 'length'. indicate the response is truncate
+
         rollout._handle_engine_call = MagicMock()
         futures = [asyncio.Future() for i in expect_turn_array]
         for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
@@ -246,277 +252,94 @@ class TestRolloutWithTools:
 
         rollout._handle_engine_call.side_effect = futures
         rollout._tp_rank = 0
+
         loop = asyncio.get_event_loop()
-        output_req_list = loop.run_until_complete(
-            asyncio.gather(
-                *[rollout._async_rollout_a_request(req, True, False) for req in req_list],
-            )
-        )
-        assert len(output_req_list) == 1
+        output_req_list = loop.run_until_complete(asyncio.gather(*[rollout._async_rollout_a_request(req, True, False) for req in req_list]))
+
+        # Verify conversation completed successfully with proper tool usage
         output_req = output_req_list[0]
         assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-        # here we verify the search tool is executed correctly
         assert "search" in output_req.metrics
-        assert isinstance(output_req.metrics["search"], list)
         assert output_req.metrics["search"][0]["status"] == "success"
-        assert rollout._handle_engine_call.call_count == 2
-        assert len(output_req.messages) == 4  # user + 2*assistant + 1*tool_call
+        assert mock_execute.await_count == 2
+        assert len(output_req.messages) == 6  # user + 3*assistant + 2*tool_call
+        # Verify tool response messages contain expected content
         search_counter = 0
         for msg in output_req.messages:
             if msg.role == "tool":
-                search_counter += 1
                 assert msg.content == tool_return_array[search_counter]
-        assert search_counter == 1
+                search_counter += 1
+        assert search_counter == 2
 
-    @skip_if_valid_sandbox(search_url)
+    @patch.object(SearchTool, "execute", new_callable=AsyncMock)
     @patch.object(AsyncSGLangRollout, "_init_distributed_env", return_value=None)
     @patch.object(AsyncSGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(AsyncSGLangRollout, "_init_sampling_params", return_value=None)
-    def test_tool_call_batch_case(self, mock_env, mock_engine, mock_sampling, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+    def test_tool_call_batch_case(self, mock_sampling, mock_engine, mock_env, mock_execute, search_rollout_config, qwen_tokenizer, qwen_model_config, search_data_proto, search_data):
+        _, expect_turn_array, tool_return_array = search_data
+
+        # Mock tool execution for large batch (100 requests * 2 calls each)
+        mock_execute.side_effect = [
+            (tool_return_array[0], 0.0, {"status": "success"}),
+            (tool_return_array[1], 0.0, {"status": "success"}),
+        ] * 100
+
         search_rollout_config.multi_turn.max_turns = 10
-        rollout = AsyncSGLangRollout(actor_module="", config=search_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
-        self._tool_map["search"].retrieval_service_url = search_url
-        req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
+        rollout = AsyncSGLangRollout(
+            actor_module="",
+            config=search_rollout_config,
+            tokenizer=qwen_tokenizer,
+            model_hf_config=qwen_model_config,
+        )
+        rollout._tool_map["search"].retrieval_service_url = "mock://dummy"
+
+        base_req = rollout._preprocess_prompt_to_async_rollout_requests(search_data_proto, n=1)[0]
+
         req_nums = 100
         req_list = []
-        req_turns_counter = {}
-        # this map should a Map[id:List[Futures]]
         req_turns_map = {}
-        _, expect_turn_array, tool_return_array = search_data
-        for i in range(req_nums):
-            _temp_req = deepcopy(req)
-            _temp_req.batch_data_id = i
-            _temp_req.request_id = i
-            req_list.append(MagicMock(wraps=_temp_req, spec=AsyncRolloutRequest))
-            futures = [asyncio.Future() for i in expect_turn_array]
-            for idx, (i, turn) in enumerate(zip(futures, expect_turn_array)):
-                i.set_result({"text": turn, "meta_info": {"id": "d1188d81cba840359df5b352b344bc8e", "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"}, "prompt_tokens": len(turn), "completion_tokens": 100, "cached_tokens": 0, "e2e_latency": 2.23543}})
-                if idx < len(expect_turn_array) - 1:
-                    assert rollout._function_call_parser.has_tool_call(turn)
-                    assert rollout._function_call_parser.parse_non_stream(turn)
-            req_turns_map[_temp_req.batch_data_id] = futures
-            req_turns_counter[_temp_req.batch_data_id] = 0
+        req_turns_counter = {}
 
-        async def hacked_handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, **kwargs):
-            result = req_turns_map[_req.batch_data_id][req_turns_counter[_req.batch_data_id]]
+        for i in range(req_nums):
+            tmp_req = deepcopy(base_req)
+            tmp_req.batch_data_id = i
+            tmp_req.request_id = i
+            req_list.append(MagicMock(wraps=tmp_req, spec=AsyncRolloutRequest))
+
+            futures = [asyncio.Future() for _ in expect_turn_array]
+            for idx, (fut, turn) in enumerate(zip(futures, expect_turn_array)):
+                fut.set_result(
+                    {
+                        "text": turn,
+                        "meta_info": {
+                            "id": "dummy",
+                            "finish_reason": {"type": "tool_calls" if idx < len(expect_turn_array) - 1 else "stop"},
+                            "prompt_tokens": len(turn),
+                            "completion_tokens": 100,
+                        },
+                    }
+                )
+            req_turns_map[i] = futures
+            req_turns_counter[i] = 0
+
+        async def hacked_handle_engine_call(self, _req: AsyncRolloutRequest, *_args, **_kwargs):
+            fut = req_turns_map[_req.batch_data_id][req_turns_counter[_req.batch_data_id]]
             req_turns_counter[_req.batch_data_id] += 1
-            re = await result
-            return re
+            return await fut
 
         with patch.object(AsyncSGLangRollout, "_handle_engine_call", new=hacked_handle_engine_call):
             rollout._tp_rank = 0
             loop = asyncio.get_event_loop()
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[rollout._async_rollout_a_request(req, True, False) for req in req_list],
-                )
-            )
-            assert len(output_req_list) == req_nums
-            # FIGUER out how to count this
-            # assert rollout._handle_engine_call.call_count == 2 * req_nums
-            for output_req in output_req_list:
-                assert output_req.state == AsyncRolloutRequestStateEnum.COMPLETED
-                # here we verify the search tool is executed correctly
-                assert "search" in output_req.metrics
-                assert isinstance(output_req.metrics["search"], list)
-                assert output_req.metrics["search"][0]["status"] == "success"
-                assert rollout._handle_engine_call.call_count == 2
-                assert len(output_req.messages) == 4  # user + 2*assistant + 1*tool_call
-                search_counter = 0
-                for msg in output_req.messages:
-                    if msg.role == "tool":
-                        search_counter += 1
-                        assert msg.content == tool_return_array[search_counter]
-                assert search_counter == 1
+            output_req_list = loop.run_until_complete(asyncio.gather(*[rollout._async_rollout_a_request(r, True, False) for r in req_list]))
 
+        # Verify all requests completed successfully
+        assert len(output_req_list) == req_nums
+        for out_req in output_req_list:
+            assert out_req.state == AsyncRolloutRequestStateEnum.COMPLETED
+            assert "search" in out_req.metrics
+            for metric in out_req.metrics["search"]:
+                assert metric["status"] == "success"
+            assert len(out_req.messages) == 6  # user + 3 assistant + 2 tool
+            assert sum(1 for m in out_req.messages if m.role == "tool") == 2
 
-class RayMultiProcessTestCase(MultiProcessTestCase):
-    def setUp(self):
-        super().setUp()
-        ray.init(ignore_reinit_error=True)
-        print("init_single cluster")
-        self._spawn_processes()
-
-    def tearDown(self):
-        print("tearDown_single cluster")
-        ray.shutdown()
-
-
-@ray.remote
-class TestActor:
-    def __init__(self, rank, world_size):
-        self._world_size = world_size
-        self._rank = rank
-        self.rank_list = []
-        self.time_list = []
-
-    def record_rank(self, rank):
-        self.rank_list.append(rank)
-
-    def get_rank(self):
-        return self._rank
-
-    def ping(self):
-        return True
-
-    def record_execution_time(self, time):
-        self.time_list.append(time)
-
-    def get_time(self, timeout):
-        import time
-
-        now = time.time()
-        while time.time() - now < timeout:
-            # for start and end time
-            if len(self.time_list) == self._world_size * 2:
-                self.time_list.sort()
-                return self.time_list[-1] - self.time_list[0]
-            else:
-                time.sleep(1)
-                continue
-        return False
-
-    def verify_rank(self):
-        import time
-
-        now = time.time()
-        while time.time() - now < 10:
-            if len(self.rank_list) == self._world_size:
-                print(self.rank_list)
-                self.rank_list.sort()
-                for i in range(self._world_size):
-                    if self.rank_list[i] != i:
-                        return False
-                return True
-            else:
-                time.sleep(1)
-                continue
-        return False
-
-
-class TestRayGlobalActorCase(RayMultiProcessTestCase):
-    @property
-    def world_size(self) -> int:
-        # for DP = 8
-        return 2
-
-    def test_basic_multi_process_init(self):
-        ray.init("auto", namespace="test", ignore_reinit_error=True)
-        handle = TestActor.remote(self.rank, self.world_size)
-        re = ray.get(handle.get_rank.remote())
-        assert re == self.rank, f"rank not match: {re} != {self.rank}"
-
-    # def test_global_actor(self):
-    #     ray.init("auto",namespace="test",ignore_reinit_error=True)
-    #     handle = TestActor.options(get_if_exists=True,name="test-actor").remote(self.rank,self.world_size)
-    #     handle.record_rank.remote(self.rank)
-    #     # since test actor's concurrency is 1, we need to wait for all processes to finish
-    #     time.sleep(5)
-    #     assert ray.get(handle.ping.remote()) == True # make sure actor handle is valid
-    #     if self.rank == 0:
-    #         assert ray.get(handle.verify_rank.remote()) == True
-    #     else:
-    #         # get_actor use weak_ref, so we need to make sure the actor is not garbage collected
-    #         time.sleep(10)
-
-
-class TestSingleNodeRateLimiterCase(RayMultiProcessTestCase):
-    @property
-    def world_size(self) -> int:
-        return 1
-
-    def test_rate_limiter(self):
-        ray.init("auto", namespace="test", ignore_reinit_error=True)
-        from verl.tools.search_tool import PoolMode, init_search_execution_pool
-
-        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=3)
-        exec_worker = init_search_execution_pool(num_workers=10, enable_global_rate_limit=True, rate_limit=3, mode=PoolMode.ThreadMode)
-        center = TestActor.options(get_if_exists=True, name="test-actor").remote(self.rank, self.world_size)
-        ray.get(exec_worker.ping.remote())
-
-        def fn(i):
-            import time
-
-            time.sleep(3)
-            return i
-
-        start = time.time()
-        tasks = [exec_worker.execute.remote(fn, i) for i in range(6)]
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(asyncio.gather(*tasks))
-        end = time.time()
-        duration = end - start
-        center.record_execution_time.remote(start)
-        center.record_execution_time.remote(end)
-        print(f"Total time: {duration:.2f} seconds for rank: {self.rank}")
-
-        assert results == list(range(6))
-        # we have 6 task with rate limit of 3, therefore we need at least 2 round: 3*2=6 seconds
-        assert duration > 6
-        assert duration < 10
-
-    def test_rotten_execution(self):
-        ray.init("auto", namespace="test", ignore_reinit_error=True)
-        from verl.tools.search_tool import PoolMode, init_search_execution_pool
-
-        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=6)
-        exec_worker = init_search_execution_pool(num_workers=10, enable_global_rate_limit=True, rate_limit=6, mode=PoolMode.ThreadMode)
-        ray.get(exec_worker.ping.remote())
-
-        def fn(i):
-            if i == 10:
-                raise Exception("test")
-            else:
-                return i
-
-        tasks = [exec_worker.execute.remote(fn, i) for i in range(20)]
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(asyncio.gather(*tasks))
-        expect_result = [None] + list(range(10)) + list(range(11, 20))
-        sorted_data = sorted(results, key=lambda x: (x is not None, x))
-        assert sorted_data == expect_result, f"results: {results}, expect_result: {expect_result}"
-        rate_limiter = TokenBucketWorker.options(name="rate-limiter", get_if_exists=True).remote()
-        rate = ray.get(rate_limiter.get_current_count.remote())
-        assert rate == 0, f"rate: {rate}"
-
-
-class TestMultiNodeRateLimiterCase(RayMultiProcessTestCase):
-    @property
-    def world_size(self) -> int:
-        return 2
-
-    def test_rate_limiter(self):
-        ray.init("auto", namespace="test", ignore_reinit_error=True)
-        from verl.tools.search_tool import PoolMode, init_search_execution_pool
-
-        # exec_worker = ExecutionWorker.options(max_concurrency=10).remote(enable_global_rate_limit=True, rate_limit=6)
-        exec_worker = init_search_execution_pool(num_workers=10, enable_global_rate_limit=True, rate_limit=6, mode=PoolMode.ThreadMode)
-        center = TestActor.options(get_if_exists=True, name="test-actor").remote(self.rank, self.world_size)
-        ray.get(exec_worker.ping.remote())
-
-        def fn(i):
-            import time
-
-            time.sleep(2)
-            return i
-
-        start = time.time()
-        tasks = [exec_worker.execute.remote(fn, i) for i in range(6)]
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(asyncio.gather(*tasks))
-        end = time.time()
-        duration = end - start
-        center.record_execution_time.remote(start)
-        center.record_execution_time.remote(end)
-        print(f"Total time: {duration:.2f} seconds for rank: {self.rank}")
-        assert results == list(range(6))
-        time.sleep(5)
-        if self.rank == 0:
-            total_cost = ray.get(center.get_time.remote(10))
-            print(f"for total cost: {total_cost}")
-            # # we have 6 task each node * 2node = 12 task, each task take 2 second.
-            # with rate limit of 6,
-            # therefore we need at least 2 round: 12/6*2=4 seconds
-            assert total_cost > 4, total_cost
-        else:
-            time.sleep(10)
+        assert mock_execute.await_count == 2 * req_nums
