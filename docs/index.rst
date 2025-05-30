@@ -38,6 +38,7 @@ verl is fast with:
    :caption: Programming guide
 
    hybrid_flow
+   single_controller
 
 .. toctree::
    :maxdepth: 5
@@ -60,6 +61,13 @@ verl is fast with:
    examples/gsm8k_example
    examples/multi_modal_example
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Algorithms
+
+   experiment/ppo
+
+
 .. toctree:: 
    :maxdepth: 1
    :caption: PPO Trainer and Workers
@@ -79,25 +87,30 @@ verl is fast with:
 
 .. toctree::
    :maxdepth: 1
-   :caption: Experimental Results
+   :caption: Adding new models
 
-   experiment/ppo
+   advance/fsdp_extension
+   advance/megatron_extension
 
 .. toctree::
    :maxdepth: 1
-   :caption: Advance Usage and Extension
+   :caption: Advanced Features
 
+   advance/checkpoint
+   advance/rope
+   sglang_multiturn/multiturn.rst
    advance/placement
    advance/dpo_extension
-   advance/fsdp_extension
-   advance/megatron_extension
-   advance/checkpoint
+   examples/sandbox_fusion_example
 
 .. toctree::
    :maxdepth: 1
    :caption: API References
 
-   data.rst
+   api/data
+   api/single_controller.rst
+   api/trainer.rst
+   api/utils.rst
 
 
 .. toctree::

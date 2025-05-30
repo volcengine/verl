@@ -280,10 +280,10 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
             full_weight_k = state_dict[k_name]
             full_weight_v = state_dict[v_name]
 
-            hidden_size_per_head = config.hidden_size // config.num_attention_heads
+            hidden_size_per_head = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
 
             if config.num_key_value_heads >= tp_size:
-                q_size_tp = config.hidden_size // tp_size
+                q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
                 kv_size_tp = hidden_size_per_head * config.num_key_value_heads // tp_size
                 total_size = q_size_tp + 2 * kv_size_tp
                 sizes = [total_size * tp_size]
@@ -304,7 +304,7 @@ def load_state_dict_to_megatron_gptmodel(state_dict, wrapped_models, config, par
                         new_weight_qkv_this_tp[j * total_size_per_head : (j + 1) * total_size_per_head].copy_(torch.cat([q_part_per_head[j], k_part_per_head[j], v_part_per_head[j]], dim=0))
 
             else:
-                q_size_tp = config.hidden_size // tp_size
+                q_size_tp = hidden_size_per_head * config.num_attention_heads // tp_size
                 kv_size_tp = hidden_size_per_head
                 total_size = q_size_tp + 2 * kv_size_tp
                 sizes = [total_size * tp_size]

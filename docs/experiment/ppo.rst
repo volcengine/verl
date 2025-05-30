@@ -29,18 +29,21 @@ NVIDIA GPUs
 .. _Megatron Qwen2 7b GRPO Script with Math and GSM8k: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b_math_megatron.log
 .. _Qwen7b GRPO FSDP2 Script and Logs: https://github.com/eric-haibin-lin/verl-data/blob/experiments/gsm8k/qwen2-7b-fsdp2.log
 .. _Qwen 7B SPPO Script: https://github.com/volcengine/verl/tree/main/recipe/sppo/README.md
+.. _Qwen 7B SPIN Script: https://github.com/volcengine/verl/tree/main/recipe/spin/README.md
 .. _Mixtral-8x22B-Instruct RLOO Wandb: https://api.wandb.ai/links/ppo_dev/sbuiuf2d
+
+.. To contributors: PLEASE make sure the table margins are aligned vertically, and check if the rendering is successful in preview.
 
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Model                            | Method                 | Test score |  Details                                                                                      |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| google/gemma-2-2b-it             | pretrained checkpoint  | 23.9       |   `Huggingface`_                                                                              |
+| google/gemma-2-2b-it             | pretrained model       | 23.9       |   `Huggingface`_                                                                              |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | google/gemma-2-2b-it             | SFT                    | 52.06      |   `SFT Command and Logs`_                                                                     |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | google/gemma-2-2b-it             | SFT + PPO              | 64.02      |   `SFT+PPO Command and Logs`_, `wandb`_                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Qwen/Qwen2.5-0.5B-Instruct       | pretrained checkpoint  | 36.4       |   `Qwen Blog`_                                                                                |
+| Qwen/Qwen2.5-0.5B-Instruct       | pretrained model       | 36.4       |   `Qwen Blog`_                                                                                |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-0.5B-Instruct       | PPO                    | 56.7       |   `PPO Command and Logs`_                                                                     |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
@@ -50,7 +53,7 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO                   | 89         |   `Qwen7b GRPO Script`_                                                                       |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Qwen/Qwen2-7B-Instruct           | GRPO (FSDP2)           | 89.8       |  `_Qwen7b GRPO FSDP2 Script and Logs`_                                                        |
+| Qwen/Qwen2-7B-Instruct           | GRPO (FSDP2)           | 89.8       |   `Qwen7b GRPO FSDP2 Script and Logs`_                                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2-7B-Instruct           | GRPO (Megatron)        | 89.6       |   `Megatron Qwen2 7b GRPO Script with Math and GSM8k`_                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
@@ -58,12 +61,12 @@ NVIDIA GPUs
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Qwen/Qwen2.5-7B-Instruct         | SPPO                   | 65.6 (MATH)|   `Qwen 7B SPPO Script`_                                                                      |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-| Mixtral-8x22B-Instruct-v0.1      | Original instruct model| 83.7       |   `Qwen Blog`_                                                                                |
+| Mixtral-8x22B-Instruct-v0.1      | Instruct model         | 83.7       |   `Qwen Blog`_                                                                                |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 | Mixtral-8x22B-Instruct-v0.1      | RLOO (Megatron)        | 92.3       |   `Mixtral-8x22B-Instruct RLOO Wandb`_                                                        |
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
-
-
+| Qwen/Qwen2.5-7B-Instruct         | SPIN                   | 92         |   `Qwen 7B SPIN Script`_                                                                      |
++----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 AMD GPUs (MI300)
 --------------------------------
@@ -80,3 +83,4 @@ AMD GPUs (MI300)
 +----------------------------------+------------------------+------------+-----------------------------------------------------------------------------------------------+
 
 .. [1] During the evaluation, we have only extracted answers following the format "####". A more flexible answer exaction, longer response length and better prompt engineering may lead to higher score.
+.. [2] The default value of actor_rollout_ref.actor.entropy_coeff is set to 0.0 since verl 0.3.x on 5/30/2025, which is different from the previous versions.

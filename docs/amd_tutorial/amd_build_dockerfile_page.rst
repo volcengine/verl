@@ -6,7 +6,7 @@ Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 Setup
 -----
 
-If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES``, and ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in verl's RLHF training.
+If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, and ``CUDA_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 
 
 docker/Dockerfile.rocm
@@ -22,7 +22,7 @@ docker/Dockerfile.rocm
     # Support - Traing: fsdp; Inference: vllm
     # FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
     # Support - Traing: fsdp; Inference: vllm, sglang
-    FROM lmsysorg/sglang:v0.4.6.post1-rocm630
+    FROM lmsysorg/sglang:v0.4.6.post4-rocm630
 
     # Set working directory
     # WORKDIR $PWD/app
@@ -109,7 +109,7 @@ Example
 -------
 
 Due to to special setting in AMD (ROCM) torch, 
-1. If your ``ray>=2.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES_ENV_VAR`` when starting ray in verl's RLHF training.
+1. If your ``ray>=2.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 2. If your ``ray<2.45.0``, you need to assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 Inference ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
 
@@ -130,13 +130,14 @@ PPO
     #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
 
     # [ray] >= 2.45.0
-    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    #export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES="" #[yushengsu-thu] cannot assign 0 or 1 --> figure out the reason
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
-    ENGINE=vllm
+    ENGINE=vllm #sglang
 
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
      data.train_files=data/gsm8k/train.parquet \
@@ -184,14 +185,15 @@ GRPO
     #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
 
     # [ray] >= 2.45.0
-    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES="" #[yushengsu-thu] cannot assign 0 or 1 --> figure out the reason
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
     # MODEL_PATH=Qwen/Qwen2-7B-Instruct
     python3 examples/data_preprocess/gsm8k.py --local_dir data/gsm8k
     python3 -c "import transformers; transformers.pipeline('text-generation', model='$MODEL_PATH')"
-    ENGINE=vllm
+    ENGINE=vllm #sglang
     
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
@@ -344,9 +346,6 @@ slurm_script.sh
         docker run --rm -d \
         -e HYDRA_FULL_ERROR=1 \
         -e HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES} \
-        -e ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES} \
-        -e CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} \
-        -e HIP_VISIBLE_DEVICES_ENV_VAR=${HIP_VISIBLE_DEVICES_ENV_VAR} \
         -e NCCL_DEBUG=${NCCL_DEBUG} \
         -e GPU_MAX_HW_QUEUES=${GPU_MAX_HW_QUEUES} \
         -e TORCH_NCCL_HIGH_PRIORITY=${TORCH_NCCL_HIGH_PRIORITY} \
