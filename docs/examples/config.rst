@@ -573,3 +573,7 @@ sft_trainer.yaml for SFT FSDP Backend
 
   - ``cosine``: Cosine learning rate scheduler with warmup (default).
   - ``wsd``: Warmup-Stable-Decay scheduler that provides a stable learning rate phase between warmup and decay phases.
+
+
+.. literalinclude:: ../../../verl/trainer/config/ppo_trainer.yaml
+   :language: yaml
