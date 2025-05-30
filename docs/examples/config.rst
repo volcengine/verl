@@ -320,21 +320,23 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   will perform greedy sampling.
 
 - ``actor_rollout_ref.rollout.val_kwargs```: Sampling parameters used specifically during validation.
+
   - ``top_k``: Top-k sampling parameter. Default to -1 for vLLM rollout or 0 for HF rollout.
   - ``top_p``: Top-p sampling parameter. Default is 1.0 (disabled).
   - ``temperature``: Sampling temperature. Default is 0 (deterministic greedy).
   - ``n``: Number of responses to generate during validation. Default is 1.
   - ``do_sample``: Whether to use sampling during validation. Default is False for
-  deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
-  (top_k, top_p, temperature) to control the sampling behavior.
+    deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
+    (top_k, top_p, temperature) to control the sampling behavior.
 
 - ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
-  - ``swap_space``: swap space in GB used by the inference engine.
-    - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-    - Positive integer, e.g., ``32`` means 32 GB.
+
+  - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
 
 - ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
+
   - ``attention_backend``: The attention backend to use for the inference engine.
+
     - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
     - ``flashinfer``: Use flashinfer attention backend.
     - ``triton``: Use triton attention backend.
