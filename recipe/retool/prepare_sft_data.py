@@ -140,3 +140,21 @@ sft_dataset = sft_dataset.map(function=make_map_fn("train"), with_indices=True)
 sft_dataset = sft_dataset.filter(lambda x: len(x['messages']) > 0)
 
 sft_dataset.to_parquet('/mnt/hdfs/zhangchi.usc1992_ssd_hldy/public_exp/data/retool_sft_dataset.parquet')
+
+
+from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from transformers import AutoTokenizer
+
+
+config = {
+    'max_length': 8192,
+    'truncation': 'error',
+    'multiturn': {
+        'messages_key': 'messages',
+    }
+}
+
+tokenizer = AutoTokenizer.from_pretrained('/mnt/hdfs/zhangchi.usc1992_lf_lq/models/Qwen3-8B')
+dataset = MultiTurnSFTDataset(parquet_files=['/mnt/hdfs/zhangchi.usc1992_ssd_hldy/public_exp/data/retool_sft_dataset.parquet'], 
+                              config=config, tokenizer=tokenizer)
+
