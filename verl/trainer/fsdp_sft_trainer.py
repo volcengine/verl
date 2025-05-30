@@ -471,7 +471,7 @@ class FSDPSFTTrainer:
         dataloader_state_dict = torch.load(dataloader_local_path)
         self.train_dataloader.load_state_dict(dataloader_state_dict)
         if self.config.trainer.ckpt.load_previous_saved_paths:
-            self.checkpoint_manager.previous_saved_paths = [os.path.join(self.config.trainer.default_local_dir, f) for f in os.listdir(self.config.trainer.default_local_dir)]
+            self.checkpoint_manager.previous_saved_paths = [os.path.join(self.config.trainer.default_local_dir, f) for f in os.listdir(self.config.trainer.default_local_dir) if os.path.isdir(os.path.join(self.config.trainer.default_local_dir, f))]
 
         # extract the step from the checkpoint path
         step = extract_step(checkpoint_path)
@@ -565,8 +565,8 @@ class FSDPSFTTrainer:
             torch.distributed.barrier()
 
             # save checkpoint
-            max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
-            self.save_checkpoint(step=self.global_steps, max_ckpt_to_keep=max_ckpt_to_keep)
+            num_to_keep = getattr(self.config.trainer.ckpt, "num_to_keep", None)
+            self.save_checkpoint(step=self.global_steps, num_to_keep=num_to_keep)
 
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
