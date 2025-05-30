@@ -49,4 +49,8 @@ jobs:
         run: |
           cd docs 
           make clean
-          make html
+          make html SPHINXOPTS="--keep-going -w _build/sphinx.log"
+          if grep -q ": ERROR:" _build/sphinx.log; then
+            echo "🚨 Sphinx doc build contained ERRORs - see _build/sphinx.log"
+            exit 1
+          fi

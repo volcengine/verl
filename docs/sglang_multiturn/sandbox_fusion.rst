@@ -61,7 +61,7 @@ Tool Schema Definition
    )
 
 Configuration Parameters
-------------------------
+--------------------------
 
 +----------------------------+--------------------------------------------------------------+
 | Parameter Name             | Description                                                  |
@@ -74,13 +74,13 @@ Configuration Parameters
 +----------------------------+--------------------------------------------------------------+
 | `default_language`         | Default programming language. Default: "python"              |
 +----------------------------+--------------------------------------------------------------+
-| `enable_global_rate_limit` | Whether to enable global rate limiting. Default: True         |
+| `enable_global_rate_limit` | Whether to enable global rate limiting. Default: True        |
 +----------------------------+--------------------------------------------------------------+
 | `sandbox_fusion_url`       | URL for the veFaas sandbox execution service                 |
 +----------------------------+--------------------------------------------------------------+
 
 Rate Limiting Design
----------------------
+-----------------------
 
 Objective:
 
