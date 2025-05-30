@@ -22,8 +22,8 @@ SAVE_FREQ=${SAVE_FREQ:--1}
 TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
 USE_DYNAMIC_BSZ=${USE_DYNAMIC_BSZ:-True}
-ppo_max_token_len_per_gpu={$PPO_MAX_TOKEN_LEN:-2400}
-forward_max_token_len_per_gpu={$FWD_MAX_TOKEN_LEN:4800}
+ppo_max_token_len_per_gpu=${PPO_MAX_TOKEN_LEN:-2400}
+forward_max_token_len_per_gpu=${FWD_MAX_TOKEN_LEN:4800}
 train_traj_micro_bsz_per_gpu=${MICRO_BSZ:-2} # b
 n_resp_per_prompt=4 # g
 
