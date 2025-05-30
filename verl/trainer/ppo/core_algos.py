@@ -75,12 +75,12 @@ def compute_gae_advantage_return(
 
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         values: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
-        gamma: `(float)`
+            shape is (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
+        gamma is `(float)`
             discounted factor used in RL
         lam: `(float)`
             lambda value when computing Generalized Advantage Estimation (https://arxiv.org/abs/1506.02438)
@@ -122,9 +122,9 @@ def compute_grpo_outcome_advantage(
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         norm_adv_by_std_in_grpo: (bool)
             whether to scale the GRPO advantage.
             If True, the advantage is scaled by the std, as in the original GRPO.
@@ -132,9 +132,9 @@ def compute_grpo_outcome_advantage(
 
     Returns:
         advantages: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         Returns: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
     """
     scores = token_level_rewards.sum(dim=-1)
 
@@ -163,6 +163,60 @@ def compute_grpo_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+def compute_grpo_passk_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+):
+    """
+    Compute advantage for Pass@k using a GRPO-style outcome reward formulation.
+    Only the best response per group gets a non-zero advantage: r_max - r_second_max.
+
+    Implemented as described in https://arxiv.org/abs/2503.19595.
+
+    Args:
+        token_level_rewards: (bs, response_length)
+        response_mask: (bs, response_length)
+        index: (bs,) → group ID per sample
+        epsilon: float for numerical stability
+        norm_adv_by_std_in_grpo: if True, normalize advantage by std within group
+
+    Returns:
+        advantages: (bs, response_length)
+        returns: (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)  # (bs,)
+    advantages = torch.zeros_like(scores)
+
+    id2scores = defaultdict(list)
+    id2indices = defaultdict(list)
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            idx = index[i]
+            id2scores[idx].append(scores[i])
+            id2indices[idx].append(i)
+
+        for idx in id2scores:
+            rewards = torch.stack(id2scores[idx])  # (k,)
+            if rewards.numel() < 2:
+                raise ValueError(f"Pass@k requires at least 2 samples per group. Got {rewards.numel()} for group {idx}.")
+            topk, topk_idx = torch.topk(rewards, 2)
+            r_max, r_second_max = topk[0], topk[1]
+            i_max = id2indices[idx][topk_idx[0].item()]
+            advantage = r_max - r_second_max
+            if norm_adv_by_std_in_grpo:
+                std = torch.std(rewards)
+                advantage = advantage / (std + epsilon)
+            advantages[i_max] = advantage
+
+    advantages = advantages.unsqueeze(-1) * response_mask
+    return advantages, advantages
 
 
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor, epsilon: float = 1e-6):
@@ -317,15 +371,12 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     """
     Aggregate the loss matrix into a scalar.
     Args:
-        loss_mat: `(torch.Tensor)`
+        loss_mat: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_mask: `(torch.Tensor)`
+        loss_mask: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) choices:
+            method to aggregate the loss matrix into a scalar.
     Returns:
         loss: `a scalar torch.Tensor`
             aggregated loss
@@ -360,7 +411,7 @@ def compute_policy_loss(
     cliprange_low=None,
     cliprange_high=None,
     clip_ratio_c=3.0,
-    loss_agg_mode="token-mean",
+    loss_agg_mode: str = "token-mean",
 ):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
     Args:
@@ -380,11 +431,7 @@ def compute_policy_loss(
             The higher clip range used in PPO.
         clip_ratio_c: (float) default: 3.0
             The lower bound of the ratio for dual-clip PPO, See https://arxiv.org/pdf/1912.09729
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
@@ -421,8 +468,8 @@ def compute_policy_loss(
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
 
-def compute_entropy_loss(logits, response_mask):
-    """Compute Categorical entropy loss
+def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
+    """Compute categorical entropy loss (For backward compatibility)
 
     Args:
         logits: `(torch.Tensor)`
@@ -435,12 +482,12 @@ def compute_entropy_loss(logits, response_mask):
 
     """
     # compute entropy
-    entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
-    entropy_loss = verl_F.masked_mean(entropy, mask=response_mask)
+    token_entropy = verl_F.entropy_from_logits(logits)  # (bs, response_len)
+    entropy_loss = agg_loss(loss_mat=token_entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     return entropy_loss
 
 
-def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
+def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torch.Tensor, response_mask: torch.Tensor, cliprange_value: float, loss_agg_mode: str = "token-mean"):
     """Compute the value loss. Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1151
 
     Args:
@@ -450,6 +497,9 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
             Old values of value head, shape (`batch_size`, `response_length`)
         returns: (`torch.FloatTensor`):
             Ground truth returns, shape (`batch_size`, `response_length`)
+        response_mask: `(torch.Tensor)`
+            Mask for tokens to calculate value function losses. # TODO: Rename to `state_mask`.
+        loss_agg_mode: (str) see `agg_loss`
 
     Returns:
         vf_loss: a scalar (`torch.FloatTensor`):
@@ -461,7 +511,8 @@ def compute_value_loss(vpreds, returns, values, response_mask, cliprange_value):
     vpredclipped = verl_F.clip_by_value(vpreds, values - cliprange_value, values + cliprange_value)
     vf_losses1 = (vpreds - returns) ** 2
     vf_losses2 = (vpredclipped - returns) ** 2
-    vf_loss = 0.5 * verl_F.masked_mean(torch.max(vf_losses1, vf_losses2), response_mask)
+    clipped_vf_losses = torch.max(vf_losses1, vf_losses2)
+    vf_loss = agg_loss(loss_mat=clipped_vf_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
     vf_clipfrac = verl_F.masked_mean(torch.gt(vf_losses2, vf_losses1).float(), response_mask)
     return vf_loss, vf_clipfrac
 
@@ -499,3 +550,67 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         raise NotImplementedError
 
     raise NotImplementedError
+
+
+def compute_pf_ppo_reweight_data(
+    data,
+    reweight_method: str = "pow",
+    weight_pow: float = 2.0,
+):
+    """Reweight the data based on the token_level_scores.
+
+    Args:
+        data: DataProto object, containing batch, non_tensor_batch and meta_info
+        reweight_method: str, choices: "pow", "max_min", "max_random"
+        weight_pow: float, the power of the weight
+
+    Returns:
+
+    """
+    @torch.no_grad()
+    def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
+        if reweight_method == "pow":
+            weights = torch.pow(torch.abs(scores), weight_pow)
+        elif reweight_method == "max_min":
+            max_score = torch.max(scores)
+            min_score = torch.min(scores)
+            weights = torch.where((scores == max_score) | (scores == min_score), 1.0, 0.0)
+        elif reweight_method == "max_random":
+            max_score = torch.max(scores)
+            weights = torch.where(scores == max_score, 0.4, 0.1)
+        else:
+            raise ValueError(f"Unsupported reweight_method: {reweight_method}")
+        return weights
+
+    scores = data.batch["token_level_scores"].sum(dim=-1)
+    weights = compute_weights(scores, reweight_method, weight_pow)
+    weights = torch.clamp(weights + 1e-8, min=1e-8)
+
+    batch_size = scores.shape[0]
+    sample_indices = torch.multinomial(weights, batch_size, replacement=True)
+
+    resampled_batch = {key: tensor[sample_indices] for key, tensor in data.batch.items()}
+
+    sample_indices_np = sample_indices.numpy()
+    resampled_non_tensor_batch = {}
+    for key, array in data.non_tensor_batch.items():
+        if isinstance(array, np.ndarray):
+            resampled_non_tensor_batch[key] = array[sample_indices_np]
+        else:
+            resampled_non_tensor_batch[key] = [array[i] for i in sample_indices_np]
+
+    resampled_meta_info = {}
+    for key, value in data.meta_info.items():
+        if isinstance(value, list) and len(value) == batch_size:
+            resampled_meta_info[key] = [value[i] for i in sample_indices_np]
+        else:
+            resampled_meta_info[key] = value
+
+    from copy import deepcopy
+    resampled_data = deepcopy(data)
+    resampled_data.batch = type(data.batch)(resampled_batch)
+    resampled_data.batch.batch_size = data.batch.batch_size
+    resampled_data.non_tensor_batch = resampled_non_tensor_batch
+    resampled_data.meta_info = resampled_meta_info
+
+    return resampled_data

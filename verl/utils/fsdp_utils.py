@@ -19,6 +19,7 @@ import math
 import os
 from contextlib import contextmanager, nullcontext
 from typing import Dict
+from collections import OrderedDict
 
 import torch
 import torch.distributed as dist
@@ -29,6 +30,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
+from verl.utils.device import get_torch_device, get_device_name
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard
@@ -40,8 +42,8 @@ else:
 
 def init_fn(x: torch.nn.Module):
     if torch.distributed.get_rank() != 0:
-        x = x.to_empty(device=torch.cuda.current_device(), recurse=False)
-        torch.cuda.empty_cache()
+        x = x.to_empty(device=get_torch_device().current_device(), recurse=False)
+        get_torch_device().empty_cache()
     return x
 
 
@@ -144,7 +146,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
         flat_param._local_shard = flat_param.data
         assert id(flat_param._local_shard) != id(flat_param.data)
     if empty_cache:
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -152,7 +154,7 @@ def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
     for param in model.parameters():
         param.data = param.data.to(torch.device("cpu"), non_blocking=True)
     if empty_cache:
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
 
 @torch.no_grad()
@@ -165,12 +167,12 @@ def load_fsdp_model_to_gpu(model: FSDP):
     # lazy init FSDP model
     _lazy_init(model, model)
     assert model._is_root, "Only support root model loading to GPU"
-    device_id = torch.cuda.current_device()
+    device_id = get_torch_device().current_device()
     for handle in model._all_handles:
         if handle._offload_params:
             continue
         flat_param = handle.flat_param
-        handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        handle.flat_param_to(torch.device(f"{get_device_name()}:{device_id}"), non_blocking=True)
         # the following still keeps id(._local_shard) != id(.data)
         flat_param._local_shard = flat_param.data
 
@@ -279,7 +281,7 @@ def parallel_load_safetensors(filepath):
     ckpt_chunks = [ckpt_chunks[rank * size : rank * size + size] for rank in range(world_size)]
 
     shard_states = {}
-    device = torch.cuda.current_device()
+    device = get_torch_device().current_device()
     for rank, files in enumerate(ckpt_chunks):
         if rank == dist.get_rank():
             for file in files:
@@ -317,7 +319,7 @@ def parallel_init_module_fn(module: torch.nn.Module, shard_states: Dict[str, tor
     @torch.no_grad()
     def create_and_sync_state(param_name, state, is_param):
         assert param_name in shard_states, f"{param_name} not loaded"
-        device = torch.cuda.current_device()
+        device = get_torch_device().current_device()
         if is_param:
             param = torch.nn.Parameter(torch.empty_like(state.data, device=device), requires_grad=state.requires_grad)
         else:  # buffer
@@ -456,3 +458,32 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
     total_norm = total_norm.to(torch.cuda.current_device(), non_blocking=True)
     _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
     return total_norm
+
+def layered_summon_lora_params(fsdp_module)->OrderedDict:
+    from peft.utils.save_and_load import get_peft_model_state_dict
+
+    def __prefix_submodules(module, prefix):
+        for name, submodule in module.named_modules():
+            if name.startswith(prefix) and "." not in name[len(prefix):]:
+                yield name, submodule
+
+    lora_params = OrderedDict()
+    prefix_list = [
+        '_fsdp_wrapped_module.base_model.model.',
+        '_fsdp_wrapped_module.base_model.model.model.',
+        '_fsdp_wrapped_module.base_model.model.model.layers.'
+    ]
+    for prefix in prefix_list:
+        for name, submodule in __prefix_submodules(fsdp_module, prefix):
+            prefix = name.replace("_fsdp_wrapped_module.base_model.model.","base_model.model.")
+            if name.endswith('.model') or name.endswith('.layers'):
+                continue
+            if fsdp_version(submodule) > 0:
+                with FSDP.summon_full_params(submodule, writeback=False):
+                    sub_lora_params = get_peft_model_state_dict(fsdp_module._fsdp_wrapped_module, state_dict=submodule.state_dict())
+                    sub_lora_params = {f"{prefix}.{name}": param.full_tensor().detach().cpu() if hasattr(param, 'full_tensor') else param.detach().cpu()
+                        for name, param in sub_lora_params.items()}
+                    lora_params.update(sub_lora_params)
+                    submodule._is_root = False
+                torch.cuda.empty_cache()
+    return lora_params

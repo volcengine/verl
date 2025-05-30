@@ -86,6 +86,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        device_name="cuda",
     ):
         self.tokenizer = tokenizer
         self.processor = processor
@@ -105,6 +106,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.use_rm = Role.RewardModel in role_worker_mapping
         self.ray_worker_group_cls = ray_worker_group_cls
         self.validation_generations_logger = ValidationGenerationsLogger()
+        self.device_name = device_name
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -164,8 +166,8 @@ class RaySPPOTrainer(RayPPOTrainer):
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-                if "multi_modal_inputs" in batch.non_tensor_batch:
-                    non_tensor_batch_keys_to_pop.extend(["multi_modal_data", "multi_modal_inputs"])
+                if "multi_modal_data" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in batch.non_tensor_batch:
