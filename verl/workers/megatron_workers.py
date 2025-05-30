@@ -226,7 +226,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             rollout_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
-            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get('use_shm', False))
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             if vllm_mode == "customized":
                 rollout = vLLMRollout(
                     actor_module=self.actor_module,
@@ -495,8 +495,8 @@ class ActorRolloutRefWorker(MegatronWorker):
             if self.config.rollout.name == "sglang_async":
                 from verl.workers.rollout.sglang_rollout import AsyncSGLangRollout
 
-                if isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "_tool_schemas") and len(self.rollout._tool_schemas) > 0:
-                    output = self.rollout.generate_sequences_with_tools(prompts=prompts)
+                if (isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "_tool_schemas") and len(self.rollout._tool_schemas) > 0) or (isinstance(self.rollout, AsyncSGLangRollout) and hasattr(self.rollout, "interaction") and self.rollout.interaction is not None):
+                    output = self.rollout.generate_sequences_multi_turns(prompts=prompts)
                 else:
                     output = self.rollout.generate_sequences(prompts=prompts)
             else:
@@ -877,7 +877,7 @@ class RewardModelWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
 
-        use_shm = self.config.model.get('use_shm', False)
+        use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
         rm_tokenizer_path = self.config.model.get("rm_tokenizer", None)
