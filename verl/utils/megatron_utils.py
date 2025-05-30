@@ -738,12 +738,17 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
 
     def tensor_generator():
         for scan_vpp_idx in range(vpp_size):
-            yield from actor_module[scan_vpp_idx].named_parameters()
+            for name, param in actor_module[scan_vpp_idx].state_dict().items():
+                if "_extra_state" in name:
+                    continue
+                yield name, param
 
     # we need first make all rank get full model information
     meta_info = []
     for scan_vpp_idx in range(vpp_size):
-        for idx, (name, _) in enumerate(actor_module[scan_vpp_idx].named_parameters()):
+        for idx, (name, _) in enumerate(actor_module[scan_vpp_idx].state_dict().items()):
+            if "_extra_state" in name:
+                continue
             meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
     obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
