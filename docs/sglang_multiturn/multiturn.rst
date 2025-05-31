@@ -11,9 +11,9 @@ To enable multi-turn rollout, make sure to configure the following fields in you
     actor_rollout_ref: 
         rollout: 
             multi_turn: True
-            name: "sglang_async"
+            name: "sglang"
 
-These configuration activates the sglang_async engine for multi-turn interaction during rollout.
+These configuration activates the sglang engine for multi-turn interaction during rollout.
 
 Custom Tool Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~

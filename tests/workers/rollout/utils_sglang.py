@@ -37,7 +37,7 @@ def levenshtein(s1, s2):
     return dp[m][n]
 
 
-def are_lists_similar(a, b):
+def are_lists_similar(a, b, threshold=10):
     if len(a) != len(b):
         print("The lists are of different lengths.")
         return False
@@ -49,7 +49,7 @@ def are_lists_similar(a, b):
         total_diff += levenshtein(s1, s2)
     percentage_difference = (total_diff / total_length) * 100
     print(f"Total difference: {percentage_difference:.2f}%")
-    return percentage_difference <= 10
+    return percentage_difference <= threshold
 
 
 def initialize_global_process_group(timeout_second=36000, spmd=False):

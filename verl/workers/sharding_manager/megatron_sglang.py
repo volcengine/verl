@@ -22,7 +22,6 @@ import os
 
 import torch
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.entrypoints.verl_engine import VerlEngine
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 
@@ -50,7 +49,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
     def __init__(
         self,
         actor_module: nn.ModuleList,
-        inference_engine: VerlEngine,
+        inference_engine: Engine,
         model_config,
         transformer_config,
         layer_name_mapping,
@@ -114,50 +113,6 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def update_weights(self, params):
-        self.inference_engine.resume_memory_occupation()
-        self.inference_engine.update_weights_from_tensor(params, load_format=None)
-
-    def release_memory(self):
-        self.inference_engine.release_memory_occupation()
-
-    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
-    def preprocess_data(self, data: DataProto) -> DataProto:
-        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
-        if self.infer_tp_size == 1:
-            return data
-        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
-        return data
-
-    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
-    def postprocess_data(self, data: DataProto) -> DataProto:
-        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
-        if self.infer_tp_size == 1:
-            return data
-        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]
-
-
-class MegatronAsyncSGLangShardingManager(MegatronSGLangShardingManager):
-    def __init__(
-        self,
-        actor_module: nn.ModuleList,
-        inference_engine: Engine,
-        model_config,
-        transformer_config,
-        layer_name_mapping,
-        weight_converter,
-        device_mesh: DeviceMesh = None,
-    ):
-        super().__init__(
-            actor_module,
-            inference_engine,
-            model_config,
-            transformer_config,
-            layer_name_mapping,
-            weight_converter,
-            device_mesh,
-        )
-
-    def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0:
             self.inference_engine.resume_memory_occupation()
 
@@ -184,3 +139,18 @@ class MegatronAsyncSGLangShardingManager(MegatronSGLangShardingManager):
     def release_memory(self):
         if self.device_mesh["tp"].get_local_rank() == 0:
             self.inference_engine.release_memory_occupation()
+
+    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
+    def preprocess_data(self, data: DataProto) -> DataProto:
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        all_gather_data_proto(data, self.device_mesh["tp"].get_group())
+        return data
+
+    @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
+    def postprocess_data(self, data: DataProto) -> DataProto:
+        # DP_COMPUTE_PROTO: all training ranks are dp, the same as fsdp
+        if self.infer_tp_size == 1:
+            return data
+        return data.chunk(chunks=self.infer_tp_size)[self.device_mesh["tp"].get_local_rank()]

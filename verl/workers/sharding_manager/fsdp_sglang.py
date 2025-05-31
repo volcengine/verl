@@ -1,18 +1,5 @@
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,12 +16,10 @@
 
 import logging
 import os
-from typing import Union
 
 import torch
 import torch.distributed as dist
 from sglang.srt.entrypoints.engine import Engine
-from sglang.srt.entrypoints.verl_engine import VerlEngine
 from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 from sglang.srt.utils import MultiprocessingSerializer
 from torch.distributed.device_mesh import DeviceMesh
@@ -66,7 +51,7 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     def __init__(
         self,
         module: FSDP,
-        inference_engine: Union[VerlEngine, Engine],
+        inference_engine: Engine,
         model_config,
         full_params: bool = False,
         device_mesh: DeviceMesh = None,
@@ -145,44 +130,6 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def update_weights(self, params):
-        self.inference_engine.resume_memory_occupation()
-        self.inference_engine.update_weights_from_tensor([(k, v) for k, v in params.items()], load_format=None)
-
-    def release_memory(self):
-        self.inference_engine.release_memory_occupation()
-
-    def preprocess_data(self, data: DataProto) -> DataProto:
-        """All gather across tp group to make each rank has identical input."""
-        if self.tp_size == 1:
-            return data
-
-        # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        group = self.device_mesh["infer_tp"].get_group()
-
-        all_gather_data_proto(data=data, process_group=group)
-        return data
-
-    def postprocess_data(self, data: DataProto) -> DataProto:
-        """Get chunk data of this tp rank since we do all gather in preprocess."""
-        if self.tp_size == 1:
-            return data
-
-        return data.chunk(chunks=self.tp_size)[self.tp_rank]
-
-
-class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):
-    def __init__(
-        self,
-        module: FSDP,
-        inference_engine: Engine,
-        model_config,
-        full_params: bool = False,
-        device_mesh: DeviceMesh = None,
-        offload_param: bool = False,
-    ):
-        super().__init__(module, inference_engine, model_config, full_params, device_mesh, offload_param)
-
-    def update_weights(self, params):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             self.inference_engine.resume_memory_occupation()
 
@@ -218,3 +165,21 @@ class FSDPAsyncSGLangShardingManager(FSDPSGLangShardingManager):
     def release_memory(self):
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             self.inference_engine.release_memory_occupation()
+
+    def preprocess_data(self, data: DataProto) -> DataProto:
+        """All gather across tp group to make each rank has identical input."""
+        if self.tp_size == 1:
+            return data
+
+        # TODO: Current impl doesn't consider FSDP with torch micro-dp
+        group = self.device_mesh["infer_tp"].get_group()
+
+        all_gather_data_proto(data=data, process_group=group)
+        return data
+
+    def postprocess_data(self, data: DataProto) -> DataProto:
+        """Get chunk data of this tp rank since we do all gather in preprocess."""
+        if self.tp_size == 1:
+            return data
+
+        return data.chunk(chunks=self.tp_size)[self.tp_rank]
