@@ -162,13 +162,15 @@ class Qwen25VLModel(BaseModelInitializer):
     def get_transformer_layer_spec(self):
         transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
         return transformer_layer_spec
-    
-    def initialize(self, 
-    pre_process=None,
-    post_process=None,
-    share_embeddings_and_output_weights=False,
-    value=False,
-    **extra_kwargs,):
+
+    def initialize(
+        self,
+        pre_process=None,
+        post_process=None,
+        share_embeddings_and_output_weights=False,
+        value=False,
+        **extra_kwargs,
+    ):
         tfconfig = self.tfconfig
         hf_config = self.hf_config
         # Qwen2_5_VLForConditionalGeneration
@@ -176,45 +178,45 @@ class Qwen25VLModel(BaseModelInitializer):
 
         from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
 
+        from .qwen2_5_vl.attention import Qwen2_5VLSelfAttention
         from .qwen2_5_vl.model import Qwen2_5VLModel
-        from .qwen2_5_vl.transformer_config import get_vision_model_config, get_vision_projection_config
+        from .qwen2_5_vl.vision_config import get_vision_model_config, get_vision_projection_config
 
         vision_config = get_vision_model_config(deepcopy(tfconfig))
         vision_config.pipeline_model_parallel_size = 1
         vision_config.first_pipeline_num_layers = None
-        vision_projector_config = get_vision_projection_config(
-            deepcopy(tfconfig), vision_config.hidden_size, spatial_merge_size=hf_config.vision_config.spatial_merge_size
-        )
+        vision_projector_config = get_vision_projection_config(deepcopy(tfconfig), vision_config.hidden_size, spatial_merge_size=hf_config.vision_config.spatial_merge_size)
 
         transformer_layer_spec = get_gpt_decoder_block_spec(tfconfig, use_transformer_engine=True)
 
-        from verl.models.mcore.qwen2_vl.layer_specs import (
-            get_gpt_layer_with_transformer_engine_spec,
-            get_qwen2vl_vision_model_spec,
-            get_mlp_module_spec
+        from megatron.core.extensions.transformer_engine import TEColumnParallelLinear, TERowParallelLinear
+        from megatron.core.models.gpt.moe_module_specs import MLPSubmodules
+        from megatron.core.models.vision.vit_layer_specs import get_vit_layer_with_transformer_engine_spec
+
+        vision_projector_spec = MLPSubmodules(
+            linear_fc1=TEColumnParallelLinear,
+            linear_fc2=TERowParallelLinear,
         )
-        transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(False)
-        vision_model_spec = get_qwen2vl_vision_model_spec()
-        vision_projector_spec = get_mlp_module_spec(add_norm=False).submodules
+        vision_model_spec = get_vit_layer_with_transformer_engine_spec()
+
+        vision_model_spec.submodules.self_attention.module = Qwen2_5VLSelfAttention
+        for layer_spec in transformer_layer_spec.layer_specs:
+            layer_spec.submodules.self_attention.module = Qwen2_5VLSelfAttention
 
         qwen25_vl_model = Qwen2_5VLModel(
             language_transformer_config=tfconfig,
             language_transformer_layer_spec=transformer_layer_spec,
             language_vocab_size=hf_config.vocab_size,
             language_max_sequence_length=hf_config.max_position_embeddings,
-
             vision_transformer_config=vision_config,
             vision_transformer_layer_spec=vision_model_spec,
-            drop_vision_class_token=False, # NOTE: no class token to drop?
-
+            drop_vision_class_token=False,  # NOTE: no class token to drop?
             vision_projection_config=vision_projector_config,
-            vision_projection_layer_spec=vision_projector_spec, 
-            vision_projection_type='mlp',
-            allow_missing_vision_projection_checkpoint= False, # TODO: may parameterized
-
-            language_position_embedding_type="rope",
+            vision_projection_layer_spec=vision_projector_spec,
+            vision_projection_type="mlp",
+            allow_missing_vision_projection_checkpoint=False,  # TODO: may parameterized
+            language_position_embedding_type="mrope",
             language_rotary_base=hf_config.rope_theta,
-            
             pre_process=pre_process,
             post_process=post_process,
             add_decoder=True,
@@ -226,8 +228,6 @@ class Qwen25VLModel(BaseModelInitializer):
         if post_process and value:
             from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 
-            qwen25_vl_model.language_model.output_layer = LinearForLastLayer(
-                input_size=tfconfig.hidden_size, output_size=1, config=tfconfig
-            )
+            qwen25_vl_model.language_model.output_layer = LinearForLastLayer(input_size=tfconfig.hidden_size, output_size=1, config=tfconfig)
 
         return qwen25_vl_model

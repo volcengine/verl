@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
-
-
 import logging
+from typing import Optional
 
 import torch
+from megatron.core.models.common.embeddings.rope_utils import *
+from megatron.core.models.common.embeddings.rope_utils import _apply_rotary_pos_emb_bshd
 from torch import Tensor
 
 logger = logging.getLogger(__name__)
+
 
 # Slightly modified from Qwen2VLForConditionalGeneration.get_rope_index
 def get_rope_index(
@@ -39,7 +40,8 @@ def get_rope_index(
             Width: 2 patches, dividing each frame horizontally.
             We also have some important parameters:
             fps (Frames Per Second): The video's frame rate, set to 1. This means one frame is processed each second.
-            tokens_per_second: This is a crucial parameter. It dictates how many "time-steps" or "temporal tokens" are conceptually packed into a one-second interval of the video. In this case, we have 25 tokens per second. So each second of the video will be represented with 25 separate time points. It essentially defines the temporal granularity.
+            tokens_per_second: This is a crucial parameter. It dictates how many "time-steps" or "temporal tokens" are conceptually packed into a one-second interval of the video.
+                               In this case, we have 25 tokens per second. So each second of the video will be represented with 25 separate time points. It essentially defines the temporal granularity.
             temporal_patch_size: The number of frames that compose one temporal patch. Here, it's 2 frames.
             interval: The step size for the temporal position IDs, calculated as tokens_per_second * temporal_patch_size / fps. In this case, 25 * 2 / 1 = 50. This means that each temporal patch will be have a difference of 50 in the temporal position IDs.
             input_ids: [V V V V V V V V V V V V T T T T T], here V is for vision.
@@ -175,11 +177,7 @@ def get_rope_index(
             max_position_ids = position_ids.max(0, keepdim=False)[0].max(-1, keepdim=True)[0]
             mrope_position_deltas = max_position_ids + 1 - attention_mask.shape[-1]
         else:
-            position_ids = (
-                torch.arange(input_ids.shape[1], device=input_ids.device)
-                .view(1, 1, -1)
-                .expand(3, input_ids.shape[0], -1)
-            )
+            position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).view(1, 1, -1).expand(3, input_ids.shape[0], -1)
             mrope_position_deltas = torch.zeros(
                 [input_ids.shape[0], 1],
                 device=input_ids.device,
@@ -187,3 +185,48 @@ def get_rope_index(
             )
 
         return position_ids, mrope_position_deltas
+
+
+def apply_rotary_pos_emb_thd_absolute(t: Tensor, cu_seqlens: Tensor, freqs: Tensor, rotary_interleaved: bool = False) -> Tensor:
+    """A baseline implementation of applying RoPE for `thd` format.
+
+    Args:
+        t (Tensor): Input tensor T is of shape [t, h, d]
+        cu_seqlens(Tensor):  Cumulative sum of sequence lengths in a batch for `t`,
+        with shape [b + 1] and dtype torch.int32.
+        freqs (Tensor): Rotary Positional embedding tensor freq is of shape [max_s, 1, 1, d]
+
+    Returns:
+        Tensor: Shape [t, h, d]. The input tensor after applying RoPE.
+    """
+    return _apply_rotary_pos_emb_bshd(t[:, None], freqs, rotary_interleaved=rotary_interleaved).squeeze(1)
+
+
+def apply_rotary_pos_emb_absolute(
+    t: Tensor,
+    freqs: Tensor,
+    config: TransformerConfig,
+    cu_seqlens: Optional[Tensor] = None,
+):
+    """
+    Reroute to the appropriate apply_rotary_pos_emb function depending on
+    bshd (conventional) / thd (packed seq) format
+
+    In Qwen2-VL, the shape of freqs is (seq_length, bs, 1, 2 * dim) instead of [max_seqlen, 1, 1, 2 * dim]
+    """
+
+    if config.apply_rope_fusion:
+        if cu_seqlens is None:
+            # NOTE: TE backends do not support mRoPE in bshd format when bs > 1
+            if freqs.shape[1] > 1:
+                return _apply_rotary_pos_emb_bshd(t, freqs, rotary_interleaved=config.rotary_interleaved)
+            else:
+                return fused_apply_rotary_pos_emb(t, freqs)
+        else:
+            # NOTE: as expected, thd format can use bshd
+            return fused_apply_rotary_pos_emb(t[:, None], freqs).squeeze(1)
+    else:
+        if cu_seqlens is None:
+            return _apply_rotary_pos_emb_bshd(t, freqs, rotary_interleaved=config.rotary_interleaved)
+        else:
+            return apply_rotary_pos_emb_thd_absolute(t, cu_seqlens, freqs, rotary_interleaved=config.rotary_interleaved)

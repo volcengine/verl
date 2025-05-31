@@ -11,28 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from dataclasses import dataclass, field
-from typing import List
 
 import torch
 from megatron.core import parallel_state
-from megatron.core.transformer import TransformerConfig
-
-
-@dataclass
-class Qwen2VLTransformerConfig(TransformerConfig):
-    transformer_impl: str = "transformer_engine"
-    rotary_base: int = None
-    rotary_scaling_factor: int = None
-    max_position_embeddings: int = None
-    moe_aux_loss_coeff: float = 0.0
-    mrope_section: List[int] = field(default_factory=lambda: [16, 24, 24])
-    seq_len_interpolation_factor: float = None
-
-    # The following options are set with --disable-bias-linear --add-qkv-bias
-    # in the script
-    # add_bias_linear = False
-    # add_qkv_bias = True
 
 
 def get_vision_model_config(config):

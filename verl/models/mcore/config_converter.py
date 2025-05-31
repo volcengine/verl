@@ -17,12 +17,11 @@
 # convert huggingface config to mcore transformer config
 
 
-
 import torch
 import torch.nn.functional as F
+from megatron.core import parallel_state as mpu
 from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from megatron.core.transformer.enums import AttnBackend
-from megatron.core import parallel_state as mpu
 from transformers import PretrainedConfig
 
 
@@ -191,14 +190,9 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
 def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
 
-    from .qwen2_5_vl.model import Qwen2VLTransformerConfig
-
-    overlap_p2p_comm = (
-        mpu.get_virtual_pipeline_model_parallel_world_size() is not None
-        and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    )
+    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
     batch_p2p_comm = False
-    transformer_config = Qwen2VLTransformerConfig(
+    transformer_config = TransformerConfig(
         num_layers=hf_config.num_hidden_layers,
         hidden_size=hf_config.hidden_size,
         ffn_hidden_size=hf_config.intermediate_size,
@@ -231,15 +225,12 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         persist_layer_norm=True,
         bias_dropout_fusion=True,
         distribute_saved_activations=False,
-        cp_comm_type='p2p',
+        cp_comm_type="p2p",
         # moe specific
         moe_token_dispatcher_type="alltoall",
         # qwen specific
         add_qkv_bias=True,
-        rotary_base=hf_config.rope_theta,
-        rotary_scaling_factor=1.0,
-        max_position_embeddings=hf_config.max_position_embeddings,
-        mrope_section=hf_config.rope_scaling['mrope_section'],
+        mrope_section=hf_config.rope_scaling["mrope_section"],
     )
 
     return transformer_config
