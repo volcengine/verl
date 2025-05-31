@@ -182,7 +182,7 @@ class Qwen25VLModel(BaseModelInitializer):
         from megatron.core.models.gpt.moe_module_specs import MLPSubmodules
         from megatron.core.models.vision.vit_layer_specs import get_vit_layer_with_transformer_engine_spec
 
-        from .qwen2_5_vl.model import Qwen2_5VLModel, get_vision_model_config, get_vision_projection_config
+        from .qwen2_5_vl import Qwen2_5VLModel, get_vision_model_config, get_vision_projection_config
 
         vision_transformer_config = get_vision_model_config(deepcopy(tfconfig))
         vision_transformer_config.pipeline_model_parallel_size = 1

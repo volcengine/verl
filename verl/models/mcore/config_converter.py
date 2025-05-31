@@ -21,7 +21,6 @@ import torch
 import torch.nn.functional as F
 from megatron.core import parallel_state as mpu
 from megatron.core.transformer import MLATransformerConfig, TransformerConfig
-from megatron.core.transformer.enums import AttnBackend
 from transformers import PretrainedConfig
 
 
@@ -38,7 +37,6 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     Returns:
         TransformerConfig with common parameters
     """
-    from megatron.core import parallel_state as mpu
 
     # Common parallel state parameters
     overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
@@ -56,6 +54,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "hidden_dropout": getattr(hf_config, "hidden_dropout", 0.0),
         "kv_channels": getattr(hf_config, "head_dim", None),
         "layernorm_epsilon": hf_config.rms_norm_eps,
+        "add_bias_linear": False,
         # Activation and normalization
         "activation_func": F.silu,
         "normalization": "RMSNorm",
@@ -190,50 +189,15 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
 def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
 
-    overlap_p2p_comm = mpu.get_virtual_pipeline_model_parallel_world_size() is not None and mpu.get_virtual_pipeline_model_parallel_world_size() > 1
-    batch_p2p_comm = False
-    transformer_config = TransformerConfig(
-        num_layers=hf_config.num_hidden_layers,
-        hidden_size=hf_config.hidden_size,
-        ffn_hidden_size=hf_config.intermediate_size,
-        num_attention_heads=hf_config.num_attention_heads,
-        num_query_groups=hf_config.num_key_value_heads,
-        attention_dropout=hf_config.attention_dropout,
-        hidden_dropout=getattr(hf_config, "hidden_dropout", 0.0),
-        activation_func=F.silu,
-        normalization="RMSNorm",
-        gated_linear_unit=True,
-        use_cpu_initialization=False,
+    return _get_base_transformer_config(
+        hf_config=hf_config,
+        dtype=dtype,
         add_bias_linear=False,
-        pipeline_dtype=dtype,
-        params_dtype=dtype,
-        variable_seq_lengths=True,
-        masked_softmax_fusion=True,
-        bf16=dtype is torch.bfloat16,
-        layernorm_epsilon=hf_config.rms_norm_eps,
-        # parallel config
-        tensor_model_parallel_size=mpu.get_tensor_model_parallel_world_size(),
-        pipeline_model_parallel_size=mpu.get_pipeline_model_parallel_world_size(),
-        virtual_pipeline_model_parallel_size=mpu.get_virtual_pipeline_model_parallel_world_size(),
-        context_parallel_size=mpu.get_context_parallel_world_size(),
-        overlap_p2p_comm=overlap_p2p_comm,
-        batch_p2p_comm=batch_p2p_comm,
-        sequence_parallel=mpu.get_tensor_model_parallel_world_size() > 1,
-        attention_backend=AttnBackend.flash,
-        # ?
-        attention_softmax_in_fp32=False,
-        persist_layer_norm=True,
-        bias_dropout_fusion=True,
-        distribute_saved_activations=False,
-        cp_comm_type="p2p",
-        # moe specific
-        moe_token_dispatcher_type="alltoall",
         # qwen specific
         add_qkv_bias=True,
         mrope_section=hf_config.rope_scaling["mrope_section"],
+        **override_transformer_config_kwargs,
     )
-
-    return transformer_config
 
 
 def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
