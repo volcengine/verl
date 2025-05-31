@@ -202,6 +202,9 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     Returns:
         dataset (Dataset): The dataset.
     """
+    if not data_paths:
+        return None
+
     from torch.utils.data import Dataset
 
     from verl.utils.dataset.rl_dataset import RLHFDataset
