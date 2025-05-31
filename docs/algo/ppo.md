@@ -23,17 +23,21 @@ For more technical details regarding PPO, we suggest reading the introduction in
 
 Note that all configs containing `micro_batch_size` are used to configure the maximum sample or token count per forward or backward pass to avoid GPU OOMs, whose value should not change algorithmic/convergence behavior.
 
-Most critic configs are similar to those of actors. We list a few key configs under `actor_rollout_ref.actor` in the following paragraph. Note that the critic model is omitted from the figure below, too.
+Most critic configs are similar to those of actors. Note that the critic model is omitted from the figure below.
 
 ![image](https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d)
 
 - `data.train_batch_size`: The global batch size of prompts used to generate a set of sampled trajectories/rollouts. The number of responses/trajectories is `data.train_batch_size * actor_rollout.ref.rollout.n`
 
-- `actor_rollout_ref.actor.ppo_mini_batch_size`: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO updates. The ppo_mini_batch_size is a global size across all workers
+- `actor_rollout_ref.actor.ppo_mini_batch_size`: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO actor updates. The ppo_mini_batch_size is a global size across all workers
+
+- `actor_rollout_ref.critic.ppo_mini_batch_size`: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO critic updates. The ppo_mini_batch_size is a global size across all workers
 
 - `actor_rollout_ref.actor.clip_ratio`: The PPO clip range. Default to 0.2
 
-- `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories
+- `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for actor
+
+- `actor_rollout_ref.actor.ppo_epochs`: Number of epochs for PPO updates on one set of sampled trajectories for critic
 
 - `algorithm.gemma`: discount factor
 
