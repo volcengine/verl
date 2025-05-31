@@ -23,6 +23,10 @@ import ray
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
+# fix for DeepSeek-V3 using vLLM backend
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
+
 def get_custom_reward_fn(config):
     import importlib.util
     import sys
