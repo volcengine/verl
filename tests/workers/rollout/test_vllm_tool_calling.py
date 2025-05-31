@@ -146,7 +146,7 @@ class ToolChatCompletionScheduler(NaiveChatCompletionScheduler):
 
         max_turns = 3
 
-        async def callback(completions: ChatCompletion, info: Dict[str, Any], exception: Exception):
+        async def callback(completions: ChatCompletion, info: Dict[str, Any], server_address: str, exception: Exception):
             batch_conversations, batch_index, turn = (
                 info["batch_conversations"],
                 info["batch_index"],
@@ -180,17 +180,15 @@ class ToolChatCompletionScheduler(NaiveChatCompletionScheduler):
             print(f"[id={completions.id},turn={turn}] Code block executed, continue...")
 
             # STEP 4: resubmit chat completions with code block output
-            extra_headers = {"x-request-id": completions.id}
-            await self.submit_chat_completions(
+            await self.submit_single_chat_completion(
                 callback=callback,
                 callback_additional_info={
                     "batch_conversations": batch_conversations,
                     "batch_index": batch_index,
                     "turn": turn + 1,
                 },
-                model=self.model_name,
+                server_address=server_address,
                 messages=batch_conversations[batch_index],
-                extra_headers=extra_headers,
                 **kwargs,
             )
 
@@ -207,7 +205,6 @@ class ToolChatCompletionScheduler(NaiveChatCompletionScheduler):
                             "batch_index": batch_index,
                             "turn": 1,
                         },
-                        model=self.model_name,
                         messages=batch_conversations[batch_index],
                         **kwargs,
                     )
