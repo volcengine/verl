@@ -30,6 +30,7 @@ from verl.utils.megatron_utils import (
     get_hf_model_checkpoint_path,
     get_model_checkpoint_path,
     get_optimizer_checkpoint_path,
+    get_optimizer_scheduler_checkpoint_path,
     get_rng_states_checkpoint_path,
 )
 
@@ -63,7 +64,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         share_embeddings_and_output_weights: bool,
         tokenizer,
         optimizer,
+        optimizer_scheduler,
         use_distributed_optimizer: bool,
+        use_checkpoint_opt_param_scheduler: bool = False,
         checkpoint_contents: Optional[list] = None,
         **kwargs,
     ):
@@ -72,7 +75,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         super().__init__(
             model,
             optimizer=optimizer,
-            lr_scheduler=None,
+            lr_scheduler=optimizer_scheduler,
             processing_class=tokenizer,
             checkpoint_contents=checkpoint_contents,
         )
@@ -88,6 +91,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.model_path = self.config.model.path
         self.use_distributed_optimizer = use_distributed_optimizer
+        self.use_checkpoint_opt_param_scheduler = use_checkpoint_opt_param_scheduler
 
         self.rank = torch.distributed.get_rank()
 
@@ -213,6 +217,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if "extra" in self.checkpoint_contents:
             self.load_rng_states(local_path)
+            if self.use_checkpoint_opt_param_scheduler:
+                optimizer_scheduler_path = get_optimizer_scheduler_checkpoint_path(local_path, only_rank0_save=False)
+                if os.path.exists(optimizer_scheduler_path):
+                    print(f"Loading optimizer scheduler from {optimizer_scheduler_path}")
+                    state_dict = torch.load(optimizer_scheduler_path, weights_only=False)
+                    if self.lr_scheduler is not None:
+                        self.lr_scheduler.load_state_dict(state_dict)
+                else:
+                    print(f"Optimizer scheduler path {optimizer_scheduler_path} does not exist, skipping loading.")
 
         if del_local_after_load:
             try:
@@ -323,5 +336,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             rng_state = self.get_rng_state()
             torch.save(rng_state, rng_state_path)
             print(f"Rank {self.rank} saving rng states to {rng_state_path}")
+
+            optimizer_scheduler_path = get_optimizer_scheduler_checkpoint_path(local_path, only_rank0_save=False)
+            if self.lr_scheduler is not None:
+                state_dict = self.lr_scheduler.state_dict()
+                torch.save(state_dict, optimizer_scheduler_path)
+                if self.rank == 0:
+                    print(f"Rank {self.rank} saving optimizer scheduler state to {optimizer_scheduler_path}")
 
         self.previous_saved_paths.append(local_path)
