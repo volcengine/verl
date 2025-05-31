@@ -1,5 +1,6 @@
 # markdown suport
 recommonmark
+myst_parser
 # markdown table suport
 sphinx-markdown-tables
 

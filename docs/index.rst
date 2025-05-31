@@ -5,9 +5,9 @@ verl is a flexible, efficient and production-ready RL training framework designe
 
 verl is flexible and easy to use with:
 
-- **Easy extension of diverse RL algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
+- **Easy extension of diverse RL algorithms**: The hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
 
-- **Seamless integration of existing LLM infra with modular APIs**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM and vLLM. Moreover, users can easily extend to other LLM training and inference frameworks.
+- **Seamless integration of existing LLM infra with modular APIs**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM, vLLM and SGLang. Moreover, users can easily extend to other LLM training and inference frameworks.
 
 - **Flexible device mapping and parallelism**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
 
@@ -62,11 +62,13 @@ verl is fast with:
    examples/multi_modal_example
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Algorithms
 
-   experiment/ppo
-
+   algo/ppo.md
+   algo/sppo.md
+   algo/spin.md
+   algo/baseline.md
 
 .. toctree:: 
    :maxdepth: 1
