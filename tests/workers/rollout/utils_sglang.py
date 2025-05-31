@@ -152,7 +152,7 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
                 "max_turns": 4,
                 "enable": True,
                 "tool_config_path": tool_config_path,
-                "format": "chatml",
+                "tokenization_mode": "fast",
             },
             "max_model_len": None,
             **sampling_params,
