@@ -50,7 +50,7 @@ Instead of adding KL penalty in the reward, GRPO regularizes by directly adding 
 
 ### DrGRPO
 
-The work [Understanding R1-Zero-Like Training: A Critical Perspective](https://arxiv.org/pdf/2503.20783) claims there's optimization bias in GRPO, that leads to artificially longer responses, especially for incorrect outputs. This inefficiency stems from the way GRPO calculates advantages using group-based reward normalization, which can inadvertently favor longer, less accurate responses. Instead, DrGRPO aggregates token-level losses by normalizing with a global constant to eliminate length bias.
+[Understanding R1-Zero-Like Training: A Critical Perspective](https://arxiv.org/pdf/2503.20783) claims there's optimization bias in GRPO, which leads to artificially longer responses, especially for incorrect outputs. This inefficiency stems from the way GRPO calculates advantages using group-based reward normalization. Instead, DrGRPO aggregates token-level losses by normalizing with a global constant to eliminate length bias.
 
 Configure the following to enable DrGRPO, with all other parameters the same as GRPO's:
 
