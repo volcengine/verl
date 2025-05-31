@@ -4,8 +4,10 @@ set -x
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # For async rollout mode, dataset should return raw chat.
-rollout_mode="sync"
+rollout_mode="async"
+rollout_name="sglang" # sglang or vllm
 if [ "$rollout_mode" = "async" ]; then
+    export VLLM_USE_V1=1
     return_raw_chat="True"
     chat_scheduler=examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler
 fi
@@ -34,7 +36,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.name=$rollout_name \
     actor_rollout_ref.rollout.mode=$rollout_mode \
     actor_rollout_ref.rollout.chat_scheduler=$chat_scheduler \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
