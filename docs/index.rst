@@ -98,6 +98,7 @@ verl is fast with:
 
    advance/checkpoint
    advance/rope
+   advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
    advance/placement
    advance/dpo_extension
