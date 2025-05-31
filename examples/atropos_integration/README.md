@@ -1,177 +1,231 @@
-# Atropos Integration for VERL
+# Atropos-VERL Integration
 
-This directory demonstrates the integration between [Atropos](https://github.com/NousResearch/atropos) and VERL's training infrastructure.
+This directory contains a complete integration solution for using Atropos with VERL, addressing the **critical missing piece**: policy weight synchronization during RL training.
 
-## Overview
+## The Core Problem
 
-This integration provides **token-level advantage-weighted supervised fine-tuning (SFT)**, exactly as requested by Nous Research:
+The original question was about **how inference/policy weights get updated every step** during RL training. In proper RL, you need:
 
-## Core Interface Demonstration
+1. **Rollout**: Generate sequences with current policy
+2. **Training**: Update policy weights using advantages  
+3. **Weight Sync**: Update inference engine with new weights
+4. **Repeat**: Next rollout uses updated policy
 
-The main demonstration is in `atropos_example.py`, which shows the exact interface working:
+Without step 3, your inference engine uses stale weights, leading to poor RL training.
 
-```python
-# Exact interface as requested
-loss = trainer.compute_advantage_weighted_sft_loss(
-    input_ids=input_ids,      # batch of tokens
-    advantages=advantages,    # advantages of same shape  
-    loss_mask=loss_mask       # loss masks of same shape
-)
+## Our Solution
 
-# Ready for backpropagation
-loss.backward()
-```
-
-## Quick Start
-
-### 1. Installation
-
-```bash
-# Install VERL requirements
-pip install -r requirements.txt
-```
-
-### 2. Run the Demo
-
-```bash
-python examples/atropos_integration/atropos_example.py
-```
-
-This will demonstrate:
-- Loading a model (GPT-2 for demo)
-- Creating sample conversations with token-level advantages
-- Computing advantage-weighted loss with proper masking
-- Showing the interface ready for backpropagation
-
-## What the Demo Shows
-
-### Input Data (Same Shape Requirements)
-- **Input tokens**: `torch.Size([2, 18])` - batch of tokenized conversations
-- **Advantages**: `torch.Size([2, 18])` - token-level advantages (same shape)
-- **Loss mask**: `torch.Size([2, 18])` - loss computation mask (same shape)
-
-### Processing
-1. **Token-level CE computation**: Standard cross-entropy with no reduction
-2. **Advantage weighting**: Scale CE loss by token advantages  
-3. **Loss masking**: Only compute loss on relevant tokens (assistant responses)
-4. **Reduction**: Average over valid tokens to get scalar loss
-
-### Output
-```
-Processing batch:
-  Input tokens shape: torch.Size([2, 18])
-  Advantages shape: torch.Size([2, 18])
-  Loss mask shape: torch.Size([2, 18])
-  Valid tokens: 18.0
-  Final loss: 3.4479
-
-Interface demonstration complete!
-Loss requires grad: False
-Ready for: loss.backward()
-```
-
-## Core Algorithm
-
-The implementation follows the exact bounty requirements:
-
-```python
-def compute_advantage_weighted_sft_loss(input_ids, advantages, loss_mask):
-    # Forward pass through model
-    outputs = model(input_ids=input_ids)
-    logits = outputs.logits
-    
-    # Prepare for loss computation (shift for next-token prediction)
-    shift_logits = logits[..., :-1, :].contiguous()
-    shift_labels = input_ids[..., 1:].contiguous()
-    shift_advantages = advantages[..., :-1].contiguous()
-    shift_loss_mask = loss_mask[..., :-1].contiguous()
-    
-    # Flatten for cross-entropy computation
-    flat_logits = shift_logits.view(-1, shift_logits.size(-1))
-    flat_labels = shift_labels.view(-1)
-    flat_advantages = shift_advantages.view(-1)
-    flat_loss_mask = shift_loss_mask.view(-1)
-    
-    # Compute token-level cross-entropy loss (no reduction)
-    ce_loss = F.cross_entropy(flat_logits, flat_labels, reduction='none')
-    
-    # Apply advantage weighting and loss masking
-    weighted_loss = ce_loss * flat_advantages * flat_loss_mask
-    
-    # Reduce to scalar
-    return weighted_loss.sum() / (flat_loss_mask.sum() + 1e-8)
-```
+This integration demonstrates how VERL's **Sharding Manager** system solves this challenge with automatic weight synchronization.
 
 ## Files
 
-- **`atropos_example.py`**: Complete demonstration of the interface
-- **`README.md`**: This documentation
+### `atropos_example.py`
+Complete demonstration of the RL loop with weight synchronization:
+- `MockInferenceEngine`: Represents vLLM/SGLang inference engine
+- `MockShardingManager`: Shows VERL's weight sync mechanism  
+- `MockAtroposRLTrainer`: Complete RL trainer with proper weight management
 
-## Sample Output
+### `verl/trainer/atropos_sft_trainer.py` 
+Extended VERL SFT trainer with advantage weighting support:
+- Advantage-weighted cross-entropy loss computation
+- Token-level advantage normalization and clipping
+- Compatible with VERL's FSDP infrastructure
+- Direct interface for computing advantage-weighted SFT loss
 
-When you run the demo, you'll see:
+### `verl/trainer/config/atropos_sft_trainer.yaml`
+Configuration template for Atropos SFT training with advantage weighting:
+- Standard VERL SFT configuration options
+- Atropos-specific advantage weighting settings
+- Data loading and API configuration options
 
-```
-ATROPOS-VERL ADVANTAGE-WEIGHTED SFT DEMO
-=============================================
-Demonstrating the core interface:
-• Given: batch of tokens, advantages, loss masks (same shape)
-• Compute: token-level CE scaled by advantages
-• Output: reduced loss ready for backprop
+## Quick Start
 
-Loading model and tokenizer...
-Creating sample data...
-
-Sample conversation: 'User: What is 2+2? Assistant: 2+2 equals 4.'
-Tokenized shape: torch.Size([2, 18])
-Sample advantages: [0.95, 0.36, 0.26, 1.05, 1.10, ...]
-Sample loss mask: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0]
-
-COMPUTING ADVANTAGE-WEIGHTED LOSS
-=======================================================
-Processing batch:
-  Input tokens shape: torch.Size([2, 18])
-  Advantages shape: torch.Size([2, 18])
-  Loss mask shape: torch.Size([2, 18])
-  Flattened logits shape: torch.Size([34, 50257])
-  Valid tokens: 18.0
-  Token-level CE loss (sample): [3.98, 6.14, 1.97, 7.84, 5.76]
-  Advantages (sample): [0.95, 0.36, 0.26, 1.05, 1.10]
-  Weighted loss (sample): [0.0, 0.0, 0.0, 0.0, 0.0]
-  Final loss: 3.4479
-
-Interface demonstration complete!
-Loss requires grad: False
-Ready for: loss.backward()
-```
-
-## Key Features Demonstrated
-
-✅ **Exact Interface Match**: `compute_advantage_weighted_sft_loss(input_ids, advantages, loss_mask)`  
-✅ **Same Shape Requirement**: All inputs have identical shapes  
-✅ **Token-level CE**: Cross-entropy computed per token with no reduction  
-✅ **Advantage Weighting**: CE loss scaled by token advantages  
-✅ **Loss Masking**: Only relevant tokens contribute to final loss  
-✅ **Scalar Output**: Ready for `loss.backward()`  
-
-## Integration with Atropos
-
-While this demo uses mock data, the interface is designed to work with real Atropos environments:
-
-- **Atropos provides**: `token_advantages` from RL scoring and `mask` for loss computation
-- **VERL processes**: Using the exact interface demonstrated here
-- **Result**: Advantage-weighted SFT training as requested
-
-## Testing
-
-Run the demo to verify the interface works:
+Run the complete integration demo:
 
 ```bash
-python examples/atropos_integration/atropos_example.py
+python atropos_example.py
 ```
 
-The output confirms:
-- All tensor shapes match
-- Token-level advantages are applied correctly
-- Loss masking works properly
-- Final scalar loss is ready for backpropagation
+This demonstrates:
+1. **Automatic weight synchronization** before each rollout
+2. **Advantage-weighted training** with proper loss computation
+3. **Memory optimization** with automatic inference engine offloading
+4. **Complete RL loop** where each step uses updated policy weights
+
+## Key Integration Points
+
+### 1. Weight Synchronization (The Missing Piece!)
+
+```python
+# VERL's magic: automatic weight sync via context manager
+with sharding_manager:
+    # Automatically syncs training weights → inference engine
+    # Does rollout with updated weights
+    # Releases memory after inference
+    rollout_data = inference_engine.generate(prompts)
+```
+
+### 2. Advantage-Weighted Loss
+
+```python
+# Core interface for Atropos integration
+loss = trainer.compute_advantage_weighted_sft_loss(
+    input_ids=tokens,      # Shape: (batch_size, seq_len)
+    advantages=advantages, # Shape: (batch_size, seq_len) 
+    loss_mask=loss_mask   # Shape: (batch_size, seq_len)
+)
+```
+
+### 3. Complete RL Loop
+
+```python
+def rl_training_step(self, prompts):
+    # 1. Rollout with automatic weight sync
+    with self.sharding_manager:
+        rollout_data = self.rollout_phase(prompts)
+    
+    # 2. Compute advantages from Atropos environment
+    advantages = self.compute_advantages(rollout_data)
+    
+    # 3. Train with advantage-weighted loss
+    loss = self.training_phase(rollout_data, advantages)
+    
+    # 4. Next rollout automatically uses updated weights!
+    return loss
+```
+
+## Integration Options
+
+### Option 1: Use VERL Sharding Managers (Recommended)
+
+```python
+from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
+
+# Most compatible approach - leverages VERL's optimized infrastructure
+sharding_manager = FSDPSGLangShardingManager(
+    module=training_model,
+    inference_engine=sglang_engine,
+    model_config=config
+)
+```
+
+### Option 2: Bridge with Atropos ChatScheduler
+
+```python
+# If Atropos has its own ChatScheduler, create a bridge
+class AtroposChatSchedulerBridge:
+    def sync_weights_to_atropos(self):
+        state_dict = self.training_model.state_dict()
+        self.atropos_scheduler.update_policy_weights(state_dict)
+```
+
+### Option 3: Custom Weight Sync
+
+```python
+# Full control implementation
+def sync_weights(self):
+    state_dict = self.training_model.state_dict()
+    self.inference_engine.update_weights_from_tensor(state_dict.items())
+```
+
+## Example Output
+
+```
+============================================================
+RL TRAINING STEP 0
+============================================================
+ROLLOUT PHASE (Step 0)
+
+ENTERING SHARDING MANAGER
+   Syncing training weights → inference engine...
+   Updating inference engine weights...
+   Updated 149 weight tensors
+   Weight synchronization complete!
+Generating with inference engine...
+EXITING SHARDING MANAGER
+
+COMPUTING ADVANTAGES
+   Computed advantages shape: torch.Size([2, 17])
+TRAINING PHASE
+   Training loss: -1.5121
+```
+
+## AtroposSFTTrainer Usage
+
+The `AtroposSFTTrainer` extends VERL's standard SFT trainer with advantage weighting:
+
+```python
+from verl.trainer.atropos_sft_trainer import AtroposSFTTrainer
+
+# Initialize trainer with advantage weighting config
+trainer = AtroposSFTTrainer(
+    config=config,  # Include use_advantage_weighting=True
+    device_mesh=device_mesh,
+    ulysses_device_mesh=ulysses_device_mesh,
+    tokenizer=tokenizer,
+    train_dataset=train_dataset,
+    val_dataset=val_dataset
+)
+
+# Direct advantage-weighted loss computation
+loss = trainer.compute_advantage_weighted_sft_loss(
+    input_ids=input_ids,
+    advantages=advantages,
+    loss_mask=loss_mask
+)
+```
+
+## Configuration
+
+Key configuration options in `atropos_sft_trainer.yaml`:
+
+```yaml
+# Enable advantage weighting
+use_advantage_weighting: true
+advantage_normalization: "batch"  # "none", "batch", "global"
+advantage_clipping: [-5.0, 5.0]  # [min, max] or null
+
+# Data configuration for Atropos integration
+data:
+  atropos:
+    api_url: "http://localhost:8000"  # Optional API endpoint
+    data_path: "path/to/data.jsonl"   # Optional static data
+    batch_size: 32
+    refresh_interval: 10
+```
+
+## Production Integration
+
+For production use with Atropos:
+
+1. **Replace mock classes** with real Atropos environment APIs
+2. **Use appropriate sharding manager** (FSDP+SGLang, FSDP+vLLM, etc.)
+3. **Configure memory optimization** for your GPU setup
+4. **Add proper error handling** for weight sync failures
+5. **Monitor weight sync overhead** vs training time
+6. **Use AtroposSFTTrainer** for advantage-weighted training
+
+## Why This Matters
+
+This integration ensures that:
+- Each rollout uses the **latest policy weights**
+- Training updates are **immediately available** for next rollout  
+- Memory is **efficiently managed** during weight transfers
+- The RL loop maintains **proper training dynamics**
+
+Without proper weight synchronization, you get:
+- Stale policy weights during rollouts
+- Poor RL training convergence
+- Inconsistent policy behavior
+- Wasted compute on outdated rollouts
+
+## Next Steps
+
+1. **Run** `atropos_example.py` to see the complete flow in action
+2. **Review** `verl/trainer/atropos_sft_trainer.py` for the production-ready trainer
+3. **Configure** using `verl/trainer/config/atropos_sft_trainer.yaml` as a template
+4. **Adapt** the sharding manager approach to your Atropos setup
+5. **Test** weight synchronization in your environment
+6. **Deploy** with proper monitoring and error handling
+
+The key insight is that **VERL's sharding manager system already solves the weight synchronization challenge** - you just need to integrate it properly with Atropos!
