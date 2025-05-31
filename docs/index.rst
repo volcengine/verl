@@ -25,7 +25,7 @@ verl is fast with:
 .. _Contents:
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
    :caption: Quickstart
 
    start/install
@@ -34,21 +34,21 @@ verl is fast with:
    start/ray_debug_tutorial
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
    :caption: Programming guide
 
    hybrid_flow
    single_controller
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
    :caption: Data Preparation
 
    preparation/prepare_data
    preparation/reward_function
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
    :caption: Configurations
 
    examples/config
@@ -62,7 +62,7 @@ verl is fast with:
    examples/multi_modal_example
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Algorithms
 
    algo/ppo.md
@@ -119,7 +119,7 @@ verl is fast with:
 
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: FAQ
 
    faq/faq
