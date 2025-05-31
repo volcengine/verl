@@ -81,11 +81,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.load_format = load_format
         self.layered_summon = layered_summon
 
-        # Full params
+        # Full params: true only when world_size == 1
         self.full_params = full_params
         if full_params and fsdp_version(self.module) == 1:
+            print("set state_dict_type to FULL_STATE_DICT")
             FSDP.set_state_dict_type(self.module, state_dict_type=StateDictType.FULL_STATE_DICT, state_dict_config=FullStateDictConfig())
         elif fsdp_version(self.module) == 1:
+            print("set state_dict_type to SHARDED_STATE_DICT")
             FSDP.set_state_dict_type(
                 self.module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
@@ -175,6 +177,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             peft_config = self.module._fsdp_wrapped_module.peft_config.get('default', None)
             params = __collect_lora_params()
         else:
+            # TODO: state_dict() is FSDP's method which may collect related params.
             params = self.module.state_dict()
         log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 

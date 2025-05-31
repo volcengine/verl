@@ -84,7 +84,7 @@ class DataParallelPPOActor(BasePPOActor):
             for key in micro_batch["multi_modal_inputs"][0].keys():
                 multi_modal_inputs[key] = torch.cat([inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0)
 
-        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+        with torch.autocast(device_type=self.device_name, dtype=torch.float16):
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -245,6 +245,7 @@ class DataParallelPPOActor(BasePPOActor):
             print(f"WARN: rank {torch.distributed.get_rank()} grad_norm is not finite: {grad_norm}")
             self.actor_optimizer.zero_grad()
         else:
+            # TODO: Update actor/policy model weights
             self.actor_optimizer.step()
         return grad_norm
 
@@ -431,6 +432,7 @@ class DataParallelPPOActor(BasePPOActor):
                     }
                     append_to_dict(metrics, data)
 
+                # TODO: Update actor/policy model weights
                 grad_norm = self._optimizer_step()
                 data = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, data)
