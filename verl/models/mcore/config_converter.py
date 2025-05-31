@@ -204,7 +204,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
     if "rope_scaling" in hf_config and hf_config.rope_scaling is not None:
         mla_rope_config.update(hf_config.rope_scaling)
     moe_layer_freq = [1] * hf_config.num_hidden_layers
-    for i in range(hf_config.first_k_dense_replace):
+    for i in range(min(hf_config.first_k_dense_replace, hf_config.num_hidden_layers)):
         moe_layer_freq[i] = 0
 
     args = _get_base_transformer_config(
@@ -260,6 +260,10 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
         **override_transformer_config_kwargs,
     )
     transformer_config = MLATransformerConfig(**args)
+    # MTP
+    if "num_nextn_predict_layers" in hf_config:
+        transformer_config.mtp_num_layers = hf_config.num_nextn_predict_layers
+        transformer_config.mtp_loss_scaling_factor = 0.1
 
     return transformer_config
 

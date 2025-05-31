@@ -257,6 +257,23 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
 
         return convert_names, params
 
+    def _convert_mtp_param(self, name: str, params: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
+        assert self.mcore_config.mtp_num_layers == 1, "only support one mtp layer for now"
+        assert self.mcore_config.num_layers == 61, "only support 61 layers for now"
+        direct_name_mapping = {"mtp.layers.0.enorm.weight": "model.layers.61.enorm.weight", "mtp.layers.0.hnorm.weight": "model.layers.61.hnorm.weight", "mtp.layers.0.eh_proj.weight": "model.layers.61.eh_proj.weight", "mtp.layers.0.final_layernorm.weight": "model.layers.61.shared_head.norm.weight"}
+        if name in direct_name_mapping:
+            return [direct_name_mapping[name]], [params[0]]
+        assert "mtp.layers.0.transformer_layer" in name, "only support transformer layer for now"
+        # use proxy name to convert
+        proxy_name = name.replace("mtp.layers.0.transformer_layer", "decoder.layers.61")
+        if "self_attention" in proxy_name or "input_layernorm.weight" in proxy_name:
+            convert_names, params = self._convert_attention_param(proxy_name, params)
+        elif "mlp" in proxy_name:
+            convert_names, params = self._convert_mlp_param(proxy_name, params)
+        else:
+            raise NotImplementedError(f"Unsupported parameter name: {name}")
+        return convert_names, params
+
     def convert_param(self, name: str, params_one_group: list[torch.Tensor]) -> tuple[list[str], list[torch.Tensor]]:
         direct_name_mapping = {
             "embedding.word_embeddings.weight": "model.embed_tokens.weight",
@@ -265,8 +282,9 @@ class McoreToHFWeightConverterDpskv3(McoreToHFWeightConverterBase):
         }
         if name in direct_name_mapping:
             return [direct_name_mapping[name]], [params_one_group[0]]
-
-        if "self_attention" in name or "input_layernorm.weight" in name:
+        if "mtp" in name:
+            return self._convert_mtp_param(name, params_one_group)
+        elif "self_attention" in name or "input_layernorm.weight" in name:
             return self._convert_attention_param(name, params_one_group)
         elif "mlp" in name:
             return self._convert_mlp_param(name, params_one_group)
