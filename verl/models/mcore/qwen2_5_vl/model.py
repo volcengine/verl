@@ -11,6 +11,7 @@ from megatron.core.transformer import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_config import TransformerConfig
 
+from .attention import Qwen2_5VLSelfAttention
 from .vision_model import Qwen2_5VisionModel
 
 
@@ -25,13 +26,10 @@ class Qwen2_5VLModel(MegatronModule):
         language_max_sequence_length (int): Language model maximum sequence length. This is used for positional embedding.
         vision_transformer_config (TransformerConfig): Transformer config for the vision model.
         vision_transformer_layer_spec (ModuleSpec): Specifies module to use for transformer layers of the vision model.
-        drop_vision_class_token (bool): Drop vision class token(s) before input to the language model.
         vision_projection_config (TransformerConfig): Config for the projection from vision model outputs to language model inputs.
         vision_projection_layer_spec (ModuleSpec): Specifies the module to use for the vision projection.
         vision_projection_type (str): Type of the vision projection to use. Default is a 2-layer MLP.
-        allow_missing_vision_projection_checkpoint (bool): Allow vision projection weights to be missing when loading a checkpoint. Default False.
         parallel_output (bool): Do not gather the outputs, keep them split across tensor parallel ranks. This is typically True for training and False for inference.
-        language_position_embedding_type (str): Position embedding type to use in the language model. Default learned absolute.
         language_rotary_percent (float): Percent of rotary dimension to use for rotary position embeddings in the language model. Defaults to 1.0.
         pre_process (bool): Include the embedding layer in the gpt decoder (used with pipeline parallelism). Defaults to True.
         post_process (bool): Include an output layer and a layernorm in the gpt decoder (used with pipeline parallelism). Defaults to True.
@@ -53,13 +51,10 @@ class Qwen2_5VLModel(MegatronModule):
         language_max_sequence_length: int,
         vision_transformer_config: TransformerConfig,
         vision_transformer_layer_spec: ModuleSpec,
-        drop_vision_class_token: bool,
         vision_projection_config: TransformerConfig,
         vision_projection_layer_spec: ModuleSpec,
         vision_projection_type: str = "mlp",
-        allow_missing_vision_projection_checkpoint: bool = False,
         parallel_output: bool = True,
-        language_position_embedding_type: str = "mrope",
         language_rotary_percent: float = 1.0,
         pre_process: bool = True,
         post_process: bool = True,
@@ -72,6 +67,11 @@ class Qwen2_5VLModel(MegatronModule):
         video_token_id: int = 151656,
     ) -> None:
         super().__init__(config=language_transformer_config)
+
+        # patch self_attention to use qwen2_5_vl attention
+        vision_transformer_layer_spec.submodules.self_attention.module = Qwen2_5VLSelfAttention
+        for layer_spec in language_transformer_layer_spec.layer_specs:
+            layer_spec.submodules.self_attention.module = Qwen2_5VLSelfAttention
 
         logging.getLogger(__name__).warning("Qwen2VL model is under development and may be missing features.")
 
@@ -163,11 +163,6 @@ class Qwen2_5VLModel(MegatronModule):
         inference_params: InferenceParams = None,
         packed_seq_params: PackedSeqParams = None,
         extra_block_kwargs: dict = None,
-        # vision_data: torch.Tensor = None,
-        # vision_grid_thw: torch.Tensor = None,
-        # video_start_index: int = -1,
-        # image_input_mask: torch.Tensor = None,
-        # video_input_mask: torch.Tensor = None,
         pixel_values: torch.Tensor = None,
         pixel_values_videos: torch.Tensor = None,
         image_grid_thw: torch.Tensor = None,
