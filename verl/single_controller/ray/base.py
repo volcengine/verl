@@ -90,7 +90,7 @@ class RayResourcePool(ResourcePool):
         name_prefix: str = "",
         max_colocate_count: int = 10,
         detached=False,
-        device_label: Optional[str] = None,
+        accelerator_type: Optional[str] = None,
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
@@ -98,7 +98,7 @@ class RayResourcePool(ResourcePool):
         self.name_prefix = name_prefix
         self.pgs = None
         self.detached = detached
-        self.device_label = device_label
+        self.accelerator_type = accelerator_type
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -114,8 +114,8 @@ class RayResourcePool(ResourcePool):
         bundle = {"CPU": self.max_colocate_count}
         if self.use_gpu:
             bundle[device_name] = 1
-            if self.device_label is not None:
-                bundle[self.device_label] = 1e-4
+            if self.accelerator_type is not None:
+                bundle[self.accelerator_type] = 1e-4
         pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
