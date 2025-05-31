@@ -41,7 +41,7 @@ verl is fast with:
    single_controller
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Data Preparation
 
    preparation/prepare_data
@@ -54,7 +54,7 @@ verl is fast with:
    examples/config
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: PPO Example
 
    examples/ppo_code_architecture
