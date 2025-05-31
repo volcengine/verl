@@ -66,8 +66,10 @@ verl is fast with:
    :caption: Algorithms
 
    algo/ppo.md
-   algo/sppo.md
+   algo/grpo.md
+   algo/dapo.md
    algo/spin.md
+   algo/sppo.md
    algo/baseline.md
 
 .. toctree:: 
