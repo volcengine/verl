@@ -5,9 +5,9 @@ verl is a flexible, efficient and production-ready RL training framework designe
 
 verl is flexible and easy to use with:
 
-- **Easy extension of diverse RL algorithms**: The Hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
+- **Easy extension of diverse RL algorithms**: The hybrid programming model combines the strengths of single-controller and multi-controller paradigms to enable flexible representation and efficient execution of complex Post-Training dataflows. Allowing users to build RL dataflows in a few lines of code.
 
-- **Seamless integration of existing LLM infra with modular APIs**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM and vLLM. Moreover, users can easily extend to other LLM training and inference frameworks.
+- **Seamless integration of existing LLM infra with modular APIs**: Decouples computation and data dependencies, enabling seamless integration with existing LLM frameworks, such as PyTorch FSDP, Megatron-LM, vLLM and SGLang. Moreover, users can easily extend to other LLM training and inference frameworks.
 
 - **Flexible device mapping and parallelism**: Supports various placement of models onto different sets of GPUs for efficient resource utilization and scalability across different cluster sizes.
 
@@ -25,7 +25,7 @@ verl is fast with:
 .. _Contents:
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
    :caption: Quickstart
 
    start/install
@@ -34,27 +34,27 @@ verl is fast with:
    start/ray_debug_tutorial
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
    :caption: Programming guide
 
    hybrid_flow
    single_controller
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 1
    :caption: Data Preparation
 
    preparation/prepare_data
    preparation/reward_function
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 2
    :caption: Configurations
 
    examples/config
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: PPO Example
 
    examples/ppo_code_architecture
@@ -65,8 +65,12 @@ verl is fast with:
    :maxdepth: 1
    :caption: Algorithms
 
-   experiment/ppo
-
+   algo/ppo.md
+   algo/grpo.md
+   algo/dapo.md
+   algo/spin.md
+   algo/sppo.md
+   algo/baseline.md
 
 .. toctree:: 
    :maxdepth: 1
@@ -98,6 +102,7 @@ verl is fast with:
 
    advance/checkpoint
    advance/rope
+   advance/ppo_lora.rst
    sglang_multiturn/multiturn.rst
    advance/placement
    advance/dpo_extension
@@ -114,7 +119,7 @@ verl is fast with:
 
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: FAQ
 
    faq/faq

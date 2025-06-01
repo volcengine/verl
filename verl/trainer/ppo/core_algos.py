@@ -532,6 +532,7 @@ def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torc
 def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
     Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
+    See more description in http://joschu.net/blog/kl-approx.html
 
     Args:
         logprob:
@@ -540,18 +541,18 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     Returns:
 
     """
-    if kl_penalty == "kl":
+    if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob
 
     if kl_penalty == "abs":
         return (logprob - ref_logprob).abs()
 
-    if kl_penalty == "mse":
+    if kl_penalty in ("mse", "k2"):
         return 0.5 * (logprob - ref_logprob).square()
 
     # J. Schulman. Approximating kl divergence, 2020.
     # # URL http://joschu.net/blog/kl-approx.html.
-    if kl_penalty == "low_var_kl":
+    if kl_penalty in ("low_var_kl", "k3"):
         kl = ref_logprob - logprob
         ratio = torch.exp(kl)
         kld = (ratio - kl - 1).contiguous()
