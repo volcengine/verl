@@ -20,36 +20,10 @@ import os
 import hydra
 import ray
 
-from .dapo_ray_trainer import RayDAPOTrainer
+from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils.device import is_cuda_available
 
-
-def get_custom_reward_fn(config):
-    import importlib.util
-
-    reward_fn_config = config.get("custom_reward_function") or {}
-    file_path = reward_fn_config.get("path")
-    if not file_path:
-        return None
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
-
-    spec = importlib.util.spec_from_file_location("custom_module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}'") from e
-
-    function_name = reward_fn_config.get("name")
-
-    if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
-
-    print(f"using customized reward function '{function_name}' from '{file_path}'")
-
-    return getattr(module, function_name)
+from .dapo_ray_trainer import RayDAPOTrainer
 
 
 @hydra.main(config_path="config", config_name="dapo_trainer", version_base=None)
