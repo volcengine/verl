@@ -21,6 +21,9 @@ RESUME_MODE=${RESUME_MODE:-disable}
 SAVE_FREQ=${SAVE_FREQ:--1}
 TOTAL_TRAIN_STEPS=${TOTAL_TRAIN_STEPS:-1}
 
+USE_DYNAMIC_BSZ=${USE_DYNAMIC_BSZ:-True}
+ppo_max_token_len_per_gpu=2400
+forward_max_token_len_per_gpu=4800
 train_traj_micro_bsz_per_gpu=2 # b
 n_resp_per_prompt=4 # g
 
@@ -75,7 +78,7 @@ if [ $SKIP_SAVE_HF_MODEL -eq 1 ]; then
     CHECKPOINT_CONTENTS=['model','optimizer','extra']
 fi
 
-ENGINES=("vllm" "sglang_async")
+ENGINES=("vllm" "sglang")
 
 exp_name="$(basename "${MODEL_ID,,}")-megatron-gsm8k-minimal"
 
@@ -94,13 +97,12 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
+        actor_rollout_ref.actor.use_dynamic_bsz=${USE_DYNAMIC_BSZ} \
+        actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${ppo_max_token_len_per_gpu} \
         actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=$ACTOR_PP \
         actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=$ACTOR_VPP \
         actor_rollout_ref.actor.megatron.context_parallel_size=$ACTOR_CP \
         actor_rollout_ref.actor.megatron.tensor_model_parallel_size=$ACTOR_TP \
-        actor_rollout_ref.actor.megatron.param_offload=${ACTOR_PARAM_OFFLOAD} \
-        actor_rollout_ref.actor.megatron.optimizer_offload=${ACTOR_OPTIMIZER_OFFLOAD} \
-        actor_rollout_ref.actor.megatron.grad_offload=${ACTOR_GRAD_OFFLOAD} \
         actor_rollout_ref.actor.use_kl_loss=True \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -115,19 +117,16 @@ for ENGINE in "${ENGINES[@]}"; do
         actor_rollout_ref.ref.megatron.context_parallel_size=$REF_CP \
         actor_rollout_ref.ref.megatron.tensor_model_parallel_size=$REF_TP \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
-        actor_rollout_ref.ref.megatron.param_offload=${REF_PARAM_OFFLOAD} \
         critic.optim.lr=2e-5 \
         critic.model.path="${MODEL_PATH}" \
         critic.model.enable_gradient_checkpointing=False \
         critic.ppo_micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
+        critic.ppo_max_token_len_per_gpu=${forward_max_token_len_per_gpu} \
         critic.megatron.pipeline_model_parallel_size=$CRITIC_PP \
         critic.megatron.virtual_pipeline_model_parallel_size=$CRITIC_VPP \
         critic.megatron.context_parallel_size=$CRITIC_CP \
         critic.megatron.tensor_model_parallel_size=$CRITIC_TP \
         critic.checkpoint.contents=$CHECKPOINT_CONTENTS \
-        critic.megatron.param_offload=${CRITIC_PARAM_OFFLOAD} \
-        critic.megatron.optimizer_offload=${CRITIC_OPTIMIZER_OFFLOAD} \
-        critic.megatron.grad_offload=${CRITIC_GRAD_OFFLOAD} \
         reward_model.enable=True \
         reward_model.model.path="${MODEL_PATH}" \
         reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
@@ -135,7 +134,6 @@ for ENGINE in "${ENGINES[@]}"; do
         reward_model.megatron.virtual_pipeline_model_parallel_size=$RM_VPP \
         reward_model.megatron.context_parallel_size=$RM_CP \
         reward_model.megatron.tensor_model_parallel_size=$RM_TP \
-        reward_model.megatron.param_offload=${RM_PARAM_OFFLOAD} \
         algorithm.use_kl_in_reward=False \
         algorithm.kl_penalty=kl \
         algorithm.kl_ctrl.kl_coef=0.001 \

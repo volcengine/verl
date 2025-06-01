@@ -15,6 +15,12 @@
 import logging
 from typing import Tuple
 
+import logging
+from typing import Tuple
+
+import datetime
+import inspect
+from typing import Any
 import torch
 import torch.distributed as dist
 
@@ -54,17 +60,12 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
 class GPUMemoryLogger(DecoratorLoggerBase):
     """A decorator class to log GPU memory usage.
 
-    Usage:
-        For example, in actor function, we initialize a GPUMemoryLogger
-
-        ```
-        from verl.utils.debug.performance import GPUMemoryLogger
-        @GPUMemoryLogger(role="actor")
-        def update_actor(self, batch):
-            # do something
-            return
-        ```
-
+    Example:
+        >>> from verl.utils.debug.performance import GPUMemoryLogger
+        >>> @GPUMemoryLogger(role="actor")
+        >>> def update_actor(self, batch):
+        ...     # real actor update logics
+        ...     return
     """
 
     def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, log_only_rank_0: bool = True):
@@ -93,3 +94,12 @@ class GPUMemoryLogger(DecoratorLoggerBase):
 
         self.logging_function(message)
         return output
+
+def log_print(ctn: Any):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    frame = inspect.currentframe().f_back
+    function_name = frame.f_code.co_name
+    line_number = frame.f_lineno
+    file_name = frame.f_code.co_filename.split('/')[-1]
+    print(f"[{file_name}:{line_number}:{function_name}]: {ctn}")

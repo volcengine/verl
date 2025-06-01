@@ -22,7 +22,7 @@ import logging
 import os
 import pickle
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -34,9 +34,9 @@ from packaging import version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
+from verl.utils.device import get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
-from verl.utils.device import get_torch_device
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
@@ -249,7 +249,7 @@ class DataProto:
 
         # Case 3: Single integer - return DataProtoItem for backward compatibility
         elif isinstance(item, (int, np.integer)):
-            tensor_data = self.batch[item]
+            tensor_data = self.batch[item] if self.batch is not None else None
             non_tensor_data = {key: val[item] for key, val in self.non_tensor_batch.items()}
             return DataProtoItem(batch=tensor_data, non_tensor_batch=non_tensor_data, meta_info=self.meta_info)
 
@@ -290,8 +290,9 @@ class DataProto:
 
     def print_size(self, prefix=""):
         size_of_tensordict = 0
-        for key, tensor in self.batch.items():
-            size_of_tensordict += tensor.element_size() * tensor.numel()
+        if self.batch is None:
+            for key, tensor in self.batch.items():
+                size_of_tensordict += tensor.element_size() * tensor.numel()
         size_of_numpy_array = 0
         for key, numpy_array in self.non_tensor_batch.items():
             size_of_numpy_array += numpy_array.nbytes
@@ -316,7 +317,7 @@ class DataProto:
             for key, val in self.non_tensor_batch.items():
                 assert isinstance(val, np.ndarray)
 
-        if self.batch is not None and len(self.non_tensor_batch) != 0:
+        if self.batch is not None and self.non_tensor_batch is not None and len(self.non_tensor_batch) != 0:
             # TODO: we can actually lift this restriction if needed
             assert len(self.batch.batch_size) == 1, "only support num_batch_dims=1 when non_tensor_batch is not empty."
 
@@ -342,16 +343,18 @@ class DataProto:
         return cls.from_dict(tensors=tensors, non_tensors=non_tensors, meta_info=meta_info, auto_padding=auto_padding)
 
     @classmethod
-    def from_dict(cls, tensors: Dict[str, torch.Tensor], non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
+    def from_dict(cls, tensors: Optional[Dict[str, torch.Tensor]] = None, non_tensors=None, meta_info=None, num_batch_dims=1, auto_padding=False):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
         """
-        assert len(tensors) > 0, "tensors must not be empty"
+
         assert num_batch_dims > 0, "num_batch_dims must be greater than zero"
         if non_tensors is not None:
             assert num_batch_dims == 1, "only support num_batch_dims=1 when non_tensors is not None."
 
+        if tensors is None:
+            tensors = {}
         if meta_info is None:
             meta_info = {}
         if non_tensors is None:
@@ -371,9 +374,10 @@ class DataProto:
                 assert batch_size == current_batch, f"Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. Got {pivot_key} has {batch_size}, {key} has {current_batch}"
 
         for key, val in non_tensors.items():
-            non_tensors[key] = np.array(val, dtype=object)
+            if not isinstance(val, np.ndarray):
+                non_tensors[key] = np.array(val, dtype=object)
 
-        tensor_dict = TensorDict(source=tensors, batch_size=batch_size)
+        tensor_dict = TensorDict(source=tensors, batch_size=batch_size) if tensors else None
         if auto_padding:
             meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
@@ -453,7 +457,7 @@ class DataProto:
 
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities
-            selected_batch = TensorDict(source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,))
+            selected_batch = TensorDict(source={key: tensor[idxs_torch] for key, tensor in self.batch.items()}, batch_size=(batch_size,), device=self.batch.device)
         else:
             selected_batch = None
 
@@ -519,7 +523,8 @@ class DataProto:
         Returns:
             DataProto: the DataProto with the poped batch_keys and meta_info_keys
         """
-        assert batch_keys is not None
+        if batch_keys is None:
+            batch_keys = []
         if meta_info_keys is None:
             meta_info_keys = []
         if non_tensor_batch_keys is None:
@@ -744,6 +749,87 @@ class DataProto:
                 repeated_non_tensor_batch[key] = np.repeat(val, repeat_times, axis=0)
             else:
                 repeated_non_tensor_batch[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
+
+        return type(self)(
+            batch=repeated_batch,
+            non_tensor_batch=repeated_non_tensor_batch,
+            meta_info=self.meta_info,
+        )
+
+    def unfold_column_chunks(self, n_split: int, split_keys: Optional[List[str]] = None):
+        """Split along the second dim into `n_split`, unfold it to the first dim (batch dim)
+        Useful in passing grouped tensors that doesn't want to be shuffled in dataset.
+        keys not in split_keys are repeated to match the shape
+        Note that if the `split_keys` is not provided, it will repeat all the keys in the second dim.
+        """
+        if self.batch is not None:
+            unfolded_batch = {}
+            for key in self.batch.keys():
+                if key in split_keys if split_keys is not None else False:
+                    shape = list(self.batch[key].shape)
+                    shape[0] = self.batch[key].shape[0] * n_split
+                    shape[1] = self.batch[key].shape[1] // n_split
+                    unfolded_batch[key] = self.batch[key].reshape(*shape)
+                else:
+                    unfolded_batch[key] = torch.repeat_interleave(self.batch[key], n_split, dim=0)
+            # locate the `unfolded_batch` as a TensorDict on the same device as the original batch
+            unfolded_batch = TensorDict(source=unfolded_batch, batch_size=(self.batch.batch_size[0] * n_split,), device=self.batch.device)
+        else:
+            unfolded_batch = None
+
+        repeated_non_tensor_batch = {}
+        for key, val in self.non_tensor_batch.items():
+            if key in split_keys:
+                shape = list(val.shape)
+                shape[0] = val.shape[0] * n_split
+                shape[1] = val.shape[1] // n_split
+                repeated_non_tensor_batch[key] = val.reshape(*shape)
+            else:
+                repeated_non_tensor_batch[key] = np.repeat(val, n_split, axis=0)
+
+        return type(self)(
+            batch=unfolded_batch,
+            non_tensor_batch=repeated_non_tensor_batch,
+            meta_info=self.meta_info,
+        )
+
+    def sample_level_repeat(self, repeat_times):
+        """
+        Repeat each row of the batch data a specified number of times.
+
+        Args:
+            repeat_times (torch.tensor, list, tuple, ndarray):  Number of times to repeat the data.
+
+        Returns:
+            DataProto: A new DataProto with repeated data.
+        """
+        if isinstance(repeat_times, tuple):
+            repeat_times = list(repeat_times)
+        elif isinstance(repeat_times, torch.Tensor):
+            assert len(repeat_times.shape) == 1
+            repeat_times = repeat_times.tolist()
+        elif isinstance(repeat_times, np.ndarray):
+            assert len(repeat_times.shape) == 1
+            repeat_times = repeat_times.tolist()
+        else:
+            assert isinstance(repeat_times, list), f"repeat_times type must be in [list, torch.Tensor, np.ndarray, tuple], got {type(repeat_times)}"
+        repeat_times = torch.tensor(repeat_times)
+
+        if self.batch is not None:
+            # Interleave the data
+            repeated_tensors = {key: tensor.repeat_interleave(repeat_times, dim=0) for key, tensor in self.batch.items()}
+
+            repeated_batch = TensorDict(
+                source=repeated_tensors,
+                batch_size=(repeat_times.sum().item(),),
+                device=self.batch.device,
+            )
+        else:
+            repeated_batch = None
+
+        repeated_non_tensor_batch = {}
+        for key, val in self.non_tensor_batch.items():
+            repeated_non_tensor_batch[key] = np.repeat(val, repeat_times, axis=0)
 
         return type(self)(
             batch=repeated_batch,

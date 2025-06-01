@@ -75,12 +75,12 @@ def compute_gae_advantage_return(
 
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         values: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
-        gamma: `(float)`
+            shape is (bs, response_length). [EOS] mask. The token after [EOS] have mask zero.
+        gamma is `(float)`
             discounted factor used in RL
         lam: `(float)`
             lambda value when computing Generalized Advantage Estimation (https://arxiv.org/abs/1506.02438)
@@ -122,9 +122,9 @@ def compute_grpo_outcome_advantage(
     (with only one scalar reward for each response).
     Args:
         token_level_rewards: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         response_mask: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         norm_adv_by_std_in_grpo: (bool)
             whether to scale the GRPO advantage.
             If True, the advantage is scaled by the std, as in the original GRPO.
@@ -132,9 +132,9 @@ def compute_grpo_outcome_advantage(
 
     Returns:
         advantages: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
         Returns: `(torch.Tensor)`
-            shape: (bs, response_length)
+            shape is (bs, response_length)
     """
     scores = token_level_rewards.sum(dim=-1)
 
@@ -371,15 +371,12 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
     """
     Aggregate the loss matrix into a scalar.
     Args:
-        loss_mat: `(torch.Tensor)`
+        loss_mat: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_mask: `(torch.Tensor)`
+        loss_mask: `(torch.Tensor)`:
             shape: (bs, response_length)
-        loss_agg_mode: (str) choices: "token-mean" /
-                                      "seq-mean-token-sum" /
-                                      "seq-mean-token-mean" /
-                                      "seq-mean-token-sum-norm" /
-            "token-mean" is the default behavior
+        loss_agg_mode: (str) choices:
+            method to aggregate the loss matrix into a scalar.
     Returns:
         loss: `a scalar torch.Tensor`
             aggregated loss
@@ -523,6 +520,7 @@ def compute_value_loss(vpreds: torch.Tensor, returns: torch.Tensor, values: torc
 def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
     Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
+    See more description in http://joschu.net/blog/kl-approx.html
 
     Args:
         logprob:
@@ -531,18 +529,18 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     Returns:
 
     """
-    if kl_penalty == "kl":
+    if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob
 
     if kl_penalty == "abs":
         return (logprob - ref_logprob).abs()
 
-    if kl_penalty == "mse":
+    if kl_penalty in ("mse", "k2"):
         return 0.5 * (logprob - ref_logprob).square()
 
     # J. Schulman. Approximating kl divergence, 2020.
     # # URL http://joschu.net/blog/kl-approx.html.
-    if kl_penalty == "low_var_kl":
+    if kl_penalty in ("low_var_kl", "k3"):
         kl = ref_logprob - logprob
         ratio = torch.exp(kl)
         kld = (ratio - kl - 1).contiguous()
@@ -553,3 +551,67 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         raise NotImplementedError
 
     raise NotImplementedError
+
+
+def compute_pf_ppo_reweight_data(
+    data,
+    reweight_method: str = "pow",
+    weight_pow: float = 2.0,
+):
+    """Reweight the data based on the token_level_scores.
+
+    Args:
+        data: DataProto object, containing batch, non_tensor_batch and meta_info
+        reweight_method: str, choices: "pow", "max_min", "max_random"
+        weight_pow: float, the power of the weight
+
+    Returns:
+
+    """
+    @torch.no_grad()
+    def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
+        if reweight_method == "pow":
+            weights = torch.pow(torch.abs(scores), weight_pow)
+        elif reweight_method == "max_min":
+            max_score = torch.max(scores)
+            min_score = torch.min(scores)
+            weights = torch.where((scores == max_score) | (scores == min_score), 1.0, 0.0)
+        elif reweight_method == "max_random":
+            max_score = torch.max(scores)
+            weights = torch.where(scores == max_score, 0.4, 0.1)
+        else:
+            raise ValueError(f"Unsupported reweight_method: {reweight_method}")
+        return weights
+
+    scores = data.batch["token_level_scores"].sum(dim=-1)
+    weights = compute_weights(scores, reweight_method, weight_pow)
+    weights = torch.clamp(weights + 1e-8, min=1e-8)
+
+    batch_size = scores.shape[0]
+    sample_indices = torch.multinomial(weights, batch_size, replacement=True)
+
+    resampled_batch = {key: tensor[sample_indices] for key, tensor in data.batch.items()}
+
+    sample_indices_np = sample_indices.numpy()
+    resampled_non_tensor_batch = {}
+    for key, array in data.non_tensor_batch.items():
+        if isinstance(array, np.ndarray):
+            resampled_non_tensor_batch[key] = array[sample_indices_np]
+        else:
+            resampled_non_tensor_batch[key] = [array[i] for i in sample_indices_np]
+
+    resampled_meta_info = {}
+    for key, value in data.meta_info.items():
+        if isinstance(value, list) and len(value) == batch_size:
+            resampled_meta_info[key] = [value[i] for i in sample_indices_np]
+        else:
+            resampled_meta_info[key] = value
+
+    from copy import deepcopy
+    resampled_data = deepcopy(data)
+    resampled_data.batch = type(data.batch)(resampled_batch)
+    resampled_data.batch.batch_size = data.batch.batch_size
+    resampled_data.non_tensor_batch = resampled_non_tensor_batch
+    resampled_data.meta_info = resampled_meta_info
+
+    return resampled_data
