@@ -9,6 +9,42 @@ atropos:
   environment_type: "code_execution"     # Type of Atropos environment
   max_env_steps: 10                      # Maximum environment interaction steps
   
+  # Atropos API Server Configuration (following official Atropos pattern)
+  rollout_server_url: "http://localhost:8000"  # Central Atropos run-api server URL
+  tokenizer_name: "Qwen/Qwen2.5-1.5B-Instruct"  # Tokenizer for environment consistency
+  use_wandb: true                        # Enable WandB logging for Atropos
+  wandb_project: "atropos_verl_grpo"     # WandB project name
+  total_steps: 1000                      # Total environment steps
+  batch_size: 12                         # Environment batch size
+  steps_per_eval: 100                    # Steps between evaluations
+  max_token_length: 2048                 # Maximum token length for environments
+  
+  # API Server Configurations (one per environment group)
+  api_servers:
+    - model_name: "verl_policy_model"    # Model identifier for Atropos
+      base_url: "http://localhost:9000/v1"  # VeRL inference engine endpoint
+      api_key: null                      # No API key needed for local servers
+      num_requests_for_eval: 256         # Requests per evaluation
+    - model_name: "verl_policy_model"
+      base_url: "http://localhost:9001/v1"
+      api_key: null
+      num_requests_for_eval: 256
+      
+  # Environment Server Configurations
+  environment_servers:
+    - name: "gsm8k_math"
+      port: 8001
+      config_path: "environments/configs/gsm8k.yaml"
+      serve_args: "--slurm False"
+    - name: "code_execution"  
+      port: 8002
+      config_path: "environments/configs/code_exec.yaml"
+      serve_args: "--slurm False"
+    - name: "text_reasoning"
+      port: 8003
+      config_path: "environments/configs/reasoning.yaml" 
+      serve_args: "--slurm False"
+  
   # Advantage computation settings
   advantage_mode: "outcome_based"        # "outcome_based" (GRPO-style) or "step_based"
   normalize_advantages: true             # Normalize advantages within groups
@@ -201,6 +237,22 @@ logging:
   log_rewards: true                      # Log reward distributions
   log_advantages: true                   # Log advantage statistics
   rollout_data_dir: null                 # Directory to save rollout data
+
+# Atropos Debugging and Data Generation (following official docs)
+atropos_debugging:
+  enable_process_mode: true              # Enable Atropos process subcommand for debugging
+  enable_view_run: true                  # Enable Gradio UI for rollout inspection
+  save_rollout_data: true                # Save rollouts to JSONL files
+  data_path_to_save_groups: "rollouts/atropos_groups.jsonl"  # Path for saving rollout groups
+  generate_html_viz: true                # Generate HTML visualization files
+  
+# Offline Data Generation (for SFT/DPO)
+offline_data_generation:
+  enable_sft_gen: true                   # Enable atropos-sft-gen
+  enable_dpo_gen: true                   # Enable atropos-dpo-gen
+  save_top_n_per_group: 1               # Top N responses to save per group
+  allow_negative_scores: false           # Allow negative score responses
+  minimum_score_diff_max_min: 0.1       # Minimum score difference for selection
 
 # Environment Integration Placeholders
 # (These would be replaced with actual Atropos environment configurations)
