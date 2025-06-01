@@ -1,0 +1,219 @@
+# VeRL GRPO Trainer with Atropos Integration Configuration
+# Complete configuration for full online RL with environment groups
+
+# Atropos Integration Configuration
+atropos:
+  # Environment configuration
+  num_groups: 4                          # Number of Atropos environment groups
+  group_size: 4                          # Responses per group for GRPO-style evaluation
+  environment_type: "code_execution"     # Type of Atropos environment
+  max_env_steps: 10                      # Maximum environment interaction steps
+  
+  # Advantage computation settings
+  advantage_mode: "outcome_based"        # "outcome_based" (GRPO-style) or "step_based"
+  normalize_advantages: true             # Normalize advantages within groups
+  advantage_clip_range: [-5.0, 5.0]     # Clip advantages to prevent extreme values (null to disable)
+  
+  # Reward shaping configuration
+  reward_shaping: "sparse"               # "sparse", "dense", "shaped"
+  success_reward: 1.0                    # Reward for successful environment completion
+  failure_penalty: -0.1                  # Penalty for environment failures
+  
+  # Integration settings
+  use_atropos_advantages: true           # Use Atropos environment advantages
+  combine_with_reward_model: false       # Combine Atropos rewards with traditional reward model
+  advantage_weight: 1.0                  # Weight for Atropos advantages
+  rm_weight: 0.1                         # Weight for reward model (if combining)
+
+# Algorithm Configuration (Enhanced GRPO)
+algorithm:
+  # Core GRPO parameters
+  adv_estimator: "grpo"                  # Advantage estimator: "grpo", "gae", "reinforce_plus_plus", etc.
+  gamma: 1.0                             # Discount factor for rewards
+  lam: 1.0                               # Lambda parameter for GAE (not used in GRPO)
+  norm_adv_by_std_in_grpo: true          # Normalize advantages by standard deviation in GRPO
+  
+  # KL penalty configuration (for on-policy learning)
+  use_kl_in_reward: true                 # Apply KL penalty to rewards for policy regularization
+  kl_penalty: "kl"                       # Type of KL penalty: "kl", "kl2", "abs"
+  kl_ctrl:
+    kl_coef: 0.05                        # Initial KL coefficient
+    target_kl: 0.1                       # Target KL divergence
+    horizon: 10000                       # Adaptation horizon
+
+# Model Configuration
+model:
+  path: "~/models/deepseek-llm-7b-chat"  # Path to base model
+  use_shm: false                         # Use shared memory for model loading
+  external_lib: null                     # External library for model loading
+  override_config: {}                    # Model configuration overrides
+  enable_gradient_checkpointing: true    # Enable gradient checkpointing for memory efficiency
+  enable_activation_offload: false       # Offload activations to CPU
+  use_remove_padding: false              # Remove padding for efficiency
+  lora_rank: 0                           # LoRA rank (0 to disable, e.g., 32 to enable)
+  lora_alpha: 16                         # LoRA scaling factor
+  target_modules: "all-linear"           # LoRA target modules
+  use_liger: false                       # Use Liger kernel optimizations
+  use_fused_kernels: false               # Use fused attention kernels
+  trust_remote_code: false               # Trust remote code in model loading
+
+# Actor/Rollout/Reference Configuration
+actor_rollout_ref:
+  hybrid_engine: true                    # Use hybrid engine for inference
+  model: ${model}                        # Inherit model configuration
+  
+  # Actor training configuration
+  actor:
+    strategy: "fsdp"                     # Training strategy: "fsdp", "fsdp2", "megatron"
+    
+    # GRPO-specific training parameters
+    ppo_mini_batch_size: 256             # Mini-batch size for policy updates
+    ppo_micro_batch_size_per_gpu: null   # Micro-batch size per GPU (auto-computed if null)
+    use_dynamic_bsz: false               # Use dynamic batch sizing
+    ppo_max_token_len_per_gpu: 16384     # Maximum tokens per GPU
+    ppo_epochs: 1                        # Number of PPO epochs per update
+    
+    # Policy clipping parameters (enhanced GRPO)
+    clip_ratio: 0.2                      # Standard clipping ratio
+    clip_ratio_low: 0.2                  # Lower bound for dual clipping
+    clip_ratio_high: 0.2                 # Upper bound for dual clipping  
+    clip_ratio_c: 3.0                    # Dual-clip PPO coefficient
+    
+    # Loss aggregation and regularization
+    loss_agg_mode: "token-mean"          # Loss aggregation: "token-mean", "seq-mean-token-sum"
+    entropy_coeff: 0.0                   # Entropy regularization coefficient
+    
+    # KL divergence loss (for GRPO regularization)
+    use_kl_loss: true                    # Enable KL loss for policy regularization
+    kl_loss_coef: 0.001                  # KL loss coefficient
+    kl_loss_type: "low_var_kl"           # KL loss type: "low_var_kl", "full_kl"
+    
+    # Optimization settings
+    grad_clip: 1.0                       # Gradient clipping norm
+    use_torch_compile: true              # Use PyTorch compilation
+    shuffle: false                       # Shuffle training data
+    ulysses_sequence_parallel_size: 1    # Sequence parallelism size
+    
+    # Optimizer configuration
+    optim:
+      lr: 1e-6                           # Learning rate
+      clip_grad: 1.0                     # Gradient clipping
+      lr_warmup_steps: -1                # Warmup steps (-1 for ratio-based)
+      lr_warmup_steps_ratio: 0.0         # Warmup ratio
+      min_lr_ratio: null                 # Minimum learning rate ratio
+      warmup_style: "constant"           # Warmup style: "constant", "cosine"
+      total_training_steps: -1           # Total training steps (auto-computed)
+      weight_decay: 0.01                 # Weight decay
+  
+  # Rollout configuration (inference engine)
+  rollout:
+    name: "vllm"                         # Rollout engine: "vllm", "sglang", "hf"
+    tensor_model_parallel_size: 1        # Tensor parallelism for inference
+    mode: "sync"                         # Rollout mode: "sync", "async"
+    n: 1                                 # Number of rollouts per prompt
+    temperature: 0.7                     # Sampling temperature
+    top_p: 0.9                           # Top-p sampling
+    top_k: null                          # Top-k sampling (null to disable)
+    max_new_tokens: 512                  # Maximum new tokens per response
+    stop_str: ["<|im_end|>"]             # Stop strings
+    stop_token_ids: []                   # Stop token IDs
+    gpu_memory_utilization: 0.85         # GPU memory utilization for inference
+    free_cache_engine: true              # Free cache engine between rollouts
+    load_format: "dummy_hf"              # Weight loading format for inference
+    
+    # Multi-turn configuration
+    multi_turn:
+      enable: false                      # Enable multi-turn conversations
+      max_turns: 3                       # Maximum turns per conversation
+
+# Critic Configuration (if using GAE instead of GRPO)
+critic:
+  strategy: "fsdp"                       # Training strategy (must match actor)
+  optim:
+    lr: 1e-5                             # Critic learning rate
+    clip_grad: 1.0                       # Gradient clipping
+    lr_warmup_steps: -1                  # Warmup steps
+    lr_warmup_steps_ratio: 0.0           # Warmup ratio
+    weight_decay: 0.01                   # Weight decay
+
+# Data Configuration
+data:
+  train_files: ["data/train.jsonl"]      # Training data files
+  val_files: ["data/val.jsonl"]          # Validation data files
+  train_batch_size: 32                   # Training batch size
+  gen_batch_size: 32                     # Generation batch size
+  val_batch_size: 32                     # Validation batch size
+  max_prompt_length: 1024                # Maximum prompt length
+  max_response_length: 512               # Maximum response length
+  dataloader_num_workers: 8              # Number of dataloader workers
+  balance_dp_token: true                 # Balance tokens across data parallel ranks
+
+# Trainer Configuration
+trainer:
+  project_name: "atropos_verl_grpo"      # Project name for logging
+  experiment_name: "grpo_integration"    # Experiment name
+  logger: "wandb"                        # Logger backend: "wandb", "tensorboard"
+  
+  # Training schedule
+  total_training_steps: 1000             # Total training steps
+  save_freq: 100                         # Checkpoint save frequency
+  val_freq: 50                           # Validation frequency
+  log_freq: 1                            # Logging frequency
+  
+  # System configuration
+  nnodes: 1                              # Number of nodes
+  n_gpus_per_node: 8                     # GPUs per node
+  device: "cuda"                         # Device type
+  
+  # Training behavior
+  val_before_train: true                 # Run validation before training
+  val_only: false                        # Only run validation (no training)
+  critic_warmup: 0                       # Critic warmup steps
+  balance_batch: true                    # Balance batch tokens
+  
+  # Checkpointing
+  checkpoint:
+    resume_from: null                    # Resume from checkpoint path
+    save_format: "verl"                  # Checkpoint format
+    contents: ["model", "optimizer", "extra"]  # Checkpoint contents
+
+# Reward Model Configuration (optional, for hybrid approaches)
+reward_model:
+  enable: false                          # Enable traditional reward model
+  model_path: null                       # Path to reward model
+  launch_reward_fn_async: false          # Launch reward function asynchronously
+
+# Resource Management
+resources:
+  # Memory management
+  cpu_offload: false                     # Offload to CPU memory
+  gradient_checkpointing: true           # Use gradient checkpointing
+  
+  # Compute optimization
+  use_flash_attention: true              # Use flash attention
+  use_fused_rmsnorm: true                # Use fused RMSNorm
+  mixed_precision: "bf16"                # Mixed precision: "fp16", "bf16", "fp32"
+
+# Logging and Monitoring
+logging:
+  level: "INFO"                          # Logging level
+  log_generations: true                  # Log generation examples
+  log_rewards: true                      # Log reward distributions
+  log_advantages: true                   # Log advantage statistics
+  rollout_data_dir: null                 # Directory to save rollout data
+
+# Environment Integration Placeholders
+# (These would be replaced with actual Atropos environment configurations)
+environment_configs:
+  code_execution:
+    timeout: 30                          # Execution timeout in seconds
+    max_memory: "1GB"                    # Maximum memory limit
+    allowed_modules: ["math", "random"]  # Allowed Python modules
+  
+  math_reasoning:
+    verification_method: "symbolic"      # Verification method
+    difficulty_levels: [1, 2, 3, 4, 5]   # Problem difficulty levels
+  
+  text_generation:
+    quality_metrics: ["coherence", "relevance", "factuality"]
+    evaluation_model: "gpt-4"            # Evaluation model for quality scoring 
