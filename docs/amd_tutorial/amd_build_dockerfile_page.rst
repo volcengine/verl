@@ -22,7 +22,7 @@ docker/Dockerfile.rocm
     # Support - Traing: fsdp; Inference: vllm
     # FROM rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4
     # Support - Traing: fsdp; Inference: vllm, sglang
-    FROM lmsysorg/sglang:v0.4.6.post4-rocm630
+    FROM lmsysorg/sglang:v0.4.6.post5-rocm630
 
     # Set working directory
     # WORKDIR $PWD/app
