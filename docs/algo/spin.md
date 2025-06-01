@@ -175,5 +175,3 @@ We sincerely thank the contribution and guidance from the `verl` community and a
 * [Qingquan Song](https://qingquansong.github.io/)
 * [Chenyang Zhao](https://zhaochenyang20.github.io/Chayenne/)
 * [Quanquan Gu](https://web.cs.ucla.edu/~qgu/)
-
----
