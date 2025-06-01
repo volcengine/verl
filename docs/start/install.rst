@@ -42,7 +42,7 @@ For vLLM with Megatron or FSDP, please use the stable version of image ``whatcan
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
-For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post4`` which is provided by SGLang RL Group.
+For SGLang with FSDP, please use ``ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post5`` which is provided by SGLang RL Group.
 
 See files under ``docker/`` for NGC-based image or if you want to build your own.
 
@@ -79,7 +79,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
     - **Flash Attenttion**: 2.7.4.post1
     - **Flash Infer**: 0.2.2.post1
     - **vLLM**: 0.8.5
-    - **SGLang**: 0.4.6.post4
+    - **SGLang**: 0.4.6.post5
     - **Megatron-LM**: core_v0.12.0
     - **TransformerEngine**: 2.3
     - **Ray**: 2.44.1
