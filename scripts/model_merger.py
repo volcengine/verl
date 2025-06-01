@@ -445,7 +445,7 @@ class MegatronModelMerger(BaseModelMerger):
             k = torch.cat(k_lst, dim=0)
             v = torch.cat(v_lst, dim=0)
             return [q, k, v]
-        elif "layer_norm" in key or "layernorm" in key or "router" in key and is_value_model:
+        elif "layer_norm" in key or "layernorm" in key or "router" in key or ("output_layer" in key and is_value_model):
             return tp_data[0]
         else:
             dim = 0
