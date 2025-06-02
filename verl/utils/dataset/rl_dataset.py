@@ -208,8 +208,10 @@ class RLHFDataset(Dataset):
             left_pad=True,
             truncation=self.truncation,
         )
-
-        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
+        ###### ORBY CHANGES START
+        # Added changes to handle fast processor for Qwen2VLImageProcessor
+        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
+        ### ORBY CHANGES END
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [

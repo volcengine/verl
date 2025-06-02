@@ -18,6 +18,11 @@ TODO(zhangchi.usc1992)
 - Add validation
 """
 
+"""
+TODO(Rishu)
+- Add sequence parallel support
+"""
+
 import os
 
 os.environ["NCCL_DEBUG"] = "WARN"
@@ -38,11 +43,14 @@ from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, Qwen2_5_VLForConditionalGeneration
+from torchdata.stateful_dataloader import StatefulDataLoader
 
+from verl.trainer.main_ppo import create_rl_dataset
 import verl.utils.hdfs_io as hdfs_io
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
+from verl.utils.dataset.rl_dataset import collate_fn
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fs import copy_to_local
@@ -54,6 +62,7 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
+from verl.utils import hf_tokenizer, hf_processor
 from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -149,24 +158,47 @@ class FSDPSFTTrainer:
             print(f"Using FSDP rank {rank} and size {world_size} for data distribution")
 
         self.train_sampler = DistributedSampler(self.train_dataset, shuffle=True, num_replicas=world_size, rank=rank, drop_last=True)
-        self.train_dataloader = DataLoader(
-            dataset=self.train_dataset,
-            batch_size=config.data.train_batch_size,
-            sampler=self.train_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
-
         self.val_sampler = DistributedSampler(self.val_dataset, shuffle=False, num_replicas=world_size, rank=rank, drop_last=True)
-        self.val_dataloader = DataLoader(
-            dataset=self.val_dataset,
-            batch_size=config.data.micro_batch_size_per_gpu,
-            sampler=self.val_sampler,
-            num_workers=8,
-            pin_memory=True,
-            drop_last=True,
-        )
+
+        # For multimodal inputs, use StatefulDataLoader
+        # which supports multimodal batching and includes a collate_fn for properly handling images
+
+        if self.config.data.get("image_key", None) is not None:
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_size=config.data.train_batch_size,
+                num_workers=8,
+                drop_last=True,
+                collate_fn=collate_fn,
+                sampler=self.train_sampler,
+            )
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_size=config.data.micro_batch_size_per_gpu,
+                num_workers=8,
+                drop_last=False,
+                shuffle=False,
+                collate_fn=collate_fn,
+                sampler=self.val_sampler,
+            )
+        else:
+            self.train_dataloader = DataLoader(
+                dataset=self.train_dataset,
+                batch_size=config.data.train_batch_size,
+                sampler=self.train_sampler,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+            )
+
+            self.val_dataloader = DataLoader(
+                dataset=self.val_dataset,
+                batch_size=config.data.micro_batch_size_per_gpu,
+                sampler=self.val_sampler,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+            )
 
     def _build_model_optimizer(self):
         # TODO (zhangchi.usc1992):
@@ -192,13 +224,23 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                local_model_path,
-                config=config,
-                torch_dtype=torch.float32,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=trust_remote_code,
-            )
+            model = None
+
+            if self.config.data.image_key is not None:
+                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                            local_model_path,
+                            device_map=torch.cuda.current_device(),
+                            attn_implementation="sdpa"
+                        )
+            else:
+                model = AutoModelForCausalLM.from_pretrained(
+                            local_model_path,
+                            config=config,
+                            torch_dtype=torch.float32,
+                            attn_implementation="flash_attention_2",
+                            trust_remote_code=trust_remote_code,
+                        )
+            self.model: PreTrainedModel = model
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -290,7 +332,52 @@ class FSDPSFTTrainer:
         input_ids = batch["input_ids"].to(self.device_name)
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
+        raw_prompt_ids = batch["raw_prompt_ids"]
+        multi_modal_inputs = batch.get("multi_modal_inputs", {})
+        
+        if position_ids.dim() == 3:
+            # When processing multimodal data (text + images), Qwen2.5-VL uses 3D position embeddings
+            # where each token gets 3 coordinates: [t, h, w] representing temporal, height, width dimensions.
+            # 
+            # The get_rope_index() function returns position_ids as (3, seq_len) where:
+            # - Dimension 0: temporal coordinates for all tokens
+            # - Dimension 1: height coordinates for all tokens  
+            # - Dimension 2: width coordinates for all tokens
+            #
+            # However, the Qwen2.5-VL attention mechanism expects (seq_len, 3) where:
+            # - Each row represents one token's [t, h, w] coordinates  # qwen2vl mrope
+            position_ids = position_ids.transpose(0, 1)
+
+        if "loss_mask" in batch:
+            loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
+        else:
+            batch_size, seq_len = input_ids.shape
+            
+            # Start with attention mask as base
+            loss_mask = attention_mask.clone()  # (batch_size, seq_len)
+            
+            # Create a mask for prompt tokens to exclude from loss
+            # Get the length of each raw prompt
+            raw_prompt_lengths = torch.tensor([len(sample) for sample in raw_prompt_ids], 
+                                            device=attention_mask.device)
+            
+            # Create position indices for each sequence
+            position_indices = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0).expand(batch_size, -1)
+            
+            # Mask out prompt tokens (except the last prompt token)
+            prompt_mask = position_indices < (raw_prompt_lengths.unsqueeze(1) - 1)
+            loss_mask = loss_mask.masked_fill(prompt_mask, 0)
+            
+            # Mask out the last token of each sequence
+            # Find the last valid token position for each sequence
+            last_token_positions = attention_mask.sum(dim=1) - 1  # (batch_size,)
+            
+            # Create mask for last tokens
+            last_token_mask = position_indices == last_token_positions.unsqueeze(1)
+            loss_mask = loss_mask.masked_fill(last_token_mask, 0)
+            
+            # Remove last column and flatten
+            loss_mask = loss_mask[:, :-1].reshape(-1).to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
@@ -299,7 +386,37 @@ class FSDPSFTTrainer:
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
-                output = self.fsdp_model(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
+                model_kwargs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "position_ids": position_ids,
+                    "use_cache": False
+                }
+                
+                # For multimodal inputs, collect all pixel_values and image_grid dimensions
+                if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
+                    # Collect all pixel_values and image_grid_thw
+                    pixel_values_list = []
+                    image_grid_thw_list = []
+                    
+                    for item in multi_modal_inputs.data:
+                        if isinstance(item, dict):
+                            if 'pixel_values' in item:
+                                pixel_values_list.append(item['pixel_values'])
+                            if 'image_grid_thw' in item:
+                                image_grid_thw_list.append(item['image_grid_thw'])
+                    if pixel_values_list:
+                        # Concatenate all pixel values and add batch dimension
+                        concatenated_pixel_values = torch.cat(pixel_values_list, dim=0)
+                        model_kwargs['pixel_values'] = concatenated_pixel_values.unsqueeze(0).cuda()
+
+                    if image_grid_thw_list:
+                        # Concatenate all image grid info
+                        concatenated_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
+                        model_kwargs['image_grid_thw'] = concatenated_image_grid_thw.cuda()
+                    
+
+                output = self.fsdp_model(**model_kwargs) 
                 logits = output.logits
 
                 shift_logits = logits[..., :-1, :].contiguous()
@@ -332,7 +449,6 @@ class FSDPSFTTrainer:
                 input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size())
                 input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-
                 # Forward pass
                 output = self.fsdp_model(
                     input_ids=input_ids_rmpad_sliced,
@@ -378,7 +494,7 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After optimizer zero_grad", logger=logger)
 
-        micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
+        micro_batches = self._split_batch_with_indices(batch, self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
         step_loss = 0
         for micro_batch in micro_batches:
@@ -412,7 +528,41 @@ class FSDPSFTTrainer:
             torch.distributed.all_reduce(step_loss)
             step_loss /= self.ulysses_device_mesh.size(0)
         return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
-
+    
+    def _split_batch_with_indices(self, batch: TensorDict, micro_batch_size: int):
+        """
+        Split batch into micro-batches for gradient accumulation while preserving text-image correspondence.
+        by pairing each text sample with only its corresponding images.
+        """
+        batch_size = batch.batch_size[0]
+        micro_batches = []
+        
+        for start_idx in range(0, batch_size, micro_batch_size):
+            end_idx = min(start_idx + micro_batch_size, batch_size)
+            indices = list(range(start_idx, end_idx))
+            
+            # Create micro-batch by slicing
+            micro_batch = {}
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    micro_batch[key] = value[start_idx:end_idx]
+                else:
+                    # Handle non-tensor data (like multi_modal_inputs)
+                    if hasattr(value, 'data') and isinstance(value.data, list):
+                        # For multimodal inputs, slice the data list
+                        sliced_data = value.data[start_idx:end_idx]
+                        micro_batch[key] = type(value)(data=sliced_data)
+                    else:
+                        micro_batch[key] = value[start_idx:end_idx] if hasattr(value, '__getitem__') else value
+            
+            # Create TensorDict for the micro-batch
+            micro_batch_td = TensorDict(micro_batch, batch_size=(end_idx - start_idx,))
+            # Store the original indices for reference
+            micro_batch_td._original_indices = indices
+            micro_batches.append(micro_batch_td)
+        
+        return micro_batches
+    
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
         with torch.no_grad():
@@ -486,7 +636,10 @@ class FSDPSFTTrainer:
                     # Perform final validation
                     val_losses = []
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device_name)
+                        # mostly for last batch: If validation set size isn't divisible by micro_batch_size
+                        batch_size = len(val_data['input_ids']) if 'input_ids' in val_data else len(next(iter(val_data.values())))
+                        val_data = TensorDict(val_data, batch_size=batch_size).cuda()
+                        #val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
                     if rank == 0:
@@ -502,7 +655,8 @@ class FSDPSFTTrainer:
             # validation
             val_losses = []
             for data in self.val_dataloader:
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device_name)
+                batch_size = len(data['input_ids']) if 'input_ids' in data else len(next(iter(data.values())))
+                data = TensorDict(data, batch_size=batch_size).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)
             if rank == 0:
@@ -515,7 +669,7 @@ class FSDPSFTTrainer:
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+@hydra.main(config_path="../trainer/config/", config_name="sft_trainer", version_base=None)
 def main(config):
     device_name = get_device_name()
     local_rank, rank, world_size = initialize_global_process_group()
@@ -524,19 +678,22 @@ def main(config):
     dp_size = world_size // config.ulysses_sequence_parallel_size
     ulysses_device_mesh = init_device_mesh(device_type=device_name, mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
     # build tokenizer and datasets first
-    from verl.utils import hf_tokenizer
-
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+    processor = hf_processor(local_model_path, **config.data.get("processor", {}))
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, processor)
+    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer, processor)
 
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, tokenizer, processor=None):
+
+    # if multi-modal dataset, use the RLHF dataset that has support for multi-modal inputs
+    if data_config.get("image_key", None) is not None:
+        return create_rl_dataset(data_paths, data_config, tokenizer, processor)
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
