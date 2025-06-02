@@ -164,6 +164,7 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
+            #print("self.processor is not None")
             from verl.utils.dataset.vision_utils import process_image, process_video
 
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
@@ -195,6 +196,7 @@ class RLHFDataset(Dataset):
             row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
+            #print("self.processor is None")
             raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
@@ -208,8 +210,10 @@ class RLHFDataset(Dataset):
             left_pad=True,
             truncation=self.truncation,
         )
-
-        if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
+        #print(self.processor.image_processor.__class__.__name__)
+        #input()
+        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
+        #if self.processor is not None and self.processor.image_processor.__class__.__name__ == "Qwen2VLImageProcessor":
             from verl.models.transformers.qwen2_vl import get_rope_index
 
             position_ids = [
@@ -222,7 +226,8 @@ class RLHFDataset(Dataset):
                     attention_mask=attention_mask[0],
                 )
             ]  # (1, 3, seq_len)
-
+            #print("position_ids", position_ids)
+            #input()
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
