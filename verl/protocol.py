@@ -34,9 +34,9 @@ from packaging import version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
 
+from verl.utils.device import get_torch_device
 from verl.utils.py_functional import union_two_dict
 from verl.utils.torch_functional import allgather_dict_tensors
-from verl.utils.device import get_torch_device
 
 __all__ = ["DataProto", "union_tensor_dict"]
 
@@ -750,6 +750,34 @@ class DataProto:
             non_tensor_batch=repeated_non_tensor_batch,
             meta_info=self.meta_info,
         )
+
+    @staticmethod
+    def split(data_proto: "DataProto", filter_mask) -> tuple["DataProto", "DataProto"]:
+        """
+        Split a DataProto into two based on a boolean mask.
+
+        Args:
+            data_proto: The DataProto to split
+            filter_mask: Boolean tensor/array where True values go to the first DataProto
+
+        Returns:
+            Tuple[DataProto, DataProto]: First DataProto with items where mask is True,
+                                        Second DataProto with items where mask is False
+        """
+        # Convert to tensor if it's a list or numpy array
+        if isinstance(filter_mask, list):
+            filter_mask = torch.tensor(filter_mask, dtype=torch.bool)
+        elif isinstance(filter_mask, np.ndarray):
+            filter_mask = torch.from_numpy(filter_mask)
+
+        # Create inverse mask
+        inverse_mask = ~filter_mask
+
+        # Split into two DataProtos
+        first_proto = data_proto.select_idxs(filter_mask)
+        second_proto = data_proto.select_idxs(inverse_mask)
+
+        return first_proto, second_proto
 
 
 @dataclass

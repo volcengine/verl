@@ -37,7 +37,7 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
-from vllm import LLM, SamplingParams
+from vllm import LLM, RequestOutput, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
 from vllm.worker.worker_base import WorkerWrapperBase
 
@@ -235,12 +235,18 @@ class vLLMRollout(BaseRollout):
         if batch_size != len(non_tensor_batch["raw_prompt_ids"]):
             raise RuntimeError("vllm sharding manager is not work properly.")
 
+        raw_prompt_ids = non_tensor_batch.pop("raw_prompt_ids")
+        if "raw_response_ids" in non_tensor_batch:
+            raw_response_ids = non_tensor_batch.pop("raw_response_ids")
+        else:
+            raw_response_ids = np.fromiter(([] for _ in range(batch_size)), dtype=object)
+
         if "multi_modal_data" in non_tensor_batch:
             vllm_inputs = []
             for raw_prompt_ids, multi_modal_data in zip(non_tensor_batch.pop("raw_prompt_ids"), non_tensor_batch.pop("multi_modal_data")):
                 vllm_inputs.append({"prompt_token_ids": raw_prompt_ids, "multi_modal_data": multi_modal_data})
         else:
-            vllm_inputs = [{"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")]
+            vllm_inputs = [{"prompt_token_ids": raw_prompt_ids_ + raw_response_ids_} for raw_prompt_ids_, raw_response_ids_ in zip(raw_prompt_ids, raw_response_ids)]
 
         # ensure the type of `prompt_token_ids` passed to vllm is list[int]
         # https://github.com/volcengine/verl/pull/772
@@ -269,10 +275,15 @@ class vLLMRollout(BaseRollout):
                 "temperature": self.config.val_kwargs.temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
+        else:
+            kwargs = {
+                "n": 1,  # also repeated in ray_trainer
+                "max_tokens": self.config.response_length // self.config.partial_rollout_max_split,
+            }
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
-            outputs = self.inference_engine.generate(
+            outputs: list[RequestOutput] = self.inference_engine.generate(
                 prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
                 use_tqdm=False,
@@ -282,15 +293,22 @@ class vLLMRollout(BaseRollout):
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
+            finished = []
             rollout_log_probs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
-                    response.append(response_ids)
+                    filtered_response = [id if id < 151669 else 0 for id in response_ids]
+                    response.append(filtered_response)
+                    finished.append(output.outputs[sample_id].finish_reason != "length")
                     curr_log_prob = []
                     for i, logprob in enumerate(output.outputs[sample_id].logprobs):
                         curr_log_prob.append(logprob[response_ids[i]].logprob)
                     rollout_log_probs.append(curr_log_prob)
+            non_tensor_batch["finished"] = np.array(finished)
+            response = raw_response_ids + np.fromiter(response, dtype=object)
+            non_tensor_batch["raw_response_ids"] = response
+            non_tensor_batch["raw_prompt_ids"] = raw_prompt_ids
 
             response = pad_2d_list_to_length(response, self.pad_token_id, max_length=self.config.response_length).to(idx.device)
             rollout_log_probs = pad_2d_list_to_length(rollout_log_probs, -1, max_length=self.config.response_length).to(idx.device)
@@ -330,7 +348,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": rollout_log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },

@@ -99,6 +99,7 @@ actor_rollout_ref:
     use_fire_sampling: False # https://arxiv.org/abs/2410.21236
     prompt_length: ${data.max_prompt_length}  # not use for opensource
     response_length: ${data.max_response_length}
+    partial_rollout_max_split: ${algorithm.partial_rollout_max_split}
     # for vllm rollout
     dtype: bfloat16 # should align with FSDP
     gpu_memory_utilization: 0.5
@@ -221,6 +222,7 @@ algorithm:
   norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
   kl_penalty: kl  # how to estimate kl divergence
+  partial_rollout_max_split: 1  # max rounds of rollout before the prompt is forced finished, 1 means no partial rollout
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
