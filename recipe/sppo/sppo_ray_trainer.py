@@ -109,7 +109,7 @@ class RaySPPOTrainer(RayPPOTrainer):
         self.device_name = device_name
 
         # define in-reward KL control
-        # kl loss control currently not suppoorted
+        # kl loss control currently not supported
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
