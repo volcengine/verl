@@ -19,7 +19,7 @@ from functools import partial
 import ray
 
 from verl import DataProto
-from verl.utils.reward_score import _default_compute_score
+from verl.utils.reward_score import default_compute_score
 
 
 def get_custom_reward_fn(config):
@@ -87,9 +87,9 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         if sandbox_url:
             sandbox_manager = multiprocessing.Manager()
             _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
-            final_compute_score = partial(_default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
+            final_compute_score = partial(default_compute_score, sandbox_fusion_url=sandbox_url, concurrent_semaphore=_concurrent_semaphore)
         else:
-            final_compute_score = _default_compute_score
+            final_compute_score = default_compute_score
 
     return reward_manager_cls(
         tokenizer=tokenizer,

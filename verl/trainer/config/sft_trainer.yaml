@@ -20,8 +20,10 @@ data:
   custom_cls:
     path: null
     name: null
+  use_shm: False
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
+  use_shm: False
   fsdp_config:
     wrap_policy:
       min_num_params: 0
@@ -34,6 +36,7 @@ model:
   lora_alpha: 16  # LoRA scaling factor
   target_modules: all-linear  # Target modules for LoRA adaptation
   use_liger: False
+  strategy: fsdp2
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]

@@ -247,19 +247,21 @@ def offload_megatron_model_to_cpu(models):
     """
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
-            for buffer in model_chunk.buffers:
-                # offload parameters
-                if buffer.param_data.storage().size() > 0:
-                    buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
-                    buffer.param_data_size = buffer.param_data.storage().size()
-                    buffer.param_data.storage().resize_(0)
+            model_chunk_all_buffers = [model_chunk.buffers, model_chunk.expert_parallel_buffers]
+            for buffers in model_chunk_all_buffers:
+                for buffer in buffers:
+                    # offload parameters
+                    if buffer.param_data.storage().size() > 0:
+                        buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
+                        buffer.param_data_size = buffer.param_data.storage().size()
+                        buffer.param_data.storage().resize_(0)
 
-                assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
+                    assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
 
-                if buffer.grad_data.storage().size() > 0:
-                    # if the grad_data size is already zero, we assume that it is already offloaded
-                    buffer.grad_data_size = buffer.grad_data.storage().size()
-                    buffer.grad_data.storage().resize_(0)
+                    if buffer.grad_data.storage().size() > 0:
+                        # if the grad_data size is already zero, we assume that it is already offloaded
+                        buffer.grad_data_size = buffer.grad_data.storage().size()
+                        buffer.grad_data.storage().resize_(0)
         else:
             # we need this for ref module
             for _, param in model_chunk.named_parameters():
@@ -274,16 +276,18 @@ def offload_megatron_model_to_cpu(models):
 def load_megatron_model_to_gpu(models, load_grad=True):
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
-            for buffer in model_chunk.buffers:
-                # sometimes, we don't want to load grad for pure inference
-                if load_grad:
-                    buffer.grad_data.storage().resize_(buffer.grad_data_size)
-                    buffer.grad_data.zero_()
+            model_chunk_all_buffers = [model_chunk.buffers, model_chunk.expert_parallel_buffers]
+            for buffers in model_chunk_all_buffers:
+                for buffer in buffers:
+                    # sometimes, we don't want to load grad for pure inference
+                    if load_grad:
+                        buffer.grad_data.storage().resize_(buffer.grad_data_size)
+                        buffer.grad_data.zero_()
 
-                if buffer.param_data.storage().size() == 0:
-                    buffer.param_data.storage().resize_(buffer.param_data_size)
-                    # copy data from cpu to cuda
-                    buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
+                    if buffer.param_data.storage().size() == 0:
+                        buffer.param_data.storage().resize_(buffer.param_data_size)
+                        # copy data from cpu to cuda
+                        buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
         else:
             # we need this for ref module
             device_id = torch.cuda.current_device()
@@ -794,7 +798,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
                 else:
                     params = [param]
 
-                merge_params = default_tp_concat_fn(name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
+                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
                 if not isinstance(merge_params, list):
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)

@@ -374,3 +374,85 @@ def test_old_vs_new_from_single_dict():
     cust = CustomProto.from_single_dict(sample)
     # new behavior: respects subclass
     assert type(cust) is CustomProto
+
+
+def test_dataproto_no_batch():
+    labels = ["a", "b", "c"]
+    data = DataProto.from_dict(non_tensors={"labels": labels}, meta_info={"info": "test_info"})
+    selected = data.select(non_tensor_batch_keys=["labels"])
+    assert (selected.non_tensor_batch["labels"] == labels).all()
+    pop_data = data.pop(non_tensor_batch_keys=["labels"])
+    assert (pop_data.non_tensor_batch["labels"] == labels).all()
+    assert data.non_tensor_batch == {}
+
+
+def test_sample_level_repeat():
+    # Create a DataProto object with some batch and non-tensor data
+    obs = torch.tensor([[1, 2], [3, 4], [5, 6]])
+    labels = ["a", "b", "c"]
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"info": "test_info"})
+
+    # list
+    repeated_data_interleave = data.sample_level_repeat(repeat_times=[3, 1, 2])
+    expected_obs_interleave = torch.tensor([[1, 2], [1, 2], [1, 2], [3, 4], [5, 6], [5, 6]])
+    expected_labels_interleave = ["a", "a", "a", "b", "c", "c"]
+
+    assert torch.all(torch.eq(repeated_data_interleave.batch["obs"], expected_obs_interleave))
+    assert (repeated_data_interleave.non_tensor_batch["labels"] == expected_labels_interleave).all()
+    assert repeated_data_interleave.meta_info == {"info": "test_info"}
+
+    # torch.tensor
+    repeated_data_no_interleave = data.sample_level_repeat(repeat_times=torch.tensor([1, 2, 3]))
+    expected_obs_no_interleave = torch.tensor([[1, 2], [3, 4], [3, 4], [5, 6], [5, 6], [5, 6]])
+    expected_labels_no_interleave = ["a", "b", "b", "c", "c", "c"]
+
+    assert torch.all(torch.eq(repeated_data_no_interleave.batch["obs"], expected_obs_no_interleave))
+    assert (repeated_data_no_interleave.non_tensor_batch["labels"] == expected_labels_no_interleave).all()
+    assert repeated_data_no_interleave.meta_info == {"info": "test_info"}
+
+
+def test_dataproto_unfold_column_chunks():
+    obs1 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
+    obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
+
+    labels = ["a", "b", "c"]
+    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    ret = data.unfold_column_chunks(2, split_keys=["obs1"])
+
+    expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
+    expect_obs2 = torch.tensor([[1, 2], [1, 2], [5, 6], [5, 6], [9, 10], [9, 10]])
+    expect_labels = ["a", "a", "b", "b", "c", "c"]
+    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
+    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
+    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
+    assert ret.meta_info == {"name": "abc"}
+
+    obs1 = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
+    obs2 = torch.tensor([[1, 2], [5, 6], [9, 10]])
+
+    labels = [["a1", "a2"], ["b1", "b2"], ["c1", "c2"]]
+    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    ret = data.unfold_column_chunks(2, split_keys=["obs1", "labels"])
+
+    expect_obs1 = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]])
+    expect_obs2 = torch.tensor([[1, 2], [1, 2], [5, 6], [5, 6], [9, 10], [9, 10]])
+    expect_labels = [["a1"], ["a2"], ["b1"], ["b2"], ["c1"], ["c2"]]
+    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
+    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
+    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
+    assert ret.meta_info == {"name": "abc"}
+
+    obs1 = torch.tensor([[[1, 1], [2, 2], [3, 3], [4, 4]], [[5, 5], [6, 6], [7, 7], [8, 8]], [[9, 9], [10, 10], [11, 11], [12, 12]]])
+    obs2 = torch.tensor([[[1, 1], [2, 2]], [[5, 5], [6, 6]], [[9, 9], [10, 10]]])
+
+    labels = ["a", "b", "c"]
+    data = DataProto.from_dict(tensors={"obs1": obs1, "obs2": obs2}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+    ret = data.unfold_column_chunks(2, split_keys=["obs1"])
+
+    expect_obs1 = torch.tensor([[[1, 1], [2, 2]], [[3, 3], [4, 4]], [[5, 5], [6, 6]], [[7, 7], [8, 8]], [[9, 9], [10, 10]], [[11, 11], [12, 12]]])
+    expect_obs2 = torch.tensor([[[1, 1], [2, 2]], [[1, 1], [2, 2]], [[5, 5], [6, 6]], [[5, 5], [6, 6]], [[9, 9], [10, 10]], [[9, 9], [10, 10]]])
+    expect_labels = ["a", "a", "b", "b", "c", "c"]
+    assert torch.all(torch.eq(ret.batch["obs1"], expect_obs1))
+    assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
+    assert (ret.non_tensor_batch["labels"] == expect_labels).all()
+    assert ret.meta_info == {"name": "abc"}
