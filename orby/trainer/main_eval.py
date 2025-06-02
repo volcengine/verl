@@ -27,7 +27,6 @@ import ray
 from tqdm import tqdm
 
 from verl.utils.fs import copy_to_local
-from functools import partial
 
 
 # Copied from recipe/r1/main_eval.py
@@ -83,7 +82,14 @@ def process_item(reward_fn, data_source, response_lst, reward_data):
 )
 def main(config):
     local_path = copy_to_local(config.data.path)
-    dataset = pd.read_parquet(local_path)
+    dataset = pd.read_parquet(
+        local_path,
+        columns=[
+            config.data.response_key,
+            config.data.data_source_key,
+            config.data.reward_model_key,
+        ],
+    )
     responses = dataset[config.data.response_key]
     data_sources = dataset[config.data.data_source_key]
     reward_model_data = dataset[config.data.reward_model_key]

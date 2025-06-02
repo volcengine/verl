@@ -149,7 +149,7 @@ def compute_score(prediction: str, ground_truth: Dict) -> Dict:
 
 
 def reward_func(data_source, solution_str, ground_truth, extra_info=None):
-    if data_source in ["screenspot"]:
+    if data_source in ["screenspot", "screenspot_v2", "screenspot_pro"]:
         from orby.reward import screenspot
 
         return screenspot.compute_score(solution_str, ground_truth)

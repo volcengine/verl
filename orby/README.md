@@ -14,7 +14,7 @@
 - Grounding
   - Action description dataset: [GRPO training](/orby/scripts/run_qwen2_5_vl_7b_grpo.sh), [offline eval](/orby/scripts/eval_qwen2_5_vl.sh) 
   - Uground dataset: [GRPO training](/orby/scripts/run_uground_grpo.sh)
-  - ScreenSpot: [Offline eval](/orby/scripts/eval_screenspot.sh)
+  - ScreenSpot (v1, v2 and pro): [offline eval](/orby/scripts/eval_screenspot.sh)
 - Subtask
 
 # TODO
