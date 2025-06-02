@@ -1,303 +1,374 @@
 # Atropos-VERL Integration Recipe
 
-> **Atropos Integration Implementation**: Advantage-weighted SFT with Policy Weight Synchronization
+> **Technical Implementation**: Advantage-weighted SFT with Automatic Policy Weight Synchronization
 
-🏠 [Atropos Homepage](https://github.com/atropos-org/atropos) | 📝 [VERL Paper](https://arxiv.org/abs/2409.19256) | 🤗 [VERL@GitHub](https://github.com/volcengine/verl)
+[Atropos Repository](https://github.com/NousResearch/atropos)
 
-This recipe provides a complete integration solution for using [Atropos](https://github.com/atropos-org/atropos) RL environments with VERL, addressing the **critical missing piece**: policy weight synchronization during RL training.
+This recipe provides a working integration for using Atropos RL environments with VERL, implementing automatic policy weight synchronization during RL training.
 
-## The Core Problem
+## Implementation Overview
 
-The original question was about **how inference/policy weights get updated every step** during RL training. In proper RL, you need:
+This integration implements the following components:
 
-1. **Rollout**: Generate sequences with current policy
-2. **Training**: Update policy weights using advantages  
-3. **🔑 Weight Sync**: Update inference engine with new weights
-4. **Repeat**: Next rollout uses updated policy
+1. **Rollout**: Generate sequences using current policy weights
+2. **Training**: Update policy weights using advantages from environment  
+3. **Weight Sync**: Update inference engine with new weights automatically
+4. **Repeat**: Next rollout uses updated policy weights
 
-Without step 3, your inference engine uses stale weights, leading to poor RL training.
+The weight synchronization is handled automatically through VERL's Sharding Manager system.
 
-## Our Solution
+## Usage
 
-This recipe demonstrates how VERL's **Sharding Manager** system solves this challenge:
-
-- **Automatic Weight Sync**: Context managers ensure inference engines always have latest policy weights
-- **Advantage-weighted SFT**: Token-level advantage weighting for RL training
-- **Memory Efficient**: Inference engine memory management during training/rollout phases
-- **Production Ready**: Built on VERL's distributed training infrastructure
-
-## Quickstart
-
-1. **Run the integration demo**:
+### Run the Integration Demo
 
 ```bash
 cd verl  # Repository root
 python recipe/atropos/main_atropos.py
 ```
 
-2. **Run the test script**:
+Output: Complete RL training with policy updates, automatic weight synchronization, and Atropos API integration.
+
+### Run End-to-End Test
 
 ```bash
-bash recipe/atropos/test_atropos_integration.sh
+cd verl
+python recipe/atropos/test_full_e2e_training.py
 ```
 
-## Key Integration Points
+Output: 5 training steps with API integration testing and comprehensive error handling.
 
-### 1. Policy Weight Synchronization
+### Advanced Orchestration System
 
-The core innovation is VERL's **Sharding Manager** pattern that automatically synchronizes weights:
+```bash
+cd verl
+python recipe/atropos/launch_atropos_verl.py
+```
+
+Note: Requires full environment setup with Atropos server running.
+
+## Technical Implementation
+
+### Automatic Policy Weight Synchronization
+
+VERL's Sharding Manager pattern handles weight synchronization:
 
 ```python
-# This is the magic - automatic weight synchronization!
+# Automatic weight synchronization via context manager
 with self.sharding_manager:  
-    # Inference engine now has latest policy weights
+    # Inference engine receives latest policy weights
     responses = self.inference_engine.generate(prompts)
-    # Training can proceed knowing rollout used current policy
+    # Training proceeds with current policy
 ```
 
-### 2. Advantage-weighted SFT Loss
+### Atropos API Integration
 
-The recipe provides the exact interface Atropos needs:
+Integration with Atropos API endpoints:
+
+```python
+# Test API connectivity and raise error if unreachable
+self._test_api_connectivity(atropos_url)
+
+# Register trainer with Atropos
+response = requests.post(f"{atropos_url}/register", json=registration_data)
+trainer_uuid = response.json()['uuid']
+
+# Submit scored data  
+requests.post(f"{atropos_url}/scored_data", json=scored_data)
+
+# Retrieve processed batches with retry logic
+batch = requests.get(f"{atropos_url}/batch").json()['batch']
+```
+
+### Error Handling for API Connectivity
+
+```python
+class AtroposAPIError(Exception):
+    """Raised when Atropos API is unreachable or returns an error"""
+    pass
+
+def _test_api_connectivity(self, atropos_url: str, timeout: int = 10) -> None:
+    """Test API connectivity and raise error if unreachable"""
+    try:
+        response = requests.get(f"{atropos_url}/status", timeout=timeout)
+        if response.status_code != 200:
+            raise AtroposAPIError(f"Atropos API returned status {response.status_code}")
+    except requests.exceptions.ConnectTimeout:
+        raise AtroposAPIError(f"Connection timeout to Atropos API at {atropos_url}")
+    except requests.exceptions.ConnectionError:
+        raise AtroposAPIError(f"Cannot connect to Atropos API at {atropos_url} - ensure server is running")
+```
+
+### Advantage-weighted SFT Loss
+
+Interface for advantage-weighted training:
 
 ```python
 loss = trainer.compute_advantage_weighted_sft_loss(
-    input_ids=input_ids,      # Batch of tokens
+    input_ids=input_ids,      # Batch of tokens  
     advantages=advantages,    # Token-level advantages from Atropos
-    loss_mask=loss_mask,     # Loss masking for prompts vs responses
+    loss_mask=loss_mask,     # Mask prompt vs response tokens
 )
 ```
 
-### 3. Complete RL Training Loop
+### Complete RL Training Loop
 
-The recipe demonstrates the full integration:
+Full integration implementation:
 
 ```python
-def rl_training_step(self, prompts):
-    # 1. Rollout with current policy (automatic weight sync)
+def rl_training_step(self, prompts: torch.Tensor) -> Dict[str, Any]:
+    """
+    Complete RL training step with Atropos API integration.
+    
+    1. Rollout with automatic weight synchronization
+    2. Compute advantages using Atropos API (/register, /batch endpoints)
+    3. Train with advantage-weighted loss
+    4. Next rollout uses updated weights automatically
+    """
+    print(f"RL TRAINING STEP {self.step}")
+    
+    # Phase 1: Rollout (inference engine gets updated weights automatically)
     rollout_data = self.rollout_phase(prompts)
     
-    # 2. Compute advantages from Atropos environment
+    # Phase 2: Compute advantages (using Atropos API)
     advantages = self.compute_advantages_from_atropos(rollout_data)
     
-    # 3. Train with advantage-weighted loss
-    loss = self.training_phase(rollout_data, advantages)
+    # Phase 3: Training (updates the training model weights)
+    training_loss = self.training_phase(rollout_data, advantages)
     
-    # 4. Next rollout will use updated weights automatically!
-    return {"loss": loss, ...}
+    # Phase 4: Next rollout will automatically use updated weights
+    # via the sharding manager context!
+    
+    return {"loss": training_loss, "advantages": advantages}
 ```
 
 ## Architecture
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Atropos       │    │  VERL Recipe     │    │  Inference      │
-│   Environment   │    │                  │    │  Engine         │
-│                 │    │                  │    │  (vLLM/SGLang)  │
-├─────────────────┤    ├──────────────────┤    ├─────────────────┤
-│ • Send prompts  │───▶│ • Rollout phase  │───▶│ • Generate with │
-│ • Receive resp. │◀───│ • Get advantages │    │   current policy│
-│ • Compute adv.  │    │ • Training phase │    │ • Auto weight   │
-│ • Return adv.   │───▶│ • Weight sync    │───▶│   synchronization│
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐
-                       │ Training Model   │
-                       │ (FSDP/Megatron)  │
-                       │ • Advantage-     │
-                       │   weighted SFT   │
-                       │ • Policy updates │
-                       └──────────────────┘
-```
+![Atropos-VERL Integration Architecture](diagram.png)
+
+**Component Interactions:**
+
+1. **RL Trainer** - Manages training loop, updates inference weights, queries Atropos API
+2. **Atropos Trajectory API** - Central coordination point handling tokens, masks, scores, and groups
+3. **Inference Engine** - Handles rollout generation using current policy weights (vLLM/SGLang)
+4. **Environment Servers** - Multiple specialized environments providing task-specific evaluation
 
 ## Configuration
 
-The recipe supports flexible configuration via `config/atropos_trainer.yaml`:
+The integration uses Python configuration dictionaries:
 
-### Advantage Weighting Options
+### Basic Configuration
 
-```yaml
-# Enable/disable advantage weighting
-use_advantage_weighting: true
-
-# Advantage normalization: "none", "batch", "global" 
-advantage_normalization: "batch"
-
-# Advantage clipping to prevent extreme values
-advantage_clipping: [-5.0, 5.0]  # null for no clipping
+```python
+config = {
+    'atropos': {
+        'api_url': 'http://localhost:9001',  # Atropos API URL
+        'timeout': 30
+    },
+    'use_advantage_weighting': True,
+    'advantage_normalization': 'batch',     # "none", "batch", "global"
+    'advantage_clipping': [-3.0, 3.0],     # Prevent extreme values
+    'max_response_length': 32,
+    'batch_retry_attempts': 8,              # Retry logic
+    'batch_retry_delay': 0.3,
+    'batch_max_wait_time': 12.0
+}
 ```
 
-### Model and Training Configuration
+### Remote Atropos Configuration
 
-```yaml
-model:
-  strategy: "fsdp"  # or "fsdp2" for better performance
-
-data:
-  micro_batch_size_per_gpu: 1
-  balance_dp_token: true
-  max_response_length: 512
-
-optim:
-  clip_grad: 1.0
-  lr: 1.0e-5
+```python
+config = {
+    'atropos': {
+        'api_url': 'https://atropos.example.com/api',  # Remote server
+        'timeout': 60                                  # Longer timeout
+    },
+    # ... other settings
+}
 ```
 
-## How It Works
+### Production Configuration
 
-### Step 1: Automatic Weight Synchronization
+```python
+import os
+
+config = {
+    'atropos': {
+        'api_url': os.getenv('ATROPOS_API_URL', 'http://localhost:9001'),
+        'timeout': int(os.getenv('ATROPOS_TIMEOUT', '30'))
+    },
+    'batch_retry_attempts': 10,             # More retries for production
+    'batch_max_wait_time': 30.0,           # Longer wait time
+    'advantage_clipping': [-5.0, 5.0],     # Conservative clipping
+}
+```
+
+## Implementation Details
+
+### Automatic Weight Synchronization
 
 ```python
 class AtroposShardingManager:
     def __enter__(self):
-        # Sync training model weights → inference engine
+        # Sync latest training weights → inference engine
         state_dict = self.training_model.state_dict()
         self.inference_engine.update_weights_from_tensor(state_dict)
+        self.inference_engine.resume_memory_occupation()
         return self
         
     def __exit__(self, *args):
-        # Release inference engine memory
+        # Release inference memory for training phase
         self.inference_engine.release_memory_occupation()
 ```
 
-### Step 2: Advantage-weighted Loss Computation
+### Atropos API Integration
+
+```python
+def _register_with_atropos_api(self, atropos_url):
+    registration_data = {
+        "wandb_group": "verl_atropos_integration",
+        "batch_size": 4,
+        "max_token_len": 512,
+        "checkpoint_dir": "/tmp/verl_checkpoints"
+    }
+    response = requests.post(f"{atropos_url}/register", json=registration_data)
+    self.trainer_uuid = response.json()['uuid']
+    return True
+
+def _retrieve_batch_with_retry(self, atropos_url):
+    # Retry logic with exponential backoff
+    for attempt in range(self.batch_retry_attempts):
+        response = requests.get(f"{atropos_url}/batch")
+        batch = response.json().get('batch')
+        if batch and len(batch) > 0:
+            return batch
+        time.sleep(self.batch_retry_delay * (1.5 ** attempt))
+    return None
+```
+
+### Advantage-weighted Loss Implementation
 
 ```python
 def compute_advantage_weighted_sft_loss(self, input_ids, advantages, loss_mask):
-    # Standard cross-entropy loss
-    logits = self.model(input_ids).logits
-    ce_loss = CrossEntropyLoss(reduction='none')(logits, labels)
+    # Normalize advantages for stable training
+    if self.advantage_normalization == "batch":
+        valid_advantages = advantages[loss_mask.bool()]
+        mean_adv = valid_advantages.mean()
+        std_adv = valid_advantages.std() + 1e-8
+        advantages = (advantages - mean_adv) / std_adv
+    
+    # Clip advantages to prevent extreme values
+    if self.advantage_clipping:
+        min_val, max_val = self.advantage_clipping
+        advantages = torch.clamp(advantages, min=min_val, max=max_val)
+    
+    # Compute cross-entropy loss
+    outputs = self.model(input_ids=input_ids)
+    logits = outputs.logits
+    ce_loss = CrossEntropyLoss(reduction='none')(logits.view(-1, logits.size(-1)), 
+                                               input_ids.view(-1))
     
     # Apply advantage weighting and masking
-    weighted_loss = ce_loss * advantages * loss_mask
+    weighted_loss = ce_loss * advantages.view(-1) * loss_mask.view(-1)
     
-    # Reduce to scalar loss
-    return weighted_loss.sum() / loss_mask.sum()
+    # Reduce to scalar
+    return weighted_loss.sum() / (loss_mask.sum() + 1e-8)
 ```
-
-### Step 3: Memory-efficient Inference Management
-
-The sharding manager handles inference engine memory automatically:
-- **During rollout**: Resume memory, sync weights, generate
-- **During training**: Release memory to maximize training resources
-- **Next rollout**: Automatically resume and sync updated weights
-
-## Integration with Real Atropos
-
-To integrate with real Atropos environments, replace the mock components:
-
-### 1. Replace Mock Environment Interface
-
-```python
-# Current: Mock advantages
-advantages = torch.randn(batch_size, seq_len)
-
-# Real: Get from Atropos environment
-advantages = atropos_env.compute_advantages(
-    prompts=prompts,
-    responses=responses,
-    context=environment_context
-)
-```
-
-### 2. Replace Mock Inference Engine
-
-```python
-# Current: Mock engine
-self.inference_engine = AtroposInferenceEngine(model)
-
-# Real: vLLM/SGLang integration
-from verl.workers.vllm_rollout import VLLMShardingManager
-self.sharding_manager = VLLMShardingManager(
-    training_model=model,
-    inference_engine=vllm_engine
-)
-```
-
-### 3. Add Real Reward Functions
-
-```python
-# Add environment-specific reward computation
-def compute_rewards_from_environment(self, responses):
-    return atropos_env.evaluate_responses(responses)
-```
-
-## Comparison with Standard RL
-
-| Aspect | Standard RL | Atropos-VERL Recipe |
-|--------|-------------|-------------------|
-| Weight Sync | Manual/Error-prone | **Automatic via Sharding Managers** |
-| Loss Computation | Separate RL loss | **Advantage-weighted SFT** |
-| Memory Management | Static allocation | **Dynamic inference memory** |
-| Integration | Complex setup | **Recipe-based, production-ready** |
-| Environment Support | Limited | **Flexible Atropos environments** |
 
 ## Testing
 
-To run the complete test suite for the Atropos recipe:
+### Complete Test Suite
 
 ```bash
-# Run the integration test (includes unit tests + demo)
-bash recipe/atropos/test_atropos_integration.sh
-
-# Or run just the unit tests
-python -m pytest recipe/atropos/tests/test_atropos_sft_trainer.py -v
-
-# Or run just the demo
-python recipe/atropos/main_atropos.py
+# End-to-end test
+python recipe/atropos/test_full_e2e_training.py
 ```
 
-The test suite covers:
-- ✓ Advantage-weighted loss computation (core bounty requirement)
-- ✓ Advantage processing (normalization/clipping) 
-- ✓ Atropos data format handling
-- ✓ Recipe integration interface
-- ✓ End-to-end training pipeline
+Test Coverage:
+- API connectivity and registration (with proper error handling)
+- Data submission and batch retrieval
+- Advantage computation and normalization  
+- Weight synchronization via sharding managers
+- Complete RL training loop (5 steps)
+- Error handling and retry logic
+- Memory management
+- Performance metrics
 
-## Performance and Scaling
+### Individual Components
 
-The recipe is designed for production use:
+```bash
+# Core integration demo
+python recipe/atropos/main_atropos.py
 
-- **Distributed Training**: Compatible with FSDP/FSDP2 backends
-- **Memory Efficient**: Dynamic inference engine memory management
-- **Scalable**: Tested with models up to 70B parameters
-- **Fast**: Leverages VERL's optimized training infrastructure
+# Advanced orchestration (requires full setup)
+python recipe/atropos/launch_atropos_verl.py
+```
 
-## FAQ
+## Error Scenarios
 
-**Q: How does this compare to other RL frameworks?**
-A: Unlike frameworks that require manual weight synchronization, this recipe provides automatic sync via VERL's sharding managers, eliminating a major source of bugs and performance issues.
+### API Unreachable
 
-**Q: Can I use this with different models/sizes?**
-A: Yes! The recipe works with any model compatible with VERL (Llama, Qwen, Gemma, etc.) and scales from 7B to 70B+ parameters.
+When the Atropos API is not available, the integration will:
 
-**Q: How do I modify for my specific Atropos environment?**
-A: Replace the mock `compute_advantages_from_atropos` method with your environment's reward computation logic.
+1. Test connectivity on initialization
+2. Raise `AtroposAPIError` with clear error message
+3. Stop training with informative guidance
+4. Suggest troubleshooting steps
 
-**Q: Does this work with vLLM/SGLang inference engines?**
-A: Yes! Replace the mock inference engine with VERL's vLLM or SGLang sharding managers.
+Example error output:
+```
+ATROPOS API ERROR: Cannot connect to Atropos API at http://localhost:9001 - ensure server is running
 
-## Citation
+Ensure that:
+1. Atropos server is running on http://localhost:9001
+2. The API endpoints are accessible
+3. Network connectivity is available
+```
 
-If you use this recipe, please cite:
+### Network Issues
 
-```bibtex
-@article{sheng2024hybridflow,
-  title   = {HybridFlow: A Flexible and Efficient RLHF Framework},
-  author  = {Guangming Sheng and Chi Zhang and Zilingfeng Ye and Xibin Wu and Wang Zhang and Ru Zhang and Yanghua Peng and Haibin Lin and Chuan Wu},
-  year    = {2024},
-  journal = {arXiv preprint arXiv: 2409.19256}
+The integration handles various network scenarios:
+- Connection timeouts
+- Connection refused (server not running)
+- HTTP errors (4xx, 5xx responses)
+- Network unreachable
+
+## Deployment Configurations
+
+### Local Development
+
+```python
+config = {
+    'atropos': {'api_url': 'http://localhost:9001'}
 }
 ```
 
-## Contributing
+### Remote/Production Atropos
 
-This recipe is part of the VERL ecosystem. Contributions welcome!
+```python
+config = {
+    'atropos': {
+        'api_url': 'https://your-atropos-server.com/api',
+        'timeout': 60
+    }
+}
+```
 
-- **Issues**: Report integration problems or feature requests
-- **PRs**: Improvements to the recipe or documentation  
-- **Examples**: Additional Atropos environment integrations
+## Technical Details
 
----
+**Weight Synchronization**: VERL's sharding managers use context managers to automatically sync training model weights to inference engines before each rollout.
 
-**🚀 Ready to get started?** Run `python recipe/atropos/main_atropos.py` to see the complete integration in action! 
+**Model Compatibility**: Tested with models from 0.5B to larger sizes. Memory management scales automatically.
+
+**API Integration**: Works with any Atropos API deployment. Update the `api_url` in configuration to point to your Atropos instance.
+
+**Inference Engines**: Replace the mock inference engine with VERL's vLLM or SGLang sharding managers for production deployment.
+
+**Error Handling**: Includes comprehensive fallback mechanisms, retry logic with exponential backoff, and proper error propagation when the API is unavailable.
+
+## Running the Integration
+
+```bash
+python recipe/atropos/main_atropos.py
+```
+
+This demonstrates the complete working integration with proper error handling. 

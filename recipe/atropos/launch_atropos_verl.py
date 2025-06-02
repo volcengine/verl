@@ -152,13 +152,16 @@ class AtroposVeRLLauncher:
         """Start Atropos environment group processes."""
         logger.info("Starting Atropos environment groups...")
         
-        base_port = 8000
+        # Use configurable host and port from config
+        atropos_host = self.atropos_config.get("host", "localhost")
+        base_port = self.atropos_config.get("port", 8000)
+        
         for group_id in range(self.atropos_config.num_groups):
             port = base_port + group_id
             log_file = os.path.join(self.temp_dir, f"atropos_group_{group_id}.log")
             
             # Create Atropos environment configuration
-            env_config = self._create_atropos_env_config(group_id, port)
+            env_config = self._create_atropos_env_config(group_id, port, atropos_host)
             env_config_path = os.path.join(self.temp_dir, f"atropos_env_{group_id}.yaml")
             
             with open(env_config_path, 'w') as f:
@@ -168,6 +171,7 @@ class AtroposVeRLLauncher:
             cmd = [
                 sys.executable, "-m", "atropos.server",
                 "--config", env_config_path,
+                "--host", atropos_host,
                 "--port", str(port),
                 "--group-id", str(group_id),
             ]
@@ -189,7 +193,7 @@ class AtroposVeRLLauncher:
             )
             self.processes.append(process_info)
             
-            logger.info(f"Started Atropos group {group_id} on port {port} (PID: {process.pid})")
+            logger.info(f"Started Atropos group {group_id} on {atropos_host}:{port} (PID: {process.pid})")
     
     def _start_inference_engines(self):
         """Start VeRL inference engines (vLLM/SGLang)."""
@@ -324,7 +328,8 @@ class AtroposVeRLLauncher:
         """Check if Atropos environment is ready."""
         try:
             import requests
-            response = requests.get(f"http://localhost:{port}/health", timeout=2)
+            atropos_host = self.atropos_config.get("host", "localhost")
+            response = requests.get(f"http://{atropos_host}:{port}/health", timeout=2)
             return response.status_code == 200
         except Exception:
             return False
@@ -333,6 +338,7 @@ class AtroposVeRLLauncher:
         """Check if inference engine is ready."""
         try:
             import requests
+            # Inference engines typically run on localhost
             response = requests.get(f"http://localhost:{port}/health", timeout=2)
             return response.status_code == 200
         except Exception:
@@ -342,28 +348,30 @@ class AtroposVeRLLauncher:
         """Update configuration with auto-discovered service endpoints."""
         logger.info("Updating configuration with service endpoints...")
         
+        atropos_host = self.atropos_config.get("host", "localhost")
+        
         # Update Atropos endpoints
         atropos_endpoints = []
         for process in self.processes:
             if "atropos" in process.name:
-                atropos_endpoints.append(f"http://localhost:{process.port}")
+                atropos_endpoints.append(f"http://{atropos_host}:{process.port}")
         
-        # Update inference engine endpoints
+        # Update inference engine endpoints (usually localhost)
         inference_endpoints = []
         for process in self.processes:
             if "vllm" in process.name or "sglang" in process.name:
                 inference_endpoints.append(f"http://localhost:{process.port}")
         
-        # Create updated configuration
+        # Create configuration with service endpoints
         self.config.atropos.endpoints = atropos_endpoints
         self.config.actor_rollout_ref.rollout.inference_endpoints = inference_endpoints
         
-        # Save updated configuration
-        config_path = os.path.join(self.temp_dir, "updated_config.yaml")
+        # Save configuration for training
+        config_path = os.path.join(self.temp_dir, "training_config.yaml")
         with open(config_path, 'w') as f:
             OmegaConf.save(self.config, f)
         
-        logger.info(f"Updated configuration saved to: {config_path}")
+        logger.info(f"Training configuration saved to: {config_path}")
         logger.info(f"  - Atropos endpoints: {len(atropos_endpoints)}")
         logger.info(f"  - Inference endpoints: {len(inference_endpoints)}")
     
@@ -439,10 +447,11 @@ class AtroposVeRLLauncher:
         
         logger.info("Training completed successfully!")
     
-    def _create_atropos_env_config(self, group_id: int, port: int) -> Dict[str, Any]:
+    def _create_atropos_env_config(self, group_id: int, port: int, atropos_host: str) -> Dict[str, Any]:
         """Create configuration for an Atropos environment group."""
         env_config = {
             "group_id": group_id,
+            "host": atropos_host,
             "port": port,
             "environment": {
                 "type": self.atropos_config.environment_type,
@@ -458,6 +467,12 @@ class AtroposVeRLLauncher:
                 "shaping": self.atropos_config.reward_shaping,
                 "success_reward": self.atropos_config.success_reward,
                 "failure_penalty": self.atropos_config.failure_penalty,
+            },
+            "api": {
+                "base_url": f"http://{atropos_host}:{port}",
+                "timeout": self.atropos_config.get("timeout", 30),
+                "retry_attempts": self.atropos_config.get("retry_attempts", 3),
+                "api_key": self.atropos_config.get("api_key", None),
             }
         }
         
