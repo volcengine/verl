@@ -11,7 +11,7 @@ python3 -m orby.trainer.main_generation \
     data.path=$DATA_PATH \
     data.prompt_key=prompt \
     data.batch_size=1024 \
-    data.max_prompt_length=7680 \
+    +data.max_prompt_length=7680 \
     data.n_samples=1 \
     data.output_path=$OUTPUT_FILE \
     model.path=$MODEL_PATH \
@@ -25,7 +25,7 @@ python3 -m orby.trainer.main_generation \
     +rollout.limit_images=3
 
 # Evaluation
-python3 -m verl.trainer.main_eval \
+python3 -m orby.trainer.main_eval \
     data.path=$OUTPUT_FILE \
     data.prompt_key=prompt \
     data.response_key=responses \

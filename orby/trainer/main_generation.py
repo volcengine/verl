@@ -179,7 +179,8 @@ def main_task(config):
 
     # write to a new parquet
     output_dir = os.path.dirname(config.data.output_path)
-    makedirs(output_dir, exist_ok=True)
+    if output_dir != "":
+        makedirs(output_dir, exist_ok=True)
     dataset.to_parquet(config.data.output_path)
 
 

@@ -16,15 +16,13 @@ class UISubtaskRewardScorer:
         super().__init__()
         self.reward_model_weights = {
             "format": 0.1,
-            "reasoning": 0.1,
             "should_end": 0.3,
             "goal_achieved": 0.3,
-            "answer": 0.2,
+            "answer": 0.3,
         }
         self.executor_weights = {
             "format": 0.1,
-            "thinking": 0.1,
-            "action_type": 0.1,
+            "action_type": 0.2,
             "coordinates": 0.5,
             "action_args": 0.2,
         }
@@ -56,7 +54,7 @@ class UISubtaskRewardScorer:
         Args:
             prediction: Model prediction string
             ground_truth: Dictionary containing ground truth information.
-                - reasoning: str
+                - reasoning: str (unused)
                 - should_end: Literal["true", "false"]
                 - goal_achieved: Literal["true", "false"]
                 - answer: str
@@ -87,15 +85,6 @@ class UISubtaskRewardScorer:
             gt_dict["answer"] = ""
 
         try:
-            reasoning_score = int(
-                self._check_text_similarity(
-                    pred_dict["reasoning"], gt_dict["reasoning"]
-                )
-            )
-        except Exception as e:
-            print(f"Error calculating reasoning score: {e}")
-            reasoning_score = 0
-        try:
             should_end_score = int(pred_dict["should_end"] == gt_dict["should_end"])
         except Exception as e:
             print(f"Error calculating should end score: {e}")
@@ -117,7 +106,6 @@ class UISubtaskRewardScorer:
 
         score = (
             format_score * self.reward_model_weights["format"]
-            + reasoning_score * self.reward_model_weights["reasoning"]
             + should_end_score * self.reward_model_weights["should_end"]
             + goal_achieved_score * self.reward_model_weights["goal_achieved"]
             + answer_score * self.reward_model_weights["answer"]
@@ -125,7 +113,6 @@ class UISubtaskRewardScorer:
         details = {
             "score": score,
             "format": format_score,
-            "reasoning": reasoning_score,
             "should_end": should_end_score,
             "goal_achieved": goal_achieved_score,
             "answer": answer_score,
@@ -213,7 +200,7 @@ class UISubtaskRewardScorer:
         Args:
             prediction: Model prediction string
             ground_truth: Dictionary containing ground truth information.
-                - thinking: str
+                - thinking: str (unused)
                 - action: str
 
         Returns:
@@ -230,11 +217,7 @@ class UISubtaskRewardScorer:
         pred_dict = {key: str(value) for key, value in pred_dict.items()}
         gt_dict = {key: str(value) for key, value in ground_truth.items()}
 
-        thinking_score = int(
-            self._check_text_similarity(pred_dict["thinking"], gt_dict["thinking"])
-        )
-
-        parser_error = False
+        action_type_parser_error = False
         try:
             pred_action_info = get_action_info(pred_dict["action"])
             gt_action_info = get_action_info(gt_dict["action"])
@@ -244,12 +227,12 @@ class UISubtaskRewardScorer:
         except Exception as e:
             # If the action is not in the action space, we should penalize the model and exit early
             print(f"Error with action type parsing: {e}")
-            parser_error = True
+            action_type_parser_error = True
             action_type_score = 0
 
         coordinates_score = 0
         action_args_score = 0
-        if not parser_error:
+        if not action_type_parser_error:
             try:
                 coordinates_score = self._calculate_coordinates_score(
                     pred_action_info["coordinates"], gt_action_info["coordinates"]
@@ -265,7 +248,6 @@ class UISubtaskRewardScorer:
 
         score = (
             format_score * self.executor_weights["format"]
-            + thinking_score * self.executor_weights["thinking"]
             + action_type_score * self.executor_weights["action_type"]
             + coordinates_score * self.executor_weights["coordinates"]
             + action_args_score * self.executor_weights["action_args"]
@@ -273,11 +255,16 @@ class UISubtaskRewardScorer:
         details = {
             "score": score,
             "format": format_score,
-            "thinking": thinking_score,
             "action_type": action_type_score,
             "coordinates": coordinates_score,
             "action_args": action_args_score,
+            "in_action_space": not action_type_parser_error,
         }
+
+        # Aggregate action-type-wise scores
+        if not action_type_parser_error:
+            details[f"{gt_action_info['action_type']}/coordinates"] = coordinates_score
+            details[f"{gt_action_info['action_type']}/action_args"] = action_args_score
 
         return details
 
@@ -289,12 +276,12 @@ class UISubtaskRewardScorer:
             ground_truth: Dictionary containing ground truth information.
             There can be 2 types of ground truth:
             - reward_model: with fields
-                - reasoning: str
+                - reasoning: str (unused)
                 - should_end: Literal["true", "false"]
                 - goal_achieved: Literal["true", "false"]
                 - answer: str
             - executor: with fields
-                - thinking: str
+                - thinking: str (unused)
                 - action: str
 
         Returns:

@@ -7,14 +7,14 @@ ENGINE=${1:-vllm}
 REWARD_FILE=orby/reward/uground.py
 REWARD_FN=reward_func
 
-python3 -m verl.trainer.main_ppo \
+python3 -m orby.trainer.main_ppo \
     custom_reward_function.path=$REWARD_FILE \
     custom_reward_function.name=$REWARD_FN \
     algorithm.adv_estimator=grpo \
     data.train_files=$HOME/data/uground/train.parquet \
     data.val_files=$HOME/data/uground/test.parquet \
     data.train_batch_size=64 \
-    data.max_prompt_length=7936 \
+    +data.max_prompt_length=7936 \
     data.max_response_length=256 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \

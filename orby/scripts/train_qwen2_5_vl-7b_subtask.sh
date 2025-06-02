@@ -25,7 +25,7 @@ python3 -m orby.trainer.main_ppo \
     data.train_files=$TRAIN_FILES \
     data.val_files=$VAL_FILES \
     data.train_batch_size=32 \
-    data.max_prompt_length=7680 \
+    +data.max_prompt_length=7680 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
