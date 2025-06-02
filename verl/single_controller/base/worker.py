@@ -22,8 +22,9 @@ from typing import Dict
 
 import ray
 
-from .decorator import Dispatch, Execute, register
 from verl.utils.device import get_torch_device
+
+from .decorator import Dispatch, Execute, register
 
 
 @dataclass

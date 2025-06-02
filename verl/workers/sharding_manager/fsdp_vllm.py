@@ -17,7 +17,6 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from typing import List
 
 import torch
 from peft import PeftModel

@@ -25,6 +25,7 @@ import torch
 from verl import DataProto
 from verl.utils.import_utils import deprecated
 
+
 @deprecated("verl.utils.metric.reduce_metrics")
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
     """

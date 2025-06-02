@@ -20,7 +20,6 @@ import hashlib
 import os
 import shutil
 import tempfile
-import hashlib
 
 try:
     from hdfs_io import copy, exists, makedirs  # for internal use only
