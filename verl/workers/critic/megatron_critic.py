@@ -150,6 +150,7 @@ class MegatronPPOCritic(BasePPOCritic):
         data.batch = data.batch.contiguous()
         broadcast_dict_tensor(data.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         mini_batch = data
+        mini_batch.to(torch.cuda.current_device())
         mini_batch.batch = mini_batch.batch.contiguous()
         broadcast_dict_tensor(mini_batch.batch, src=mpu.get_pipeline_model_parallel_last_rank(), group=mpu.get_pipeline_model_parallel_group())
         # split into micro-batches

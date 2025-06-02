@@ -18,7 +18,6 @@ import numpy as np
 import pytest
 import torch
 from tensordict import TensorDict
-
 from verl import DataProto
 from verl.protocol import union_numpy_dict, union_tensor_dict
 
@@ -456,3 +455,45 @@ def test_dataproto_unfold_column_chunks():
     assert torch.all(torch.eq(ret.batch["obs2"], expect_obs2))
     assert (ret.non_tensor_batch["labels"] == expect_labels).all()
     assert ret.meta_info == {"name": "abc"}
+
+def test_dataproto_chunk_after_index():
+    data_len = 4
+    obs = torch.randn(data_len, 4)
+    labels = [f"label_{i}" for i in range(data_len)]
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"name": "abc"})
+
+    # Test with boolean numpy array
+    bool_mask = np.array([True, False, True, False])
+    selected = data[bool_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)  # int or List[int]
+    
+    # Test with integer numpy array
+    int_mask = np.array([0, 2])
+    selected = data[int_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)
+    
+    # Test with boolean list
+    list_mask = [True, False, True, False]
+    selected = data[list_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)
+    
+    # Test with list
+    list_mask = [0, 2]
+    selected = data[list_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)
+    
+    # Test with torch tensor (bool)
+    torch_bool_mask = torch.tensor([True, False, True, False])
+    selected = data[torch_bool_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)
+    
+    # Test with torch tensor (int)
+    torch_int_mask = torch.tensor([0, 2])
+    selected = data[torch_int_mask]
+    assert isinstance(selected.batch.batch_size, torch.Size)
+    assert all(isinstance(d, int) for d in selected.batch.batch_size)
