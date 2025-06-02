@@ -14,22 +14,3 @@ Math problems
     },
 }
 ```
-
-## RLAgent dataset
-
-The dataset is designed for RL training with the LLM as the agent. 
-It is built on top of the design in https://github.com/HMJiangGatech/verl_agent_env_examples.
-
-The dataset is organized as follows:
-```json
-{
-    "env_name": "verl_env/sokoban-v0",
-    "seed": 0,
-    "env_kwargs": null,
-}
-```
-The `env_name` is the name of the environment.
-The `seed` is the seed for the environment.
-The `env_kwargs` is the kwargs for the environment.
-They are used to initialize the environment, `initialize_env` in `https://github.com/HMJiangGatech/verl_agent_env_examples/blob/master/src/verl_agent_env/app.py`.
-

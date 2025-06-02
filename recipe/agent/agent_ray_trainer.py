@@ -1,3 +1,18 @@
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Agent-specific implementation of PPO Trainer.
 This trainer extends the base RayPPOTrainer with agent-specific functionality.
@@ -21,7 +36,9 @@ import verl.utils.torch_functional as verl_F
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
-from verl.utils.dataset.rl_agent_dataset import RLAgentDataset, collate_fn, AgentEnv
+from .rl_agent_dataset import RLAgentDataset
+from .agent_env import AgentEnv
+from .utils import collate_fn
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, bootstrap_metric, calc_maj_val, process_validation_metrics
 from verl.trainer.ppo.ray_trainer import (RayPPOTrainer, ResourcePoolManager, Role, WorkerType, AdvantageEstimator,

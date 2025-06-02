@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +15,11 @@
 """
 Main entry point for training agent models with PPO.
 """
-from verl.trainer.agent_ppo.ray_trainer import AgentPPOTrainer
+from .agent_ray_trainer import AgentPPOTrainer
 
 import os
 import ray
 import hydra
-
 
 @hydra.main(config_path='config', config_name='agent_ppo_trainer', version_base=None)
 def main(config):
