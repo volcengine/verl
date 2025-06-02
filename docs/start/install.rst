@@ -92,14 +92,14 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 Install from custom environment
 ---------------------------------------------
 
-We recommend to use docker images for convinience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
+We recommend to use docker images for convenience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
 
 
 Pre-requisites
 ::::::::::::::
 
 For training and inference engines to utilize better and faster hardware support, CUDA/cuDNN and other dependencies are required,
-and some of the dependencies are easy to be overrided when installing other packages,
+and some of the dependencies are easy to be override when installing other packages,
 so we put them in the :ref:`Post-installation` step.
 
 We need to install the following pre-requisites:
