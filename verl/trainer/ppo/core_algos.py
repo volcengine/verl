@@ -120,6 +120,7 @@ def compute_grpo_outcome_advantage(
     """
     Compute advantage for GRPO, operating only on Outcome reward
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape is (bs, response_length)
@@ -223,6 +224,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
     """
     Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -264,6 +266,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
 def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -304,6 +307,7 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_m
 def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6):
     """
     Compute advantage for OPO based on https://arxiv.org/pdf/2505.23585
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -349,6 +353,7 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
     """
     Compute advantage for REINFORCE++.
     This implementation is based on the paper: https://arxiv.org/abs/2501.03262
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
@@ -382,8 +387,8 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
     """
     Compute advantage for ReMax, operating only on Outcome reward
     This implementation is based on the paper: https://arxiv.org/abs/2310.10505
-
     (with only one scalar reward for each response).
+
     Args:
         token_level_rewards: `(torch.Tensor)`
             shape: (bs, response_length)
