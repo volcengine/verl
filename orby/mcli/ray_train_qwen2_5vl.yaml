@@ -4,7 +4,7 @@ image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
 integrations:
   - integration_type: git_repo
     git_repo: orby-ai-engineering/verl
-    git_branch: main
+    git_branch: sanjari/useRayClusterYaml
     pip_install: .
     ssh_clone: true
 command: |
@@ -32,9 +32,10 @@ command: |
   export GLOO_SOCKET_IFNAME=$INTERFACE
   
   # Start ray and training job
-  sh orby/scripts/run_ray.sh 
+  ray up start_ray_cluster.yaml
+  # sh orby/scripts/run_ray.sh 
   # hacky way to create a distribution barrier
-  sleep 120
+  # sleep 120
   ray status
   if [ "$NODE_RANK" = "0" ]; then
       ray job submit --address="http://127.0.0.1:8265" \
