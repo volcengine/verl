@@ -223,23 +223,24 @@ class FSDPSFTTrainer:
         init_context = get_init_weight_context_manager(use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh)
 
         with init_context():
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            local_model_path,
-            device_map=torch.cuda.current_device(),
-            attn_implementation="sdpa"
-            )
+            model = None
 
             if self.config.data.image_key is not None:
-                 self.model: PreTrainedModel = model
-
+                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                            local_model_path,
+                            #device_map=torch.cuda.current_device(),
+                            attn_implementation="sdpa"
+                        )
             else:
-                self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                    local_model_path,
-                    config=config,
-                    torch_dtype=torch.float32,
-                    attn_implementation="flash_attention_2",
-                    trust_remote_code=trust_remote_code,
-                )
+                model = AutoModelForCausalLM.from_pretrained(
+                            local_model_path,
+                            config=config,
+                            torch_dtype=torch.float32,
+                            attn_implementation="flash_attention_2",
+                            trust_remote_code=trust_remote_code,
+                        )
+            self.model: PreTrainedModel = model
+
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -332,36 +333,76 @@ class FSDPSFTTrainer:
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
         raw_prompt_ids = batch["raw_prompt_ids"]
-        multi_modal_inputs = batch.get("multi_modal_inputs", {})   
-
-        if position_ids.dim() == 3:  # qwen2vl mrope
+        #print(raw_prompt_ids)
+        #input()
+        multi_modal_inputs = batch.get("multi_modal_inputs", {})
+        
+        if position_ids.dim() == 3:
+            # When processing multimodal data (text + images), Qwen2.5-VL uses 3D position embeddings
+            # where each token gets 3 coordinates: [t, h, w] representing temporal, height, width dimensions.
+            # 
+            # The get_rope_index() function returns position_ids as (3, seq_len) where:
+            # - Dimension 0: temporal coordinates for all tokens
+            # - Dimension 1: height coordinates for all tokens  
+            # - Dimension 2: width coordinates for all tokens
+            #
+            # However, the Qwen2.5-VL attention mechanism expects (seq_len, 3) where:
+            # - Each row represents one token's [t, h, w] coordinates  # qwen2vl mrope
             position_ids = position_ids.transpose(0, 1)
 
         if "loss_mask" in batch:
             loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
         else:
-            batch_size, _ = input_ids.shape
-            loss_mask_list = []
-            for i in range(batch_size):
-                sample_attention = attention_mask[i]
-                sample_raw_prompt_list = raw_prompt_ids[i]
-                raw_prompt_length = len(sample_raw_prompt_list)
+            batch_size, seq_len = input_ids.shape
+            
+            # Start with attention mask as base
+            loss_mask = attention_mask.clone()  # (batch_size, seq_len)
+            
+            # Create a mask for prompt tokens to exclude from loss
+            # Get the length of each raw prompt
+            raw_prompt_lengths = torch.tensor([len(sample) for sample in raw_prompt_ids], 
+                                            device=attention_mask.device)
+            
+            # Create position indices for each sequence
+            position_indices = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0).expand(batch_size, -1)
+            
+            # Mask out prompt tokens (except the last prompt token)
+            prompt_mask = position_indices < (raw_prompt_lengths.unsqueeze(1) - 1)
+            loss_mask = loss_mask.masked_fill(prompt_mask, 0)
+            
+            # Mask out the last token of each sequence
+            # Find the last valid token position for each sequence
+            last_token_positions = attention_mask.sum(dim=1) - 1  # (batch_size,)
+            
+            # Create mask for last tokens
+            last_token_mask = position_indices == last_token_positions.unsqueeze(1)
+            loss_mask = loss_mask.masked_fill(last_token_mask, 0)
+            
+            # Remove last column and flatten
+            loss_mask = loss_mask[:, :-1].reshape(-1).to(self.device_name)
+        #else:
+        #    batch_size, _ = input_ids.shape
+        #    loss_mask_list = []
+        #    for i in range(batch_size):
+        #        sample_attention = attention_mask[i]
+        #        sample_raw_prompt_list = raw_prompt_ids[i]
+        #        raw_prompt_length = len(sample_raw_prompt_list)
 
-                sample_loss_mask = sample_attention.clone()
+        #        sample_loss_mask = sample_attention.clone()
 
-                if raw_prompt_length > 1:
+        #        if raw_prompt_length > 1:
                     # Don't learn from prompt tokens (question + image)
-                    sample_loss_mask[: min(raw_prompt_length, sample_loss_mask.size(0)) - 1] = 0
-            
+        #            sample_loss_mask[: min(raw_prompt_length, sample_loss_mask.size(0)) - 1] = 0
+        #    
                 # Don't learn from last token
-                last_token_idx = sample_attention.sum().item() - 1
-                if last_token_idx >= 0 and last_token_idx < sample_loss_mask.size(0):
-                    sample_loss_mask[last_token_idx] = 0
+        #        last_token_idx = sample_attention.sum().item() - 1
+        #        if last_token_idx >= 0 and last_token_idx < sample_loss_mask.size(0):
+        #            sample_loss_mask[last_token_idx] = 0
             
-                loss_mask_list.append(sample_loss_mask)
+        #        loss_mask_list.append(sample_loss_mask)
         
             # Stack and reshape for loss computation
-            loss_mask = torch.stack(loss_mask_list)[:, :-1].reshape(-1).to(self.device_name)
+        #    loss_mask = torch.stack(loss_mask_list)[:, :-1].reshape(-1).to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
@@ -653,7 +694,7 @@ class FSDPSFTTrainer:
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+@hydra.main(config_path="../trainer/config/", config_name="sft_trainer", version_base=None)
 def main(config):
     device_name = get_device_name()
     local_rank, rank, world_size = initialize_global_process_group()
@@ -662,11 +703,12 @@ def main(config):
     dp_size = world_size // config.ulysses_sequence_parallel_size
     ulysses_device_mesh = init_device_mesh(device_type=device_name, mesh_shape=(dp_size, config.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
     # build tokenizer and datasets first
-    from verl.utils import hf_tokenizer
+    from verl.utils import hf_tokenizer, hf_processor
 
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
+    processor = hf_processor(local_model_path, **config.data.get("processor", {}))
+    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, processor)
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 
     trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
