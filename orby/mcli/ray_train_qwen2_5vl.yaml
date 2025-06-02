@@ -4,7 +4,7 @@ image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
 integrations:
   - integration_type: git_repo
     git_repo: orby-ai-engineering/verl
-    git_branch: sanjari/multinode_ray
+    git_branch: main
     pip_install: .
     ssh_clone: true
 command: |
@@ -43,7 +43,7 @@ command: |
         -- \
         python3 -m verl.trainer.main_ppo \
             trainer.n_gpus_per_node=8 \
-            trainer.nnodes=2 \
+            trainer.nnodes=8 \
             algorithm.adv_estimator=grpo \
             data.train_files=$HOME/data/geo3k/train.parquet \
             data.val_files=$HOME/data/geo3k/test.parquet \
@@ -53,7 +53,7 @@ command: |
             data.filter_overlong_prompts=True \
             data.truncation='error' \
             data.image_key=images \
-            actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
+            actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-72B-Instruct \
             actor_rollout_ref.actor.optim.lr=1e-6 \
             actor_rollout_ref.model.use_remove_padding=True \
             actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -82,9 +82,10 @@ command: |
             trainer.experiment_name='qwen2_5_vl_7b_function_rm' \
             trainer.save_freq=20 \
             trainer.test_freq=5 \
+            trainer.s3_checkpoint_dir=s3://orby-osu-va/verl-checkpoints/geo3k/qwen2_5_vl_72b_function_rm \
             trainer.total_epochs=15 $@ | tee /dev/tty | grep -o "raysubmit_[a-zA-Z0-9]*" | xargs -I{} ray job logs --follow {}
   fi
 compute:
-  gpus: 16 # Number of GPUs to use
+  gpus: 64 # Number of GPUs to use
   cluster: r8z13p2
   gpu_type: h100_80gb

@@ -23,7 +23,7 @@ from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictCon
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
-from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.fs import copy_to_local, is_non_local, upload_local_file_to_s3
 from verl.utils.device import is_cuda_available
 from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
@@ -79,9 +79,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         remote_optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
         remote_extra_state_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
         print(f"[rank-{self.rank}]: Loading from {remote_model_path} and {remote_optim_path} and {remote_extra_state_path}")
-        local_model_path = copy_to_local(remote_model_path)
-        local_optim_path = copy_to_local(remote_optim_path)
-        local_extra_state_path = copy_to_local(remote_extra_state_path)
+        local_model_path = copy_to_local(remote_model_path, recursive=False)
+        local_optim_path = copy_to_local(remote_optim_path, recursive=False)
+        local_extra_state_path = copy_to_local(remote_extra_state_path, recursive=False)
 
         model_state_dict = torch.load(local_model_path, weights_only=False)
         optimizer_state_dict = torch.load(local_optim_path, weights_only=False)
@@ -111,7 +111,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         if self.lr_scheduler is not None:
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path: str, global_step: int, s3_path: str = None, max_ckpt_to_keep=None, *args, **kwargs):
         if local_path is None:
             return
 
@@ -141,9 +141,13 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                     "lr_scheduler": lr_scheduler_state_dict,
                     "rng": self.get_rng_state(),
                 }
-                model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
-                optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
-                extra_path = os.path.join(local_path, f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt")
+
+                model_file = f"model_world_size_{self.world_size}_rank_{self.rank}.pt"
+                optim_file = f"optim_world_size_{self.world_size}_rank_{self.rank}.pt"
+                extra_file = f"extra_state_world_size_{self.world_size}_rank_{self.rank}.pt"
+                model_path = os.path.join(local_path, model_file)
+                optim_path = os.path.join(local_path, optim_file)
+                extra_path = os.path.join(local_path, extra_file)
 
                 print(f"[rank-{self.rank}]: Saving model to {os.path.abspath(model_path)}")
                 print(f"[rank-{self.rank}]: Saving optim to {os.path.abspath(optim_path)}")
@@ -151,7 +155,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(model_state_dict, model_path)
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
-
+                if s3_path is not None:
+                    upload_local_file_to_s3(os.path.join(s3_path, model_file), model_path, verbose=True)
+                    upload_local_file_to_s3(os.path.join(s3_path, optim_file), optim_path, verbose=True)
+                    upload_local_file_to_s3(os.path.join(s3_path, extra_file), extra_path, verbose=True)
         if self.rank == 0:
             if fsdp_version(self.model) == 1:
                 unwrap_model = self.model._fsdp_wrapped_module

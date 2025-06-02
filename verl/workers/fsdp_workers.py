@@ -716,16 +716,18 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
-        # only support save and load ckpt for actor
+    def save_checkpoint(self, local_path, hdfs_path=None, s3_path=None, global_step=0, max_ckpt_to_keep=None):        # only support save and load ckpt for actor
         assert self._is_actor
         import torch
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
-
+        self.checkpoint_manager.save_checkpoint(local_path=local_path,
+                                                hdfs_path=hdfs_path,
+                                                s3_path=s3_path,
+                                                global_step=global_step,
+                                                max_ckpt_to_keep=max_ckpt_to_keep)
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
@@ -1030,13 +1032,17 @@ class CriticWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, s3_path=None, global_step=0, max_ckpt_to_keep=None):
         import torch
 
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
 
-        self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
+        self.checkpoint_manager.save_checkpoint(local_path=local_path,
+                                                hdfs_path=hdfs_path,
+                                                s3_path=s3_path,
+                                                global_step=global_step,
+                                                max_ckpt_to_keep=max_ckpt_to_keep)
 
         torch.distributed.barrier()
         if self._is_offload_param:

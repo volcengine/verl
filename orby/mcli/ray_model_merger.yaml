@@ -1,0 +1,31 @@
+name: model-merger
+image: whatcanyousee/verl:ngc-cu124-vllm0.8.3-sglang0.4.5-mcore0.12.0-te2.2
+integrations:
+  - integration_type: git_repo
+    git_repo: orby-ai-engineering/verl
+    git_branch: sanjari/allow_s3_upload_for_fsdp
+    pip_install: .
+    ssh_clone: true
+command: |
+  cd /workspace/verl
+  sed -i 's|mirrors.tuna.tsinghua.edu.cn|archive.ubuntu.com|g' /etc/apt/sources.list
+  apt update
+  apt install iproute2 -y
+  apt install -y dnsutils
+  apt install -y emacs
+  apt install -y awscli
+  pip install 'urllib3<2'
+  pip install s3fs
+  pip install boto3
+
+  if [ "$NODE_RANK" = "0" ]; then
+    python3 orby/scripts/model_merger.py merge \
+      --backend fsdp \
+      --hf_model_path Qwen/Qwen2.5-VL-7B-Instruct \
+      --local_dir s3://orby-osu-va/verl-checkpoints/geo3k/qwen2_5_vl_7b_function_rm/global_step_1/actor \
+      --target_dir s3://orby-osu-va/verl-checkpoints/geo3k/qwen2_5_vl_7b_function_rm/global_step_1/hf/
+  fi
+compute:
+  gpus: 8 # Number of GPUs to use
+  cluster: r8z13p2
+  gpu_type: h100_80gb
