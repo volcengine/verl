@@ -1,7 +1,7 @@
-# markdown suport
+# markdown support
 recommonmark
 myst_parser
-# markdown table suport
+# markdown table support
 sphinx-markdown-tables
 
 # theme default rtd
