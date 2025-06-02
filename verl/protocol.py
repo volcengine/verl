@@ -453,7 +453,7 @@ class DataProto:
             idxs_torch = idxs
             idxs_np = idxs.detach().cpu().numpy()
 
-        batch_size = idxs_np.sum() if idxs_np.dtype == bool else idxs_np.shape[0]
+        batch_size = int(idxs_np.sum()) if idxs_np.dtype == bool else idxs_np.shape[0]
 
         if self.batch is not None:
             # Use TensorDict's built-in indexing capabilities

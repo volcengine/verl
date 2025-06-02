@@ -23,7 +23,6 @@ from typing import Dict
 import ray
 
 from .decorator import Dispatch, Execute, register
-from verl.utils.device import get_torch_device
 
 
 @dataclass
@@ -146,14 +145,7 @@ class Worker(WorkerHelper):
         # construct a meta from environment variable. Note that the import must be inside the class because it is executed remotely
         import os
 
-        import torch
-        from packaging import version
-        ###
-        # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
-            os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("ROCR_VISIBLE_DEVICES")
-            os.environ["LOCAL_RANK"] = os.environ.get("RAY_LOCAL_RANK")
-        ###
+        self._setup_env_cuda_visible_devices()
 
         world_size = int(os.environ["WORLD_SIZE"])
         rank = int(os.environ["RANK"])
@@ -165,13 +157,6 @@ class Worker(WorkerHelper):
 
         local_world_size = int(os.getenv("LOCAL_WORLD_SIZE", "1"))
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
-
-        ###
-        # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
-            self.local_rank = int(os.environ["LOCAL_RANK"])
-            cuda_visible_devices = str(local_rank)
-        ###
 
         store = {
             "_world_size": world_size,
@@ -186,12 +171,6 @@ class Worker(WorkerHelper):
 
         self._configure_with_store(store=store)
 
-        ###
-        # [SUPPORT AMD: torch]
-        if torch.cuda.is_available() and "AMD" in get_torch_device().get_device_name() and version.parse(ray.__version__) < version.parse("2.45.0"):
-            get_torch_device().set_device(int(cuda_visible_devices))
-        ###
-
         self.fused_worker_dict = {}
 
     def get_fused_worker_by_name(self, worker_name: str):
@@ -202,6 +181,54 @@ class Worker(WorkerHelper):
                 Name of the worker to retrieve
         """
         return self.fused_worker_dict.get(worker_name, None)
+
+    def _setup_env_cuda_visible_devices(self):
+        import torch   
+        from verl.utils.ray_utils import ray_noset_visible_devices
+
+        is_ray_noset_visible_devices = ray_noset_visible_devices()
+
+        # Prevent use of clashing `{CUDA/HIP/ROCR}_VISIBLE_DEVICES``
+        rocr_val = os.environ.get("ROCR_VISIBLE_DEVICES", None)
+        hip_val = os.environ.get("HIP_VISIBLE_DEVICES", None)
+        cuda_val = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+        if hip_val:
+            # Switch the use of HIP_VISIBLE_DEVICES to CUDA_VISIBLE_DEVICES for consistency.
+            # Make sure that the HIP_VISIBLE_DEVICES is set to the same value as CUDA_VISIBLE_DEVICES
+            # at this point.
+            val = os.environ.pop("HIP_VISIBLE_DEVICES")
+            hip_val = None
+            if cuda_val:
+                assert val == cuda_val, f"Please use the same HIP_VISIBLE_DEVICES or CUDA_VISIBLE_DEVICES, inconsistant values found: {val} and {cuda_val}."
+            else:
+                cuda_val = val
+                os.environ["CUDA_VISIBLE_DEVICES"] = val
+
+        if rocr_val:
+            # You must take care if both HIP/CUDA and ROCR env vars are set as they have
+            # different meanings. Both env vars accept either a list of ints or a
+            # list of UUIDs. The ROCR env var is processed first which then reduces
+            # the number of GPUs that HIP can select from.
+            # https://github.com/pytorch/pytorch/pull/144026
+            # To avoid the complexity of this, we simply gives out error if both are set
+            # (Also to keep consistency with ray's practice with 2.45.0).
+            # Otherwise, we will set ROCR_VISIBLE_DEVICES to CUDA_VISIBLE_DEVICES
+            # and remove ROCR_VISIBLE_DEVICES.
+            if cuda_val:
+                raise ValueError("Please don't set ROCR_VISIBLE_DEVICES when HIP/CUDA_VISIBLE_DEVICES is set.")
+
+            cuda_val = os.environ.pop("ROCR_VISIBLE_DEVICES")
+            os.environ["CUDA_VISIBLE_DEVICES"] = cuda_val
+            rocr_val = None
+
+        if is_ray_noset_visible_devices:
+            # NOTE: Ray will automatically set the *_VISIBLE_DEVICES
+            # environment variable for each actor, unless
+            # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set,
+            # so we need to set local rank when the flag is set.
+            local_rank = os.environ.get("RAY_LOCAL_RANK")
+            os.environ["LOCAL_RANK"] = local_rank
+            torch.cuda.set_device(int(local_rank))
 
     def _configure_with_store(self, store: Dict):
         """

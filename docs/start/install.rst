@@ -92,14 +92,14 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 Install from custom environment
 ---------------------------------------------
 
-We recommend to use docker images for convinience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
+We recommend to use docker images for convenience. However, if your environment is not compatible with the docker image, you can also install verl in a python environment.
 
 
 Pre-requisites
 ::::::::::::::
 
 For training and inference engines to utilize better and faster hardware support, CUDA/cuDNN and other dependencies are required,
-and some of the dependencies are easy to be overrided when installing other packages,
+and some of the dependencies are easy to be overridden when installing other packages,
 so we put them in the :ref:`Post-installation` step.
 
 We need to install the following pre-requisites:
@@ -113,7 +113,7 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/cuda-to
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     wget https://developer.download.nvidia.com/compute/cuda/12.4.1/local_installers/cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
     dpkg -i cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
     cp /var/cuda-repo-ubuntu2204-12-4-local/cuda-*-keyring.gpg /usr/share/keyrings/
@@ -127,7 +127,7 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/rdp/cud
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     wget https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb
     dpkg -i cudnn-local-repo-ubuntu2204-9.8.0_1.0-1_amd64.deb
     cp /var/cudnn-local-repo-ubuntu2204-9.8.0/cudnn-*-keyring.gpg /usr/share/keyrings/
@@ -136,12 +136,12 @@ please refer to `NVIDIA's official website <https://developer.nvidia.com/rdp/cud
 
 NVIDIA Apex is required for Megatron-LM and FSDP training.
 You can install it via the following command, but notice that this steps can take a very long time.
-It is recommanded to set the ``MAX_JOBS`` environment variable to accelerate the installation process,
+It is recommended to set the ``MAX_JOBS`` environment variable to accelerate the installation process,
 but do not set it too large, otherwise the memory will be overloaded and your machines may hang.
 
 .. code:: bash
 
-    # change directory to anywher you like, in verl source code directory is not recommanded
+    # change directory to anywher you like, in verl source code directory is not recommended
     git clone https://github.com/NVIDIA/apex.git && \
     cd apex && \
     MAX_JOB=32 pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./

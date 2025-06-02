@@ -6,7 +6,7 @@ Author: `Yusheng Su <https://yushengsu-thu.github.io/>`_
 Setup
 -----
 
-If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, and ``CUDA_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
+If you run on AMD GPUs (MI300) with ROCM platform, you cannot use the previous quickstart to run verl. You should follow the following steps to build a docker and set ``RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES`` or ``RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 
 
 docker/Dockerfile.rocm
@@ -102,15 +102,15 @@ Optional: Running without root and with user permissions
       verl-rocm \
       /bin/bash
 
-(Optional): If you do not want to root mode and require assign yuorself as the user
+(Optional): If you do not want to root mode and require assign yourself as the user
 Please add ``-e HOST_UID=$(id -u)`` and ``-e HOST_GID=$(id -g)`` into the above docker launch script. 
 
 Example
 -------
 
 Due to to special setting in AMD (ROCM) torch, 
-1. If your ``ray>=2.45.0`` (default), you need to assign ``HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
-2. If your ``ray<2.45.0``, you need to assign ``HIP_VISIBLE_DEVICES``, ``ROCR_VISIBLE_DEVICES``, ``CUDA_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
+1. If your ``ray>=2.45.0`` (default), you need to set ``RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
+2. If your ``ray<2.45.0``, you need to set ``RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES`` when starting ray in verl's RLHF training.
 Inference ``$ENGINE`` can be ``vllm`` or ``sglang``. We choose ``vllm`` as default in the following examples.
 
 
@@ -125,13 +125,10 @@ PPO
     # export HYDRA_FULL_ERROR=1
 
     # [ray] < 2.45.0
-    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
-    #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    #export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 
     # [ray] >= 2.45.0
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    #export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES="" #[yushengsu-thu] cannot assign 0 or 1 --> figure out the reason
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1 # Patch with https://github.com/ray-project/ray/pull/52794
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
@@ -181,12 +178,10 @@ GRPO
     # export FSDP_VERBOSE=1 
 
     # [ray] < 2.45.0
-    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    #export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 
     # [ray] >= 2.45.0
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES="" #[yushengsu-thu] cannot assign 0 or 1 --> figure out the reason
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1 # Patch with https://github.com/ray-project/ray/pull/52794
 
     GPUS_PER_NODE=8
     MODEL_PATH=Qwen/Qwen2.5-0.5B-Instruct
@@ -310,12 +305,10 @@ slurm_script.sh
 
     ### For rocm and training script
     # [ray] < 2.45.0
-    #export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    #export ROCR_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
-    #export CUDA_VISIBLE_DEVICES=$HIP_VISIBLE_DEVICES
+    #export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 
     # [ray] >= 2.45.0
-    export HIP_VISIBLE_DEVICES_ENV_VAR=0,1,2,3,4,5,6,7
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1 # Patch with https://github.com/ray-project/ray/pull/52794
 
 
     # Build and launch the Docker container
@@ -345,7 +338,8 @@ slurm_script.sh
         # Launch the docker
         docker run --rm -d \
         -e HYDRA_FULL_ERROR=1 \
-        -e HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES} \
+        -e RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1 \
+        -e RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1 \
         -e NCCL_DEBUG=${NCCL_DEBUG} \
         -e GPU_MAX_HW_QUEUES=${GPU_MAX_HW_QUEUES} \
         -e TORCH_NCCL_HIGH_PRIORITY=${TORCH_NCCL_HIGH_PRIORITY} \
@@ -446,7 +440,7 @@ slurm_script.sh
 
 
 
-    # Ray initlization test (See whether any error in the above excution)
+    # Ray initlization test (See whether any error in the above execution)
     echo "Testing Ray initialization in the slurm nodes..."
     docker exec "${CONTAINER_NAME}" python3 -c '
     import ray
