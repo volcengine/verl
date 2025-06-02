@@ -99,7 +99,7 @@ Pre-requisites
 ::::::::::::::
 
 For training and inference engines to utilize better and faster hardware support, CUDA/cuDNN and other dependencies are required,
-and some of the dependencies are easy to be override when installing other packages,
+and some of the dependencies are easy to be overridden when installing other packages,
 so we put them in the :ref:`Post-installation` step.
 
 We need to install the following pre-requisites:
