@@ -154,3 +154,13 @@ This figure illustrates the relationship between different batch size configurat
 https://excalidraw.com/#json=pfhkRmiLm1jnnRli9VFhb,Ut4E8peALlgAUpr7E5pPCA
 
 .. image:: https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d
+
+How to set proxy only for wandb?
+------------------------------------------------------------------------------------------
+
+If you need a proxy to access wandb, you can add below config in your training job script.
+Comparing to using global https_proxy env variable, this approach won't mess up other http requests, such as ChatCompletionScheduler.
+
+.. code:: bash
+
+  +trainer.wandb_proxy=http://<your proxy and port>
