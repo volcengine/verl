@@ -268,7 +268,7 @@ def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, *
 def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # Qwen2_5_VLForConditionalGeneration
 
-    return _get_base_transformer_config(
+    args = _get_base_transformer_config(
         hf_config=hf_config,
         dtype=dtype,
         add_bias_linear=False,
@@ -277,6 +277,7 @@ def hf_to_mcore_config_qwen2_5_vl(hf_config: PretrainedConfig, dtype: torch.dtyp
         mrope_section=hf_config.rope_scaling["mrope_section"],
         **override_transformer_config_kwargs,
     )
+    return TransformerConfig(**args)
 
 
 def hf_to_mcore_config_llama4(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
