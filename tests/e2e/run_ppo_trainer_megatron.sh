@@ -9,6 +9,22 @@ MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
+DUMMY_MODEL=${DUMMY_MODEL:-False}
+DUMMY_MODEL_PATH=${DUMMY_MODEL_PATH:-${HOME}/dummy_models/${MODEL_ID}}
+if [ "$DUMMY_MODEL" = "True" ]; then
+    if [ ! -d "${DUMMY_MODEL_CONFIG_PATH}" ]; then
+        echo "[ERROR] DUMMY_MODEL_CONFIG_PATH not set"
+        exit 1
+    fi
+    
+    python scripts/init_random_model.py \
+        --hf_model_path "${MODEL_PATH}" \
+        --new_config_path "${DUMMY_MODEL_CONFIG_PATH}" \
+        --output_path "${DUMMY_MODEL_PATH}"
+
+    MODEL_PATH="${DUMMY_MODEL_PATH}"
+fi
+
 TRAIN_FILES=${TRAIN_FILES:-${HOME}/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-${HOME}/data/gsm8k/test.parquet}
 

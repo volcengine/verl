@@ -255,9 +255,7 @@ jobs:
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
-          ADV_ESTIMATOR=grpo \
-          PPO_MAX_TOKEN_LEN=256 FWD_MAX_TOKEN_LEN=512 \
-          MAX_PROMPT_LENGTH=128 MAX_RESPONSE_LENGTH=128 MICRO_BSZ=1 \
+          ADV_ESTIMATOR=grpo DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
           MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat \
           COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 COMMON_EP=2 COMMON_ETP=1 INFER_TP=8 \
           USE_DIST_CKPT=True ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/e2e/run_ppo_trainer_megatron.sh
