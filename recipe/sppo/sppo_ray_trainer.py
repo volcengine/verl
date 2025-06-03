@@ -211,9 +211,11 @@ class RaySPPOTrainer(RayPPOTrainer):
                     batch = batch.union(gen_batch_output)
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
-                    # balance the number of valid tokens on each dp rank.
-                    # Note that this breaks the order of data inside the batch.
-                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    # Balance the number of valid tokens across DP ranks.
+                    # NOTE: This usually changes the order of data in the `batch`,
+                    # which won't affect the advantage calculation (since it's based on uid),
+                    # but might affect the loss calculation (due to the change of mini-batching).
+                    # TODO: Decouple the DP balancing and mini-batching.
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
 
