@@ -117,7 +117,6 @@ class Qwen2MoEModel(BaseModelInitializer):
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
-                layer.mlp.shared_experts.gate_weight.requires_grad = False
         return model
 
 
@@ -153,6 +152,29 @@ class Qwen3MoEModel(BaseModelInitializer):
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
+        return model
+
+
+class DeepseekV3Model(BaseModelInitializer):
+    """Initializer for DeepseekV3 models."""
+
+    def get_transformer_layer_spec(self):
+        assert self.tfconfig.normalization == "RMSNorm", "only RMSNorm is supported for now"
+        transformer_layer_spec = get_gpt_decoder_block_spec(self.tfconfig, use_transformer_engine=True)
+        return transformer_layer_spec
+
+    def initialize(
+        self,
+        **kwargs,
+    ):
+        freeze_moe_router = kwargs.get("freeze_moe_router", True)
+        if freeze_moe_router:
+            self.tfconfig.moe_router_load_balancing_type = "none"
+        model = super().initialize(**kwargs)
+        if freeze_moe_router:
+            for layer in model.decoder.layers:
+                if hasattr(layer.mlp, "router"):
+                    layer.mlp.router.weight.requires_grad = False
         return model
 
 

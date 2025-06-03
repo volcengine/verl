@@ -25,12 +25,12 @@ from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
-from verl.models.transformers.llama import forward_for_ppo
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
 )
 
 
@@ -107,6 +107,37 @@ def _ulysses_flash_attention_forward(
     return attn_output
 
 
+def patch_vlm_for_ulysses_input_slicing(model_class: type):
+    """
+    Applies a monkey patch to the forward method of a given model class
+    to enable Ulysses sequence parallelism input slicing.
+    """
+
+    def _create_ulysses_wrapped_decoder_forward(original_forward):
+        def ulysses_wrapped_decoder_forward(self, *args, **kwargs):
+            inputs_embeds = kwargs.get("inputs_embeds")
+            call_kwargs = kwargs.copy()
+
+            current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+
+            slice_now = inputs_embeds is not None and current_ulysses_sp_size > 1 and getattr(self, "_needs_initial_slice", True)
+            if slice_now:
+                call_kwargs["inputs_embeds"] = slice_input_tensor(inputs_embeds, dim=1, padding=False)
+                self._needs_initial_slice = False
+            try:
+                return original_forward(self, *args, **call_kwargs)
+            finally:
+                if slice_now:
+                    self._needs_initial_slice = True
+
+        return ulysses_wrapped_decoder_forward
+
+    original_forward = model_class.forward
+    wrapped_forward = _create_ulysses_wrapped_decoder_forward(original_forward)
+    model_class.forward = wrapped_forward
+    print(f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing.")
+
+
 def apply_monkey_patch(
     model: PreTrainedModel,
     ulysses_sp_size: int = 1,
@@ -116,7 +147,11 @@ def apply_monkey_patch(
     """Replace _flash_attention_forward to _ulysses_flash_attention_forward"""
     module = sys.modules[model.__module__]
 
-    num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    try:
+        num_attention_heads, num_key_value_heads = model.config.num_attention_heads, model.config.num_key_value_heads
+    except AttributeError:
+        num_attention_heads, num_key_value_heads = model.config.text_config.num_attention_heads, model.config.text_config.num_key_value_heads
+    
     assert num_attention_heads % ulysses_sp_size == 0, f"num_attention_heads {num_attention_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}"
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
@@ -133,6 +168,14 @@ def apply_monkey_patch(
 
             Qwen2_5_VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2.5VL")
+
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
+            else:
+                from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLModel)
 
         if use_fused_kernels:
             from verl.models.transformers.qwen2_5_vl import forward_for_ppo
@@ -153,10 +196,32 @@ def apply_monkey_patch(
             Qwen2VLFlashAttention2.forward = ulysses_flash_attn_forward
             print("Monkey patch FlashAttention2.forward in Qwen2VL")
 
+        if ulysses_sp_size > 1:
+            if is_transformers_version_in_range(min_version="4.52.0"):
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLTextModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLTextModel)
+            else:
+                from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLModel
+                patch_vlm_for_ulysses_input_slicing(Qwen2VLModel)
+
         if use_fused_kernels:
             from verl.models.transformers.qwen2_vl import forward_for_ppo
 
             Qwen2VLForConditionalGeneration.forward = forward_for_ppo
+
+        return
+
+    elif model.config.model_type == "kimi_vl":
+        if use_remove_padding or ulysses_sp_size > 1:
+            # TODO: Changes need to be made when transformers are adapted.
+            from verl.models.transformers.kimi_vl import _merge_with_image_features, _ulysses_flash_attn_forward
+
+            module.KimiVLForConditionalGeneration._merge_with_image_features = _merge_with_image_features
+            module.DeepseekV3FlashAttention2.forward = _ulysses_flash_attn_forward
+            print("Monkey patch FlashAttention2.forward in KimiVL")
+            
+        if use_fused_kernels:
+            print(f"Not support fused kernels for KimiVL")
 
         return
 
@@ -179,12 +244,21 @@ def apply_monkey_patch(
 
 
 @lru_cache
-def is_transformers_version_in_range(min_version: str, max_version: str) -> bool:
+def is_transformers_version_in_range(min_version: Optional[str] = None, max_version: Optional[str] = None) -> bool:
     try:
         # Get the installed version of the transformers library
-        transformers_version = importlib.metadata.version("transformers")
+        transformers_version_str = importlib.metadata.version("transformers")
     except importlib.metadata.PackageNotFoundError as e:
         raise ModuleNotFoundError("The `transformers` package is not installed.") from e
 
-    # Check if the version is within the specified range
-    return version.parse(min_version) <= version.parse(transformers_version) <= version.parse(max_version)
+    transformers_version = version.parse(transformers_version_str)
+
+    lower_bound_check = True
+    if min_version is not None:
+        lower_bound_check = version.parse(min_version) <= transformers_version
+
+    upper_bound_check = True
+    if max_version is not None:
+        upper_bound_check = transformers_version <= version.parse(max_version)
+
+    return lower_bound_check and upper_bound_check

@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
+  trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
       path: null
       name: null
@@ -37,12 +38,14 @@ actor_rollout_ref:
       activations_checkpoint_granularity: null # 'selective' or 'full'
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
+    trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
     ppo_micro_batch_size_per_gpu: null
     use_dynamic_bsz: False
+    ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
     use_torch_compile: True # False to disable torch compile
     # pg_losses2 = -advantages * torch.clamp(ratio, 1 - cliprange_low, 1 + cliprange_high)
     clip_ratio: 0.2 # default value if clip_ratio_low and clip_ratio_high are not specified
@@ -118,6 +121,8 @@ actor_rollout_ref:
     load_weight: True
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
@@ -139,6 +144,8 @@ actor_rollout_ref:
     max_num_seqs: 1024
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
+    log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     disable_log_stats: True
     enable_chunked_prefill: False # could get higher throughput
     # for hf rollout
@@ -161,7 +168,7 @@ actor_rollout_ref:
       n: 1
       do_sample: False # default eager for validation
     multi_turn: 
-      enable: False  # should set rollout.name to sglang_async if True
+      enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
       format: chatml  # chatml, more formats will be supported in the future
@@ -185,6 +192,7 @@ critic:
       moe_config:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
+    trust_remote_code: False
     enable_gradient_checkpointing: False
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
@@ -212,6 +220,8 @@ critic:
   ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
   ppo_micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
+  forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
   data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
   shuffle: ${actor_rollout_ref.actor.shuffle}
@@ -243,11 +253,13 @@ reward_model:
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    trust_remote_code: False
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
   micro_batch_size_per_gpu: null
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
+  forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   max_length: null
   reward_manager: naive
   launch_reward_fn_async: False # custom reward function executed async on CPU, during log_prob
@@ -270,6 +282,10 @@ algorithm:
     kl_coef: 0.001
     horizon: 10000
     target_kl: 0.1
+  use_pf_ppo: False
+  pf_ppo:
+    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    weight_pow: 2.0
 
 trainer:
   balance_batch: True
@@ -287,7 +303,7 @@ trainer:
   resume_from_path: null
   del_local_ckpt_after_load: False
   val_before_train: True
-  test_freq: 2
+  test_freq: -1
   critic_warmup: 0
   default_hdfs_dir: null
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

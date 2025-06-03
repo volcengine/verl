@@ -27,6 +27,7 @@ Data
      filter_overlong_prompts_workers: 1
      truncation: error
      image_key: images
+     trust_remote_code: True
      custom_cls:
         path: null
         name: null
@@ -67,6 +68,8 @@ Data
   throwing the error. You can also set ``left`` and ``right``.
 - ``data.image_key``: The field in the multi-modal dataset where the image is
   located. Default is 'images'.
+- ``data.trust_remote_code``: If the remote tokenizer has python file, we can use this field to allow 
+  using remote tokenizer. For example: moonshotai/Moonlight-16B-A3B-Instruct
 
 Customized Dataset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,7 +112,7 @@ Actor/Rollout/Reference Policy
       ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
       grad_clip: 1.0
       clip_ratio: 0.2
-      entropy_coeff: 0.001
+      entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
@@ -174,8 +177,8 @@ Actor/Rollout/Reference Policy
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
-      # number of responses (i.e. num sample times)
-      n: 1 # > 1 for grpo, rloo
+
+      n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
       val_kwargs:
         # sampling parameters for validation
         top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -229,7 +232,7 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.use_torch_compile``: Whether to use torch compile in actor
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
-  calculating PPO loss
+  calculating PPO loss. The default value is changed to 0.0 since v0.3.x
 
 - ``actor_rollout_ref.actor.ppo_epochs``: Number of epochs for PPO
   updates on one set of sampled data
@@ -260,8 +263,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
-- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to calculate the kl divergence between actor and reference policy. For
-    specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
@@ -317,21 +319,23 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
   will perform greedy sampling.
 
 - ``actor_rollout_ref.rollout.val_kwargs```: Sampling parameters used specifically during validation.
+
   - ``top_k``: Top-k sampling parameter. Default to -1 for vLLM rollout or 0 for HF rollout.
   - ``top_p``: Top-p sampling parameter. Default is 1.0 (disabled).
   - ``temperature``: Sampling temperature. Default is 0 (deterministic greedy).
   - ``n``: Number of responses to generate during validation. Default is 1.
   - ``do_sample``: Whether to use sampling during validation. Default is False for
-  deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
-  (top_k, top_p, temperature) to control the sampling behavior.
+    deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
+    (top_k, top_p, temperature) to control the sampling behavior.
 
 - ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
-  - ``swap_space``: swap space in GB used by the inference engine.
-    - ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-    - Positive integer, e.g., ``32`` means 32 GB.
+
+  - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
 
 - ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
+
   - ``attention_backend``: The attention backend to use for the inference engine.
+
     - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
     - ``flashinfer``: Use flashinfer attention backend.
     - ``triton``: Use triton attention backend.

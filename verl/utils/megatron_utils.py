@@ -247,19 +247,21 @@ def offload_megatron_model_to_cpu(models):
     """
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
-            for buffer in model_chunk.buffers:
-                # offload parameters
-                if buffer.param_data.storage().size() > 0:
-                    buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
-                    buffer.param_data_size = buffer.param_data.storage().size()
-                    buffer.param_data.storage().resize_(0)
+            model_chunk_all_buffers = [model_chunk.buffers, model_chunk.expert_parallel_buffers]
+            for buffers in model_chunk_all_buffers:
+                for buffer in buffers:
+                    # offload parameters
+                    if buffer.param_data.storage().size() > 0:
+                        buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
+                        buffer.param_data_size = buffer.param_data.storage().size()
+                        buffer.param_data.storage().resize_(0)
 
-                assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
+                    assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
 
-                if buffer.grad_data.storage().size() > 0:
-                    # if the grad_data size is already zero, we assume that it is already offloaded
-                    buffer.grad_data_size = buffer.grad_data.storage().size()
-                    buffer.grad_data.storage().resize_(0)
+                    if buffer.grad_data.storage().size() > 0:
+                        # if the grad_data size is already zero, we assume that it is already offloaded
+                        buffer.grad_data_size = buffer.grad_data.storage().size()
+                        buffer.grad_data.storage().resize_(0)
         else:
             # we need this for ref module
             for _, param in model_chunk.named_parameters():
@@ -274,16 +276,18 @@ def offload_megatron_model_to_cpu(models):
 def load_megatron_model_to_gpu(models, load_grad=True):
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
-            for buffer in model_chunk.buffers:
-                # sometimes, we don't want to load grad for pure inference
-                if load_grad:
-                    buffer.grad_data.storage().resize_(buffer.grad_data_size)
-                    buffer.grad_data.zero_()
+            model_chunk_all_buffers = [model_chunk.buffers, model_chunk.expert_parallel_buffers]
+            for buffers in model_chunk_all_buffers:
+                for buffer in buffers:
+                    # sometimes, we don't want to load grad for pure inference
+                    if load_grad:
+                        buffer.grad_data.storage().resize_(buffer.grad_data_size)
+                        buffer.grad_data.zero_()
 
-                if buffer.param_data.storage().size() == 0:
-                    buffer.param_data.storage().resize_(buffer.param_data_size)
-                    # copy data from cpu to cuda
-                    buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
+                    if buffer.param_data.storage().size() == 0:
+                        buffer.param_data.storage().resize_(buffer.param_data_size)
+                        # copy data from cpu to cuda
+                        buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
         else:
             # we need this for ref module
             device_id = torch.cuda.current_device()
@@ -673,6 +677,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     we can throw an error to force user disable TP HybridEngine.
     """
     from megatron.core import mpu
+
     train_tp_size = mpu.get_tensor_model_parallel_world_size()
     if layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
         # if the tensor is qkv, for each param on tp, split into q, k, v
@@ -687,9 +692,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
             num_key_value_heads = hf_config.vision_config.num_heads
         assert num_attention_heads % num_key_value_heads == 0
         num_q_per_kv = num_attention_heads // num_key_value_heads
-        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, (
-            f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
-        )
+        assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
