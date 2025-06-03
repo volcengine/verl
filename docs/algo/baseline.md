@@ -1,6 +1,6 @@
 # Algorithm Baselines
 
-## Datasets
+## Math related datasets
 
 Assuming GSM8k/math dataset is preprocessed via:
 
@@ -8,7 +8,7 @@ Assuming GSM8k/math dataset is preprocessed via:
 python3 examples/data_preprocess/*.py
 ```
 
-Refer to the table below to reproduce RL training from different pre-trained checkpoints. Below is the performance on the GSM8k dataset if not specified otherwise.
+Refer to the table below to reproduce RL training from different pre-trained checkpoints. Below is the performance on the GSM8k dataset if not specified otherwise. More comprehensive benchmark results areavailable in the recipe folder.
 
 
 | Hardware    | Model                            | Method            | Test score   | Details |
@@ -30,6 +30,15 @@ Refer to the table below to reproduce RL training from different pre-trained che
 | NVIDIA GPU  | Qwen/Qwen2.5-7B-Instruct         | SPIN              | 92           | [script](https://github.com/volcengine/verl/tree/main/recipe/spin/README.md) |
 | AMD MI300   | deepseek-ai/deepseek-llm-7b-chat | PPO               | 70.5 [1]     | [log](https://github.com/yushengsu-thu/verl_training_log/blob/main/gsm8k/ppo_run_deepseek7b_llm.log) |
 | AMD MI300   | deepseek-ai/deepseek-llm-7b-chat | GRPO              | 71.4 [1]     | [log](https://github.com/yushengsu-thu/verl_training_log/blob/main/gsm8k/grpo_run_deepseek7b_llm.log) |
+
+## Coding related datasets
+
+Below is the result on leetcode if not specified otherwise.
+
+| Hardware    | Model                            | Method            | Test score   | Details |
+|-------------|----------------------------------|-------------------|--------------|---------|
+| NVIDIA GPU  | PRIME-RL/Eurus-2-7B-SFT          | RPIME             | 36.1         | [script](https://github.com/volcengine/verl/blob/main/recipe/prime/run_prime_qwen_code.sh), [swanlab](https://swanlab.cn/@wangzefan/prime_example/runs/7f541qhspgmy8nmhdlx35/chart) |
+
 
 ### Notes
 
