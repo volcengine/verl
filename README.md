@@ -102,6 +102,8 @@ verl is fast with:
 - [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
 - [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html)
+- [PPO in verl](https://verl.readthedocs.io/en/latest/algo/ppo.html)
+- [GRPO in verl](https://verl.readthedocs.io/en/latest/algo/grpo.html)
 
 **Running a PPO example step-by-step:**
 
@@ -111,11 +113,10 @@ verl is fast with:
 - Understanding the PPO Example
   - [PPO Example Architecture](https://verl.readthedocs.io/en/latest/examples/ppo_code_architecture.html)
   - [Config Explanation](https://verl.readthedocs.io/en/latest/examples/config.html)
-  - [Run GSM8K Example](https://verl.readthedocs.io/en/latest/examples/gsm8k_example.html)
 
 **Reproducible algorithm baselines:**
 
-- [PPO, GRPO, ReMax](https://verl.readthedocs.io/en/latest/experiment/ppo.html)
+- [RL performance on coding, math](https://verl.readthedocs.io/en/latest/algo/baseline.html)
 
 **For code explanation and advance usage (extension):**
 
