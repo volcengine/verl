@@ -17,13 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import os
 import time
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Union
+from typing import Union
 from uuid import uuid4
 
 import numpy as np
@@ -62,6 +61,7 @@ from verl.workers.rollout.schemas import (
     Message,
 )
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
+
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
 except ImportError:

@@ -20,6 +20,7 @@ import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
+from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
@@ -36,7 +37,6 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
     offload_fsdp_optimizer,
 )
-from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.utils.import_utils import import_external_libs
 from verl.workers.fsdp_workers import create_device_mesh, get_sharding_strategy
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
