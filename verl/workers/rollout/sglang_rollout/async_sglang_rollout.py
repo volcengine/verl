@@ -646,7 +646,7 @@ class AsyncSGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, **kwargs) -> dict:
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
         generation_prompt_ids = _req.get_generation_prompt(self.tokenizer)
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         if not do_sample:
@@ -673,7 +673,7 @@ class AsyncSGLangRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
         kwargs["max_new_tokens"] = max_new_tokens
-        if "n" not in kwargs or kwargs["n"] > 1:  # group size is supported in preprocess
+        if "n" not in kwargs or (kwargs["n"] > 1 and override_n):  # group size is supported in preprocess
             kwargs["n"] = 1
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -883,30 +883,37 @@ class AsyncSGLangRollout(BaseRollout):
 
     async def chat_completion(self, json_request):
         assert self._tp_rank == 0, "only called in tp rank 0"
+        _input_ids = []
+        _attention_mask = []
+        _position_ids = []
+        _tool_schemas = []
+        _tools_kwargs = {}
 
-        formatted_messages = []
-        for msg in json_request["messages"]:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            formatted_messages.append(f"{role}: {content}")
-        prompt_str = "\n".join(formatted_messages)
-
-        sampling_params_dict = {
-            "n": json_request.get("n", 1),
-            "max_new_tokens": json_request.get("max_completion_tokens", self.config.response_length),
-            "temperature": json_request.get("temperature", 1.0),
-            "top_k": json_request.get("top_k", -1),
-            "top_p": json_request.get("top_p", 1.0),
-            "presence_penalty": json_request.get("presence_penalty", 0.0),
-            "frequency_penalty": json_request.get("frequency_penalty", 0.0),
-            "repetition_penalty": json_request.get("repetition_penalty", 1.0),
-            "ignore_eos": json_request.get("ignore_eos", False),
-        }
-        output = await self._engine.async_generate(
-            prompt=prompt_str,
-            sampling_params=sampling_params_dict,
-            return_logprob=True,
+        req = AsyncRolloutRequest(
+            request_id=str(uuid4()),
+            state=AsyncRolloutRequestStateEnum.PENDING,
+            messages=[Message.model_validate(msg) for msg in json_request["messages"]],
+            tools=_tool_schemas,
+            tools_kwargs=_tools_kwargs,
+            input_ids=_input_ids,
+            prompt_ids=_input_ids,
+            response_ids=[],
+            attention_mask=_attention_mask,
+            prompt_attention_mask=_attention_mask,
+            response_attention_mask=[],
+            position_ids=_position_ids,
+            prompt_position_ids=_position_ids,
+            response_position_ids=[],
+            loss_mask=[0] * len(_input_ids),
+            prompt_loss_mask=[0] * len(_input_ids),
+            response_loss_mask=[],
+            reward_scores={},
+            max_response_len=self.config.response_length,
+            max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
         )
+
+        # json_request already contains sampling_params
+        output = await self._handle_engine_call(req, True, False, False, **json_request)
         # it can be Dict or AsyncIterator[Dict]
         if isinstance(output, dict):
             outputs = [output]
