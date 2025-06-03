@@ -298,7 +298,8 @@ class ActorRolloutRefWorker(Worker):
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
-        print(f"wrap_policy: {auto_wrap_policy}")
+        if self.rank == 0:
+            print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
@@ -370,7 +371,8 @@ class ActorRolloutRefWorker(Worker):
                 num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+            if self.rank == 0:
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
             if warmup_style == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps)
@@ -457,6 +459,7 @@ class ActorRolloutRefWorker(Worker):
                     stacklevel=2,
                 )
             from verl.workers.rollout.sglang_rollout import SGLangRollout
+
             # NOTE(linjunrong): Due to recent fp8 support in SGLang. Now importing any symbol relate to
             # SGLang's model_runner would check CUDA device capability. However, due to verl's setting,
             # the main process of ray can not find any CUDA device, which would potentially lead to:
@@ -464,7 +467,6 @@ class ActorRolloutRefWorker(Worker):
             # For this reason, sharding_manager.__init__ should not import FSDPSGLangShardingManager and
             # we import it here use the abs path.
             # check: https://github.com/sgl-project/sglang/blob/00f42707eaddfc2c0528e5b1e0094025c640b7a0/python/sglang/srt/layers/quantization/fp8_utils.py#L76
-
             from verl.workers.sharding_manager.fsdp_sglang import FSDPSGLangShardingManager
 
             local_path = copy_to_local(self.config.model.path)
@@ -996,7 +998,8 @@ class CriticWorker(Worker):
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-        print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+        if self.rank == 0:
+            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
