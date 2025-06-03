@@ -447,7 +447,7 @@ def compute_policy_loss(
 
     negative_approx_kl = log_prob - old_log_prob
     # Clamp negative_approx_kl for stability
-    negative_approx_kl = torch.clamp(negative_approx_kl, min=-10.0, max=10.0)
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 
@@ -544,7 +544,7 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     if kl_penalty == "low_var_kl":
         kl = ref_logprob - logprob
         # For numerical stability
-        kl = torch.clamp(kl, min=-10, max=10)
+        kl = torch.clamp(kl, min=-20, max=20)
         ratio = torch.exp(kl)
         kld = (ratio - kl - 1).contiguous()
         return torch.clamp(kld, min=-10, max=10)
