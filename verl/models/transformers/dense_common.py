@@ -36,7 +36,6 @@ def forward_base_model(
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
 ) -> CausalLMOutputWithPast:
     r"""
@@ -48,7 +47,6 @@ def forward_base_model(
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
     outputs = self.model(
@@ -60,7 +58,6 @@ def forward_base_model(
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
         cache_position=cache_position,
     )
 
@@ -93,7 +90,6 @@ def forward_with_torch_backend(
         position_ids=position_ids,
         past_key_values=past_key_values,
         inputs_embeds=inputs_embeds,
-        labels=labels,
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
