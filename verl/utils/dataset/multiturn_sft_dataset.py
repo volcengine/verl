@@ -162,7 +162,11 @@ class MultiTurnSFTDataset(Dataset):
                 cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
                 i += 1
             elif cur_messages["role"] == "system":
-                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
+                if i == 0:
+                    prev_applied_text = ""
+                else:
+                    raise ValueError("System message should be the first message")
+                    # prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
                 cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
                 i += 1
             else:
