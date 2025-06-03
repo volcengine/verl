@@ -89,6 +89,7 @@ class AdvantageEstimator(str, Enum):
     REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
     REMAX = "remax"
     RLOO = "rloo"
+    OPO = "opo"
     GRPO_PASSK = "grpo_passk"
 
 
@@ -309,6 +310,14 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+    elif adv_estimator == AdvantageEstimator.OPO:
+        advantages, returns = core_algos.compute_opo_outcome_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=data.batch["response_mask"],
+            index=data.non_tensor_batch["uid"],
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
     else:
         raise NotImplementedError
     return data
@@ -381,7 +390,7 @@ class RayPPOTrainer:
         self.validation_generations_logger = ValidationGenerationsLogger()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get('lora_rank', 0) > 0
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
@@ -396,6 +405,7 @@ class RayPPOTrainer:
             AdvantageEstimator.REINFORCE_PLUS_PLUS,
             AdvantageEstimator.REMAX,
             AdvantageEstimator.RLOO,
+            AdvantageEstimator.OPO,
             AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
         ]:
             self.use_critic = False

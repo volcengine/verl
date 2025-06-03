@@ -117,7 +117,6 @@ class Qwen2MoEModel(BaseModelInitializer):
         if freeze_moe_router:
             for layer in model.decoder.layers:
                 layer.mlp.router.weight.requires_grad = False
-                layer.mlp.shared_experts.gate_weight.requires_grad = False
         return model
 
 

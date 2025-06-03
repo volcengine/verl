@@ -55,6 +55,48 @@ Please note that Slurm cluster setup may vary. If you encounter any issues, plea
 
 If you changed Slurm resource specifications, please make sure to update the environment variables in the job script if necessary.
 
+
+Install related
+------------------------
+
+NotImplementedError: TensorDict does not support membership checks with the `in` keyword. 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Detail error information: 
+
+.. code:: bash
+
+    NotImplementedError: TensorDict does not support membership checks with the `in` keyword. If you want to check if a particular key is in your TensorDict, please use `key in tensordict.keys()` instead.
+
+Cause of the problem: There is no suitable version of tensordict package for the linux-arm64 platform. The confirmation method is as follows:
+
+.. code:: bash
+
+    pip install tensordict==0.6.2
+
+Output example:
+
+.. code:: bash
+
+    ERROR: Could not find a version that satisfies the requirement tensordict==0.6.2 (from versions: 0.0.1a0, 0.0.1b0, 0.0.1rc0, 0.0.2a0, 0.0.2b0, 0.0.3, 0.1.0, 0.1.1, 0.1.2, 0.8.0, 0.8.1, 0.8.2, 0.8.3)
+    ERROR: No matching distribution found for tensordict==0.6.2
+
+Solution 1st:
+  Install tensordict from source code:
+
+.. code:: bash
+
+    pip uninstall tensordict
+    git clone https://github.com/pytorch/tensordict.git
+    cd tensordict/
+    git checkout v0.6.2
+    python setup.py develop
+    pip install -v -e .
+
+Solution 2nd:
+  Temperally modify the error takeplace codes: tensordict_var -> tensordict_var.keys()
+
+
 Illegal memory access
 ---------------------------------
 
