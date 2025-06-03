@@ -36,6 +36,7 @@ def forward_base_model(
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
 ) -> CausalLMOutputWithPast:
     r"""
@@ -58,6 +59,7 @@ def forward_base_model(
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
         cache_position=cache_position,
     )
 
@@ -93,7 +95,6 @@ def forward_with_torch_backend(
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
         cache_position=cache_position,
     )
 
