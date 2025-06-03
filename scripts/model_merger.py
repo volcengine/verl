@@ -486,6 +486,7 @@ class MegatronModelMerger(BaseModelMerger):
                         continue
 
                     hf_name = self._replace_name(key, self.params_mapping)
+                    assert hf_name is not None, f"Failed to convert layer name [{key}] from megatron to huggingface."
                     if "model.layers." in hf_name:
                         local_layer_no = int(hf_name.split(".")[2])
                         layers_handled = max(local_layer_no, layers_handled)
