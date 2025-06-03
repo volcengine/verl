@@ -257,7 +257,7 @@ jobs:
           ray stop --force
           ADV_ESTIMATOR=grpo DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/e2e/ppo_trainer/expert_parallel/qwen2moe_minimal.json \
           MODEL_ID=Qwen/Qwen1.5-MoE-A2.7B-Chat \
-          COMMON_PP=4 COMMON_VPP=null COMMON_CP=1 COMMON_EP=2 COMMON_ETP=1 INFER_TP=8 \
+          COMMON_PP=2 COMMON_VPP=null COMMON_CP=1 COMMON_TP=4 COMMON_EP=4 COMMON_ETP=1 INFER_TP=8 \
           USE_DIST_CKPT=True ALL_OFFLOAD=True SKIP_SAVE_HF_MODEL=1 bash tests/e2e/run_ppo_trainer_megatron.sh
       - name: clean up
         run: |

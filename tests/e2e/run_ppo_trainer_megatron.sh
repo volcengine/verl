@@ -12,7 +12,7 @@ huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 DUMMY_MODEL=${DUMMY_MODEL:-False}
 DUMMY_MODEL_PATH=${DUMMY_MODEL_PATH:-${HOME}/dummy_models/${MODEL_ID}}
 if [ "$DUMMY_MODEL" = "True" ]; then
-    if [ ! -d "${DUMMY_MODEL_CONFIG_PATH}" ]; then
+    if [ -z "${DUMMY_MODEL_CONFIG_PATH}"  ]; then
         echo "[ERROR] DUMMY_MODEL_CONFIG_PATH not set"
         exit 1
     fi
