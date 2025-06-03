@@ -372,6 +372,7 @@ class SGLangRollout(BaseRollout):
 
         self.sharding_manager = None
         self.is_sleep = False
+        self._need_reload = True
 
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
@@ -1168,6 +1169,14 @@ class SGLangRollout(BaseRollout):
         # this function is left for uniform train-inference resharding
 
     async def wake_up(self):
+        if self._need_reload:
+            # when use dummy format, it have to be reloaded in the first time
+            await self.sharding_manager.sleep()
+            await self.sharding_manager.wake_up()
+            self._need_reload = False
+            self.is_sleep = False
+            return
+
         if not self.is_sleep:
             return
         await self.sharding_manager.wake_up()  # pylint: disable=C2801
