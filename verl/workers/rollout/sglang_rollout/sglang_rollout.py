@@ -31,7 +31,6 @@ import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
-from sglang.srt.function_call_parser import FunctionCallParser
 from sglang.srt.managers.tokenizer_manager import (
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
