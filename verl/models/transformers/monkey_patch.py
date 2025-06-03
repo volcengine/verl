@@ -136,6 +136,9 @@ def patch_forward_with_backends(
         forward_with_triton_backend_function = forward_with_triton_backend
     else:
         from verl.models.transformers.dense_common import forward_with_torch_backend, forward_with_triton_backend
+        
+        forward_with_torch_backend_function = forward_with_torch_backend
+        forward_with_triton_backend_function = forward_with_triton_backend
 
     if fused_kernels_backend == "triton":
         model.__class__.forward = forward_with_triton_backend_function
