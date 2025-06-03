@@ -7,23 +7,21 @@ data:
   # Single-turn settings
   prompt_key: question
   response_key: answer
-  prompt_dict_keys: ['question']
-  response_dict_keys: ['answer']
   # Multi-turn settings
   multiturn:
-    enable: false  # Set to true to use multi-turn dataset
+    enable: true  # It have to be true for RM dataset
     messages_key: messages  # Key for messages list in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
   chat_template: null
-  custom_cls:
-    path: null
-    name: null
-  use_shm: False
+
+  # Critic settings - this default setting only calculate reward for the last action Q(s_{t-1}, a_t)
+  td_returns_gamma: 1.0
+  last_action_only: true
+  special_token_id: 151645  # this is the <|im_end|> token for Qwen
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
-  use_shm: False
   fsdp_config:
     wrap_policy:
       min_num_params: 0
@@ -36,14 +34,12 @@ model:
   lora_alpha: 16  # LoRA scaling factor
   target_modules: all-linear  # Target modules for LoRA adaptation
   use_liger: False
-  strategy: fsdp2
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]
   weight_decay: 0.01
   warmup_steps_ratio: 0.1
   clip_grad: 1.0
-  lr_scheduler: cosine
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:
@@ -56,3 +52,4 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+

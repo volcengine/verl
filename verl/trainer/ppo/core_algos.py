@@ -108,6 +108,32 @@ def compute_gae_advantage_return(
         advantages = verl_F.masked_whiten(advantages, response_mask)
     return advantages, returns
 
+def compute_td_returns(step_level_rewards: torch.Tensor, gamma: float):
+    """Compute TD returns without the full GAE advantage calculation.
+    
+    Args:
+        step_level_rewards: `(torch.Tensor)`
+            shape: (response_length, )
+        gamma: `(float)`
+            discount factor used in RL
+            
+    Returns:
+        returns: `(torch.Tensor)`
+            shape: (response_length, )
+    """
+    with torch.no_grad():
+        gen_len = step_level_rewards.shape[0]
+        returns = torch.zeros_like(step_level_rewards)
+        
+        # Bootstrap from the last step
+        next_value = 0.0
+        
+        # Compute returns using TD backup
+        for t in reversed(range(gen_len)):
+            next_value = step_level_rewards[t] + gamma * next_value
+            returns[t] = next_value
+
+    return returns
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 def compute_grpo_outcome_advantage(
