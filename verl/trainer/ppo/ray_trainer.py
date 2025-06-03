@@ -423,7 +423,7 @@ class RayPPOTrainer:
             model_parallel_size = config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
             assert n_gpus % model_parallel_size == 0, f"n_gpus ({n_gpus}) must be divisible by model_parallel_size ({model_parallel_size})"
             megatron_dp = n_gpus // model_parallel_size
-            assert megatron_dp % config.actor_rollout_ref.actor.megatron.expert_model_parallel_size, f"data parallel size ({megatron_dp}) must be divisible by expert_model_parallel_size ({config.actor_rollout_ref.actor.megatron.expert_model_parallel_size})"
+            assert megatron_dp % config.actor_rollout_ref.actor.megatron.expert_model_parallel_size == 0, f"data parallel size ({megatron_dp}) must be divisible by expert_model_parallel_size ({config.actor_rollout_ref.actor.megatron.expert_model_parallel_size})"
             minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
         else:
             minimal_bsz = n_gpus
