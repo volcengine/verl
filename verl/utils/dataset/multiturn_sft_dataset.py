@@ -39,6 +39,7 @@ class MultiTurnSFTDataset(Dataset):
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
+        self.tools_key = multiturn_config.get("tools_key", None)
 
         assert self.truncation in ["error", "left", "right"]
 
@@ -74,6 +75,10 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        if self.tools_key is not None:
+            self.tools = self.dataframe[self.tools_key].apply(series_to_item).tolist()
+        else:
+            self.tools = None
 
     def __len__(self):
         return len(self.messages)
@@ -82,8 +87,13 @@ class MultiTurnSFTDataset(Dataset):
         tokenizer = self.tokenizer
         messages = self.messages[item]
 
+        if self.tools is not None:
+            tools = self.tools[item]
+        else:
+            tools = None
+
         # First, get the full conversation tokens
-        full_tokens = tokenizer.apply_chat_template(messages, tokenize=True, return_tensors="pt", add_generation_prompt=False)
+        full_tokens = tokenizer.apply_chat_template(messages, tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False)
         input_ids = full_tokens[0]  # The output is already a tensor
         attention_mask = torch.ones_like(input_ids)
 
@@ -94,10 +104,10 @@ class MultiTurnSFTDataset(Dataset):
         for i, msg in enumerate(messages):
             # Get tokens for messages up to this point to find the start position
             prefix_messages = messages[: i + 1]
-            prefix_tokens = tokenizer.apply_chat_template(prefix_messages, tokenize=True, return_tensors="pt", add_generation_prompt=False)
+            prefix_tokens = tokenizer.apply_chat_template(prefix_messages, tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False)
 
             # Get tokens for messages up to previous point
-            prev_tokens = tokenizer.apply_chat_template(messages[:i], tokenize=True, return_tensors="pt", add_generation_prompt=False) if i > 0 else None
+            prev_tokens = tokenizer.apply_chat_template(messages[:i], tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False) if i > 0 else None
 
             # Calculate start and end positions
             start_pos = prev_tokens[0].shape[0] if prev_tokens is not None else 0

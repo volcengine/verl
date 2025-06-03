@@ -151,6 +151,7 @@ config = {
     'truncation': 'error',
     'multiturn': {
         'messages_key': 'messages',
+        'tool_key': 'tools',
     }
 }
 
