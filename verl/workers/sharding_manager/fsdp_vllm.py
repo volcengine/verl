@@ -38,6 +38,7 @@ from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.device import get_torch_device
 from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.timing_utils import _timer
 from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
@@ -151,54 +152,45 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         #
         # pytorch: https://pytorch.org/docs/stable/notes/cuda.html#memory-management
         # vllm: https://github.com/vllm-project/vllm/blob/v0.7.3/vllm/device_allocator/cumem.py#L103
-        get_torch_device().empty_cache()
-
-        log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
-        if self.offload_param:
-            load_fsdp_model_to_gpu(self.module)
-
-        peft_config = None
-        peft_model = getattr(self.module, "_fsdp_wrapped_module", self.module)
-        if hasattr(peft_model, "peft_config"):
-            peft_config = peft_model.peft_config.get("default", None)
-            params = __collect_lora_params()
-        else:
-            params = self.module.state_dict()
-        log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
-
-        # Copy, not share memory
-        load_format = "hf" if self.full_params else "dtensor"
-
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
-            self.inference_engine.sync_model_weights(params, load_format=load_format)
-            log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
-            del params
-        else:
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                self.inference_engine.wake_up(tags=["weights"])
-            else:
-                self.inference_engine.wake_up()
-
-            # update model params
-            self.update_params(params, peft_config=peft_config)
-            log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
-            del params
-            if self.offload_param:
-                offload_fsdp_model_to_cpu(self.module)
+        self.timing = {}
+        with _timer("reshard", self.timing):
             get_torch_device().empty_cache()
 
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                self.inference_engine.wake_up(tags=["kv_cache"])
+            log_gpu_memory_usage("Before state_dict() in sharding manager memory", logger=logger)
+            if self.offload_param:
+                load_fsdp_model_to_gpu(self.module)
 
-        log_gpu_memory_usage("After del state_dict and empty_cache in sharding manager", logger=logger)
+            peft_config = None
+            peft_model = getattr(self.module, "_fsdp_wrapped_module", self.module)
+            if hasattr(peft_model, "peft_config"):
+                peft_config = peft_model.peft_config.get("default", None)
+                params = __collect_lora_params()
+            else:
+                params = self.module.state_dict()
+            log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
-        # important: need to manually set the random states of each tp to be identical.
-        if self.device_mesh is not None:
-            self.torch_random_states = get_torch_device().get_rng_state()
-            get_torch_device().set_rng_state(self.gen_random_states)
+            # Copy, not share memory
+            load_format = "hf" if self.full_params else "dtensor"
+
+            if vllm_version in (
+                "0.5.4",
+                "0.6.3",
+            ):
+                self.inference_engine.sync_model_weights(params, load_format=load_format)
+                log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
+                del params
+            else:
+                if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+                    self.inference_engine.wake_up(tags=["weights"])
+                else:
+                    self.inference_engine.wake_up()
+
+                # update model params
+                self.update_params(params, peft_config=peft_config)
+                log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
+                del params
+                if self.offload_param:
+                    offload_fsdp_model_to_cpu(self.module)
 
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):

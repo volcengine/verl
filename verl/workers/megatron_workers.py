@@ -41,6 +41,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
 )
 from verl.utils.model import load_mcore_dist_weights, load_megatron_gptmodel_weights
+from verl.utils.timing_utils import _timer
 from verl.workers.actor.megatron_actor import MegatronPPOActor
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
@@ -455,6 +456,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.actor_optimizer)
 
+        timing_generate = {}
         with self.sharding_manager:
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
@@ -471,9 +473,12 @@ class ActorRolloutRefWorker(MegatronWorker):
                     self.rollout.inference_engine.wake_up(tags=["kv_cache"])
 
             prompts = self.sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+            with _timer("generate_sequences", timing_generate):
+                output = self.rollout.generate_sequences(prompts=prompts)
             output = self.sharding_manager.postprocess_data(output)
 
+        timing_generate.update(self.sharding_manager.timing)
+        output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
