@@ -141,6 +141,7 @@ sft_dataset = sft_dataset.filter(lambda x: len(x['messages']) > 0)
 
 sft_dataset.to_parquet('/mnt/hdfs/zhangchi.usc1992_ssd_hldy/public_exp/data/retool_sft_dataset.parquet')
 
+# sft_dataset.push_to_hub("vermouth1992/ReTool-SFT")
 
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from transformers import AutoTokenizer
