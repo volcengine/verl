@@ -35,6 +35,9 @@ RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 
 MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-235B-A22B
 MCORE_MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-235B-A22B_dist_ckpt_mcore/
+
+# convert QWen3-235b-A22b to dist ckpt of mcore. Conversion process will take about 4 hours
+# python scripts/converter_hf_to_mcore.py --hf_model_path $MODEL_PATH --output_path $MCORE_MODEL_PATH --use_cpu_initialization
 CKPTS_DIR=$RAY_DATA_HOME/ckpt/${project_name}/${exp_name}
 TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet
 TEST_FILE=$RAY_DATA_HOME/dataset/aime-2024.parquet
