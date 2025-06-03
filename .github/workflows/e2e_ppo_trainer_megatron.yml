@@ -26,6 +26,7 @@ on:
       # Entrypoints
       - ".github/workflows/e2e_ppo_trainer_megatron.yml"
       - "examples/data_preprocess/gsm8k.py"
+      - "examples/data_preprocess/geo3k.py"
       - "tests/e2e/run_ppo_trainer_megatron.sh"
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_megatron_trainer.yaml"
@@ -227,6 +228,38 @@ jobs:
           exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
           python scripts/model_merger.py test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
           python scripts/model_merger.py test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
+      - name: clean up
+        run: |
+          rm -rf checkpoints
+  e2e_ppo_trainer_megatron-qwen2_5vl-3b:
+    runs-on: [L20x8]
+    timeout-minutes: 60 # Increase this timeout value as needed
+    env:
+      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
+      HF_ENDPOINT: "https://hf-mirror.com"
+      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+    container:
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
+      options: --gpus all --shm-size=10g
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install the current repository
+        run: |
+          pip3 install --no-deps -e .[test]
+      - name: Prepare Geo3k dataset
+        run: |
+          python3 examples/data_preprocess/geo3k.py
+      - name: Prepare dist_ckpt of Qwen2.5-VL-3B, only supports dist_ckpt
+        run: |
+          python3 scripts/converter_hf_to_mcore.py --hf_model_path ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct --output_path checkpoints/verl-test/qwen2.5-vl-3b-megatron
+      - name: Running Geo3k E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
+        run: |
+          ray stop --force
+          TRAIN_FILES=${HOME}/data/geo3k/train.parquet VAL_FILES=${HOME}/data/geo3k/test.parquet MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct ADV_ESTIMATOR=grpo USE_DYNAMIC_BSZ=False SKIP_SAVE_HF_MODEL=1 COMMON_PP=4 COMMON_TP=2 bash tests/e2e/run_ppo_trainer_megatron.sh actor_rollout_ref.actor.megatron.use_dist_checkpointing=true actor_rollout_ref.ref.megatron.use_dist_checkpointing=true actor_rollout_ref.actor.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-vl-3b-megatron actor_rollout_ref.ref.megatron.dist_checkpointing_path=checkpoints/verl-test/qwen2.5-vl-3b-megatron
       - name: clean up
         run: |
           rm -rf checkpoints
