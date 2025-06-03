@@ -41,7 +41,7 @@ from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMRollout
 
 # TODO
 # 1. support pp in vllm
-# 2. passing tokenizer is not necessary? no encoding/decoding is happending here
+# 2. passing tokenizer is not necessary? no encoding/decoding is happening here
 # 3. simplify init logics
 
 
@@ -62,7 +62,7 @@ class FIREvLLMRollout(vLLMRollout):
             module: module here follows huggingface APIs
             config: DictConfig
             tokenizer: the task/model tokenizer
-            model_hf_config: the huggingface config to initiallize the generating model in vllm
+            model_hf_config: the huggingface config to initialize the generating model in vllm
             **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
         """
         super().__init__(actor_module, config, tokenizer, model_hf_config, **kwargs)
