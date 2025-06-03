@@ -146,7 +146,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
+        self._init_hf_config_and_tf_config(model_path, model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
         self.generation_config = get_generation_config(self.local_path)
 
         def megatron_actor_model_provider(pre_process, post_process):
@@ -227,7 +227,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             rollout_device_mesh = init_device_mesh("cuda", mesh_shape=(dp, infer_tp), mesh_dim_names=["dp", "infer_tp"])
             log_gpu_memory_usage("Before building vllm rollout", logger=None)
 
-            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get('use_shm', False))
+            local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get("use_shm", False))
             if vllm_mode == "customized":
                 rollout = vLLMRollout(
                     actor_module=self.actor_module,
@@ -589,7 +589,7 @@ class CriticWorker(MegatronWorker):
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
+        self._init_hf_config_and_tf_config(model_path, self.config.model.tokenizer_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
 
         def megatron_critic_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -780,12 +780,12 @@ class RewardModelWorker(MegatronWorker):
             self.config.micro_batch_size //= mpu.get_data_parallel_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
 
-    def _build_rm_model(self, model_path, override_model_config, override_transformer_config):
+    def _build_rm_model(self, model_path, tokenizer, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
         from verl.utils.megatron_utils import get_model
 
-        self._init_hf_config_and_tf_config(model_path, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
+        self._init_hf_config_and_tf_config(model_path, tokenizer, self.dtype, override_model_config, override_transformer_config, self.config.model.get("trust_remote_code", False))
 
         def megatron_rm_model_provider(pre_process, post_process):
             from verl.models.mcore import init_mcore_model
@@ -837,20 +837,21 @@ class RewardModelWorker(MegatronWorker):
         override_model_config = OmegaConf.to_container(self.config.model.get("override_config", OmegaConf.create()))
         override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
 
-        use_shm = self.config.model.get('use_shm', False)
+        use_shm = self.config.model.get("use_shm", False)
         sft_tokenizer_local_path = copy_to_local(self.config.model.input_tokenizer, use_shm=use_shm)
         sft_tokenizer = hf_tokenizer(sft_tokenizer_local_path)
         rm_tokenizer_path = self.config.model.get("rm_tokenizer", None)
         rm_tokenizer = None
         if rm_tokenizer_path is not None:
             rm_tokenizer_local_path = copy_to_local(rm_tokenizer_path, use_shm=use_shm)
-            rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path)
+            rm_tokenizer = hf_tokenizer(rm_tokenizer_local_path, trust_remote_code=self.config.model.get("trust_remote_code", False))
 
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
         reward_model_module, reward_model_config = self._build_rm_model(
             model_path=self.config.model.path,
+            tokenizer=rm_tokenizer,
             override_model_config=override_model_config,
             override_transformer_config=override_transformer_config,
         )
