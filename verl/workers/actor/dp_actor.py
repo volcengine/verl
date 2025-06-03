@@ -28,7 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, compute_policy_loss, kl_penalty, compute_gpg_loss
+from verl.trainer.ppo.core_algos import agg_loss, compute_gpg_loss, compute_policy_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -311,7 +311,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         multi_turn = data.meta_info.get("multi_turn", False)
 
-        select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "advantages"]
         if multi_turn:
             select_keys.append("loss_mask")
         if self.config.use_kl_loss:
@@ -379,10 +379,8 @@ class DataParallelPPOActor(BasePPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
-                        micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy
-                    )
-                    
+                    entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
+
                     if self.config.use_gpg_loss:
                         # compute gpg loss
                         pg_loss = compute_gpg_loss(
