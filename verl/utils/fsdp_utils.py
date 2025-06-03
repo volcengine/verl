@@ -17,9 +17,9 @@ import itertools
 import json
 import math
 import os
+from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 from typing import Dict
-from collections import OrderedDict
 
 import torch
 import torch.distributed as dist
@@ -30,7 +30,8 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-from verl.utils.device import get_torch_device, get_device_name
+
+from verl.utils.device import get_device_name, get_torch_device
 
 if version.parse(torch.__version__) >= version.parse("2.6"):
     from torch.distributed.fsdp import CPUOffloadPolicy, FSDPModule, MixedPrecisionPolicy, fully_shard

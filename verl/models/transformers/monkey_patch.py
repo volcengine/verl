@@ -221,7 +221,7 @@ def apply_monkey_patch(
             print("Monkey patch FlashAttention2.forward in KimiVL")
             
         if use_fused_kernels:
-            print(f"Not support fused kernels for KimiVL")
+            print("Not support fused kernels for KimiVL")
 
         return
 
