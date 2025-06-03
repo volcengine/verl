@@ -136,7 +136,7 @@ class ChatCompletionScheduler:
         self,
         callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
         callback_additional_info: Dict[str, Any],
-        address: str,
+        address: str = None,
         **chat_complete_request,
     ):
         """

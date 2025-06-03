@@ -255,9 +255,9 @@ def test_vllm_tool_calling():
 
     # Load config
     config = OmegaConf.load("verl/trainer/config/ppo_trainer.yaml")
-    config.actor_rollout_ref.model.path = "Qwen/Qwen2-7B-Instruct"
+    config.actor_rollout_ref.model.path = "Qwen/Qwen3-4B"
     config.actor_rollout_ref.rollout.mode = "async"
-    config.actor_rollout_ref.rollout.chat_scheduler = "tests.workers.rollout.test_vllm_tool_calling.ToolChatCompletionScheduler"
+    config.actor_rollout_ref.rollout.chat_scheduler = "tests.workers.rollout.test_vllm_tool_calling.NaiveChatCompletionScheduler"
     config.actor_rollout_ref.rollout.prompt_length = 8192
     config.actor_rollout_ref.rollout.response_length = 8192
 
