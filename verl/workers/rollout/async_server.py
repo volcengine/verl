@@ -136,6 +136,7 @@ class ChatCompletionScheduler:
         self,
         callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
         callback_additional_info: Dict[str, Any],
+        address: str,
         **chat_complete_request,
     ):
         """
@@ -170,13 +171,7 @@ class ChatCompletionScheduler:
             if request_id.startswith("chatcmpl-"):
                 request_id = request_id[len("chatcmpl-") :]
                 extra_headers["x-request-id"] = request_id
-
-            address = self.request_id_to_address.pop(request_id)
-        else:
-            address = self.weighted_addresses[0][1]
-            self.weighted_addresses[0][0] += 1
-            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
-
+        address = self._routing(request_id, address)
         # use new request_id to avoid duplicate request_id problem
         request_id = uuid4().hex
         self.request_id_to_address[request_id] = address
@@ -184,6 +179,7 @@ class ChatCompletionScheduler:
 
         completions, exception = None, None
         try:
+            print("ready to ship req to address: ", address)
             # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
             completions = await self._chat_completions_aiohttp(address, **chat_complete_request)
         except Exception as e:
@@ -191,6 +187,17 @@ class ChatCompletionScheduler:
             exception = e
 
         await callback(completions, callback_additional_info, exception)
+
+    def _routing(self, request_id, address=None):
+        if address is not None:
+            return address
+        if request_id in self.request_id_to_address:
+            address = self.request_id_to_address.pop(request_id)
+        else:
+            address = self.weighted_addresses[0][1]
+            self.weighted_addresses[0][0] += 1
+            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
+        return address
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
         client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
@@ -276,7 +283,7 @@ class AsyncLLMServerManager:
         self.chat_scheduler: ChatCompletionScheduler = None
         self.chat_scheduler_loop = None
         self.chat_scheduler_ready = threading.Event()
-        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
+        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True, name="chat_scheduler_thread")
         self.chat_scheduler_thread.start()
         self.chat_scheduler_ready.wait()
 
