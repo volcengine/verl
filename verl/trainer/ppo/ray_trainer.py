@@ -418,11 +418,15 @@ class RayPPOTrainer:
     def _validate_config(self):
         config = self.config
         # number of GPUs total
-        n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+        if config.actor_rollout_ref.actor.strategy == "megatron":
+            from megatron.core import parallel_state as mpu
+            minimal_bsz = mpu.get_data_parallel_world_size() * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
+        else:
+            minimal_bsz = config.trainer.n_gpus_per_node * config.trainer.nnodes
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-        assert real_train_batch_size % n_gpus == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        assert real_train_batch_size % minimal_bsz == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by minimal possible batch size ({minimal_bsz})"
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
