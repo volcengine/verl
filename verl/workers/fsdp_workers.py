@@ -285,7 +285,8 @@ class ActorRolloutRefWorker(Worker):
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
-        print(f"wrap_policy: {auto_wrap_policy}")
+        if self.rank == 0:
+            print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
@@ -357,7 +358,8 @@ class ActorRolloutRefWorker(Worker):
                 num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+            if self.rank == 0:
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
             if warmup_style == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps)
@@ -969,7 +971,8 @@ class CriticWorker(Worker):
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-        print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+        if self.rank == 0:
+            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 

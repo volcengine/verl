@@ -158,7 +158,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             load_fsdp_model_to_gpu(self.module)
 
         peft_config = None
-        peft_model = self.module._fsdp_wrapped_module if hasattr(self.module, "_fsdp_wrapped_module") else self.module
+        peft_model = getattr(self.module, "_fsdp_wrapped_module", self.module)
         if hasattr(peft_model, "peft_config"):
             peft_config = peft_model.peft_config.get("default", None)
             params = __collect_lora_params()
