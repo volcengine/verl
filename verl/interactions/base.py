@@ -13,7 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional, List
+from uuid import uuid4
 
 
 class BaseInteraction:
@@ -21,16 +22,21 @@ class BaseInteraction:
         self.config = config
         self.name: str = config.get("name", "interaction_agent")  # More general agent default role name
 
-    async def start_interaction(self) -> str:  # More clear interaction start method
-        """
-        Initializes a new interaction session and returns its unique ID.
-        Simulates: get id + state init
-        """
-        # ...implement the logic to get ID and initialize state...
-        interaction_id = "some_unique_id"
-        return interaction_id
+    async def start_interaction(self, instance_id: Optional[str] = None, **kwargs) -> str:
+        """Create a tool instance.
 
-    async def generate_response(self, messages: Any) -> Tuple[bool, str, float, Dict[str, Any]]:  # More clear response generation method
+        Args:
+            instance_id: The instance id of the tool.
+
+        Returns:
+            The instance id of the tool.
+        """
+        if instance_id is None:
+            return str(uuid4())
+        else:
+            return instance_id
+
+    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[bool, str, float, Dict[str, Any]]:  # More clear response generation method
         """
         Generates a response for the current turn of interaction.
         Returns a tuple containing:

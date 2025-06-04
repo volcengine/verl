@@ -50,7 +50,7 @@ class Gsm8kInteraction(BaseInteraction):
         }
         return instance_id
 
-    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[str, float, dict]:
+    async def generate_response(self, instance_id: str, messages: List[Dict[str, Any]], **kwargs) -> Tuple[bool, str, float, dict]:
         content = ""
         for i in range(len(messages) - 1, -1, -1):
             item = messages[i]
