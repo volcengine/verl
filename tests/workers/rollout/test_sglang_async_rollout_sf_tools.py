@@ -246,7 +246,7 @@ class TestRolloutWithTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_over_size_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 1
+        sandbox_fusion_rollout_config.multi_turn.max_assistant_turns = 1
         rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
         req = MagicMock(wraps=req, spec=AsyncRolloutRequest)
@@ -283,7 +283,7 @@ class TestRolloutWithTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tool_call_basic_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
+        sandbox_fusion_rollout_config.multi_turn.max_assistant_turns = 10
         rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]
@@ -327,7 +327,7 @@ class TestRolloutWithTools:
     @patch.object(SGLangRollout, "_init_inference_engine", return_value=None)
     @patch.object(SGLangRollout, "_init_sampling_params", return_value=None)
     def test_tool_call_batch_case(self, mock_env, mock_engine, mock_sampling, sandbox_fusion_rollout_config, qwen_tokenizer, qwen_model_config, sandbox_data_proto, sandbox_fusion_data):
-        sandbox_fusion_rollout_config.multi_turn.max_turns = 10
+        sandbox_fusion_rollout_config.multi_turn.max_assistant_turns = 10
         rollout = SGLangRollout(actor_module="", config=sandbox_fusion_rollout_config, tokenizer=qwen_tokenizer, model_hf_config=qwen_model_config)
         self._tool_map["code_interpreter"].sandbox_fusion_url = sandbox_url
         req = rollout._preprocess_prompt_to_async_rollout_requests(sandbox_data_proto, n=1)[0]

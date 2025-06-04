@@ -15,8 +15,9 @@ data:
 actor_rollout_ref:
   hybrid_engine: True
   rollout:
-    name: sglang_async
+    name: sglang
     multi_turn:
       enable: True
-      max_assistant_turns: 5
-      tool_config_path: "./config/tool_config/sandbox_fusion_tool_config.yaml"
+      max_user_turns: 5
+      format: qwen
+      # tool_config_path: "./config/tool_config/gsm8k_tool_config.yaml"
