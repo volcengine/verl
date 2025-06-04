@@ -14,6 +14,7 @@
 import asyncio
 import heapq
 import importlib
+import itertools
 import json
 import logging
 from typing import Any, Dict, List
@@ -332,15 +333,28 @@ class ChatCompletionScheduler:
         assert len(raw_prompts) == batch_size, f"{len(raw_prompts)} != {batch_size}"
         assert len(batch_conversations) == batch_size, f"{len(batch_conversations)} != {batch_size}"
 
+        # Deduplicate adjacent tool calls, since they're merged into one turn.
+        # [user, assistant, tool, tool, assistant] -> [user, assistant, tool, assistant]
+        # TODO: it's chat_template specific, find a more generic way to do this.
+        def deduplicate_adjacent_tool_calls(roles):
+            result = []
+            for role, group in itertools.groupby(roles):
+                if role == "tool":
+                    result.append(role)
+                else:
+                    result.extend(group)
+            return result
+
         loss_mask = attention_mask.clone()
         for i in range(batch_size):
             responses = batch_conversations[i][len(raw_prompts[i]) :]
             assert len(responses) > 0, f"responses is empty: {responses}"
 
+            roles = deduplicate_adjacent_tool_calls([response["role"] for response in responses])
             # Each turn should be: [BOS]...[EOS]
-            eos_indices = input_ids[i].eq(self.tokenizer.eos_token_id).nonzero().squeeze(0)[: len(responses)]
-            for j in range(len(responses)):
-                if responses[j]["role"] == "tool":
+            eos_indices = input_ids[i].eq(self.tokenizer.eos_token_id).nonzero().squeeze(1)[: len(roles)]
+            for j in range(len(roles)):
+                if roles[j] == "tool":
                     bos = eos_indices[j - 1] + 1 if j > 0 else 0
                     eos = eos_indices[j]
                     loss_mask[i, bos : eos + 1] = 0

@@ -189,21 +189,31 @@ def test_vllm_async_rollout_with_tool_calls(init_config):
     # =========================== 2. Generate sequences  ===========================
     raw_prompts = [
         [
+            {"role": "user", "content": "How are you?"},
+        ],
+        [
+            {"role": "user", "content": "What's the temperature in Los Angeles now?"},
+        ],
+        [
             {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\n\nCurrent Date: 2024-09-30"},
             {"role": "user", "content": "What's the temperature in San Francisco now? How about tomorrow?"},
         ],
     ]
     batch = DataProto(
         non_tensor_batch={
-            "raw_prompt": np.array(raw_prompts),
+            "raw_prompt": np.array([np.array(prompt) for prompt in raw_prompts], dtype=object),
         },
     )
     result = async_rollout_manager.generate_sequences(prompts=batch)
 
     # Check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
+    # [user, assistant]
+    assert num_turns[0] == 2
+    # [user, assistant, tool, assistant]
+    assert num_turns[1] == 4
     # [system, user, assistant, tool, tool, assistant]
-    assert np.all(num_turns == 6), f"num_turns: {num_turns}"
+    assert num_turns[2] == 6
 
     # Check response_mask
     tokenizer = hf_tokenizer(init_config.actor_rollout_ref.model.path)
