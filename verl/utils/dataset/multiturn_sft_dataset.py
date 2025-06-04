@@ -15,6 +15,7 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
+import json
 from typing import List, Union
 
 import pandas as pd
@@ -89,6 +90,7 @@ class MultiTurnSFTDataset(Dataset):
 
         if self.tools is not None:
             tools = self.tools[item]
+            tools = json.loads(tools)
         else:
             tools = None
 
