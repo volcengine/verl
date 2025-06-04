@@ -285,7 +285,7 @@ class SGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
         self.is_sleep = True
-        
+
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
             n=1,
@@ -300,7 +300,6 @@ class SGLangRollout(BaseRollout):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
 
-        
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
 
@@ -555,7 +554,9 @@ class SGLangRollout(BaseRollout):
                 )
             else:
                 output = None
+
             # Most naive implementation, can extract tensor and send via gloo if too slow
+            dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
@@ -827,6 +828,7 @@ class SGLangRollout(BaseRollout):
         else:
             sorted_output_req_list = None
 
+        dist.barrier()
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -1043,6 +1045,8 @@ class SGLangRollout(BaseRollout):
                         return_logprob=True,
                     )
                 )
+
+            dist.barrier()
             output = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
