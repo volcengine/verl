@@ -333,9 +333,15 @@ class DataParallelPPOActor(BasePPOActor):
         if has_multi_modal_inputs:
             num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
             non_tensor_select_keys = ["multi_modal_inputs"]
-            dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
+            if self.config.num_gradient_updates_per_batch > 0:
+                dataloader = data.select(select_keys, non_tensor_select_keys).chunk(self.config.num_gradient_updates_per_batch)
+            else:
+                dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
         else:
-            dataloader = batch.split(self.config.ppo_mini_batch_size)
+            if self.config.num_gradient_updates_per_batch > 0:
+                dataloader = batch.split(self.config.num_gradient_updates_per_batch)
+            else:
+                dataloader = batch.split(self.config.ppo_mini_batch_size)
 
         metrics = {}
         for epoch in range(self.config.ppo_epochs):
@@ -428,6 +434,12 @@ class DataParallelPPOActor(BasePPOActor):
                         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
                         "actor/ppo_kl": ppo_kl.detach().item(),
                         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+                        "actor/entropy_loss": entropy_loss.detach().item(),
+                        "actor/policy_loss": policy_loss.detach().item(),
+                        "actor/num_grad_updates_this_batch": (
+                            self.config.num_gradient_updates_per_batch 
+                            if self.config.num_gradient_updates_per_batch > 0 else num_mini_batches
+                        ) * self.config.ppo_epochs,
                     }
                     append_to_dict(metrics, data)
 
