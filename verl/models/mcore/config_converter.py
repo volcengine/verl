@@ -186,6 +186,7 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype,
 
 def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
+    from megatron.core import parallel_state as mpu
     from megatron.core.transformer.enums import AttnBackend
 
     from .patch_v012 import apply_patch
