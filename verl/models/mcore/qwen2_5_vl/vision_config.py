@@ -16,9 +16,10 @@
 
 import torch
 from megatron.core import parallel_state
+from megatron.core.transformer import TransformerConfig
 
 
-def get_vision_model_config(config):
+def get_vision_model_config(config: TransformerConfig) -> TransformerConfig:
     # Given a Transformer Config from decoder, build vision encoder config
     # diff: out_hidden_size & intermediate_size
 
@@ -64,7 +65,7 @@ def get_vision_model_config(config):
     return config
 
 
-def get_vision_projection_config(config, embed_dim, spatial_merge_size):
+def get_vision_projection_config(config: TransformerConfig, embed_dim: int, spatial_merge_size: int) -> TransformerConfig:
     # merger:
     # context_dim = hidden_size * merge_size**2
     # out_hidden_size = hidden_size

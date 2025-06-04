@@ -666,7 +666,7 @@ def broadcast_str_from_megatron_pp(obj: Any):
     return obj_output[0]
 
 
-def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False, hf_config=None):
+def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, hf_config=None, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
     train_params: training parameters
@@ -808,7 +808,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
                 else:
                     params = [param]
 
-                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split, weight_converter.hf_config)
+                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
                 if not isinstance(merge_params, list):
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
@@ -824,7 +824,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
             else:
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
                 torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
-            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split, weight_converter.hf_config)
+            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
 

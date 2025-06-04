@@ -54,7 +54,7 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
         "hidden_dropout": getattr(hf_config, "hidden_dropout", 0.0),
         "kv_channels": getattr(hf_config, "head_dim", None),
         "layernorm_epsilon": hf_config.rms_norm_eps,
-        "add_bias_linear": False,
+        "add_bias_linear": True,
         # Activation and normalization
         "activation_func": F.silu,
         "normalization": "RMSNorm",
