@@ -131,6 +131,8 @@ def _set_envs_and_config(server_args: ServerArgs):
 sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
 
+# because chatCompletion is an async method, it makes the whole ray actor be an async actor
+# which can not call loop.run_until_complete. So we need to make the engine to be an async class
 class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -168,6 +170,9 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
             flush_cache=flush_cache,
         )
         return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
+
+    async def flush_cache(self):
+        return await self.tokenizer_manager.flush_cache()
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
@@ -707,7 +712,8 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None:
-            self._engine.flush_cache()
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
 
         return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
@@ -1023,7 +1029,8 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
-            self._engine.flush_cache()
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._engine.flush_cache())
 
         return DataProto(
             batch=batch,
