@@ -353,12 +353,11 @@ def convert_hf_to_mcore(hf_model_path, output_path, use_cpu_initialization=False
     from transformers import AutoModelForCausalLM, AutoModelForImageTextToText
 
     # init hf model
-    try:
-        hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=trust_remote_code)
-        hf_state_dict = hf_model.state_dict()
-    except Exception:
+    if "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures:
         hf_model = AutoModelForImageTextToText.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=trust_remote_code)
-        hf_state_dict = hf_model.state_dict()
+    else:
+        hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.bfloat16, trust_remote_code=trust_remote_code)
+    hf_state_dict = hf_model.state_dict()
 
     # load hf state dict to megatron model
     if "Qwen2MoeForCausalLM" in hf_config.architectures:
