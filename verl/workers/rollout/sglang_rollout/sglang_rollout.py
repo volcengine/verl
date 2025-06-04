@@ -39,6 +39,7 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizer
 
 from verl import DataProto
+from verl.interactions.base import BaseInteraction
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import (
@@ -61,7 +62,6 @@ from verl.workers.rollout.schemas import (
     Message,
 )
 from verl.workers.rollout.sglang_rollout.utils import broadcast_pyobj
-from verl.interactions.base import BaseInteraction
 
 try:
     from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -387,6 +387,31 @@ class SGLangRollout(BaseRollout):
             function_call_parser,
         )
 
+    def _intitalize_interaction(self, config):
+        import importlib.util
+        import sys
+
+        from omegaconf import OmegaConf
+
+        if config.multi_turn.interaction_config_path is None:
+            return None
+        interaction_config_file = config.multi_turn.interaction_config_path
+        interaction_config = OmegaConf.load(interaction_config_file).interaction[0]
+        cls_name = interaction_config.class_name
+        module_name, class_name = cls_name.rsplit(".", 1)
+        if module_name not in sys.modules:
+            spec = importlib.util.find_spec(module_name)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+        else:
+            module = sys.modules[module_name]
+
+        interaction_cls = getattr(module, class_name)
+
+        interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
+        return interaction
+
     @contextmanager
     def update_sampling_params(self, **kwargs):
         """
@@ -637,7 +662,7 @@ class SGLangRollout(BaseRollout):
         current_turns = 0
         user_turns = 0
         user_turn_rewards = []
-        
+
         while current_turns < self.config.multi_turn.max_assistant_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
