@@ -9,9 +9,9 @@ MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
-DUMMY_MODEL=${DUMMY_MODEL:-False}
+USE_DUMMY_MODEL=${USE_DUMMY_MODEL:-False}
 DUMMY_MODEL_PATH=${DUMMY_MODEL_PATH:-${HOME}/dummy_models/${MODEL_ID}}
-if [ "$DUMMY_MODEL" = "True" ]; then
+if [ "$USE_DUMMY_MODEL" = "True" ]; then
     if [ -z "${DUMMY_MODEL_CONFIG_PATH}"  ]; then
         echo "[ERROR] DUMMY_MODEL_CONFIG_PATH not set"
         exit 1
@@ -110,6 +110,9 @@ fi
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
 DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/${MODEL_ID}}
 if [ "$USE_DIST_CKPT" = "True" ]; then
+    if [ "$USE_DUMMY_MODEL" = "True" ]; then
+        DIST_CKPT_PATH=${HOME}/dist_ckpt_dummy/${MODEL_ID}
+    fi
     python scripts/converter_hf_to_mcore.py \
         --hf_model_path "${MODEL_PATH}" \
         --output_path "${DIST_CKPT_PATH}"
