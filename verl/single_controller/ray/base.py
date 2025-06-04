@@ -406,7 +406,7 @@ class RayWorkerGroup(WorkerGroup):
     @classmethod
     def from_detached(
         cls,
-        name_prefix,
+        name_prefix=None,
         worker_names=None,
         worker_handles=None,
         ray_cls_with_init=None,
