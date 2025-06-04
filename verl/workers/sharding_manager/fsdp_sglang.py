@@ -30,8 +30,8 @@ from torch.distributed.tensor import DTensor
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.debug.performance import _timer
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.timing_utils import _timer
 from verl.utils.torch_functional import check_cuda_is_available
 
 from .base import BaseShardingManager

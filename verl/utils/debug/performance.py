@@ -15,9 +15,11 @@
 import datetime
 import inspect
 import logging
-from typing import Any, Tuple
+from contextlib import contextmanager
+from typing import Any, Dict, Tuple
 
 import torch.distributed as dist
+from codetiming import Timer
 
 from verl.utils.device import get_torch_device
 from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
@@ -90,11 +92,33 @@ class GPUMemoryLogger(DecoratorLoggerBase):
         self.logging_function(message)
         return output
 
+
 def log_print(ctn: Any):
-    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     frame = inspect.currentframe().f_back
     function_name = frame.f_code.co_name
     line_number = frame.f_lineno
-    file_name = frame.f_code.co_filename.split('/')[-1]
-    print(f"[{file_name}:{line_number}:{function_name}]: {ctn}")
+    file_name = frame.f_code.co_filename.split("/")[-1]
+    print(f"[{current_time}-{file_name}:{line_number}:{function_name}]: {ctn}")
+
+
+@contextmanager
+def _timer(name: str, timing_raw: Dict[str, float]):
+    """Context manager for timing code execution.
+
+    This utility function measures the execution time of code within its context
+    and accumulates the timing information in the provided dictionary.
+
+    Args:
+        name (str): The name/identifier for this timing measurement.
+        timing_raw (Dict[str, float]): Dictionary to store timing information.
+
+    Yields:
+        None: This is a context manager that yields control back to the code block.
+    """
+    with Timer(name=name, logger=None) as timer:
+        yield
+    if name not in timing_raw:
+        timing_raw[name] = 0
+    timing_raw[name] += timer.last
