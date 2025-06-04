@@ -386,7 +386,7 @@ class ValidationGenerationsLogger:
         for i, sample in enumerate(samples):
             text_content += f"### Sample {i + 1}\n"
             
-            # Assuming sample contains [input, output, score] based on your wandb code
+            # Assuming sample contains [input, output, score]
             if len(sample) >= 3:
                 input_text, output_text, score = sample[0], sample[1], sample[2]
                 
