@@ -25,6 +25,7 @@ model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   use_shm: False
   fsdp_config:
+    model_dtype: fp32
     wrap_policy:
       min_num_params: 0
     cpu_offload: False
@@ -47,13 +48,18 @@ optim:
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:
-  default_local_dir: /tmp/sft_model
-  default_hdfs_dir: hdfs://tmp/experiments/gsm8k/gemma-1.1-7b-it/ # change the hdfs path here
+  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  default_hdfs_dir: null
   resume_path: null
   project_name: gsm8k-sft
   experiment_name: test
   total_epochs: 4
   total_training_steps: null
-  logger: ['console']
+  logger: [ 'console', 'wandb' ]
   seed: 1
 
+  save_freq: -1
+  test_freq: -1
+  nnodes: 1
+  n_gpus_per_node: 8
+  max_ckpt_to_keep: null # TODO
