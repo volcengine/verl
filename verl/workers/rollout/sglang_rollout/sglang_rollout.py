@@ -555,7 +555,9 @@ class SGLangRollout(BaseRollout):
                 )
             else:
                 output = None
+
             # Most naive implementation, can extract tensor and send via gloo if too slow
+            dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
@@ -827,6 +829,7 @@ class SGLangRollout(BaseRollout):
         else:
             sorted_output_req_list = None
 
+        dist.barrier()
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -1043,6 +1046,8 @@ class SGLangRollout(BaseRollout):
                         return_logprob=True,
                     )
                 )
+
+            dist.barrier()
             output = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
