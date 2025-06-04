@@ -132,6 +132,10 @@ jobs:
         run: |
           ray stop --force
           ADV_ESTIMATOR=grpo USE_SHM=True LORA_RANK=32 LOAD_FORMAT=safetensors LAYERED_SUMMON=True bash tests/e2e/ppo_trainer/run_function_reward.sh
+      - name: Running GSM8K E2E training tests on 8 L20 GPUs with grpo lora using function rm with use_shm and layered_summon with fsdp2
+        run: |
+          ray stop --force
+          ADV_ESTIMATOR=grpo USE_SHM=True LORA_RANK=32 LOAD_FORMAT=safetensors LAYERED_SUMMON=True STRATEGY=fsdp2 bash tests/e2e/ppo_trainer/run_function_reward.sh
       # Model RM
       - name: Running GRPO GSM8K E2E training tests with FSDP on 8 L20 GPUs (DeepSeek)
         run: |
