@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 from transformers import PretrainedConfig
-from verl.utils.device import is_cuda_available, get_torch_device
+
+from verl.utils.device import get_torch_device
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
 

@@ -331,8 +331,9 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
 
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                self.inference_engine.wake_up(tags=["kv_cache"])
+            # (vermouth1992) We move wake up kv cache after we release model weights. Need refactor to make API cleaner
+            # if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            #     self.inference_engine.wake_up(tags=["kv_cache"])
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
