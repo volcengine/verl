@@ -42,22 +42,24 @@ def get_random_string(length: int) -> str:
 
 
 def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, blocking):
-    def func(*args, **kwargs):
-        args, kwargs = dispatch_fn(self, *args, **kwargs)
-        padding_count = kwargs.pop(_padding_size_key, 0)
-        output = execute_fn(method_name, *args, **kwargs)
-        if blocking:
-            output = ray.get(output)
-        output = collect_fn(self, output)
-        if padding_count > 0:
-            if isinstance(output, DataProto):
-                indices = [i for i in range(len(output))][:-padding_count]
-                output = output.select_idxs(indices)
-            elif isinstance(output, list):
-                output = output[:-padding_count]
-        return output
+    class Functor:
+        def __call__(this, *args, **kwargs):
+            args, kwargs = dispatch_fn(self, *args, **kwargs)
+            padding_count = kwargs.pop(_padding_size_key, 0)
+            output = execute_fn(method_name, *args, **kwargs)
+            if blocking:
+                output = ray.get(output)
+            output = collect_fn(self, output)
+            if padding_count > 0:
+                if isinstance(output, DataProto):
+                    indices = [i for i in range(len(output))][:-padding_count]
+                    output = output.select_idxs(indices)
+                elif isinstance(output, list):
+                    output = output[:-padding_count]
+            return output
 
-    return func
+    # use class type to pass the method_name to get a better observability
+    return type(method_name, (Functor,), {})()
 
 
 def sort_placement_group_by_node_ip(pgs: List[PlacementGroup]) -> List[PlacementGroup]:
@@ -88,6 +90,7 @@ class RayResourcePool(ResourcePool):
         name_prefix: str = "",
         max_colocate_count: int = 10,
         detached=False,
+        accelerator_type: Optional[str] = None,
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
@@ -95,6 +98,7 @@ class RayResourcePool(ResourcePool):
         self.name_prefix = name_prefix
         self.pgs = None
         self.detached = detached
+        self.accelerator_type = accelerator_type
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -106,7 +110,13 @@ class RayResourcePool(ResourcePool):
             device_name = "NPU"
         elif device_name == "cuda":
             device_name = "GPU"
-        pg_scheme = [[{"CPU": self.max_colocate_count, device_name: 1} if self.use_gpu else {"CPU": self.max_colocate_count} for _ in range(process_count)] for process_count in self._store]
+
+        bundle = {"CPU": self.max_colocate_count}
+        if self.use_gpu:
+            bundle[device_name] = 1
+            if self.accelerator_type is not None:
+                bundle[self.accelerator_type] = 1e-4
+        pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
 

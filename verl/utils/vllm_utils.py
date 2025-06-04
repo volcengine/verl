@@ -40,17 +40,22 @@ try:
 except ImportError:
     pass
 
-from typing import List
-from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
-from vllm.lora.models import LoRAModel
-from vllm.lora.request import LoRARequest
+try:
+    from vllm.model_executor.models.kimi_vl import KimiVLForConditionalGeneration
+    SUPPORTED_MOE_MODELS.append(KimiVLForConditionalGeneration)
+except ImportError:
+    pass
 
-from verl.third_party.vllm import get_version
-from vllm.lora.utils import get_adapter_absolute_path
+from typing import List
 
 from msgspec import field
-
 from packaging import version as vs
+from vllm.lora.models import LoRAModel
+from vllm.lora.request import LoRARequest
+from vllm.lora.utils import get_adapter_absolute_path
+from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
+
+from verl.third_party.vllm import get_version
 
 
 def patch_vllm_moe_model_weight_loader(model):
@@ -80,7 +85,11 @@ def patch_vllm_moe_model_weight_loader(model):
     if not isinstance(model, tuple(SUPPORTED_MOE_MODELS)):
         return
 
-    for layer in model.model.layers:
+    model = getattr(model, "model", None) or getattr(model, "language_model", None)
+    if model is None:
+        raise ValueError("The provided model does not have a valid 'model' or 'language_model' attribute.")
+
+    for layer in model.layers:
         mlp_attr = MLP_ATTR_MAPPING.get(type(model), DEFAULT_MLP_ATTR)
         mlp = getattr(layer, mlp_attr)
 
@@ -95,7 +104,7 @@ class TensorLoRARequest(LoRARequest):
     lora_tensors:dict = field(default=None)
 
 
-class VLLMHijack():
+class VLLMHijack:
     @staticmethod
     def hijack():
         def hijack__load_adapter(self, lora_request: TensorLoRARequest) -> LoRAModel:

@@ -89,6 +89,14 @@ vllm & vllm-ascend
 -----------------------------------
 正式使用前，建议您通过对Qwen2.5-0.5B GRPO的训练尝试以检验环境准备和安装的正确性。
 
+1.下载数据集并将数据集预处理为parquet格式，以便包含计算RL奖励所需的必要字段
+
+.. code-block:: bash
+
+    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+
+2.执行训练
+
 .. code-block:: bash
 
     set -x
@@ -107,6 +115,7 @@ vllm & vllm-ascend
         actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
         actor_rollout_ref.actor.optim.lr=5e-7 \
         actor_rollout_ref.model.use_remove_padding=False \
+        actor_rollout_ref.actor.entropy_coeff=0.001 \
         actor_rollout_ref.actor.ppo_mini_batch_size=64 \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=20 \
         actor_rollout_ref.actor.use_kl_loss=True \
