@@ -428,8 +428,8 @@ class RayPPOTrainer:
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
         def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
             settings = {
-                "actor_rollout_ref.actor": "micro_batch_size",
-                "critic": "micro_batch_size",
+                "actor_rollout_ref.actor": "ppo_micro_batch_size",
+                "critic": "ppo_micro_batch_size",
                 "reward_model": "micro_batch_size",
                 "actor_rollout_ref.ref": "log_prob_micro_batch_size",
                 "actor_rollout_ref.rollout": "log_prob_micro_batch_size",
