@@ -285,7 +285,7 @@ class SGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
         self.is_sleep = True
-        
+
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
             n=1,
@@ -300,7 +300,6 @@ class SGLangRollout(BaseRollout):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
 
-        
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
 
