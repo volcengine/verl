@@ -39,6 +39,7 @@ https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-m
 import argparse
 import os
 import re
+import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -341,6 +342,7 @@ class MegatronModelMerger(BaseModelMerger):
 
         self.params_mapping = {
             # megatron core gpt model name, huggingface model name
+            # NOTICE: It's a little bit tricky, when 2 keys have the same prefix, we need to make sure the longer key within the containing relationship is processed first.
             "embedding.word_embeddings": "model.embed_tokens",
             # attn
             "self_attention.linear_qkv.layer_norm_weight": "input_layernorm.weight",
@@ -373,9 +375,9 @@ class MegatronModelMerger(BaseModelMerger):
             # output
             "final_layernorm": "norm",
             "output_layer": "lm_head",
-        }   
+        }
 
-    def _get_tp_pp_rank_from_sharded_dir(self, sharded_dir: str) -> tuple[int, int]:        
+    def _get_tp_pp_rank_from_sharded_dir(self, sharded_dir: str) -> tuple[int, int]:
         tp_rank = pp_rank = None
         rank_list = sharded_dir.split("_")[2:]
         if re.match(r"mp_rank_(\d\d)_(\d\d\d)", sharded_dir):
@@ -469,6 +471,16 @@ class MegatronModelMerger(BaseModelMerger):
 
         return model_state_dict_lst
 
+    def _check_megatron_state_key(self, key: str) -> bool:
+        """
+        Checks if the key is a valid Megatron state key.
+
+        Now the model merger only supports keys that start with "decoder".
+        """
+        # Exclude extra state keys
+        if not key.startswith("decoder"):
+            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder'.")
+
     def _merge_state_dicts(self, model_state_dict_lst: list[list[dict]], tp_size: int, pp_size: int) -> dict[str, torch.Tensor]:
         state_dict = {}
         vpp_size = len(model_state_dict_lst[0][0])
@@ -485,6 +497,7 @@ class MegatronModelMerger(BaseModelMerger):
                         print("skip lm_head and reward_head loading because of tie_word_embeddings")
                         continue
 
+                    self._check_megatron_state_key(key)
                     hf_name = self._replace_name(key, self.params_mapping)
                     assert hf_name is not None, f"Failed to convert layer name [{key}] from megatron to huggingface."
                     if "model.layers." in hf_name:
@@ -494,6 +507,8 @@ class MegatronModelMerger(BaseModelMerger):
                         new_key_list = hf_name.split(".")
                         new_key_list[2] = str(global_layer_no)
                         hf_name = ".".join(new_key_list)
+                    else:
+                        warnings.warn(f"hf_name {hf_name} will not be fixed with layer number", stacklevel=2)
 
                     tp_data = [model_state_dict_lst[pp_rank][tp_rank][vpp_rank][key] for tp_rank in range(tp_size)]
                     merged = self._merge_across_tp(key, tp_data, self.model_config, tp_size, self.config.is_value_model)
@@ -508,6 +523,7 @@ class MegatronModelMerger(BaseModelMerger):
                         # split gate up
                         state_dict[hf_name.replace("gate_up", "gate")] = merged[0]
                         state_dict[hf_name.replace("gate_up", "up")] = merged[1]
+                    print(f"converted {key} to {hf_name} with shape {merged.shape if isinstance(merged, torch.Tensor) else [t.shape for t in merged]}")
 
                 layers_cum += layers_handled + 1  # zero based
 
@@ -556,7 +572,7 @@ class MegatronModelMerger(BaseModelMerger):
             assert loaded_weight.dtype == param.dtype
             torch.testing.assert_close(loaded_weight, param, atol=1e-2, rtol=5e-2)
 
-    def _replace_name(self, megatron_name: str, name_mapping: dict[tuple[str, str]]) -> str:
+    def _replace_name(self, megatron_name: str, name_mapping: dict[str, str]) -> str:
         for m_name, v_name in name_mapping.items():
             if m_name not in megatron_name:
                 continue
