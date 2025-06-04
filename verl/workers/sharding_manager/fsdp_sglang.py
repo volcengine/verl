@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import os
 
@@ -99,7 +100,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
         device = torch.cuda.current_device()  # used when fsdp2 set cpu_offload_policy
         params = {k: v.to(device, non_blocking=True) if fsdp_version(self.module) == 2 else v for k, v in params.items()}
         # Copy, not share memory
-        self.update_weights(params)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.update_weights(params))
         log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
 
         del params
@@ -116,7 +118,8 @@ class FSDPSGLangShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        self.release_memory()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.release_memory())
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         self.module.train()

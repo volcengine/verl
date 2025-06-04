@@ -134,6 +134,8 @@ sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # default to use dummy load format, which need to reload weights in first time
+        self._need_reload = True
 
     async def release_memory_occupation(self):
         """Release GPU occupation temporarily."""
@@ -142,6 +144,13 @@ class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
 
     async def resume_memory_occupation(self):
         """Resume GPU occupation."""
+
+        # because __init__ is a sync method, it can not call the async release_memory_occupation
+        # have to move release_memory_occupation from __init__ to here
+        if self._need_reload:
+            await self.release_memory_occupation()
+            self._need_reload = False
+
         obj = ResumeMemoryOccupationReqInput()
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
@@ -370,8 +379,7 @@ class SGLangRollout(BaseRollout):
             self._engine = None
 
         self.sharding_manager = None
-        self.is_sleep = False
-        self._need_reload = True
+        self.is_sleep = True
 
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
@@ -1168,14 +1176,6 @@ class SGLangRollout(BaseRollout):
         # this function is left for uniform train-inference resharding
 
     async def wake_up(self):
-        if self._need_reload:
-            # when use dummy format, it have to be reloaded in the first time
-            await self.sharding_manager.sleep()
-            await self.sharding_manager.wake_up()
-            self._need_reload = False
-            self.is_sleep = False
-            return
-
         if not self.is_sleep:
             return
         await self.sharding_manager.wake_up()  # pylint: disable=C2801
