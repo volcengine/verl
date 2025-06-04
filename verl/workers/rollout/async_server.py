@@ -167,7 +167,6 @@ class AsyncLLMServerManager:
 
         self.chat_scheduler = ChatCompletionScheduler(
             config=self.full_config,
-            model_path=self.config.model.path,
             server_addresses=self.server_addresses,
         )
 

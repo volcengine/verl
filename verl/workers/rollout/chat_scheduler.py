@@ -17,6 +17,7 @@ import importlib
 import itertools
 import json
 import logging
+from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -37,27 +38,72 @@ from verl.utils.fs import copy_to_local
 logger = logging.getLogger(__file__)
 
 
-class ToolCompletionCallback:
+class CompletionCallback(ABC):
     def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
         self.config = config
         self.scheduler = scheduler
 
         # Initialize tools from config file
-        tool_list = initialize_tools_from_config(self.config.multi_turn.tool_config_path) if self.config.multi_turn.tool_config_path else []
+        self.max_turns = config.actor_rollout_ref.rollout.multi_turn.max_turns
+        tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
+        tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
         self.tools = {tool.name: tool for tool in tool_list}
         self._tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
         print(f"Initialized tools: {self.tools}", flush=True)
 
+        local_path = copy_to_local(config.actor_rollout_ref.model.path)
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+
     @property
     def tool_schemas(self):
+        """OpenAI JSON tool schemas."""
         return self._tool_schemas
+
+    @property
+    def extra_body(self) -> Dict[str, Any]:
+        """Extra body pass to OpenAI API."""
+        return None
+
+    @abstractmethod
+    async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
+        """Call back function to process completions.
+
+        Args:
+            messages: List of messages including raw prompt and assistant, tool response generated so far.
+            completions: Chat completions from OpenAI compatible server.
+            info: Any other auxiliary information pass across multi-turn.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
+        """Post process batch data.
+
+        Args:
+            batch: Batch input messages from RLHFDataset.
+            batch_conversations: List of messages including raw prompt, assistant response, tool response.
+                Note that `len(batch_conversations) == len(batch) * n`, e.g n=2,
+                batch_conversations=[messages_0_0, messages_0_1, messages_1_0, messages_1_1, ...]
+            n: How many chat completion choices to generate for each input message.
+
+        Returns:
+            Batch data, should include ["prompts", "responses", "response_mask", "input_ids", "attention_mask", "position_ids"].
+        """
+        raise NotImplementedError
+
+
+class ToolCompletionCallback(CompletionCallback):
+    def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
+        super().__init__(config, scheduler)
+
+        # TODO: add reward manager to calculate reward score once a sample finish
 
     async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
         messages.append(completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True))
         finish_reason = completions.choices[0].finish_reason
 
         # STEP 0: check if we reach max turns
-        if self.config.multi_turn.max_turns and len(messages) >= self.config.multi_turn.max_turns:
+        if self.max_turns and len(messages) >= self.max_turns:
             print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] Reach max turns, done!")
             return
 
@@ -102,170 +148,7 @@ class ToolCompletionCallback:
             "tool_call_id": tool_call.id,
         }
 
-
-class ChatCompletionScheduler:
-    def __init__(
-        self,
-        config: DictConfig,
-        model_path: str,
-        server_addresses: List[str],
-        max_cache_size: int = 10000,
-    ):
-        """
-        Args:
-            config: DictConfig.
-            model_path: str, model path.
-            server_addresses: List[str], server addresses.
-            max_cache_size: int, max cache size of request_id to address mapping.
-        """
-        self.config = config.actor_rollout_ref.rollout
-        self.model_name = "/".join(model_path.split("/")[-2:])
-        local_path = copy_to_local(model_path)
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
-
-        # Least requests load balancing
-        self.weighted_addresses = [[0, address] for address in server_addresses]
-        heapq.heapify(self.weighted_addresses)
-
-        # LRU cache to map request_id to address
-        self.request_id_to_address = LRUCache(maxsize=max_cache_size)
-
-        self.background_tasks = set()
-        if self.config.multi_turn.completion_callback is None:
-            self.completion_callback = ToolCompletionCallback(self.config, self)
-            logger.warning("completion_callback is None, use ToolCompletionCallback")
-        else:
-            module_path, class_name = self.config.multi_turn.completion_callback.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            self.completion_callback = getattr(module, class_name)(self.config, self)
-
-    def submit_chat_completions(self, *, messages: List[Dict[str, str]], request_id: str, info: Dict[str, Any]):
-        info["__depth__"] += 1
-        task = asyncio.create_task(self._submit_chat_completions_and_callback(messages, request_id, info))
-
-        # “fire-and-forget” background tasks
-        self.background_tasks.add(task)
-        task.add_done_callback(self.background_tasks.discard)
-
-    async def _submit_chat_completions_and_callback(
-        self,
-        messages: List[Dict[str, str]],
-        request_id: str,
-        info: Dict[str, Any],
-    ):
-        """Submit chat completion request, wait request finish and do callback."""
-        if request_id:
-            request_id = request_id.removeprefix("chatcmpl-")
-            assert request_id in self.request_id_to_address
-            address = self.request_id_to_address.pop(request_id)
-        else:
-            address = self.weighted_addresses[0][1]
-            self.weighted_addresses[0][0] += 1
-            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
-
-        # use new request_id to avoid duplicate request_id problem
-        request_id = uuid4().hex
-        self.request_id_to_address[request_id] = address
-
-        completions, exception = None, None
-        try:
-            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_aiohttp(
-                address,
-                messages=messages,
-                tools=self.completion_callback.tool_schemas,
-                extra_headers={"x-request-id": request_id},
-                **info["__sampling_params__"],
-            )
-        except Exception as e:
-            # Let user handle the exception
-            exception = e
-
-        info["__depth__"] -= 1
-
-        if exception is not None:
-            logger.exception(f"chat completion failed with exception: {exception}")
-        else:
-            try:
-                await self.completion_callback(messages, completions, info)
-            except Exception as e:
-                logger.exception(f"completion callback failed with exception: {e}")
-
-        # No more ongoing completion requests
-        if info["__depth__"] == 0:
-            info["__done__"].set()
-
-    async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
-        client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
-        return await client.chat.completions.create(**chat_complete_request)
-
-    async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
-        try:
-            extra_headers = chat_complete_request.pop("extra_headers")
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(
-                url=f"http://{address}/v1/chat/completions",
-                headers={"Authorization": "Bearer token-abc123", **extra_headers},
-                json=chat_complete_request,
-            ) as resp:
-                data = await resp.json()
-                return ChatCompletion(**data)
-        finally:
-            await session.close()
-
-    async def generate_sequences(self, batch: DataProto) -> DataProto:
-        kwargs = dict(
-            model=self.model_name,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
-        )
-
-        # override sampling params for validation
-        if batch.meta_info.get("validate", False):
-            kwargs["top_p"] = self.config.val_kwargs.top_p
-            kwargs["temperature"] = self.config.val_kwargs.temperature
-
-        print(f"[ChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
-
-        # NOTE: For multi-turn rollout, repeat raw_prompt n times and process each prompt independently,
-        # validation dataset has already been repeated in `PPOTrainer._validate`.
-        n = 1 if batch.meta_info.get("validate", False) else self.config.n
-        tasks, batch_conversations = [], [None] * len(batch) * n
-        for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)):
-            # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
-            batch_conversations[batch_index] = conversation.tolist()
-
-            tasks.append(
-                asyncio.create_task(
-                    self._submit_chat_completions_semaphore(
-                        messages=batch_conversations[batch_index],
-                        request_id=None,
-                        sampling_params=kwargs,
-                    )
-                )
-            )
-
-        await asyncio.gather(*tasks)
-        print("[ChatCompletionScheduler] generate_sequences done")
-
-        return self._postprocess(batch, batch_conversations, n=n)
-
-    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
-        done = asyncio.Event()
-
-        info = {
-            "__done__": done,
-            "__depth__": 0,  # indicate how many ongoing completion requests
-            "__sampling_params__": sampling_params,
-        }
-
-        self.submit_chat_completions(messages=messages, request_id=request_id, info=info)
-
-        # Wait until all completion requests are done
-        await done.wait()
-
-    def _postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
+    def postprocess(self, batch: DataProto, batch_conversations: List[List[Dict[str, str]]], n: int) -> DataProto:
         # NOTE: consistent with batch version of generate_sequences in vllm_rollout_spmd.py
         # prompts: left pad
         # responses: right pad
@@ -360,3 +243,173 @@ class ChatCompletionScheduler:
                     loss_mask[i, bos : eos + 1] = 0
 
         return loss_mask
+
+
+class ChatCompletionScheduler:
+    def __init__(
+        self,
+        config: DictConfig,
+        server_addresses: List[str],
+        max_cache_size: int = 10000,
+    ):
+        """
+        Args:
+            config: DictConfig.
+            server_addresses: List[str], OpenAI compatible server addresses.
+            max_cache_size: int, max cache size of request_id to address mapping.
+        """
+        self.config = config.actor_rollout_ref.rollout
+        model_path = config.actor_rollout_ref.model.path
+        self.model_name = "/".join(model_path.split("/")[-2:])
+
+        # Least requests load balancing
+        self.weighted_addresses = [[0, address] for address in server_addresses]
+        heapq.heapify(self.weighted_addresses)
+
+        # LRU cache to map request_id to address
+        self.request_id_to_address = LRUCache(maxsize=max_cache_size)
+
+        self.background_tasks = set()
+        if self.config.multi_turn.completion_callback is None:
+            self.completion_callback = ToolCompletionCallback(config, self)
+            logger.warning("completion_callback is None, use ToolCompletionCallback")
+        else:
+            module_path, class_name = self.config.multi_turn.completion_callback.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            self.completion_callback = getattr(module, class_name)(config, self)
+
+    def submit_chat_completions(self, *, messages: List[Dict[str, str]], request_id: str, info: Dict[str, Any]):
+        """Submit chat completion request without wait, completion_callback will be called when the request is done.
+
+        Args:
+            messages: List of messages.
+            request_id: Request id.
+            info: Any other auxiliary information pass across multi-turn.
+        """
+        info["__depth__"] += 1
+        task = asyncio.create_task(self._submit_chat_completions_and_callback(messages, request_id, info))
+
+        # “fire-and-forget” background tasks
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+
+    async def _submit_chat_completions_and_callback(
+        self,
+        messages: List[Dict[str, str]],
+        request_id: str,
+        info: Dict[str, Any],
+    ):
+        """Submit chat completion request, wait request finish and do callback."""
+        if request_id:
+            request_id = request_id.removeprefix("chatcmpl-")
+            assert request_id in self.request_id_to_address
+            address = self.request_id_to_address.pop(request_id)
+        else:
+            address = self.weighted_addresses[0][1]
+            self.weighted_addresses[0][0] += 1
+            heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
+
+        # use new request_id to avoid duplicate request_id problem
+        request_id = uuid4().hex
+        self.request_id_to_address[request_id] = address
+
+        completions, exception = None, None
+        try:
+            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
+            completions = await self._chat_completions_aiohttp(
+                address,
+                messages=messages,
+                tools=self.completion_callback.tool_schemas,
+                extra_body=self.completion_callback.extra_body,
+                extra_headers={"x-request-id": request_id},
+                **info["__sampling_params__"],
+            )
+        except Exception as e:
+            # Let user handle the exception
+            exception = e
+
+        info["__depth__"] -= 1
+
+        if exception is not None:
+            logger.exception(f"chat completion failed with exception: {exception}")
+        else:
+            try:
+                await self.completion_callback(messages, completions, info)
+            except Exception as e:
+                logger.exception(f"completion callback failed with exception: {e}")
+
+        # No more ongoing completion requests
+        if info["__depth__"] == 0:
+            info["__done__"].set()
+
+    async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
+        client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
+        return await client.chat.completions.create(**chat_complete_request)
+
+    async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
+        try:
+            extra_body = chat_complete_request.pop("extra_body", {})
+            chat_complete_request.update(extra_body or {})
+            extra_headers = chat_complete_request.pop("extra_headers")
+            timeout = aiohttp.ClientTimeout(total=None)
+            session = aiohttp.ClientSession(timeout=timeout)
+            async with session.post(
+                url=f"http://{address}/v1/chat/completions",
+                headers={"Authorization": "Bearer token-abc123", **extra_headers},
+                json=chat_complete_request,
+            ) as resp:
+                data = await resp.json()
+                return ChatCompletion(**data)
+        finally:
+            await session.close()
+
+    async def generate_sequences(self, batch: DataProto) -> DataProto:
+        kwargs = dict(
+            model=self.model_name,
+            temperature=self.config.temperature,
+            top_p=self.config.top_p,
+        )
+
+        # override sampling params for validation
+        if batch.meta_info.get("validate", False):
+            kwargs["top_p"] = self.config.val_kwargs.top_p
+            kwargs["temperature"] = self.config.val_kwargs.temperature
+
+        print(f"[ChatCompletionScheduler] generate_sequences sampling params: {kwargs}")
+
+        # NOTE: For multi-turn rollout, repeat raw_prompt n times and process each prompt independently,
+        # validation dataset has already been repeated in `PPOTrainer._validate`.
+        n = 1 if batch.meta_info.get("validate", False) else self.config.n
+        tasks, batch_conversations = [], [None] * len(batch) * n
+        for batch_index, conversation in enumerate(batch.non_tensor_batch["raw_prompt"].repeat(n, axis=0)):
+            # raw_prompt: [{"role": "user", "content": ""}, ["role": "assistant", "content"], ...]
+            batch_conversations[batch_index] = conversation.tolist()
+
+            tasks.append(
+                asyncio.create_task(
+                    self._submit_chat_completions_semaphore(
+                        messages=batch_conversations[batch_index],
+                        request_id=None,
+                        sampling_params=kwargs,
+                    )
+                )
+            )
+
+        await asyncio.gather(*tasks)
+        print("[ChatCompletionScheduler] generate_sequences done")
+
+        return self.completion_callback.postprocess(batch, batch_conversations, n=n)
+
+    async def _submit_chat_completions_semaphore(self, messages: List[Dict[str, str]], request_id: str, sampling_params: Dict[str, Any]):
+        done = asyncio.Event()
+
+        info = {
+            "__done__": done,
+            "__depth__": 0,  # indicate how many ongoing completion requests
+            "__sampling_params__": sampling_params,
+        }
+
+        self.submit_chat_completions(messages=messages, request_id=request_id, info=info)
+
+        # Wait until all completion requests are done
+        await done.wait()
