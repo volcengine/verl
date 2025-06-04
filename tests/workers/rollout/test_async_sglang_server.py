@@ -26,22 +26,14 @@ from omegaconf import DictConfig
 )
 class TestAsyncSglangServer:
     @pytest.fixture
-    def mock_ray_actor(self):
-        mock_actor = MagicMock()
-        mock_actor.execute_method.remote = AsyncMock(return_value={"content": "mocked response"})
-        mock_actor.resume.remote = AsyncMock()
-        mock_actor.offload.remote = AsyncMock()
-        return mock_actor
-
-    @pytest.fixture
     def server_config(self):
         return DictConfig({"rollout": {"tensor_model_parallel_size": 2}})
 
     @pytest.mark.asyncio
     @patch("verl.workers.rollout.sglang_rollout.async_sglang_server.ray.util.list_named_actors")
     @patch("verl.workers.rollout.async_server.AsyncServerBase._start_fastapi_server", new_callable=AsyncMock)
-    @pytest.mark.filterwarnings("ignore:Ray state API is no longer experimental:DeprecationWarning")  # Keep existing filter
-    async def test_init_engine(self, mock_start_fastapi_server, mock_list_actors, server_config, mock_ray_actor):  # mock_ray_actor is kept for now
+    @pytest.mark.filterwarnings("ignore:Ray state API is no longer experimental:DeprecationWarning")
+    async def test_init_engine(self, mock_start_fastapi_server, mock_list_actors, server_config):
         mock_list_actors.return_value = [
             {"name": "test_prefixWorkerDict_1:0", "namespace": "test"},
             {"name": "test_prefixWorkerDict_1:1", "namespace": "test"},
@@ -58,12 +50,9 @@ class TestAsyncSglangServer:
         if hasattr(AsyncSglangServer, "__ray_metadata__") and hasattr(AsyncSglangServer.__ray_metadata__, "modified_class"):
             ActualClassToInstantiate = AsyncSglangServer.__ray_metadata__.modified_class
 
-        def mock_get_actor_side_effect(name, namespace=None):  # Changed 'actor_name_arg' to 'name'
+        def mock_get_actor_side_effect(name, namespace=None):
             # Create a new mock actor for each call
             actor_mock = MagicMock()
-            actor_mock.execute_method.remote = AsyncMock(return_value={"content": "mocked response"})
-            actor_mock.resume.remote = AsyncMock()
-            actor_mock.offload.remote = AsyncMock()
 
             # Support .name attribute access
             actor_mock.name = name  # Use 'name' here
@@ -80,6 +69,7 @@ class TestAsyncSglangServer:
 
             return actor_mock
 
+        # Verify instance.workers is correctly populated
         with patch("verl.workers.rollout.sglang_rollout.async_sglang_server.ray.get_actor", side_effect=mock_get_actor_side_effect):
             # Instance 1
             instance = ActualClassToInstantiate(server_config, 4, 0, "test_prefix")
