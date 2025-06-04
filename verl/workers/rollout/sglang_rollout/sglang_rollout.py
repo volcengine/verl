@@ -289,7 +289,7 @@ class SGLangRollout(BaseRollout):
         if self._tp_rank == 0:
             self._engine.release_memory_occupation()
         self.is_sleep = True
-        
+
     def _init_sampling_params(self, **kwargs):
         kwargs = dict(
             n=1,
@@ -303,31 +303,6 @@ class SGLangRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = self.config.get(k)
         self.sampling_params = kwargs
-
-    def _intitalize_interaction(self, config):
-        import importlib.util
-        import sys
-
-        from omegaconf import OmegaConf
-
-        if config.multi_turn.interaction_config_path is None:
-            return None
-        interaction_config_file = config.multi_turn.interaction_config_path
-        interaction_config = OmegaConf.load(interaction_config_file).interaction[0]
-        cls_name = interaction_config.class_name
-        module_name, class_name = cls_name.rsplit(".", 1)
-        if module_name not in sys.modules:
-            spec = importlib.util.find_spec(module_name)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-        else:
-            module = sys.modules[module_name]
-
-        interaction_cls = getattr(module, class_name)
-
-        interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
-        return interaction
 
     def _initialize_tools(self, config, tokenizer):
         """Initialize tools from configuration.
@@ -583,7 +558,9 @@ class SGLangRollout(BaseRollout):
                 )
             else:
                 output = None
+
             # Most naive implementation, can extract tensor and send via gloo if too slow
+            dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
@@ -881,6 +858,7 @@ class SGLangRollout(BaseRollout):
         else:
             sorted_output_req_list = None
 
+        dist.barrier()
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -1097,6 +1075,8 @@ class SGLangRollout(BaseRollout):
                         return_logprob=True,
                     )
                 )
+
+            dist.barrier()
             output = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
