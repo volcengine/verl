@@ -45,8 +45,8 @@ jobs:
         --privileged
         --shm-size 2g
     env:
-      HTTP_PROXY: ""
-      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
