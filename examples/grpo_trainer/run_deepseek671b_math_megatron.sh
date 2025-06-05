@@ -32,13 +32,19 @@ CRITIC_GRAD_OFFLOAD=${CRITIC_GRAD_OFFLOAD:-$COMMON_GRAD_OFFLOAD}
 CRITIC_OPTIMIZER_OFFLOAD=${CRITIC_OPTIMIZER_OFFLOAD:-$COMMON_OPTIMIZER_OFFLOAD}
 RM_PARAM_OFFLOAD=${RM_PARAM_OFFLOAD:-$COMMON_PARAM_OFFLOAD}
 
-
-NODES=32
+# 512 H20(96GB)
+NODES=64
 PP=16
 TP=1
-EP=16
+EP=32
 ETP=1
-INFER_TP=16
+INFER_TP=32
+# consider TP/ETP, and enable recompute if short of memory
+
+# full recompute
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
+# +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
 
 n_resp_per_prompt=4
 
@@ -48,8 +54,8 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=512 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=512 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=4096 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$LLM \
@@ -58,12 +64,9 @@ python3 -m verl.trainer.main_ppo --config-path=./config --config-name='ppo_megat
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.use_torch_compile=False \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
