@@ -60,8 +60,8 @@ jobs:
           # 临时取消所有代理设置
           HTTP_PROXY: ""
           HTTPS_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
+        run: |
+          unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
         uses: actions/checkout@v4
       - name: Install the current repository
         env:
