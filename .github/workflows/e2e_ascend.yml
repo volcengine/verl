@@ -45,17 +45,12 @@ jobs:
         --privileged
         --shm-size 2g
     env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     steps:
-      - name: Unset proxy environment variables inside container
-        run: |
-          unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
-          git config --global --unset http.proxy || true
-          git config --global --unset https.proxy || true
       - name: Check npu and CANN info
         run: |
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
@@ -63,6 +58,9 @@ jobs:
       - name: Checkout volcengine/verl repo
         uses: actions/checkout@v4
       - name: Install the current repository
+        env:
+          HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
+          HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
         run: |
           pip3 install hf_transfer peft
           pip3 install -r requirements-npu.txt
