@@ -18,7 +18,6 @@ Preprocess the Screenspot dataset to parquet format
 import argparse
 import io
 import os
-import logging
 
 import datasets
 from datasets import Sequence
@@ -28,6 +27,12 @@ from transformers import AutoProcessor
 from qwen_vl_utils import smart_resize
 
 from verl.utils.hdfs_io import copy, makedirs
+from qwen_agent.llm.fncall_prompts.nous_fncall_prompt import (
+    NousFnCallPrompt,
+    Message,
+    ContentItem,
+)
+from orby.utils.dataset.qwen_agent_function_call import ComputerUse
 
 
 MODEL_PATH = "Qwen/Qwen2.5-VL-7B-Instruct"
@@ -61,6 +66,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_dir", default="~/data/screenspot")
     parser.add_argument("--hdfs_dir", default=None)
+    # Check below for the thinking format and qwen format.
+    # Thining format is a simple prompt that asks the model to think step by step
+    # and then answer the question.
+    # Qwen format implementation was referenced from
+    # https://github.com/QwenLM/Qwen2.5-VL/blob/main/cookbooks/computer_use.ipynb
+    parser.add_argument(
+        "--prompt_format",
+        choices=["thinking", "qwen"],
+        default="thinking",
+        help="Select prompt format: 'thinking' or 'qwen'",
+    )
 
     args = parser.parse_args()
 
@@ -100,18 +116,6 @@ if __name__ == "__main__":
 
             data = {
                 "data_source": "screenspot",
-                "prompt": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Map the user instruction to the coordinates in the UI image. "
-                            "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
-                            "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
-                            "<image> Instruction: " + instruction
-                        ),
-                    },
-                ],
-                "images": [image],
                 "ability": "vision",
                 "reward_model": {
                     "style": "rule",
@@ -123,7 +127,58 @@ if __name__ == "__main__":
                     "question": instruction,
                     "bounding_box": bbox,
                 },
+                "images": [image],
             }
+
+            # Create prompt based on selected format
+            if args.prompt_format == "thinking":
+                data["prompt"] = [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Map the user instruction to the coordinates in the UI image. "
+                            "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
+                            "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
+                            "<image> Instruction: " + instruction
+                        ),
+                    },
+                ]
+
+            else:  # qwen format
+                prompt = NousFnCallPrompt().preprocess_fncall_messages(
+                    messages=[
+                        Message(
+                            role="system",
+                            content=[ContentItem(text="You are a helpful assistant.")],
+                        ),
+                        Message(
+                            role="user",
+                            content=[
+                                ContentItem(text=instruction + "<image>"),
+                            ],
+                        ),
+                    ],
+                    functions=[
+                        ComputerUse(
+                            cfg={
+                                "display_width_px": resized_width,
+                                "display_height_px": resized_height,
+                            }
+                        ).function
+                    ],
+                    lang=None,
+                )
+
+                prompt = [msg.model_dump() for msg in prompt]
+                for message in prompt:
+                    # Replace the list of content to a string.
+                    content = "".join(m["text"] for m in message["content"])
+                    message["content"] = content
+
+                data["prompt"] = prompt
+                data["reward_model"]["format"] = "qwen"
+
+            data.update(example)
             return data
 
         return process_fn

@@ -11,12 +11,17 @@ MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 REWARD_FILE=orby/reward/screenspot.py
 REWARD_FN=reward_func
 OUTPUT_FILE=result-test-output-1.parquet
+PROMPT_FORMAT="original"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --version)
             DATASET_VERSION="$2"
+            shift 2
+            ;;
+        --prompt_format)
+            PROMPT_FORMAT="$2"
             shift 2
             ;;
         *)
@@ -57,18 +62,18 @@ else
     echo "Converting dataset..."
     case $DATASET_VERSION in
         "screenspot")
-            python3 -m orby.data.convert_screenspot
+            python3 -m orby.data.convert_screenspot --prompt_format $PROMPT_FORMAT
             ;;
         "screenspot_v2")
             huggingface-cli download OS-Copilot/ScreenSpot-v2 --repo-type dataset --local-dir=$DATA_PATH
             cd $DATA_PATH
             unzip screenspotv2_image.zip
             cd -
-            python orby/data/convert_screenspot_v2.py --image_dir=$DATA_PATH/screenspotv2_image/
+            python orby/data/convert_screenspot_v2.py --image_dir=$DATA_PATH/screenspotv2_image/ --prompt_format $PROMPT_FORMAT
             ;;
         "screenspot_pro")
             huggingface-cli download likaixin/ScreenSpot-Pro --repo-type dataset --local-dir=$DATA_PATH
-            python orby/data/convert_screenspot_pro.py
+            python orby/data/convert_screenspot_pro.py --prompt_format $PROMPT_FORMAT
             ;;
     esac
 fi

@@ -64,7 +64,14 @@ def get_custom_reward_fn(config):
 @ray.remote
 def process_item(reward_fn, data_source, response_lst, reward_data):
     ground_truth = reward_data["ground_truth"]
-    score_lst = [reward_fn(data_source, r, ground_truth) for r in response_lst]
+    # TODO: pass the extra_info more gracefully.
+    extra_info = {}
+    if "format" in reward_data:
+        extra_info["format"] = reward_data["format"]
+    score_lst = [
+        reward_fn(data_source, r, ground_truth, extra_info)
+        for r in response_lst
+    ]
     df = pd.DataFrame(score_lst)
 
     mean_scores = {}

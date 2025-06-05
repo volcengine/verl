@@ -4,4 +4,4 @@ repos:
     hooks:
       - id: black
         language_version: python3
-        exclude: ^.*\.(ipynb)$
+        exclude: ^(.*\.(ipynb)$|verl/.*)

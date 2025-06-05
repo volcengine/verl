@@ -27,6 +27,12 @@ from datasets import Image as ImageData
 from PIL import Image
 from transformers import AutoProcessor
 from qwen_vl_utils import smart_resize
+from qwen_agent.llm.fncall_prompts.nous_fncall_prompt import (
+    NousFnCallPrompt,
+    Message,
+    ContentItem,
+)
+from orby.utils.dataset.qwen_agent_function_call import ComputerUse
 
 from verl.utils.hdfs_io import copy, makedirs
 
@@ -65,7 +71,7 @@ def get_resized_ratio(image):
     return height_ratio, width_ratio
 
 
-def process_json_file(json_path, image_dir, split):
+def process_json_file(json_path, image_dir, split, prompt_format="thinking"):
     """
     Process a single JSON file and return a list of processed examples.
 
@@ -73,6 +79,7 @@ def process_json_file(json_path, image_dir, split):
         json_path: Path to the JSON file
         image_dir: Directory containing the images
         split: Dataset split name (e.g., "train", "test")
+        prompt_format: Format of the prompt ("thinking" or "qwen")
 
     Returns:
         List of processed examples
@@ -114,20 +121,8 @@ def process_json_file(json_path, image_dir, split):
             "data_type": example["data_type"],
             "device": device,
         }
-
         data = {
             "data_source": "screenspot_v2",
-            "prompt": [
-                {
-                    "role": "user",
-                    "content": (
-                        "Map the user instruction to the coordinates in the UI image. "
-                        "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
-                        "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
-                        "<image> Instruction: " + example["instruction"]
-                    ),
-                },
-            ],
             "images": [img_byte_arr],
             "ability": "vision",
             "reward_model": {
@@ -141,6 +136,52 @@ def process_json_file(json_path, image_dir, split):
                 "bounding_box": bbox,
             },
         }
+
+        # Create prompt based on selected format
+        if prompt_format == "thinking":
+            data["prompt"] = [
+                {
+                    "role": "user",
+                    "content": (
+                        "Map the user instruction to the coordinates in the UI image. "
+                        "Think step by step before you answer. The reasoning process MUST BE enclosed within <think> </think> tags. "
+                        "The coordinate x and y MUST BE put in <answer> </answer> tags, separeted by space. "
+                        "<image> Instruction: " + example["instruction"]
+                    ),
+                },
+            ]
+        else:  # qwen format
+            prompt = NousFnCallPrompt().preprocess_fncall_messages(
+                messages=[
+                    Message(
+                        role="system",
+                        content=[ContentItem(text="You are a helpful assistant.")],
+                    ),
+                    Message(
+                        role="user",
+                        content=[
+                            ContentItem(text=example["instruction"] + "<image>"),
+                        ],
+                    ),
+                ],
+                functions=[
+                    ComputerUse(
+                        cfg={
+                            "display_width_px": int(image.width * width_ratio),
+                            "display_height_px": int(image.height * height_ratio),
+                        }
+                    ).function
+                ],
+                lang=None,
+            )
+            prompt = [msg.model_dump() for msg in prompt]
+            for message in prompt:
+                # Replace the list of content to a string.
+                content = "".join(m["text"] for m in message["content"])
+                message["content"] = content
+            data["prompt"] = prompt
+            data["reward_model"]["format"] = "qwen"
+
         processed_examples.append(data)
 
     return processed_examples
@@ -152,6 +193,12 @@ if __name__ == "__main__":
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument(
         "--image_dir", required=True, help="Directory containing the images"
+    )
+    parser.add_argument(
+        "--prompt_format",
+        choices=["thinking", "qwen"],
+        default="thinking",
+        help="Select prompt format: 'thinking' or 'qwen'",
     )
 
     args = parser.parse_args()
@@ -174,7 +221,7 @@ if __name__ == "__main__":
             logging.warning(f"JSON file not found: {json_path}")
             continue
 
-        examples = process_json_file(json_path, image_dir, "test")
+        examples = process_json_file(json_path, image_dir, "test", args.prompt_format)
         all_examples.extend(examples)
 
     # Convert to dataset
