@@ -3,12 +3,22 @@
 #  An e2e test script for testing the GRPO LoRA training process 
 #  and processing the generated checkpoint using the merge_model.py script.  
 
-set -x
+set -xeuo pipefail
+
+MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
+MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+if [ ! -d "$MODEL_PATH" ]; then
+    echo "Downloading model to ${MODEL_PATH}..."
+    huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+else
+    echo "Model directory ${MODEL_PATH} already exists, skip downloading."
+fi
 
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
 BATCH_SIZE=16
+EXP_NAME="qwen2.5_0.5b_grpo_lora"
 # step 1. train model with grpo-lora for 1 step
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -20,7 +30,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.shuffle=False \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.model.use_shm=True \
     actor_rollout_ref.model.lora_rank=64 \
     actor_rollout_ref.model.lora_alpha=32 \
@@ -48,7 +58,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_example_gsm8k' \
-    trainer.experiment_name='qwen2.5_3b_grpo_lora' \
+    trainer.experiment_name=${EXP_NAME} \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
     trainer.total_training_steps=1 \
@@ -59,12 +69,12 @@ python3 -m verl.trainer.main_ppo \
 # step 2. merge model
 python3 scripts/model_merger.py merge \
     --backend fsdp \
-    --local_dir checkpoints/verl_grpo_example_gsm8k/qwen2.5_3b_grpo_lora/global_step_1/actor/ \
-    --target_dir checkpoints/verl_grpo_example_gsm8k/qwen2.5_3b_grpo_lora/global_step_1/actor/hf
+    --local_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/ \
+    --target_dir checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/hf
 
 # step 3. assert
 # make sure adapter_model.safetensors exists and its size is larger than 1MB
-file_path="checkpoints/verl_grpo_example_gsm8k/qwen2.5_3b_grpo_lora/global_step_1/actor/hf/lora_adapter/adapter_model.safetensors"
+file_path="checkpoints/verl_grpo_example_gsm8k/${EXP_NAME}/global_step_1/actor/hf/lora_adapter/adapter_model.safetensors"
 
 if [ ! -f "$file_path" ]; then
     echo "Error: File $file_path does not exist!"
