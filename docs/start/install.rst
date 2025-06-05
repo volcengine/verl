@@ -70,7 +70,7 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
 .. note::
 
-    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseek`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseekv3`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
