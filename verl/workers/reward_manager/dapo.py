@@ -18,7 +18,6 @@ import torch
 
 from verl import DataProto
 from verl.workers.reward_manager import NaiveRewardManager
-from verl.workers.reward_manager.base import BaseRewardManager
 
 
 class DAPORewardManager(NaiveRewardManager):
