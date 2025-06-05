@@ -92,6 +92,7 @@ def _get_mla_transformer_config(hf_config: PretrainedConfig, mla_rope_config: di
 
     Args:
         hf_config: HuggingFace model configuration
+        mla_rope_config: MLA specific RoPE configuration
         dtype: Data type for the model
         override_transformer_config_kwargs: Additional parameters to override defaults
 
