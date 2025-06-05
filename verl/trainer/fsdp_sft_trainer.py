@@ -510,6 +510,14 @@ class FSDPSFTTrainer:
 
         if self.config.trainer.total_training_steps is not None:
             total_training_steps = self.config.trainer.total_training_steps
+            # Calculate the number of steps in the regular epochs and the number of steps in the last epoch
+            self.steps_per_epoch = total_training_steps // self.config.trainer.total_epochs
+            self.last_epoch_steps = total_training_steps % self.config.trainer.total_epochs
+            if self.last_epoch_steps > 0:
+                print(f"Regular steps per epoch: {self.steps_per_epoch}")
+                print(f"Last epoch steps: {self.last_epoch_steps}")
+            else:
+                print(f"Steps per epoch: {self.steps_per_epoch}")
 
         self.total_training_steps = total_training_steps
         print(f"Total training steps: {self.total_training_steps}")
@@ -519,9 +527,12 @@ class FSDPSFTTrainer:
 
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
+            # Determine which step to use based on whether it is the last epoch.
+            current_epoch_steps = self.last_epoch_steps if (epoch == self.config.trainer.total_epochs - 1 and self.last_epoch_steps > 0) else self.steps_per_epoch
+        
             for data in tqdm(
                 self.train_dataloader,
-                total=self.steps_per_epoch,
+                total=current_epoch_steps,
                 desc=f"Epoch {epoch + 1}/{self.config.trainer.total_epochs}",
                 disable=rank != 0
             ):
