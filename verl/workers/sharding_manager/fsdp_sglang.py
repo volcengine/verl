@@ -130,40 +130,26 @@ class FSDPSGLangShardingManager(BaseShardingManager):
             torch.cuda.set_rng_state(self.torch_random_states)
 
     def update_weights(self, params):
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if self.tp_rank == 0:
             self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         named_tensors = [(k, v) for k, v in params.items()]
-        load_format = None
+        last_tensor_index = len(named_tensors) - 1
         for tensor_index, (name, tensor) in enumerate(named_tensors):
-            serialized_tensor = MultiprocessingSerializer.serialize(_preprocess_tensor_for_update_weights(tensor))
+            # we need to call full tensor in every tp process otherwise it will hang forever
+            # https://docs.pytorch.org/docs/stable/distributed.tensor.html#torch.distributed.tensor.DTensor.full_tensor
+            gathered_tensor = tensor.full_tensor()
 
-            if self.device_mesh["infer_tp"].get_local_rank() == 0:
-                gathered_serialized_tensors = [None for _ in range(self.device_mesh["infer_tp"].mesh.size()[0])]
-            else:
-                gathered_serialized_tensors = None
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.device_mesh["infer_tp"].mesh.tolist()[0],
-                group=self.device_mesh["infer_tp"].get_group(),
-            )
-
-            if self.device_mesh["infer_tp"].get_local_rank() == 0:
+            if self.tp_rank == 0:
                 self.inference_engine.update_weights_from_tensor(
-                    named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
-                    ],
-                    load_format=load_format,
-                    flush_cache=tensor_index == len(named_tensors) - 1,
+                    named_tensors=[(name, gathered_tensor)],
+                    load_format=None,
+                    flush_cache=tensor_index == last_tensor_index,
                 )
 
     def release_memory(self):
-        if self.device_mesh["infer_tp"].get_local_rank() == 0:
+        if self.tp_rank == 0:
             self.inference_engine.release_memory_occupation()
 
     def preprocess_data(self, data: DataProto) -> DataProto:
