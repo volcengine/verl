@@ -84,7 +84,7 @@ class TaskRunner:
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
-            actor_rollout_cls = AsyncActorRolloutRefWorker
+            actor_rollout_cls = AsyncActorRolloutRefWorker if config.actor_rollout_ref.rollout.mode == "async" else ActorRolloutRefWorker
             ray_worker_group_cls = NVMegatronRayWorkerGroup
 
         else:

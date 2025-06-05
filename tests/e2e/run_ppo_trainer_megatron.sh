@@ -93,7 +93,6 @@ for ENGINE in "${ENGINES[@]}"; do
         data.max_response_length=512 \
         data.filter_overlong_prompts=True \
         data.truncation='error' \
-        data.return_raw_chat=True \
         actor_rollout_ref.model.path="${MODEL_PATH}" \
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
