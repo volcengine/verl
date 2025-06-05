@@ -85,6 +85,40 @@ def _get_base_transformer_config(hf_config: PretrainedConfig, dtype: torch.dtype
     return base_config
 
 
+def _get_mla_transformer_config(hf_config: PretrainedConfig, mla_rope_config: dict, dtype: torch.dtype, **override_transformer_config_kwargs) -> dict:
+    """
+    Create a MLATransformerConfig with common parameters across different model architectures.
+    This is specifically for MLA models like DeepseekV3.
+
+    Args:
+        hf_config: HuggingFace model configuration
+        dtype: Data type for the model
+        override_transformer_config_kwargs: Additional parameters to override defaults
+
+    Returns:
+        MLATransformerConfig with common parameters
+    """
+    base_config = _get_base_transformer_config(hf_config=hf_config, dtype=dtype, **override_transformer_config_kwargs)
+    mla_config = {
+        # MLA specific parameters
+        "q_lora_rank": hf_config.q_lora_rank,
+        "kv_lora_rank": hf_config.kv_lora_rank,
+        "qk_head_dim": hf_config.qk_nope_head_dim,
+        "qk_pos_emb_head_dim": hf_config.qk_rope_head_dim,
+        "v_head_dim": hf_config.v_head_dim,
+        "rotary_base": hf_config.rope_theta,
+        "rotary_scaling_factor": mla_rope_config["factor"],
+        "max_position_embeddings": mla_rope_config["original_max_position_embeddings"],
+        "beta_fast": mla_rope_config["beta_fast"],
+        "beta_slow": mla_rope_config["beta_slow"],
+        "mscale": mla_rope_config["mscale"],
+        "mscale_all_dim": mla_rope_config["mscale_all_dim"],
+    }
+
+    base_config.update(mla_config)
+    return base_config
+
+
 def hf_to_mcore_config_dense(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> TransformerConfig:
     # for LlamaForCausalLM or Qwen2ForCausalLM
     qkv_bias = True if "Qwen2ForCausalLM" in hf_config.architectures else getattr(hf_config, "attention_bias", False)
@@ -186,7 +220,6 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype,
 
 def hf_to_mcore_config_dpskv3(hf_config: PretrainedConfig, dtype: torch.dtype, **override_transformer_config_kwargs) -> MLATransformerConfig:
     # DeepseekV3ForCausalLM
-    from megatron.core import parallel_state as mpu
     from megatron.core.transformer.enums import AttnBackend
 
     from .patch_v012 import apply_patch
