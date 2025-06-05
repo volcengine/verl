@@ -158,8 +158,8 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
     # ray put all the args in advance to avoid duplicate serialization cost
     import ray
 
-    args = [ray.put(arg) for arg in args]
-    kwargs = {k: ray.put(v) for k, v in kwargs.items()}
+    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
+    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
 
     all_args = []
     for arg in args:
