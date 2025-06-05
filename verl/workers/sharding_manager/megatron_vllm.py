@@ -27,7 +27,7 @@ from torch import nn
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM, customized_vllm
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.debug.performance import _timer
@@ -79,7 +79,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.infer_tp_size = vllm_ps.get_tensor_model_parallel_world_size()
         self.infer_tp_rank = vllm_ps.get_tensor_model_parallel_rank()
         self.infer_tp_group = vllm_ps.get_tensor_model_parallel_group()
-        if vllm_version not in ("0.5.4", "0.6.3"):
+        if not customized_vllm:
             self.infer_tp_group = self.infer_tp_group.device_group
         self.train_tp_size = mpu.get_tensor_model_parallel_world_size()
         self.train_tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -97,10 +97,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
     def __enter__(self):
         self.timing = {}
         with _timer("reshard", self.timing):
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
+            if customized_vllm:
                 per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.transformer_config, self.layer_name_mapping, convert_qkv_gate_up_by_simple_split=False)
                 self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
             else:
@@ -129,10 +126,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             self.inference_engine.offload_model_weights()
         elif self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
