@@ -83,15 +83,6 @@ if __name__ == "__main__":
                     "index": idx,
                     "answer": answer_raw,
                     "question": question_raw,
-                    "need_tools_kwargs": True,
-                    "tools_kwargs": {
-                        "calc_gsm8k_reward": {
-                            "create_kwargs": {"ground_truth": solution},
-                            # "execute_kwargs": {},
-                            # "calc_reward_kwargs": {},
-                            # "release_kwargs": {},
-                        },
-                    },
                     "interaction_kwargs": {
                         "query": question,
                         "ground_truth": solution,

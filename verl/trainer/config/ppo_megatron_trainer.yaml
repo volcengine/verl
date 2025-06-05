@@ -169,7 +169,7 @@ actor_rollout_ref:
       do_sample: False # default eager for validation
     multi_turn: 
       enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
-      max_turns: null  # null for no limit (default max_length // 3)
+      max_assistant_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
       format: chatml  # chatml, more formats will be supported in the future
 
