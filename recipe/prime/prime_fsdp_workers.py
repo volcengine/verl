@@ -20,6 +20,7 @@ import torch.distributed
 from torch.distributed.device_mesh import init_device_mesh
 
 from verl import DataProto
+from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils import hf_tokenizer
@@ -128,10 +129,12 @@ class PRIMERewardModelWorker(Worker):
                 trust_remote_code=trust_remote_code,
             )
 
-            if config.model.get("use_remove_padding", False) or self.ulysses_sequence_parallel_size > 1:
-                from verl.models.transformers.monkey_patch import apply_monkey_patch
-
-                apply_monkey_patch(model=reward_module, ulysses_sp_size=self.ulysses_sequence_parallel_size)
+            apply_monkey_patch(
+                model=reward_module,
+                ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_remove_padding=config.model.get("use_remove_padding", False),
+                use_fused_kernels=config.model.get("use_fused_kernels", False),
+            )
 
             # some parameters may not in torch_dtype
             reward_module.to(torch_dtype)

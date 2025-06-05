@@ -1,0 +1,16 @@
+tools:
+  - class_name: "verl.tools.sandbox_fusion_tools.SandboxFusionTool"
+    config: 
+      sandbox_fusion_url: "https://xxx.apigateway-cn-beijing.volceapi.com/run_code"
+    tool_schema:
+      type: "function"
+      function:
+        name: "code_interpreter"
+        description: "A tool for executing code."
+        parameters:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+              description: "The code to execute."
+          required: ["code"]

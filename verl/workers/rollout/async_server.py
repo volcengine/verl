@@ -171,20 +171,21 @@ class ChatCompletionScheduler:
                 request_id = request_id[len("chatcmpl-") :]
                 extra_headers["x-request-id"] = request_id
 
-            address = self.request_id_to_address[request_id]
+            address = self.request_id_to_address.pop(request_id)
         else:
             address = self.weighted_addresses[0][1]
             self.weighted_addresses[0][0] += 1
             heapq.heapreplace(self.weighted_addresses, self.weighted_addresses[0])
 
-            request_id = uuid4().hex
-            self.request_id_to_address[request_id] = address
-            chat_complete_request["extra_headers"]["x-request-id"] = request_id
+        # use new request_id to avoid duplicate request_id problem
+        request_id = uuid4().hex
+        self.request_id_to_address[request_id] = address
+        chat_complete_request["extra_headers"]["x-request-id"] = request_id
 
         completions, exception = None, None
         try:
-            # TODO: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
-            completions = await self._chat_completions_openai(address, **chat_complete_request)
+            # NOTE: OpenAI client uses httpx, seems to have performance issue in high concurrency requests.
+            completions = await self._chat_completions_aiohttp(address, **chat_complete_request)
         except Exception as e:
             # Let user handle the exception
             exception = e
@@ -192,18 +193,17 @@ class ChatCompletionScheduler:
         await callback(completions, callback_additional_info, exception)
 
     async def _chat_completions_openai(self, address: str, **chat_complete_request) -> ChatCompletion:
-        client = AsyncOpenAI(
-            base_url=f"http://{address}/v1",
-            api_key="token-abc123",
-        )
+        client = AsyncOpenAI(base_url=f"http://{address}/v1", api_key="token-abc123", timeout=None, max_retries=0)
         return await client.chat.completions.create(**chat_complete_request)
 
     async def _chat_completions_aiohttp(self, address: str, **chat_complete_request) -> ChatCompletion:
         try:
-            session = aiohttp.ClientSession()
+            extra_headers = chat_complete_request.pop("extra_headers")
+            timeout = aiohttp.ClientTimeout(total=None)
+            session = aiohttp.ClientSession(timeout=timeout)
             async with session.post(
                 url=f"http://{address}/v1/chat/completions",
-                headers={"Authorization": "Bearer token-abc123"},
+                headers={"Authorization": "Bearer token-abc123", **extra_headers},
                 json=chat_complete_request,
             ) as resp:
                 data = await resp.json()
@@ -218,15 +218,17 @@ class ChatCompletionScheduler:
 class AsyncLLMServerManager:
     """AsyncLLMServerManager manage a group of vllm instances, i.e AsyncvLLMServer."""
 
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup):
+    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup, *, scheduler_kwargs: Dict[str, Any] = None):
         """Initialize AsyncLLMServerManager.
 
         Args:
             config: DictConfig, actor_rollout_ref config.
             worker_group: RayWorkerGroup, worker group of AsyncActorRolloutRefWorker.
+            scheduler_kwargs: Dict[str, Any], kwargs for chat scheduler.
         """
         self.config = config
         self.worker_group = worker_group
+        self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs else {}
 
         self.rollout_tp_size = self.config.rollout.tensor_model_parallel_size
         self.rollout_dp_size = self.worker_group.world_size // self.rollout_tp_size
@@ -245,30 +247,30 @@ class AsyncLLMServerManager:
         # Start all server instances, restart if address already in use.
         unready_dp_ranks = set(range(self.rollout_dp_size))
         while len(unready_dp_ranks) > 0:
-            workers = {
+            servers = {
                 rollout_dp_rank: server_class.options(
                     # make sure AsyncvLLMServer colocates with its corresponding workers
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=workers_info[rollout_dp_rank * self.rollout_tp_size],
                         soft=False,
                     ),
-                    name=f"async_llm_worker_{rollout_dp_rank}",
+                    name=f"async_llm_server_{rollout_dp_rank}",
                 ).remote(config, self.rollout_dp_size, rollout_dp_rank, self.worker_group.name_prefix)
                 for rollout_dp_rank in unready_dp_ranks
             }
 
-            for rollout_dp_rank, worker in workers.items():
+            for rollout_dp_rank, server in servers.items():
                 try:
-                    address = ray.get(worker.get_server_address.remote())
+                    address = ray.get(server.get_server_address.remote())
                     self.server_addresses[rollout_dp_rank] = address
-                    self.async_llm_servers[rollout_dp_rank] = worker
+                    self.async_llm_servers[rollout_dp_rank] = server
                     unready_dp_ranks.remove(rollout_dp_rank)
                 except Exception:
-                    ray.kill(worker)
-                    print(f"worker {rollout_dp_rank} failed, maybe address already in use, restarting...")
+                    ray.kill(server)
+                    print(f"rollout server {rollout_dp_rank} failed, maybe address already in use, restarting...")
 
         # All server instances are ready, init AsyncLLM engine.
-        ray.get([worker.init_engine.remote() for worker in self.async_llm_servers])
+        ray.get([server.init_engine.remote() for server in self.async_llm_servers])
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
@@ -289,6 +291,7 @@ class AsyncLLMServerManager:
             config=self.config.rollout,
             model_path=self.config.model.path,
             server_addresses=self.server_addresses,
+            **self.scheduler_kwargs,
         )
 
         self.chat_scheduler_ready.set()
@@ -296,11 +299,11 @@ class AsyncLLMServerManager:
 
     def wake_up(self):
         """Wake up all vllm instances."""
-        ray.get([worker.wake_up.remote() for worker in self.async_llm_servers])
+        ray.get([server.wake_up.remote() for server in self.async_llm_servers])
 
     def sleep(self):
         """Sleep all vllm instances."""
-        ray.get([worker.sleep.remote() for worker in self.async_llm_servers])
+        ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
     def submit_chat_completions(
         self,
@@ -346,6 +349,8 @@ def async_server_class(rollout_backend: str) -> Type[AsyncServerBase]:
 
         return AsyncvLLMServer
     elif rollout_backend == "sglang":
-        raise NotImplementedError
+        from verl.workers.rollout.sglang_rollout.async_sglang_server import AsyncSglangServer
+
+        return AsyncSglangServer
     else:
         raise NotImplementedError

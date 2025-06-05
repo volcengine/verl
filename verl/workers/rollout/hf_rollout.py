@@ -28,6 +28,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig
 
 from verl import DataProto
+from verl.utils.device import get_torch_device
 from verl.utils.torch_functional import get_response_mask
 
 from .base import BaseRollout
@@ -109,6 +110,7 @@ class HFRollout(BaseRollout):
             output = self.module.generate(
                 input_ids=idx,
                 attention_mask=attention_mask,
+                position_ids=position_ids,
                 do_sample=do_sample,
                 max_new_tokens=response_length,
                 eos_token_id=eos_token_id,
@@ -165,7 +167,7 @@ class HFRollout(BaseRollout):
         )
 
         # empty cache before compute old_log_prob
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
         self.module.train()
         return DataProto(batch=batch)
