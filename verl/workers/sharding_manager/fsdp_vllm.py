@@ -32,7 +32,7 @@ from dataclasses import asdict
 
 from verl import DataProto
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM, customized_vllm
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
@@ -55,7 +55,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.inference_engine = inference_engine
         # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
 
-        if "vllm_v_0_6_3" in str(type(self.inference_engine)) or "vllm_v_0_5_4" in str(type(self.inference_engine)):
+        if customized_vllm:
             # vLLM <= v0.6.3
             self.model_runner = self.inference_engine.llm_engine.model_executor.worker.model_runner if self.inference_engine else None
         else:
@@ -173,10 +173,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             # Copy, not share memory
             load_format = "hf" if self.full_params else "dtensor"
 
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
+            if customized_vllm:
                 self.inference_engine.sync_model_weights(params, load_format=load_format)
                 log_gpu_memory_usage("After sync model weights in sharding manager", logger=logger)
                 del params
@@ -208,10 +205,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     @GPUMemoryLogger(role="fsdp vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         # TODO(ZSL): check this
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             self.inference_engine.offload_model_weights()
         elif self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
@@ -233,10 +227,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             group = vllm_ps.get_tensor_model_parallel_group()
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
