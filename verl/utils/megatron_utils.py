@@ -738,12 +738,29 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
 
     def tensor_generator():
         for scan_vpp_idx in range(vpp_size):
-            yield from actor_module[scan_vpp_idx].named_parameters()
+            existing_keys = set()
+            model = unwrap_model(actor_module[scan_vpp_idx])
+            for name, param in model.named_parameters():
+                existing_keys.add(name)
+                yield name, param
+            # note
+            # there is a bug in megatron GPTModel
+            # decoder.layers[n].mlp.router.expert_bias" in GPTModel is not registered in named_parameter, but in state_dict().
+            # for now we patch it by adding those keys to extra_keys.
+            extra_keys = [x for x in model.state_dict().keys() if "_extra_state" not in x and x not in existing_keys]
+            for name in extra_keys:
+                yield name, model.state_dict()[name].to(torch.cuda.current_device())
 
     # we need first make all rank get full model information
     meta_info = []
     for scan_vpp_idx in range(vpp_size):
-        for idx, (name, _) in enumerate(actor_module[scan_vpp_idx].named_parameters()):
+        existing_keys = set()
+        model = unwrap_model(actor_module[scan_vpp_idx])
+        for idx, (name, _) in enumerate(model.named_parameters()):
+            existing_keys.add(name)
+            meta_info.append((pp_rank, scan_vpp_idx, idx, name))
+        extra_keys = [x for x in model.state_dict().keys() if "_extra_state" not in x and x not in existing_keys]
+        for name in extra_keys:
             meta_info.append((pp_rank, scan_vpp_idx, idx, name))
 
     obj_spec_output = [None] * mpu.get_pipeline_model_parallel_world_size()
