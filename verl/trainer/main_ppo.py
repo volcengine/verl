@@ -153,12 +153,6 @@ class TaskRunner:
             train_sampler=train_sampler,
             device_name=config.trainer.device,
         )
-        import os
-        os.environ["http_proxy"] = "http://agent.baidu.com:8188"
-        os.environ["https_proxy"] = "http://agent.baidu.com:8188"
-        os.environ["no_proxy"] = "baidu.com,baidubce.com,localhost,127.0.0.1,bj.bcebos.com"
-        os.environ["HYDRA_FULL_ERROR"] = "1"
-        os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"
         trainer.init_workers()
         trainer.fit()
 
