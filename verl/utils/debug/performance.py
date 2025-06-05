@@ -145,8 +145,7 @@ def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
         key_list.append(key)
         timing_list.append(timing_raw[key])
     timing_list = torch.tensor(timing_list, dtype=torch.float32, device=torch.cuda.current_device())
-    handle = torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
-    handle.wait()
+    torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
     timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
     timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
     return timing_generate
