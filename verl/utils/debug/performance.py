@@ -18,6 +18,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Dict, Tuple
 
+import torch
 import torch.distributed as dist
 from codetiming import Timer
 
@@ -122,3 +123,30 @@ def _timer(name: str, timing_raw: Dict[str, float]):
     if name not in timing_raw:
         timing_raw[name] = 0
     timing_raw[name] += timer.last
+
+
+def reduce_timing(timing_raw: Dict[str, float]) -> Dict[str, float]:
+    """Reduce timing information across all processes.
+
+    This function uses distributed communication to gather and sum the timing
+    information from all processes in a distributed environment.
+
+    Args:
+        timing_raw (Dict[str, float]): Dictionary containing timing information.
+
+    Returns:
+        Dict[str, float]: Reduced timing information.
+    """
+    if not dist.is_initialized():
+        return timing_raw
+
+    key_list, timing_list = [], []
+    for key in sorted(timing_raw.keys()):
+        key_list.append(key)
+        timing_list.append(timing_raw[key])
+    timing_list = torch.tensor(timing_list, dtype=torch.float32, device=torch.cuda.current_device())
+    handle = torch.distributed.all_reduce(timing_list, op=torch.distributed.ReduceOp.AVG)
+    handle.wait()
+    timing_list = [tensor.item() for tensor in timing_list.to("cpu")]
+    timing_generate = {key_list[i]: timing_list[i] for i in range(len(key_list))}
+    return timing_generate
