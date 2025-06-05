@@ -87,7 +87,7 @@ class RayResourcePool(ResourcePool):
         self,
         process_on_nodes: Optional[List[int]] = None,
         use_gpu: bool = True,
-        name_prefix: str = "",
+        name_prefix: str = None,
         max_colocate_count: int = 10,
         detached=False,
         accelerator_type: Optional[str] = None,
@@ -95,7 +95,7 @@ class RayResourcePool(ResourcePool):
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
         # print(f"in RayProcessDispatchConfiguration: name_prefix = {name_prefix}")
-        self.name_prefix = name_prefix
+        self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self.pgs = None
         self.detached = detached
         self.accelerator_type = accelerator_type
@@ -406,7 +406,7 @@ class RayWorkerGroup(WorkerGroup):
     @classmethod
     def from_detached(
         cls,
-        name_prefix,
+        name_prefix=None,
         worker_names=None,
         worker_handles=None,
         ray_cls_with_init=None,

@@ -556,6 +556,10 @@ Customized Reward Function
 sft_trainer.yaml for SFT FSDP Backend
 --------------------------------------
 
+
+Optim
+~~~~~~~
+
 .. code:: yaml
 
    optim:
@@ -573,3 +577,46 @@ sft_trainer.yaml for SFT FSDP Backend
 
   - ``cosine``: Cosine learning rate scheduler with warmup (default).
   - ``wsd``: Warmup-Stable-Decay scheduler that provides a stable learning rate phase between warmup and decay phases.
+
+Model
+~~~~~~~~~~~~
+
+Most parameters for Model are similar to Reward Model.
+
+.. code:: yaml
+
+   model:
+     partial_pretrain: ~/models/gemma-1.1-7b-it
+     fsdp_config:
+       model_dtype: fp32
+       wrap_policy:
+         min_num_params: 0
+       cpu_offload: False
+       offload_params: False
+     external_lib: null
+     enable_gradient_checkpointing: False
+     trust_remote_code: False
+     lora_rank: 0
+     lora_alpha: 16
+     target_modules: all-linear
+     use_liger: False
+
+- ``partial_pretrain``: HDFS path or local path for the pretrained model.
+- ``fsdp_config``
+
+  - ``model_dtype``: Model parameters type, default to ``fp32``.
+    Support: ``bf16``, ``fp16``, ``fp32``.
+  - ``cpu_offload``: Whether to enable CPU offloading for FSDP. If True,
+    the offload_params will be used as argument.
+  - ``offload_params``: Whether to offload parameters to CPU
+    when not involved in computation. If True, then this offloads gradients
+    to CPU as well, meaning that the optimizer step runs on CPU.
+
+- ``lora_rank``: The rank of the LoRA model, default to 0. If ``lora_rank``>0,
+  we will train LoRA modules instead of tuning the full model.
+- ``lora_alpha``: The alpha parameter for LoRA scaling, default to 16.
+- ``target_modules``: The names of the modules to apply the adapter to,
+  default to ``all-linear``. See `peft docs <https://huggingface.co/docs/peft/v0.15.0/en/package_reference/lora#peft.LoraConfig.target_modules>`_ for detail.
+
+- ``use_liger``: Whether to enable Liger kernel, default to False. If True,
+  we apply Liger kernel to the model (depends on `liger-kernel`).
