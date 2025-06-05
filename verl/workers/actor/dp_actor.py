@@ -334,7 +334,14 @@ class DataParallelPPOActor(BasePPOActor):
             num_mini_batches = data.batch.batch_size[0] // self.config.ppo_mini_batch_size
             non_tensor_select_keys = ["multi_modal_inputs"]
             if self.config.num_gradient_updates_per_batch > 0:
-                dataloader = data.select(select_keys, non_tensor_select_keys).chunk(self.config.num_gradient_updates_per_batch)
+                if self.config.num_gradient_updates_per_batch > len(data):
+                    raise ValueError(f"num_gradient_updates_per_batch {self.config.num_gradient_updates_per_batch} "
+                                     f"is greater than the number of samples {len(data)}")
+                trunc_size = (len(data) // self.config.num_gradient_updates_per_batch) * self.config.num_gradient_updates_per_batch
+                trunc_data = data.select_idxs(list(range(trunc_size)))
+                dataloader = trunc_data.select(select_keys, non_tensor_select_keys).chunk(self.config.num_gradient_updates_per_batch)
+                print(f"Truncated data to {len(trunc_data)} samples which is "
+                        f"divisible by {self.config.num_gradient_updates_per_batch} for gradient updates")
             else:
                 dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
         else:
