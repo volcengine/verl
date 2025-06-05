@@ -21,7 +21,7 @@ ulimit -n 65535
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-512}
-MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-16}
+MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-8}
 OFFLOAD=${OFFLOAD:-True}
 HOME=/user/longxiang1
 
@@ -65,8 +65,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
-    data.train_files=$HOME/data/gsm8k_verl_sgl_multi_turn_preprocessed_v2/train.parquet \
-    data.val_files=$HOME/data/gsm8k_verl_sgl_multi_turn_preprocessed_v2/test.parquet \
+    data.train_files=$HOME/data/gsm8k_verl_sgl_multi_turn_w_interaction/train.parquet \
+    data.val_files=$HOME/data/gsm8k_verl_sgl_multi_turn_w_interaction/test.parquet \
     actor_rollout_ref.rollout.multi_turn.interaction_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/interaction_config/gsm8k_interaction_config.yaml" \
     trainer.total_epochs=15 $@
 
