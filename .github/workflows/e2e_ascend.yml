@@ -43,7 +43,6 @@ jobs:
         --device /dev/devmm_svm
         --device /dev/hisi_hdc
         --privileged
-        --network "host"
         --shm-size 2g
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
