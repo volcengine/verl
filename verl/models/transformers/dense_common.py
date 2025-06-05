@@ -175,10 +175,11 @@ def forward_with_triton_backend(
         raise RuntimeError("To use forward_with_triton_backend, either labels or input_ids must be provided.")
 
     log_probs, entropy = linear_cross_entropy(
-        hidden_states=hidden_states,
-        vocab_weights=self.lm_head.weight,
-        input_ids=rolled_labels,
-        temperature=temperature,
+        hidden_states,
+        self.lm_head.weight,
+        rolled_labels,
+        temperature,
+        "none",
     )
 
     return CausalLMOutputForPPO(
