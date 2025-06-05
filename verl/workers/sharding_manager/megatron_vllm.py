@@ -27,9 +27,8 @@ from torch import nn
 from verl import DataProto
 from verl.models.mcore.weight_converter import McoreToHFWeightConverterBase
 from verl.protocol import all_gather_data_proto
-from verl.third_party.vllm import LLM
+from verl.third_party.vllm import LLM, customized_vllm
 from verl.third_party.vllm import parallel_state as vllm_ps
-from verl.third_party.vllm import vllm_version
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.debug.performance import simple_timer
 from verl.utils.device import get_torch_device
@@ -126,10 +125,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             if self.offload_param:
                 load_megatron_model_to_gpu(self.actor_module)
 
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
+            if customized_vllm:
                 per_tensor_param = per_tensor_generator(self.actor_module, self.model_config, self.weight_converter, self.transformer_config, self.layer_name_mapping, convert_qkv_gate_up_by_simple_split=False)
                 self.inference_engine.sync_model_weights(per_tensor_param, load_format="megatron")
             else:
@@ -166,10 +162,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             self.inference_engine.offload_model_weights()
         elif self.rollout_config.free_cache_engine:
             self.inference_engine.sleep(level=1)
@@ -190,10 +183,7 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             return data
 
         # TODO: Current impl doesn't consider FSDP with torch micro-dp
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             group = vllm_ps.get_tensor_model_parallel_group()
         else:
             group = vllm_ps.get_tensor_model_parallel_group().device_group
