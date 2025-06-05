@@ -209,6 +209,26 @@ def load_fsdp_optimizer(optimizer, device_id):
                     state[key] = value.to(device_id, non_blocking=True)
 
 
+@torch.no_grad()
+def init_optimizer_state(optimizer):
+    # save origin weight decay
+    orig_wds = [group.get("weight_decay", None) for group in optimizer.param_groups]
+
+    for group in optimizer.param_groups:
+        # set weight_decay to 0 temporarily
+        if "weight_decay" in group:
+            group["weight_decay"] = 0
+        for p in group["params"]:
+            p.grad = torch.zeros_like(p.data)
+    optimizer.step()
+    optimizer.zero_grad()
+
+    # restore weight_decay
+    for group, wd in zip(optimizer.param_groups, orig_wds):
+        if wd is not None:
+            group["weight_decay"] = wd
+
+
 @contextmanager
 def meta_device_init():
     """
