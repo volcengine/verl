@@ -101,11 +101,11 @@ class AsyncRolloutRequest(BaseModel):
             "assistant_prefix_msg": "\n<|im_start|>assistant\n",
             "assistant_suffix_msg": "<|im_end|>",
             "merge_tool_response": True,
-            "tool_prefix_msg": "\n<|im_start|>user",
+            "tool_prefix_msg": "\n<|im_start|>user\n",
             "tool_suffix_msg": "<|im_end|>",
             "tool_response_prefix_msg": "\n<tool_response>\n",
             "tool_response_suffix_msg": "\n</tool_response>",
-            "user_prefix_msg": "\n<|im_start|>user",
+            "user_prefix_msg": "\n<|im_start|>user\n",
             "user_suffix_msg": "<|im_end|>",
         },
     }
@@ -132,7 +132,8 @@ class AsyncRolloutRequest(BaseModel):
             prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
             suffix_msg = self.format_config[format]["user_suffix_msg"]
             suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
-
+            assistant_prefix_msg = self.format_config[format]["assistant_prefix_msg"]
+            assistant_prefix_token_ids = tokenizer.encode(assistant_prefix_msg, add_special_tokens=False)
             content_token_ids = tokenizer.encode(content, add_special_tokens=False)
             if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
                 append_token_ids = content_token_ids
@@ -144,8 +145,8 @@ class AsyncRolloutRequest(BaseModel):
                 max_len = max(len(prefix_token_ids), len(suffix_token_ids))
                 raise ValueError(f"Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}, {self.messages=}")
             if not already_over_long:
-                append_token_ids += suffix_token_ids
-                _loss_mask += [0] * len(suffix_token_ids)
+                append_token_ids += (suffix_token_ids + assistant_prefix_token_ids)
+                _loss_mask += ([0] * len(suffix_token_ids) + [0] * len(assistant_prefix_token_ids))
             self.input_ids += append_token_ids
             _attention_mask = [1] * len(append_token_ids)
             self.attention_mask += _attention_mask

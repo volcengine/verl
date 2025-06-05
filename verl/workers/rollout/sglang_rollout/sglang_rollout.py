@@ -1038,6 +1038,11 @@ class SGLangRollout(BaseRollout):
                     _tool_schemas = []
                     _tools_kwargs = {}
 
+                if self.interaction is not None:
+                    _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
+                else:
+                    _interaction_kwargs = None
+
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
@@ -1046,6 +1051,7 @@ class SGLangRollout(BaseRollout):
                     messages=[Message.model_validate(msg) for msg in raw_prompt],
                     tools=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
+                    interaction_kwargs=_interaction_kwargs,
                     input_ids=_input_ids,
                     prompt_ids=_input_ids,
                     response_ids=[],
