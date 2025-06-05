@@ -178,7 +178,8 @@ class DataParallelPPOCritic(BasePPOCritic):
         responses = data.batch["responses"]
         attention_mask = data.batch["attention_mask"]
         response_length = responses.size(1)
-        values = values * attention_mask[:, -response_length:]
+        response_mask = attention_mask[:, -response_length:]
+        values = values * response_mask # Only action tokens have values
         return values
 
     @GPUMemoryLogger(role="dp critic", logger=logger)
