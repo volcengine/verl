@@ -475,11 +475,14 @@ class MegatronModelMerger(BaseModelMerger):
         """
         Checks if the key is a valid Megatron state key.
 
-        Now the model merger only supports keys that start with "decoder".
+        Now the model merger only supports keys that start with "decoder" in TransformerLayer.
         """
+        if key in ["embedding.word_embeddings.weight", "output_layer.weight"]:
+            return
+
         # Exclude extra state keys
         if not key.startswith("decoder"):
-            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder'.")
+            raise ValueError(f"Invalid key {key} in Megatron state_dict. Expected keys to start with 'decoder' in TransformerLayer.")
 
     def _merge_state_dicts(self, model_state_dict_lst: list[list[dict]], tp_size: int, pp_size: int) -> dict[str, torch.Tensor]:
         state_dict = {}
