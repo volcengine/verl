@@ -15,6 +15,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
+  trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
       path: null
       name: null
@@ -37,6 +38,7 @@ actor_rollout_ref:
       activations_checkpoint_granularity: null # 'selective' or 'full'
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: null # not used with 'selective'
+    trust_remote_code: False
   actor:
     strategy: megatron  # This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -173,7 +175,7 @@ actor_rollout_ref:
       n: 1
       do_sample: False # default eager for validation
     multi_turn: 
-      enable: False  # should set rollout.name to sglang_async if True
+      enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
       format: chatml  # chatml, more formats will be supported in the future
@@ -205,6 +207,7 @@ critic:
       moe_config:
         freeze_moe_router: False
     external_lib: ${actor_rollout_ref.model.external_lib}
+    trust_remote_code: False
     enable_gradient_checkpointing: False
     gradient_checkpointing_kwargs:
       ## Activation Checkpointing
@@ -265,6 +268,7 @@ reward_model:
   model:
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
+    trust_remote_code: False
     external_lib: ${actor_rollout_ref.model.external_lib}
   load_weight: True
   micro_batch_size: null # will be deprecated, use micro_batch_size_per_gpu
@@ -293,6 +297,10 @@ algorithm:
     kl_coef: 0.001
     horizon: 10000
     target_kl: 0.1
+  use_pf_ppo: False
+  pf_ppo:
+    reweight_method: pow  # ["pow", "max_min", "max_random"]
+    weight_pow: 2.0
 
 trainer:
   balance_batch: True

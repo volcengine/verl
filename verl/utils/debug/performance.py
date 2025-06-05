@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
+import inspect
 import logging
-from typing import Tuple
+from typing import Any, Tuple
 
-import torch
 import torch.distributed as dist
 
-from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 from verl.utils.device import get_torch_device
+from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 
 
 def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
@@ -88,3 +89,12 @@ class GPUMemoryLogger(DecoratorLoggerBase):
 
         self.logging_function(message)
         return output
+
+def log_print(ctn: Any):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    frame = inspect.currentframe().f_back
+    function_name = frame.f_code.co_name
+    line_number = frame.f_lineno
+    file_name = frame.f_code.co_filename.split('/')[-1]
+    print(f"[{file_name}:{line_number}:{function_name}]: {ctn}")
