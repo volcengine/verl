@@ -303,7 +303,6 @@ class MegatronVLLMShardingManager(BaseShardingManager):
         self.train_etp_group = mpu.get_expert_tensor_parallel_group()
         self.need_tp_reshard = self.train_tp_size != self.infer_tp_size
         self.train_tp_larger = self.train_tp_size > self.infer_tp_size
-        self.offload_param_callback = None
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __enter__(self):
@@ -331,11 +330,10 @@ class MegatronVLLMShardingManager(BaseShardingManager):
             loaded_params = model.load_weights(per_tensor_param)
             info = f"vLLM load weights, loaded_params: {len(loaded_params)}"
             logger.info(info)
-            if self.offload_param_callback:
-                logger.info("offload param callback")
-                self.offload_param_callback()
-            if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
-                self.inference_engine.wake_up(tags=["kv_cache"])
+
+            # (vermouth1992) We move wake up kv cache after we release model weights. Need refactor to make API cleaner
+            # if "tags" in inspect.signature(self.inference_engine.wake_up).parameters:
+            #     self.inference_engine.wake_up(tags=["kv_cache"])
 
     @GPUMemoryLogger(role="megatron vllm sharding_manager", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):

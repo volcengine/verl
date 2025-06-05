@@ -109,7 +109,7 @@ def hf_to_mcore_config_qwen2moe(hf_config: PretrainedConfig, dtype: torch.dtype,
         moe_shared_expert_intermediate_size=hf_config.shared_expert_intermediate_size,
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
-        moe_router_load_balancing_type="aux_loss",
+        moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_shared_expert_overlap=True,
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
@@ -137,7 +137,7 @@ def hf_to_mcore_config_mixtral(hf_config: PretrainedConfig, dtype: torch.dtype, 
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         moe_router_topk=hf_config.num_experts_per_tok,
         moe_router_pre_softmax=True,
-        moe_router_load_balancing_type="aux_loss",
+        moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_router_score_function="softmax",
         moe_shared_expert_intermediate_size=None,  # mixtral has no shared expert
         moe_shared_expert_overlap=False,  # mixtral has no shared expert
@@ -169,7 +169,7 @@ def hf_to_mcore_config_qwen3moe(hf_config: PretrainedConfig, dtype: torch.dtype,
         num_moe_experts=hf_config.num_experts,
         moe_aux_loss_coeff=hf_config.router_aux_loss_coef,
         # moe_aux_loss_coeff=0.0,
-        moe_router_load_balancing_type="aux_loss",
+        moe_router_load_balancing_type="none",  # turn off aux_loss as it hurts perf in RL
         moe_grouped_gemm=True,
         moe_router_score_function="softmax",
         # Other optimizations
