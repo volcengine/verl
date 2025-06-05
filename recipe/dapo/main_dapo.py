@@ -21,7 +21,7 @@ import ray
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
 
-from .dapo_ray_trainer import RayDAPOTrainer
+from dapo_ray_trainer import RayDAPOTrainer
 
 
 @hydra.main(config_path="config", config_name="dapo_trainer", version_base=None)
@@ -140,6 +140,9 @@ class TaskRunner:
             num_examine=0,
             compute_score=compute_score,
             reward_fn_key=config.data.reward_fn_key,
+            qps=config.reward_model.qps,
+            max_concurrency=config.reward_model.max_concurrency,
+            timeout=config.reward_model.timeout,
             max_resp_len=config.data.max_response_length,
             overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )
@@ -150,6 +153,9 @@ class TaskRunner:
             num_examine=1,
             compute_score=compute_score,
             reward_fn_key=config.data.reward_fn_key,
+            qps=config.reward_model.qps,
+            max_concurrency=config.reward_model.max_concurrency,
+            timeout=config.reward_model.timeout,
             max_resp_len=config.data.max_response_length,
             overlong_buffer_cfg=config.reward_model.overlong_buffer,
         )

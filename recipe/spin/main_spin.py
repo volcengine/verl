@@ -135,10 +135,23 @@ class TaskRunner:
 
         compute_score = get_custom_reward_fn(config)
         reward_kwargs = dict(config.reward_model.get("reward_kwargs", {}))
-        reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key, **reward_kwargs)
+        reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                       num_examine=0,
+                                       compute_score=compute_score,
+                                       reward_fn_key=config.data.reward_fn_key,
+                                       qps=config.reward_model.qps,
+                                       max_concurrency=config.reward_model.max_concurrency,
+                                       timeout=config.reward_model.timeout,
+                                       **reward_kwargs)
 
         # Note that we always use function-based RM for validation
-        val_reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=1, compute_score=compute_score, reward_fn_key=config.data.reward_fn_key)
+        val_reward_fn = reward_manager_cls(tokenizer=tokenizer,
+                                           num_examine=1,
+                                           compute_score=compute_score,
+                                           reward_fn_key=config.data.reward_fn_key,
+                                           qps=config.reward_model.qps,
+                                           max_concurrency=config.reward_model.max_concurrency,
+                                           timeout=config.reward_model.timeout)
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         trainer = RaySPINTrainer(config=config, tokenizer=tokenizer, processor=processor, role_worker_mapping=role_worker_mapping, resource_pool_manager=resource_pool_manager, ray_worker_group_cls=ray_worker_group_cls, reward_fn=reward_fn, val_reward_fn=val_reward_fn)
