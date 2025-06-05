@@ -339,7 +339,7 @@ class DataParallelPPOActor(BasePPOActor):
                 dataloader = data.select(select_keys, non_tensor_select_keys).chunk(num_mini_batches)
         else:
             if self.config.num_gradient_updates_per_batch > 0:
-                dataloader = batch.split(self.config.num_gradient_updates_per_batch)
+                dataloader = batch.split(len(batch) // self.config.num_gradient_updates_per_batch)
             else:
                 dataloader = batch.split(self.config.ppo_mini_batch_size)
 
