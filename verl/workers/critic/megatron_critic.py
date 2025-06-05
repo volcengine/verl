@@ -118,9 +118,9 @@ class MegatronPPOCritic(BasePPOCritic):
                 values = torch.empty_like(attention_mask, dtype=torch.float32)
 
             # each tp ranks should contain the same value
+            values = values[:, -response_length - 1 : -1] # Values are predicted at the ends of prefixes, e.g., the last prompt token
             response_mask = attention_mask[:, -response_length:]
-            values = values[:, -response_length - 1 : -1]
-            values = values * response_mask
+            values = values * response_mask # Only action tokens have values
             values = values.contiguous()
 
             # sync among pp ranks
