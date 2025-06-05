@@ -1,6 +1,7 @@
 data:
   tokenizer: null
   use_shm: False
+  train_weights: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
@@ -18,6 +19,7 @@ data:
   truncation: error
   image_key: images
   video_key: videos
+  
   trust_remote_code: False  # main_ppo will check this config to determine whether to use remote code for tokenizer
   custom_cls:
       path: null

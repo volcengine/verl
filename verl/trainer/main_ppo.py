@@ -21,6 +21,8 @@ import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from torch.utils.data import  ConcatDataset, WeightedRandomSampler
+
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -133,7 +135,6 @@ class TaskRunner:
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
         from verl.utils.dataset.rl_dataset import collate_fn
-
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
         train_sampler = create_rl_sampler(config.data, train_dataset)
@@ -152,6 +153,12 @@ class TaskRunner:
             train_sampler=train_sampler,
             device_name=config.trainer.device,
         )
+        import os
+        os.environ["http_proxy"] = "http://agent.baidu.com:8188"
+        os.environ["https_proxy"] = "http://agent.baidu.com:8188"
+        os.environ["no_proxy"] = "baidu.com,baidubce.com,localhost,127.0.0.1,bj.bcebos.com"
+        os.environ["HYDRA_FULL_ERROR"] = "1"
+        os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"
         trainer.init_workers()
         trainer.fit()
 
@@ -180,7 +187,6 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     else:
         dataset_cls = RLHFDataset
     print(f"Using dataset class: {dataset_cls.__name__}")
-
     dataset = dataset_cls(
         data_files=data_paths,
         tokenizer=tokenizer,
@@ -211,6 +217,18 @@ def create_rl_sampler(data_config, dataset):
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
     else:
         sampler = SequentialSampler(data_source=dataset)
+    if data_config.train_weights:
+        assert (len(data_config.train_weights) == len(data_config.train_files), 
+                "The size of `train_weight` must be the same as the size of `train_files`.")
+        train_weights = data_config.train_weights
+        total_weight = sum(train_weights)
+        sample_weight = [r / total_weight for r in train_weights]
+        # construct the weights list
+        weights = []
+        for prob, length in zip(sample_weight, dataset.data_len_list):
+            weights.extend([prob / length] * length)
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset), replacement=True)
+
 
     return sampler
 
