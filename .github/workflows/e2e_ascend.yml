@@ -55,25 +55,12 @@ jobs:
         run: |
           cat /usr/local/Ascend/ascend-toolkit/latest/"$(uname -i)"-linux/ascend_toolkit_install.info
           npu-smi info
-      - name: Print all proxy env variables
+      - name: Checkout volcengine/verl repo
+        # uses: actions/checkout@v4
         run: |
           unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-          echo "HTTP_PROXY=$HTTP_PROXY"
-          echo "http_proxy=$http_proxy"
-          echo "HTTPS_PROXY=$HTTPS_PROXY"
-          echo "https_proxy=$https_proxy"
-          echo "NO_PROXY=$NO_PROXY"
-          echo "no_proxy=$no_proxy"
-      - name: Checkout volcengine/verl repo
-        env:
-          # 临时取消所有代理设置
-          http_proxy: ""
-          https_proxy: ""
-        uses: actions/checkout@v4
+          git clone https://github.com/volcengine/verl.git
       - name: Install the current repository
-        env:
-          HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-          HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
         run: |
           pip3 install hf_transfer peft
           pip3 install -r requirements-npu.txt
