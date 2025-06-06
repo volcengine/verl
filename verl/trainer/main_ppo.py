@@ -15,7 +15,6 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
-
 import hydra
 import ray
 
@@ -38,6 +37,10 @@ def run_ppo(config) -> None:
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
+    # create a timeline trace file to analyze the performance
+    timeline_json_file = config.ray_init.get("timeline_json_file", None)
+    if timeline_json_file:
+        ray.timeline(filename=timeline_json_file)
 
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head

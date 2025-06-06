@@ -452,11 +452,12 @@ class ActorRolloutRefWorker(MegatronWorker):
             "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
+        if self._is_offload_optimizer:
+            offload_megatron_optimizer(self.actor_optimizer)
+
         with self.sharding_manager:
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
-            if self._is_offload_optimizer:
-                offload_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
 
             # (zhangchi.usc1992) wake up kv cache here. Currently only support vllm.
