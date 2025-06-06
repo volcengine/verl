@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 from transformers import PretrainedConfig
+
+from verl.utils.device import get_torch_device
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen2_vl", "qwen2_5_vl", "qwen3", "qwen3_moe", "deepseek_v3"}
 
@@ -29,12 +30,12 @@ def get_device_flops(unit="T"):
             ptr += 1
         return number
 
-    device_name = torch.cuda.get_device_name()
+    device_name = get_torch_device().get_device_name()
     flops = float("inf")  # INF flops for unkown gpu type
 
     if "MI300X" in device_name:
         flops = 1336e12
-    elif "H100" in device_name or "H800" in device_name:
+    elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
         flops = 989e12
     elif "A100" in device_name or "A800" in device_name:
         flops = 312e12

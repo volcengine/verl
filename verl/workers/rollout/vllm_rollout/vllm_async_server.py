@@ -66,7 +66,7 @@ class ExternalRayDistributedExecutor(Executor):
         actor_names = sorted(actor_names, key=get_pg_index_and_local_rank)
         actor_names = actor_names[vllm_dp_rank * vllm_tp_size : (vllm_dp_rank + 1) * vllm_tp_size]
         self.workers: List[WorkerWrapperBase] = [ray.get_actor(actor_name) for actor_name in actor_names]
-        print(f"instance_id: {self.vllm_config.instance_id} intializes with external actors: {actor_names}")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes with external actors: {actor_names}")
 
         kwargs = dict(
             vllm_config=self.vllm_config,
@@ -78,7 +78,7 @@ class ExternalRayDistributedExecutor(Executor):
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
-        print(f"instance_id: {self.vllm_config.instance_id} intializes finished.")
+        print(f"instance_id: {self.vllm_config.instance_id} initializes finished.")
 
     def collective_rpc(
         self,
@@ -94,6 +94,7 @@ class ExternalRayDistributedExecutor(Executor):
             sent_method = cloudpickle.dumps(method)
         del method
 
+        # ~3ms overhead per schedule step due to SchedulerOutput/ModelRunnerOutput serialization/deserialization.
         outputs = ray.get([worker.execute_method.remote(sent_method, *args, **(kwargs or {})) for worker in self.workers])
         return outputs
 

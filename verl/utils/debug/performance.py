@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
+import inspect
 import logging
-from typing import Tuple
+from typing import Any, Tuple
 
-import torch
 import torch.distributed as dist
 
+from verl.utils.device import get_torch_device
 from verl.utils.logger.aggregate_logger import DecoratorLoggerBase
 
 
@@ -25,12 +27,12 @@ def _get_current_mem_info(unit: str = "GB", precision: int = 2) -> Tuple[str]:
     """Get current memory usage."""
     assert unit in ["GB", "MB", "KB"]
     divisor = 1024**3 if unit == "GB" else 1024**2 if unit == "MB" else 1024
-    mem_allocated = torch.cuda.memory_allocated()
-    mem_reserved = torch.cuda.memory_reserved()
-    # use torch.cuda.mem_get_info to profile device memory
+    mem_allocated = get_torch_device().memory_allocated()
+    mem_reserved = get_torch_device().memory_reserved()
+    # use get_torch_device().mem_get_info to profile device memory
     # since vllm's sleep mode works below pytorch
     # see https://github.com/vllm-project/vllm/pull/11743#issuecomment-2754338119
-    mem_free, mem_total = torch.cuda.mem_get_info()
+    mem_free, mem_total = get_torch_device().mem_get_info()
     mem_used = mem_total - mem_free
     mem_allocated = f"{mem_allocated / divisor:.{precision}f}"
     mem_reserved = f"{mem_reserved / divisor:.{precision}f}"
@@ -53,17 +55,12 @@ def log_gpu_memory_usage(head: str, logger: logging.Logger = None, level=logging
 class GPUMemoryLogger(DecoratorLoggerBase):
     """A decorator class to log GPU memory usage.
 
-    Usage:
-        For example, in actor function, we initialize a GPUMemoryLogger
-
-        ```
-        from verl.utils.debug.performance import GPUMemoryLogger
-        @GPUMemoryLogger(role="actor")
-        def update_actor(self, batch):
-            # do something
-            return
-        ```
-
+    Example:
+        >>> from verl.utils.debug.performance import GPUMemoryLogger
+        >>> @GPUMemoryLogger(role="actor")
+        >>> def update_actor(self, batch):
+        ...     # real actor update logics
+        ...     return
     """
 
     def __init__(self, role: str, logger: logging.Logger = None, level=logging.DEBUG, log_only_rank_0: bool = True):
@@ -92,3 +89,12 @@ class GPUMemoryLogger(DecoratorLoggerBase):
 
         self.logging_function(message)
         return output
+
+def log_print(ctn: Any):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    frame = inspect.currentframe().f_back
+    function_name = frame.f_code.co_name
+    line_number = frame.f_lineno
+    file_name = frame.f_code.co_filename.split('/')[-1]
+    print(f"[{file_name}:{line_number}:{function_name}]: {ctn}")

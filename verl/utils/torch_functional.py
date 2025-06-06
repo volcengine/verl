@@ -53,7 +53,20 @@ def gather_from_labels(data, label):
 
 def logprobs_from_logits(logits, labels, inplace_backward=True):
     """
+    Compute per-token log-probabilities for the given labels.
+
+    Uses a Flash-Attention–based cross-entropy (if available) for efficient backward,
+    otherwise falls back to a standard log-softmax+gather approach.
+
     See: https://github.com/pytorch/pytorch/issues/563#issuecomment-330103591
+
+    Args:
+        logits (Tensor): Model outputs of shape (..., vocab_size).
+        labels (LongTensor): True class indices of shape matching logits[..., :-1].
+        inplace_backward (bool): If True and Flash-Attn is available, perform backward in-place.
+
+    Returns:
+        Tensor: Log-probabilities of the target labels, shape logits.shape[:-1].
     """
     if FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE:
         batch_dim = logits.shape[:-1]
@@ -121,7 +134,18 @@ def masked_sum(values, mask, axis=None):
 
 
 def masked_mean(values, mask, axis=None):
-    """Compute mean of tensor with a masked values."""
+    """
+    Compute the mean of `values` over elements selected by `mask`.
+
+    Args:
+        values (Tensor): Input tensor.
+        mask (Tensor): Boolean or numeric mask of the same shape as `values`.
+        axis (int or tuple of int, optional): Dimension(s) along which to compute the mean.
+            Defaults to None (over all elements).
+
+    Returns:
+        Tensor: Masked mean, with shape equal to `values` reduced over `axis`.
+    """
     return (values * mask).sum(axis=axis) / (mask.sum(axis=axis) + 1e-8)
 
 
@@ -144,7 +168,18 @@ def masked_var(values, mask, unbiased=True):
 
 
 def masked_whiten(values, mask, shift_mean=True):
-    """Whiten values with masked values."""
+    """
+    Whiten `values` by normalizing with mean and variance computed over `mask`.
+
+    Args:
+        values (torch.Tensor): Input tensor.
+        mask (torch.Tensor): Boolean tensor of same shape, selects elements for stats.
+        shift_mean (bool): If True (default), output is zero-mean;
+                           if False, the original mean is re-added after scaling.
+
+    Returns:
+        torch.Tensor: Whitened tensor of same shape as `values`.
+    """
     mean, var = masked_mean(values, mask), masked_var(values, mask)
     whitened = (values - mean) * torch.rsqrt(var + 1e-8)
     if not shift_mean:
@@ -177,7 +212,6 @@ def get_response_mask(response_id: torch.Tensor, eos_token: Union[int, List[int]
 
 def compute_grad_norm(model: nn.Module):
     total_grad_square = 0
-    # total_params = 0
     for param in model.parameters():
         if param.grad is not None:
             total_grad_square += torch.sum(torch.square(param.grad.detach())).item()
@@ -277,7 +311,7 @@ def postprocess_data(
     Returns:
         (input_ids, attention_mask) padded/truncated to max_length
     """
-    assert truncation in ["left", "right", "error"]
+    assert truncation in ["left", "right", "middle", "error"]
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
@@ -292,6 +326,11 @@ def postprocess_data(
         elif truncation == "right":
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
+        elif truncation == "middle":
+            left_half = max_length // 2
+            right_half = max_length - left_half
+            input_ids = torch.cat([input_ids[:, :left_half], input_ids[:, -right_half:]], dim=-1)
+            attention_mask = torch.cat([attention_mask[:, :left_half], attention_mask[:, -right_half:]], dim=-1)
         elif truncation == "error":
             raise NotImplementedError(f"{sequence_length=} is larger than {max_length=}")
         else:
@@ -448,16 +487,17 @@ def get_cosine_schedule_with_warmup(
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
+    min_lr_ratio = 0.0 if min_lr_ratio is None else min_lr_ratio
     assert min_lr_ratio >= 0 and min_lr_ratio <= 1.0
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
-        return max(0.0, x * coef + intercept)
+        return max(min_lr_ratio, x * coef + intercept)
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
@@ -467,8 +507,22 @@ def get_constant_schedule_with_warmup(
     num_warmup_steps: int,
     last_epoch: int = -1,
 ):
+    """
+    Create a constant LR schedule with a linear warmup phase.
+
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        num_warmup_steps (int): Number of steps to ramp up the LR from 0 to initial value.
+        last_epoch (int, optional): The index of the last epoch when resuming training. Defaults to -1.
+
+    Returns:
+        LambdaLR: Scheduler that increases LR linearly during warmup, then holds it constant.
+    """
+
     def lr_lambda(current_step):
-        return min(1, float(current_step) / float(max(1, num_warmup_steps)))
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1.0, num_warmup_steps))
+        return 1.0
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
