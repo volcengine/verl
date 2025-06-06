@@ -78,6 +78,75 @@ Special Cases
 
 Some models (e.g., Qwen/QwQ-32B and Qwen3 series) remove internal reasoning content during chat template rendering. As a result, the message content can vary across turns, making the delta-based tokenization inaccurate.
 
+For example, for the following conversation:
+
+.. code-block:: python
+
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is 2 + 2?"},
+        {"role": "assistant", "content": "<think>user asked about a simple math question.</think> 2 + 2 = 4."},
+        {"role": "user", "content": "Explain why."},
+        {"role": "assistant", "content": "<think>user wants to know the reasoning behind the answer. Search for a good explanation</think>",
+         "tool_calls": [{"id": "tool1", "type": "search", "arguments": {"query": "Why is 2 + 2 = 4?"}}]},
+        {"role": "tool", "content": "The sum of two and two is four because it is a basic arithmetic operation."},
+        {"role": "assistant", "content": "<think>The tool provided a good explanation.</think>The sum of two and two is four because it is a basic arithmetic operation."}
+    ]
+
+1. Qwen/QwQ-32B will remove all reasoning content except the last assistant message after applying the chat template.
+
+.. code-block:: text
+
+    <|im_start|>system
+    You are a helpful assistant.<|im_end|>
+    <|im_start|>user
+    What is 2 + 2?<|im_end|>
+    <|im_start|>assistant
+     2 + 2 = 4.<|im_end|>
+    <|im_start|>user
+    Explain why.<|im_end|>
+    <|im_start|>assistant
+    <tool_call>
+    {"name": "", "arguments": {"query": "Why is 2 + 2 = 4?"}}
+    </tool_call><|im_end|>
+    <|im_start|>user
+    <tool_response>
+    The sum of two and two is four because it is a basic arithmetic operation.
+    </tool_response><|im_end|>
+    <|im_start|>assistant
+    <think>The tool provided a good explanation.</think> The sum of two and two is four because it is a basic arithmetic operation.<|im_end|>
+
+2. Qwen3 series will remove all reasoning content before the last user message.
+
+.. code-block:: text
+
+    <|im_start|>system
+    You are a helpful assistant.<|im_end|>
+    <|im_start|>user
+    What is 2 + 2?<|im_end|>
+    <|im_start|>assistant
+     2 + 2 = 4.<|im_end|>
+    <|im_start|>user
+    Explain why.<|im_end|>
+    <|im_start|>assistant
+    <think>
+    user wants to know the reasoning behind the answer. Search for a good explanation
+    </think>
+
+    <tool_call>
+    {"name": "", "arguments": {"query": "Why is 2 + 2 = 4?"}}
+    </tool_call><|im_end|>
+    <|im_start|>user
+    <tool_response>
+    The sum of two and two is four because it is a basic arithmetic operation.
+    </tool_response><|im_end|>
+    <|im_start|>assistant
+    <think>
+    The tool provided a good explanation.
+    </think>
+
+    The sum of two and two is four because it is a basic arithmetic operation.<|im_end|>
+
 To handle this, we fall back to a **fixed base conversation** containing only a single system and user message. Since this base doesn’t include assistant messages or reasoning content, it remains consistent across turns.
 
 .. code-block:: python
