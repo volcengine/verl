@@ -21,11 +21,27 @@ and the megatron backend now has a wider list of models supported:
 
 ## DeepSeek 671b
 
+For checkpoint loading, we rely on megatron dist-ckpt for resharding. A converted dist-ckpt for DeepSeek-V3 is available from [huggingface BearBiscuit05/dpsk-v3-671B-BF16-dist_ckpt](https://huggingface.co/BearBiscuit05/dpsk-v3-671B-BF16-dist_ckpt/tree/main). 
 
-For checkpoint loading, we rely on megatron dist-ckpt for resharding. 
+To run end-to-end training on the DAPO dataset, run [recipe/dapo/test_dapo_dspk_671b_megatron.sh](https://github.com/volcengine/verl/blob/main/recipe/dapo/test_dapo_dspk_671b_megatron.sh). It runs on 512 H20(96GB) GPUs with the following setup:
+- vllm rollout with TP=32, bfloat16
+- megatron training with attention DP, MoE EP=32, PP=16, bfloat16
+
+MTP is disabled during RL training.
 
 ## Qwen3 236b
 
 For Qwen3-236b, please refer to [examples/grpo_trainer/run_qwen3-236b_megatron.sh](https://github.com/volcengine/verl/blob/main/examples/grpo_trainer/run_qwen3-236b_megatron.sh), which runs on 128 H20(96GB) GPUs.
 
-Acknowledgement: @vermouth1992 @ISEEKYAN @ETOgaosion @yzlnew @ShareLer @BearBiscuit05 @ccclyu @ann-qin-lu @SwordFaith @zzong2006 @zhaochenyang20 @ocss884 @eric-haibin-lin
+# Upcoming Optimizations
+
+The community continue to optimize large MoE models further, ongoing efforts include:
+- applying efficient cross entropy fused kernel
+- further optimizing memory consumption, and provide recommended/tuned configurations with various machine types
+- optimizing long context RL training performance
+- performance improvement with SGLang x Megatron
+
+We invite the community to try and improve verl together.
+
+# Acknowledgement
+@vermouth1992 @ISEEKYAN @ETOgaosion @yzlnew @ShareLer @BearBiscuit05 @ccclyu @ann-qin-lu @SwordFaith @zzong2006 @zhaochenyang20 @ocss884 @eric-haibin-lin
