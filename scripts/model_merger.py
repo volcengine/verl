@@ -175,6 +175,10 @@ class BaseModelMerger(ABC):
             json.dump(peft_config, f, ensure_ascii=False, indent=4)
         save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
 
+        for name in list(state_dict.keys()):
+            key = name.replace("base_model.model.", "").replace(".base_layer.weight", ".weight").replace(".base_layer.bias", ".bias")
+            state_dict[key] = state_dict.pop(name)
+
         return lora_path
 
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
