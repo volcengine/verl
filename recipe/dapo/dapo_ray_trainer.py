@@ -202,7 +202,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 progress_bar.update(1)
-				continue
+                                continue
                             else:
                                 raise ValueError(f"{num_gen_batches=} >= {max_num_gen_batches=}." + " Generated too many. Please check if your data are too difficult." + " You could also try set max_num_gen_batches=0 to enable endless trials.")
                         else:
