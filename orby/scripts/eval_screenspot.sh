@@ -4,6 +4,7 @@ set -e
 # bash orby/scripts/eval_screenspot.sh --version screenspot
 # bash orby/scripts/eval_screenspot.sh --version screenspot_v2
 # bash orby/scripts/eval_screenspot.sh --version screenspot_pro
+# bash orby/scripts/eval_screenspot.sh --version screenspot_sft
 
 # Default values
 DATASET_VERSION="screenspot"
@@ -74,6 +75,9 @@ else
         "screenspot_pro")
             huggingface-cli download likaixin/ScreenSpot-Pro --repo-type dataset --local-dir=$DATA_PATH
             python orby/data/convert_screenspot_pro.py --prompt_format $PROMPT_FORMAT
+            ;;
+        "screenspot_sft")
+            python3 -m orby.data.convert_screenspot_sft --prompt_format $PROMPT_FORMAT
             ;;
     esac
 fi

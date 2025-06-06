@@ -46,11 +46,8 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel, Qwen2_5_VLForConditionalGeneration
 from torchdata.stateful_dataloader import StatefulDataLoader
 
-from verl.trainer.main_ppo import create_rl_dataset
 import verl.utils.hdfs_io as hdfs_io
-from verl.utils.dataset import SFTDataset
-from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.dataset.rl_dataset import collate_fn
+from orby.utils.dataset.sft_dataset import collate_fn
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fs import copy_to_local
@@ -65,7 +62,7 @@ from verl.utils.ulysses import (
 from verl.utils import hf_tokenizer, hf_processor
 from verl.utils.device import get_device_name, get_torch_device, is_cuda_available, is_npu_available
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-
+from omegaconf import OmegaConf
 
 if is_cuda_available:
     from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
@@ -75,6 +72,40 @@ elif is_npu_available:
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
+
+def create_sft_multimodal_dataset(data_paths, data_config, tokenizer, processor):
+    """Create a dataset.
+
+    Arguments:
+        data_config: The data config.
+        tokenizer (Tokenizer): The tokenizer.
+        processor (Processor): The processor.
+
+    Returns:
+        dataset (Dataset): The dataset.
+    """
+    from torch.utils.data import Dataset
+
+    from orby.utils.dataset.sft_dataset import SFTDataset
+
+    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
+        from verl.utils.import_utils import load_extern_type
+
+        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        if not issubclass(dataset_cls, Dataset):
+            raise TypeError(f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset")
+    else:
+        dataset_cls = SFTDataset
+    print(f"Using dataset class: {dataset_cls.__name__}")
+
+    dataset = dataset_cls(
+        data_files=data_paths,
+        tokenizer=tokenizer,
+        processor=processor,
+        config=data_config,
+    )
+
+    return dataset
 
 def extract_step(path):
     match = re.search(r"global_step_(\d+)", path)
@@ -97,12 +128,13 @@ def convert_to_regular_types(obj):
 
 
 class FSDPSFTTrainer:
-    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh, tokenizer, train_dataset: Dataset, val_dataset: Dataset):
+    def __init__(self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh, tokenizer, processor, train_dataset: Dataset, val_dataset: Dataset):
         self.config = config
         self.device_mesh = device_mesh
         self.ulysses_device_mesh = ulysses_device_mesh
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self.tokenizer = tokenizer
+        self.processor = processor
         if self.config.data.chat_template is not None:
             raise ValueError("Apply Chat template from config is not supported yet.")
 
@@ -229,7 +261,7 @@ class FSDPSFTTrainer:
             if self.config.data.image_key is not None:
                 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                             local_model_path,
-                            device_map=torch.cuda.current_device(),
+                            #device_map=torch.cuda.current_device(), doesn't work with meta tensors 
                             attn_implementation="sdpa"
                         )
             else:
@@ -334,7 +366,7 @@ class FSDPSFTTrainer:
         position_ids = batch["position_ids"].to(self.device_name)
         raw_prompt_ids = batch["raw_prompt_ids"]
         multi_modal_inputs = batch.get("multi_modal_inputs", {})
-        
+
         if position_ids.dim() == 3:
             # When processing multimodal data (text + images), Qwen2.5-VL uses 3D position embeddings
             # where each token gets 3 coordinates: [t, h, w] representing temporal, height, width dimensions.
@@ -357,17 +389,36 @@ class FSDPSFTTrainer:
             loss_mask = attention_mask.clone()  # (batch_size, seq_len)
             
             # Create a mask for prompt tokens to exclude from loss
-            # Get the length of each raw prompt
-            raw_prompt_lengths = torch.tensor([len(sample) for sample in raw_prompt_ids], 
-                                            device=attention_mask.device)
-            
-            # Create position indices for each sequence
+            # Locate where assistant responses begin by finding the "<|im_start|>assistant" token sequence
+            # This ensures we only train on actual response tokens, not prompt or image tokens
+            assistant_token_ids = torch.tensor(
+                self.tokenizer.encode("<|im_start|>assistant", add_special_tokens=False), 
+                device=attention_mask.device
+            )
+
+            assistant_len = len(assistant_token_ids)
+            prompt_end_position = torch.zeros(batch_size, device=attention_mask.device, dtype=torch.long)
+
+            # Slide a window across each position to find where assistant tokens start
+            # We only need to check positions where the full assistant sequence could fit
+            #TODO: (RISHU) Find a more efficient way to do this
+            for i in range(seq_len - assistant_len + 1):
+                # Compare assistant token sequence against all batch sequences simultaneously
+                # This leverages GPU parallelization for efficient batch processing
+                matches = torch.all(
+                    input_ids[:, i:i+assistant_len] == assistant_token_ids.unsqueeze(0), 
+                    dim=1
+                )
+                # Record the end position of assistant prefix for sequences where we found the first match
+                # The mask ensures we only capture the first occurrence per sequence
+                mask = matches & (prompt_end_position == 0)
+                prompt_end_position[mask] = i + assistant_len - 1
+
             position_indices = torch.arange(seq_len, device=attention_mask.device).unsqueeze(0).expand(batch_size, -1)
             
-            # Mask out prompt tokens (except the last prompt token)
-            prompt_mask = position_indices < (raw_prompt_lengths.unsqueeze(1) - 1)
+            # Mask out prompt tokens (everything before the prompt_end_position)
+            prompt_mask = position_indices < prompt_end_position.unsqueeze(1)
             loss_mask = loss_mask.masked_fill(prompt_mask, 0)
-            
             # Mask out the last token of each sequence
             # Find the last valid token position for each sequence
             last_token_positions = attention_mask.sum(dim=1) - 1  # (batch_size,)
@@ -375,7 +426,6 @@ class FSDPSFTTrainer:
             # Create mask for last tokens
             last_token_mask = position_indices == last_token_positions.unsqueeze(1)
             loss_mask = loss_mask.masked_fill(last_token_mask, 0)
-            
             # Remove last column and flatten
             loss_mask = loss_mask[:, :-1].reshape(-1).to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
@@ -392,30 +442,11 @@ class FSDPSFTTrainer:
                     "position_ids": position_ids,
                     "use_cache": False
                 }
-                
-                # For multimodal inputs, collect all pixel_values and image_grid dimensions
+                multimodal_kwargs = {}
                 if len(multi_modal_inputs) > 0 and hasattr(multi_modal_inputs, 'data'):
-                    # Collect all pixel_values and image_grid_thw
-                    pixel_values_list = []
-                    image_grid_thw_list = []
-                    
-                    for item in multi_modal_inputs.data:
-                        if isinstance(item, dict):
-                            if 'pixel_values' in item:
-                                pixel_values_list.append(item['pixel_values'])
-                            if 'image_grid_thw' in item:
-                                image_grid_thw_list.append(item['image_grid_thw'])
-                    if pixel_values_list:
-                        # Concatenate all pixel values and add batch dimension
-                        concatenated_pixel_values = torch.cat(pixel_values_list, dim=0)
-                        model_kwargs['pixel_values'] = concatenated_pixel_values.unsqueeze(0).cuda()
-
-                    if image_grid_thw_list:
-                        # Concatenate all image grid info
-                        concatenated_image_grid_thw = torch.cat(image_grid_thw_list, dim=0)
-                        model_kwargs['image_grid_thw'] = concatenated_image_grid_thw.cuda()
-                    
-
+                    for key in multi_modal_inputs.data[0].keys():
+                        multimodal_kwargs[key] = torch.cat([inputs[key] for inputs in multi_modal_inputs.data], dim=0).cuda()
+                    model_kwargs.update(multimodal_kwargs)
                 output = self.fsdp_model(**model_kwargs) 
                 logits = output.logits
 
@@ -536,7 +567,7 @@ class FSDPSFTTrainer:
         """
         batch_size = batch.batch_size[0]
         micro_batches = []
-        
+
         for start_idx in range(0, batch_size, micro_batch_size):
             end_idx = min(start_idx + micro_batch_size, batch_size)
             indices = list(range(start_idx, end_idx))
@@ -588,6 +619,8 @@ class FSDPSFTTrainer:
             os.makedirs(path, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
             self.tokenizer.save_pretrained(path)
+            if hasattr(self, "processor") and self.processor is not None:
+                self.processor.save_pretrained(path)
             if self.config.trainer.default_hdfs_dir:
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
@@ -602,6 +635,7 @@ class FSDPSFTTrainer:
                 project_name=self.config.trainer.project_name,
                 experiment_name=self.config.trainer.experiment_name,
                 default_backend=self.config.trainer.logger,
+                config=OmegaConf.to_container(self.config, resolve=True)
             )
 
         global_step = 0
@@ -630,7 +664,23 @@ class FSDPSFTTrainer:
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
+                # Validation every 25 steps
+                if global_step % 25 == 0:
+                    val_losses = []
+                    for val_data in self.val_dataloader:
+                        batch_size = len(val_data['input_ids']) if 'input_ids' in val_data else len(next(iter(val_data.values())))
+                        val_data = TensorDict(val_data, batch_size=batch_size).cuda()
+                        val_loss = self.validation_step(val_data)
+                        val_losses.append(val_loss)
+                    if rank == 0:
+                        avg_val_loss = torch.mean(torch.stack(val_losses))
+                        metric_val = {"val/loss": avg_val_loss.detach().item()}
+                        tracking.log(data=metric_val, step=global_step)
+                    torch.distributed.barrier()
 
+                # Save checkpoint every 50 steps
+                if global_step % 50 == 0:
+                    self.save_checkpoint(step=global_step)
                 # for early exit validation
                 if global_step >= self.total_training_steps:
                     # Perform final validation
@@ -669,7 +719,7 @@ class FSDPSFTTrainer:
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="../trainer/config/", config_name="sft_trainer", version_base=None)
+@hydra.main(config_path="../../verl/trainer/config/", config_name="sft_trainer", version_base=None)
 def main(config):
     device_name = get_device_name()
     local_rank, rank, world_size = initialize_global_process_group()
@@ -680,20 +730,20 @@ def main(config):
     # build tokenizer and datasets first
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    processor = hf_processor(local_model_path, **config.data.get("processor", {}))
+    processor = hf_processor(local_model_path, **config.get("processor", {}))
     train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer, processor)
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer, processor)
 
-    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, train_dataset=train_dataset, val_dataset=val_dataset)
+    trainer = FSDPSFTTrainer(config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh, tokenizer=tokenizer, processor=processor, train_dataset=train_dataset, val_dataset=val_dataset)
 
     trainer.fit()
 
 
 def create_sft_dataset(data_paths, data_config, tokenizer, processor=None):
 
-    # if multi-modal dataset, use the RLHF dataset that has support for multi-modal inputs
+    # if multi-modal dataset, use the modified RLHF dataset from VERL for SFT that has support for multi-modal inputs
     if data_config.get("image_key", None) is not None:
-        return create_rl_dataset(data_paths, data_config, tokenizer, processor)
+        return create_sft_multimodal_dataset(data_paths, data_config, tokenizer, processor)
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -706,7 +756,9 @@ def create_sft_dataset(data_paths, data_config, tokenizer, processor=None):
         dataset_cls = MultiTurnSFTDataset
     # Default to single-turn dataset
     else:
-        dataset_cls = SFTDataset
+        from verl.utils.dataset import SFTDataset as VERL_SFTDataset
+
+        dataset_cls = VERL_SFTDataset
 
     # Create datasets based on the selected class
     dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
