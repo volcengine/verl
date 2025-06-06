@@ -13,11 +13,9 @@
 # limitations under the License.
 import asyncio
 import heapq
-import importlib
 import logging
 import os
 import socket
-import threading
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict, List, Tuple, Type
@@ -34,6 +32,8 @@ from openai.types.chat.chat_completion import ChatCompletion
 from starlette.requests import Request
 
 from verl.protocol import DataProto
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.worker import Worker
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
@@ -105,7 +105,7 @@ class AsyncServerBase(ABC):
         raise NotImplementedError
 
 
-class ChatCompletionScheduler:
+class ChatCompletionScheduler(Worker):
     def __init__(
         self,
         config: DictConfig,
@@ -120,10 +120,19 @@ class ChatCompletionScheduler:
             server_addresses: List[str], server addresses.
             max_cache_size: int, max cache size of request_id to address mapping.
         """
+        super().__init__()
         self.config = config
         self.model_name = "/".join(model_path.split("/")[-2:])
         local_path = copy_to_local(model_path)
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=True)
+
+        # Assign server addresses
+        if self.world_size <= len(server_addresses):
+            start = self.rank * len(server_addresses) // self.world_size
+            end = (self.rank + 1) * len(server_addresses) // self.world_size
+            server_addresses = server_addresses[start:end]
+        else:
+            server_addresses = [server_addresses[self.rank % len(server_addresses)]]
 
         # Least requests load balancing
         self.weighted_addresses = [[0, address] for address in server_addresses]
@@ -211,6 +220,7 @@ class ChatCompletionScheduler:
         finally:
             await session.close()
 
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     async def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
         raise NotImplementedError
 
@@ -272,31 +282,6 @@ class AsyncLLMServerManager:
         # All server instances are ready, init AsyncLLM engine.
         ray.get([server.init_engine.remote() for server in self.async_llm_servers])
 
-        # Init user provided chat scheduler in sperate thread.
-        self.chat_scheduler: ChatCompletionScheduler = None
-        self.chat_scheduler_loop = None
-        self.chat_scheduler_ready = threading.Event()
-        self.chat_scheduler_thread = threading.Thread(target=self._init_chat_scheduler, daemon=True)
-        self.chat_scheduler_thread.start()
-        self.chat_scheduler_ready.wait()
-
-    def _init_chat_scheduler(self):
-        self.chat_scheduler_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.chat_scheduler_loop)
-
-        module_path, class_name = self.config.rollout.chat_scheduler.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        scheduler_cls = getattr(module, class_name)
-        self.chat_scheduler = scheduler_cls(
-            config=self.config.rollout,
-            model_path=self.config.model.path,
-            server_addresses=self.server_addresses,
-            **self.scheduler_kwargs,
-        )
-
-        self.chat_scheduler_ready.set()
-        self.chat_scheduler_loop.run_forever()
-
     def wake_up(self):
         """Wake up all vllm instances."""
         ray.get([server.wake_up.remote() for server in self.async_llm_servers])
@@ -304,35 +289,6 @@ class AsyncLLMServerManager:
     def sleep(self):
         """Sleep all vllm instances."""
         ray.get([server.sleep.remote() for server in self.async_llm_servers])
-
-    def submit_chat_completions(
-        self,
-        callback: Callable[[ChatCompletion, Dict[str, Any], Exception], None],
-        callback_additional_info: Dict[str, Any],
-        **chat_complete_request,
-    ):
-        """Submit a chat completion request to chat scheduler and wait until it is done.
-        To submit multiple requests in parallel, please use `generate_sequences` instead.
-
-        Args: same as ChatCompletionScheduler.submit_chat_completions.
-        """
-        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-        future = asyncio.run_coroutine_threadsafe(
-            self.chat_scheduler.submit_chat_completions(
-                callback=callback,
-                callback_additional_info=callback_additional_info,
-                **chat_complete_request,
-            ),
-            self.chat_scheduler_loop,
-        )
-        future.result()
-
-    def generate_sequences(self, prompts: DataProto, **sampling_params) -> DataProto:
-        """Generate multiple sequences in parallel via chat scheduler."""
-        assert self.chat_scheduler is not None, "chat scheduler is not initialized."
-
-        future = asyncio.run_coroutine_threadsafe(self.chat_scheduler.generate_sequences(prompts, **sampling_params), self.chat_scheduler_loop)
-        return future.result()
 
 
 def async_server_class(rollout_backend: str) -> Type[AsyncServerBase]:
