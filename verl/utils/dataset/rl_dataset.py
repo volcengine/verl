@@ -30,6 +30,7 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.dataset.preprocessor import Gemma3Preprocessor
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class RLHFDataset(Dataset):
                 from verl.utils.dataset.preprocessor import InternVLPreprocessor
                 self.preprocessor = InternVLPreprocessor(processor=self.processor,image_key=self.image_key, video_key=self.video_key)
             elif self.processor.__class__.__name__ == "Gemma3Processor":
-                from verl.utils.dataset.preprocessor import Gemma3Preprocessor
+                
                 self.preprocessor = Gemma3Preprocessor(processor=self.processor, image_key=self.image_key, video_key=self.video_key)
             else:
                 raise ValueError("Unsupported preprocessor for {}".format(processor.__class__.__name__))
@@ -183,7 +184,6 @@ class RLHFDataset(Dataset):
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
-
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -206,7 +206,6 @@ class RLHFDataset(Dataset):
                     attention_mask=attention_mask[0],
                 )
             ]  # (1, 3, seq_len)
-
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 

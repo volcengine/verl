@@ -49,3 +49,20 @@ class Gemma3Preprocessor(BasicPreprocessor):
         
     def process_video(self, video, **kwargs):
         raise ValueError("Gemma3 not support the video")
+    
+    def __call__(self, messages, row_dict):
+        raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        multi_modal_data = {}
+
+        images = None
+        if self.image_key in row_dict:
+            images = [self.process_image(image) for image in row_dict.pop(self.image_key)]
+            multi_modal_data["image"] = images
+        model_inputs = self.processor(text=[raw_prompt], images=images, return_tensors="pt")
+        input_ids = model_inputs.pop("input_ids")
+        attention_mask = model_inputs.pop("attention_mask")
+        if 'token_type_ids' in model_inputs:
+            model_inputs.pop("token_type_ids")
+        row_dict["multi_modal_data"] = multi_modal_data
+        row_dict["multi_modal_inputs"] = dict(model_inputs)
+        return row_dict, model_inputs, input_ids, attention_mask, raw_prompt

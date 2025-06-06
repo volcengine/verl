@@ -157,7 +157,6 @@ class vLLMRollout(BaseRollout):
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
         )
-
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.sleep(level=1)
 

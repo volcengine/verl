@@ -56,7 +56,7 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         warnings.warn("Found gemma-2-2b-it tokenizer. Set eos_token and eos_token_id to <end_of_turn> and 107.", stacklevel=1)
         kwargs["eos_token"] = "<end_of_turn>"
         kwargs["eos_token_id"] = 107
-    trust_remote_code=kwargs.pop("trust_remote_code", False)
+    trust_remote_code=kwargs.get("trust_remote_code", False)
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
     config = AutoConfig.from_pretrained(name_or_path, trust_remote_code=trust_remote_code)
     if re.match("internvl", config.model_type):

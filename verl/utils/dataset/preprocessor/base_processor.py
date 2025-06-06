@@ -47,7 +47,6 @@ class BasicPreprocessor:
 
         if "second_per_grid_ts" in model_inputs:
             model_inputs.pop("second_per_grid_ts")
-
         # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
         row_dict["multi_modal_data"] = multi_modal_data
         row_dict["multi_modal_inputs"] = dict(model_inputs)

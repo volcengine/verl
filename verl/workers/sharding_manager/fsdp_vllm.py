@@ -35,12 +35,14 @@ from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
 from verl.utils.torch_functional import check_cuda_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
+from importlib import metadata
+from packaging.version import parse as parse_version
+import operator as op # Import the operator module
 
 from .base import BaseShardingManager
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
 
 class FSDPVLLMShardingManager(BaseShardingManager):
     @check_cuda_is_available()
@@ -57,7 +59,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
         # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
-
+        
         if "vllm_v_0_6_3" in str(type(self.inference_engine)) or "vllm_v_0_5_4" in str(type(self.inference_engine)):
             # vLLM <= v0.6.3
             self.model_runner = self.inference_engine.llm_engine.model_executor.worker.model_runner if self.inference_engine else None
@@ -68,7 +70,6 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         self.model_config = model_config
         self.device_mesh = device_mesh
         self.offload_param = offload_param
-
         # Full params
         self.full_params = full_params
         if full_params and fsdp_version(self.module) == 1:
@@ -195,5 +196,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model = self.model_runner.model
         patch_vllm_moe_model_weight_loader(model)
         device = torch.cuda.current_device()  # used when fsdp2 set cpu_offload_policy
-        loaded_params = model.load_weights(((name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()))
+   
+        loaded_params = model.load_weights([(name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param) for name, param in updated_params.items()])
+      
         logger.info("vLLM load weights, loaded_params: %d", len(loaded_params))

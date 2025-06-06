@@ -139,8 +139,3 @@ class InternVLPreprocessor(BasicPreprocessor):
         # second_per_grid_ts isn't used for training, just for mrope
         row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
         return row_dict, model_inputs, input_ids, attention_mask, raw_prompt
-        # num_patches = model_inputs["pixel_values"].size(0)
-        # image_flags = torch.tensor([1] * num_patches, dtype=torch.long)
-        # row_dict["multi_modal_data"]["image_flags"] = image_flags
-        # row_dict["image_flags"] = image_flags
-        return row_dict, model_inputs, input_ids, attention_mask, raw_prompt
