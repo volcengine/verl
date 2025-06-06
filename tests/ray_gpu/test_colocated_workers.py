@@ -43,7 +43,7 @@ class Critic(Worker):
         self.config = config
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
-    def sub(self, data: DataProto):
+    async def sub(self, data: DataProto):
         data.batch["a"] -= self.config["b"]
         return data
 

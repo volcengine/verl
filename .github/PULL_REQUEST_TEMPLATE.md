@@ -42,4 +42,5 @@
 - [ ] Apply [pre-commit checks](https://github.com/volcengine/verl?tab=readme-ov-file#code-linting-and-formatting).
 - [ ] Add `[BREAKING]` to the PR title if it breaks any API.
 - [ ] Update the documentation about your changes in the [docs](https://github.com/volcengine/verl/tree/main/docs).
-- [ ] Add CI test(s) if necessary.
+- [ ] New CI unit test(s) are added to cover the code path.
+- [ ] Rely on existing unit tests on CI that covers the code path.

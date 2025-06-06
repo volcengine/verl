@@ -491,7 +491,7 @@ slurm_script.sh
 
 
 
-    # Ray initlization test (See whether any error in the above excution)
+    # Ray initlization test (See whether any error in the above execution)
     echo "Testing Ray initialization in the slurm nodes..."
     docker exec "${CONTAINER_NAME}" python3 -c '
     import ray

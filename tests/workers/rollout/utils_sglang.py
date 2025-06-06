@@ -37,7 +37,7 @@ def levenshtein(s1, s2):
     return dp[m][n]
 
 
-def are_lists_similar(a, b):
+def are_lists_similar(a, b, threshold=10):
     if len(a) != len(b):
         print("The lists are of different lengths.")
         return False
@@ -49,7 +49,7 @@ def are_lists_similar(a, b):
         total_diff += levenshtein(s1, s2)
     percentage_difference = (total_diff / total_length) * 100
     print(f"Total difference: {percentage_difference:.2f}%")
-    return percentage_difference <= 10
+    return percentage_difference <= threshold
 
 
 def initialize_global_process_group(timeout_second=36000, spmd=False):
@@ -120,7 +120,7 @@ def generate_hf_output(model, input_ids, attention_mask, tokenizer, max_response
     return tokenizer.batch_decode(response)
 
 
-def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size):
+def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_parallel_size, tool_config_path):
     sampling_params = dict(
         n=1,
         temperature=0,
@@ -151,7 +151,7 @@ def get_rollout_config(max_response_length, max_prompt_length, dtype, tensor_par
             "multi_turn": {
                 "max_turns": 4,
                 "enable": True,
-                "tool_config_path": None,
+                "tool_config_path": tool_config_path,
                 "format": "chatml",
             },
             "max_model_len": None,

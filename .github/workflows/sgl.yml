@@ -56,7 +56,7 @@ jobs:
       HF_HUB_ENABLE_HF_TRANSFER: 1
       SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK: "True"
     container:
-      image: ocss884/verl-sglang:ngc-th2.6.0-cu126-sglang0.4.6.post4
+      image: whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.0-te2.3
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -73,12 +73,16 @@ jobs:
       - name: Test the latest SGLang
         run: |
           cd tests/workers/rollout
-          torchrun --nnodes=1 --nproc_per_node=4 $(which pytest) -s test_sglang_spmd.py
-      - name: Test the latest SGLang async
-        run: |
-          cd tests/workers/rollout
-          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_spmd.py
+          torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_spmd.py
       - name: Test the latest SGLang Rollout async with tool
         run: |
           cd tests/workers/rollout
           torchrun --nnodes=1 --nproc_per_node=2 $(which pytest) -s test_sglang_async_rollout_w_tools.py
+      - name: Test the latest SGLang Rollout async with sandbox fusion tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_sf_tools.py
+      - name: Test the latest SGLang Rollout async with search tool
+        run: |
+          cd tests/workers/rollout
+          pytest -s test_sglang_async_rollout_search_tools.py

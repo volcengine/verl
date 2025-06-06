@@ -107,9 +107,11 @@ def fit(self):
                 batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                 batch = batch.union(gen_batch_output)
 
-                # balance the number of valid tokens on each dp rank.
-                # Note that this breaks the order of data inside the batch.
-                # Please take care when you implement group based adv computation such as GRPO and rloo
+                # Balance the number of valid tokens across DP ranks.
+                # NOTE: This usually changes the order of data in the `batch`,
+                # which won't affect the advantage calculation (since it's based on uid),
+                # but might affect the loss calculation (due to the change of mini-batching).
+                # TODO: Decouple the DP balancing and mini-batching.
                 self._balance_batch(batch, metrics=metrics)
 
                 # compute global_valid tokens

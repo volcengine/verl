@@ -155,6 +155,12 @@ def dispatch_megatron_compute(worker_group, *args, **kwargs):
 
     assert isinstance(worker_group, MegatronWorkerGroup), f"worker_group must be MegatronWorkerGroup, Got {type(worker_group)}"
 
+    # ray put all the args in advance to avoid duplicate serialization cost
+    import ray
+
+    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
+    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+
     all_args = []
     for arg in args:
         assert isinstance(arg, (Tuple, List)) and len(arg) == worker_group.dp_size

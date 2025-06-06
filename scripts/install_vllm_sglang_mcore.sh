@@ -47,7 +47,7 @@ pip install opencv-fixer && \
 
 
 if [ $USE_MEGATRON -eq 1 ]; then
-    echo "6. Install cudnn python package (avoid being overrided)"
+    echo "6. Install cudnn python package (avoid being overridden)"
     pip install nvidia-cudnn-cu12==9.8.0.87
 fi
 

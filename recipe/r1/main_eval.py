@@ -25,40 +25,13 @@ import pandas as pd
 import ray
 from tqdm import tqdm
 
+from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils.fs import copy_to_local
 
 
-def get_custom_reward_fn(config):
-    import importlib.util
-    import os
-
-    reward_fn_config = config.get("custom_reward_function") or {}
-    file_path = reward_fn_config.get("path")
-    if not file_path:
-        return None
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
-
-    spec = importlib.util.spec_from_file_location("custom_module", file_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise RuntimeError(f"Error loading module from '{file_path}'") from e
-
-    function_name = reward_fn_config.get("name")
-
-    if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{file_path}'.")
-
-    print(f"using customized reward function '{function_name}' from '{file_path}'")
-
-    return getattr(module, function_name)
-
-
 @ray.remote
-def process_item(reward_fn, data_source, response_lst, reward_data):
+def process_item(config, data_source, response_lst, reward_data):
+    reward_fn = get_custom_reward_fn(config)
     ground_truth = reward_data["ground_truth"]
     score_lst = [reward_fn(data_source, r, ground_truth) for r in response_lst]
     return data_source, np.mean(score_lst)
@@ -80,10 +53,9 @@ def main(config):
 
     # evaluate test_score based on data source
     data_source_reward = defaultdict(list)
-    compute_score = get_custom_reward_fn(config)
 
     # Create remote tasks
-    remote_tasks = [process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
+    remote_tasks = [process_item.remote(config, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)]
 
     # Process results as they come in
     with tqdm(total=total) as pbar:
