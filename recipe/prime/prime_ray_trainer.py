@@ -155,13 +155,13 @@ class RayPRIMETrainer(RayPPOTrainer):
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
         super().__init__(
-            config,
-            tokenizer,
-            role_worker_mapping,
-            resource_pool_manager,
-            ray_worker_group_cls,
-            reward_fn,
-            val_reward_fn,
+            config=config,
+            tokenizer=tokenizer,
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn,
+            val_reward_fn=val_reward_fn,
         )
 
         self.use_critic = False
