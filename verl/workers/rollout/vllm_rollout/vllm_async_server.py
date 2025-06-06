@@ -159,26 +159,28 @@ class AsyncvLLMServer(AsyncServerBase):
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
+        engine_kwargs = config.engine_kwargs.vllm
+        engine_kwargs = engine_kwargs.pop("engine_kwargs", {})
         print(f"override_generation_config: {kwargs}")
 
         engine_args = AsyncEngineArgs(
             model=local_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=engine_kwargs.get("enable_sleep_mode"),
             override_generation_config=kwargs,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend=ExternalRayDistributedExecutor,
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
-            disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
-            skip_tokenizer_init=False,
+            disable_custom_all_reduce=engine_kwargs.get("disable_custom_all_reduce"),
+            disable_mm_preprocessor_cache=engine_kwargs.get("disable_mm_preprocessor_cache"),
+            skip_tokenizer_init=engine_kwargs.get("skip_tokenizer_init"),
             max_model_len=max_model_len,
             load_format="auto",
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            enable_prefix_caching=True,
+            enable_prefix_caching=engine_kwargs.get("enable_prefix_caching"),
             trust_remote_code=trust_remote_code,
             seed=self.vllm_dp_rank,
         )

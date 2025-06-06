@@ -130,6 +130,11 @@ actor_rollout_ref:
     engine_kwargs: # inference engine parameters
       vllm:
         swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+        enable_sleep_mode: True
+        disable_custom_all_reduce: True
+        disable_mm_preprocessor_cache: True
+        skip_tokenizer_init: False
+        enable_prefix_caching: True
       sglang:
         attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
     val_kwargs:

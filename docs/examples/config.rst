@@ -175,6 +175,12 @@ Actor/Rollout/Reference Policy
       engine_kwargs: # inference engine parameters
         vllm:
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+          engine_default_args:
+            enable_sleep_mode: True
+            disable_custom_all_reduce: True
+            disable_mm_preprocessor_cache: True
+            skip_tokenizer_init: False
+            enable_prefix_caching: True
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
 
@@ -270,7 +276,7 @@ Actor/Rollout/Reference Policy
   - ``contents``: The contents to save in the checkpoint. By default, we save model, optimizer and extra information in the checkpoint.
     The extra information includes Rng states currently, FSDP supported lr_scheduler, and Megatron opt_param_scheduler will coming soon.
     We do not store hf_model in checkpoint by default, but we provide a tool in `scripts/model_merge.py` to convert checkpoint format to hf format.
-
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: The configurations of rollout vllm engine, For specific information, please refer to the vllm engine_args page
 **Reference Model**
 
 Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.use_kl_in_reward`` is/are True.

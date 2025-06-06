@@ -138,10 +138,11 @@ class vLLMRollout(BaseRollout):
         if config.get("limit_images", None):  # support for multi-image data
             limit_mm_per_prompt = {"image": config.get("limit_images")}
 
-        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
-        engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+        engine_kwargs = OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+        engine_kwargs = engine_kwargs.pop("engine_kwargs", {})
         # For each vLLM engine parameter,
         # - `None` means not setting it, so we pop it, and leave it to vLLM default value
         #    (which can vary across different vLLM versions);
@@ -149,22 +150,22 @@ class vLLMRollout(BaseRollout):
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=engine_kwargs.get("enable_sleep_mode"),
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
-            disable_custom_all_reduce=True,
-            disable_mm_preprocessor_cache=True,
+            disable_custom_all_reduce=engine_kwargs.get("disable_custom_all_reduce"),
+            disable_mm_preprocessor_cache=engine_kwargs.get("disable_mm_preprocessor_cache"),
             limit_mm_per_prompt=limit_mm_per_prompt,
-            skip_tokenizer_init=False,
+            skip_tokenizer_init=engine_kwargs.get("skip_tokenizer_init"),
             max_model_len=max_model_len,
             load_format=load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
-            enable_prefix_caching=True,
+            enable_prefix_caching=engine_kwargs.get("enable_prefix_caching"),
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
             **lora_kwargs,
@@ -280,8 +281,8 @@ class vLLMRollout(BaseRollout):
         if self.lora_kwargs:
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
-                lora_int_id=lora_int_ids[0]
-                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
+                lora_int_id = lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -342,7 +343,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": rollout_log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
