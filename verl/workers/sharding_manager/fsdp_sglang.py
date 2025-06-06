@@ -31,7 +31,7 @@ from verl import DataProto
 from verl.protocol import all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.fsdp_utils import fsdp_version, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
-from verl.utils.torch_functional import check_cuda_is_available
+from verl.utils.torch_functional import check_device_is_available
 
 from .base import BaseShardingManager
 
@@ -47,7 +47,7 @@ def _preprocess_tensor_for_update_weights(tensor: torch.Tensor):
 
 
 class FSDPSGLangShardingManager(BaseShardingManager):
-    @check_cuda_is_available()
+    @check_device_is_available()
     def __init__(
         self,
         module: FSDP,
