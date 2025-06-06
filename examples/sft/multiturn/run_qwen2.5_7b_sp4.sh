@@ -2,18 +2,12 @@
 set -x
 
 export PYTHONUNBUFFERED=1
-export HF_HUB_OFFLINE=1
-export HF_ENDPOINT=https://hf-mirror.com
-export WANDB_MODE=offline
-export WANDB_DIR=/data/tensorboard/
 export RUST_BACKTRACE=1
 export HYDRA_FULL_ERROR=1
-export PIP_INDEX_URL=https://swnexus.thuwayinfo.com/repository/group-pypi/simple
 
 ulimit -n 65535
 
-HOME=/user/longxiang1
-EXPERIMENT_NAME=retool-multiturn-sft-qwen3-4b-sp4-mb
+EXPERIMENT_NAME=retool-multiturn-sft-qwen2.5-7b-sp4-mb
 
 torchrun --standalone --nnodes=1 --nproc_per_node=8 \
      -m verl.trainer.fsdp_sft_trainer \
@@ -25,14 +19,16 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 \
     data.multiturn.enable=true \
     data.multiturn.messages_key=messages \
     data.multiturn.tools_key=tools \
-    model.partial_pretrain=$HOME/models/Qwen/Qwen3-4B \
+    model.partial_pretrain=$HOME/models/Qwen/Qwen2.5-7B-Instruct \
     model.trust_remote_code=true \
+    model.fsdp_config.cpu_offload=false \
+    model.fsdp_config.offload_params=false \
     optim.lr=1e-6 \
     trainer.default_local_dir=$HOME/checkpoints/retool-multiturn-sft/$EXPERIMENT_NAME \
     trainer.project_name=retool-multiturn-sft \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.logger=['console','wandb'] \
-    trainer.total_epochs=12 \
+    trainer.total_epochs=8 \
     trainer.default_hdfs_dir=null $@ \
     ulysses_sequence_parallel_size=4 \
     use_remove_padding=true
