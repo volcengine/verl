@@ -7,7 +7,7 @@ In the journey the community added the following features and optimizations that
 - context parallelism and expert parallelism enabled via megatron
 - dynamic batch size (sequence balance) for megatron
 - reduced ray-related serialization overhead
-- optimizer offloading
+- optimizer offloading, recomputation, and efficient kernels
 - various debugging metrics and utils
 
 and the megatron backend now has a wider list of models supported:
@@ -39,7 +39,6 @@ For Qwen3-236b, please refer to [examples/grpo_trainer/run_qwen3-236b_megatron.s
 # Upcoming Optimizations
 
 The community continue to optimize large MoE models further, ongoing efforts include:
-- applying efficient cross entropy fused kernel
 - further optimizing memory consumption, and provide recommended/tuned configurations with various machine types
 - optimizing long context RL training performance
 - performance improvement with SGLang x Megatron
