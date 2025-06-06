@@ -271,6 +271,7 @@ class AsyncLLMServerManager:
 
         # All server instances are ready, init AsyncLLM engine.
         ray.get([server.init_engine.remote() for server in self.async_llm_servers])
+        ray.get([server.sleep.remote() for server in self.async_llm_servers])
 
         # Init user provided chat scheduler in sperate thread.
         self.chat_scheduler: ChatCompletionScheduler = None
