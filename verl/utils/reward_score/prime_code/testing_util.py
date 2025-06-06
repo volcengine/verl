@@ -48,23 +48,6 @@ class CODE_TYPE(Enum):
     call_based = 0
     standard_input = 1
 
-
-# stuff for setting up signal timer
-class TimeoutException(Exception):
-    pass
-
-
-def timeout_handler(signum, frame):
-    print("alarm went off")
-    return
-    # raise TimeoutException # this is an unhandled exception. just return None is OK
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
-
-# timeout = 6  # seconds
-
-
 # used to capture stdout as a list
 # from https://stackoverflow.com/a/16571630/6416660
 # alternative use redirect_stdout() from contextlib
@@ -125,7 +108,6 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
 
     if test is None:
         raise AssertionError("should not happen: test code is none")
-        return in_outs, {"error": "no test code provided"}
     elif test is not None:
         results = []
         sol = "from string import *\nfrom re import *\nfrom datetime import *\nfrom collections import *\nfrom heapq import *\nfrom bisect import *\nfrom copy import *\nfrom math import *\nfrom random import *\nfrom statistics import *\nfrom itertools import *\nfrom functools import *\nfrom operator import *\nfrom io import *\nfrom sys import *\nfrom json import *\nfrom builtins import *\nfrom typing import *\nimport string\nimport re\nimport datetime\nimport collections\nimport heapq\nimport bisect\nimport copy\nimport math\nimport random\nimport statistics\nimport itertools\nimport functools\nimport operator\nimport io\nimport sys\nimport json\nsys.setrecursionlimit(6*10**5)\n"  # noqa: E501
@@ -306,24 +288,10 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                     if debug:
                         print(f"Standard input runtime error or time limit exceeded error = {e}")
                     results.append(-1)
-                    if "timeoutexception" in repr(e).lower():
-                        return results, {
-                            "error": repr(e),
-                            # "error_code": -3,
-                            # "error_message": "Time Limit Exceeded",
-                            # "inputs": raw_inputs,
-                            # "expected": raw_outputs,
-                            "traceback": clean_traceback(error_traceback),
-                        }
-                    else:
-                        return results, {
-                            "error": repr(e),
-                            # "error_code": -4,
-                            # "error_message": "Runtime Error",
-                            # "inputs": raw_inputs,
-                            # "expected": raw_outputs,
-                            "traceback": clean_traceback(error_traceback),
-                        }
+                    return results, {
+                        "error": repr(e),
+                        "traceback": clean_traceback(error_traceback),
+                    }
                 faulthandler.disable()
                 signal.alarm(0)
                 if debug:
@@ -350,24 +318,10 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         error_traceback = traceback.format_exc()
                         print(f"Call-based runtime error or time limit exceeded error = {repr(e)}{e}")
                         results.append(-1)
-                        if "timeoutexception" in repr(e).lower():
-                            return results, {
-                                "error": repr(e),
-                                # "error_code": -3,
-                                # "error_message": "Time Limit Exceeded",
-                                # "inputs": raw_inputs,
-                                # "expected": raw_outputs,
-                                "traceback": clean_traceback(error_traceback),
-                            }
-                        else:
-                            return results, {
-                                "error": repr(e),
-                                # "error_code": -4,
-                                # "error_message": "Runtime Error",
-                                # "inputs": raw_inputs,
-                                # "expected": raw_outputs,
-                                "traceback": clean_traceback(error_traceback),
-                            }
+                        return results, {
+                            "error": repr(e),
+                            "traceback": clean_traceback(error_traceback),
+                        }
                     signal.alarm(0)
                 raw_true_output = output[0]
                 raw_true_output_copy = truncatefn(raw_true_output, 200)
@@ -442,10 +396,6 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
                         print(f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}")
                     else:
                         print(f"@1 output = {output}, test outputs = {in_outs['outputs'][index]}, inputs = {inputs}, {type(inputs)}, {output == [in_outs['outputs'][index]]} {tmp_result=}")
-
-                if tmp_result is True:
-                    results.append(tmp_result)
-                    continue
 
                 if debug:
                     print(f"{tmp_result=} @a")
@@ -655,7 +605,6 @@ def reliability_guard(maximum_memory_bytes=None):
     os.chmod = None
     os.chown = None
     os.chroot = None
-    os.fchdir = None
     os.lchflags = None
     os.lchmod = None
     os.lchown = None

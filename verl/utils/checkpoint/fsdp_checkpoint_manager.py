@@ -18,28 +18,34 @@ from typing import Optional, Union
 
 import torch
 import torch.distributed
+from accelerate import init_empty_weights
+from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
-from transformers import PreTrainedTokenizer, ProcessorMixin
+from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
+from verl.utils.device import is_cuda_available
 from verl.utils.fs import copy_to_local, is_non_local
+from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
 
 from .checkpoint_manager import BaseCheckpointManager
 
 
 class FSDPCheckpointManager(BaseCheckpointManager):
     """
-    A checkpoint manager that saves and loads
-    - model
-    - optimizer
-    - lr_scheduler
-    - extra_states
-    in a SPMD way.
+    Manage FSDP checkpointing in SPMD training.
 
-    We save
-    - sharded model states and optimizer states
-    - full lr_scheduler states
-    - huggingface tokenizer/processor and config for ckpt merge
+    - Saves/loads per-rank sharded model & optimizer states
+    - Persists full lr_scheduler and RNG state
+    - Stores HF tokenizer/processor and model/config for unified restore
+
+    Args:
+        model (FSDP): Wrapped model instance.
+        optimizer (Optimizer): Training optimizer.
+        lr_scheduler (LRScheduler): Learning-rate scheduler.
+        processing_class (PreTrainedTokenizer or ProcessorMixin, optional):
+            Pre-/post-processing artifact handler.
+        checkpoint_contents (list[str], optional):
+            Components to include; must contain 'model', 'optimizer', 'extra'.
     """
 
     def __init__(
@@ -68,6 +74,18 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         )
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
+        """
+        Load an FSDP checkpoint for this rank.
+
+        Downloads and loads:
+          - model and optimizer shards
+          - extra state dict (scheduler + RNG)
+
+        Args:
+            local_path: Directory with per-rank checkpoint files.
+            hdfs_path: Unused (for API compatibility).
+            del_local_after_load: Remove local files after loading.
+        """
         if local_path is None:
             return
 
@@ -94,9 +112,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         lr_scheduler_state_dict = extra_state_dict["lr_scheduler"]
 
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-        with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
             self.model.load_state_dict(model_state_dict)
             if self.optimizer is not None:
                 self.optimizer.load_state_dict(optimizer_state_dict)
@@ -109,6 +127,23 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
 
     def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+        """
+        Save an FSDP checkpoint for this rank.
+
+        Writes:
+          - model & optimizer shard files
+          - extra state dict (scheduler + RNG)
+          - HF tokenizer/processor and model/config on rank 0
+          - optional full HF model under 'huggingface/' if requested
+
+        Rotates old checkpoints, keeping at most `max_ckpt_to_keep`.
+
+        Args:
+            local_path: Target directory for checkpoint files.
+            hdfs_path: Unused (for API compatibility).
+            global_step: Current training step (used for bookkeeping).
+            max_ckpt_to_keep: Number of recent checkpoints to retain.
+        """
         if local_path is None:
             return
 
@@ -125,11 +160,11 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         torch.distributed.barrier()
 
         # every rank will save its own model and optim shard
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
+        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
+        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True if is_cuda_available else False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
+            with get_fsdp_state_ctx(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
                 model_state_dict = self.model.state_dict()
                 optimizer_state_dict = self.optimizer.state_dict() if self.optimizer is not None else None
                 lr_scheduler_state_dict = self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None
@@ -149,16 +184,69 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
 
+        if self.rank == 0:
+            if fsdp_version(self.model) == 1:
+                unwrap_model = self.model._fsdp_wrapped_module
+            else:
+                unwrap_model = self.model
+
+            model_config = unwrap_model.config
+            if unwrap_model.can_generate() and hasattr(model_config, "name_or_path") and model_config.name_or_path:
+                # Some model's name_or_path is empty if not initialized from pretrained,
+                # in this cases, we don't save generation config.
+                generation_config = GenerationConfig.from_pretrained(model_config.name_or_path)
+                generation_config.save_pretrained(local_path)
+            else:
+                generation_config = None
+
+            model_config.save_pretrained(local_path)
+            self.processing_class.save_pretrained(local_path)
+
+        # wait for everyone to dump to local
+        torch.distributed.barrier()
+
         if "hf_model" in self.checkpoint_contents:
-            # wait for everyone to dump to local
-            torch.distributed.barrier()
+            hf_local_path = os.path.join(local_path, "huggingface")
+            os.makedirs(hf_local_path, exist_ok=True)
+
+            # Only rank 0 will save hf model and,
+            # offload to cpu to save LLMs which may be too large to fit in one GPU
+            state_dict_config = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with get_fsdp_state_ctx(self.model, StateDictType.FULL_STATE_DICT, state_dict_config, None):
+                state_dict = self.model.state_dict()
 
             if self.rank == 0:
-                hf_local_path = os.path.join(local_path, "huggingface")
-                os.makedirs(hf_local_path, exist_ok=True)
-                self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
-                self.processing_class.save_pretrained(hf_local_path)
+                if "ForTokenClassification" in model_config.architectures[0]:
+                    from transformers import AutoModelForTokenClassification
 
-        torch.distributed.barrier()
+                    auto_model_cls = AutoModelForTokenClassification
+                elif "ForCausalLM" in model_config.architectures[0]:
+                    from transformers import AutoModelForCausalLM
+
+                    auto_model_cls = AutoModelForCausalLM
+                elif "ForConditionalGeneration" in model_config.architectures[0]:
+                    from transformers import AutoModelForVision2Seq
+
+                    auto_model_cls = AutoModelForVision2Seq
+                else:
+                    raise NotImplementedError(f"Unknown architecture {model_config['architectures']}")
+
+                with init_empty_weights():
+                    save_model = auto_model_cls.from_config(model_config, torch_dtype=torch.bfloat16)
+                save_model.to_empty(device="cpu")
+
+                if save_model.can_generate():
+                    if generation_config is not None:
+                        save_model.generation_config = generation_config
+                    else:
+                        print(f"Warning: {self.__class__.__name__}.save_checkpoint: Generation config file not found in, using a generation config created from the model config when saving hf_model.")
+
+                save_model.save_pretrained(hf_local_path, state_dict=state_dict)
+                self.processing_class.save_pretrained(hf_local_path)
+                del state_dict
+                del save_model
+
+            # wait for rank0 to dump hf_model to local
+            torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)

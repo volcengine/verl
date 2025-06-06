@@ -110,6 +110,11 @@ def main(config):
     local_path = copy_to_local(config.actor_rollout_ref.model.path)
     local_path = os.path.expanduser(local_path)
     # instantiate tokenizern
+    from transformers import LlamaConfig
+
+    from tests.e2e.envs.digit_completion import CharTokenizer
+
+    AutoTokenizer.register(LlamaConfig, CharTokenizer, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(local_path)
     print(f"Tokenizer vocab_size: {tokenizer.vocab_size}")
 

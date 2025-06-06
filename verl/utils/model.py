@@ -47,8 +47,16 @@ def squeeze(x):
 
 
 def update_model_config(module_config, override_config_kwargs):
+    """Update the module config with the override_config_kwargs.
+    Args:
+        module_config: The module config from Huggingface Transformers.
+        override_config_kwargs: The kwargs to override the module config.
+    """
     for key, val in override_config_kwargs.items():
-        setattr(module_config, key, val)
+        if isinstance(val, dict):
+            update_model_config(getattr(module_config, key), val)
+        else:
+            setattr(module_config, key, val)
 
 
 def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
@@ -197,20 +205,13 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
-def normalize_model_name(name, pp_rank, vpp_rank, pp_size, vpp_size, num_layers, layer_name="layers"):
+def normalize_model_name(name, pp_rank, vpp_rank, transformer_config, layer_name="layers"):
     """
     Transform the model name in each model_chunk in each pp stage into the name in inference engine
     """
-    if vpp_size > 1:
-        # print(f'try to bind vpp params to inference engine...')
-        layers_per_pp = num_layers // pp_size
-        layers_per_vpp = layers_per_pp // vpp_size
-        pp_offset = layers_per_vpp * pp_rank
-        vpp_offset = (layers_per_vpp * pp_size) * vpp_rank
-        layer_offset = pp_offset + vpp_offset
-    else:
-        layers_per_pp = num_layers // pp_size
-        layer_offset = layers_per_pp * pp_rank
+    from verl.utils.megatron_utils import get_transformer_layer_offset
+
+    layer_offset = get_transformer_layer_offset(pp_rank, vpp_rank, transformer_config)
 
     if layer_name in name:  # belong to an intermediate layer
         split_name = name.split(".")
@@ -288,7 +289,7 @@ def _load_hf_model(config, model_config, is_value_model, local_cache_path):
         from verl.utils.fs import copy_to_local
 
         print(f"start download from {config.model.path}")
-        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path)
+        local_model_path = copy_to_local(src=config.model.path, cache_dir=local_cache_path, use_shm=config.model.get('use_shm', False))
         print("finish download")
     else:
         local_model_path = config.model.path
@@ -397,11 +398,15 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
 def load_mcore_dist_weights(parallel_model, dist_weight_path, is_value_model=False):
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.serialization import StrictHandling
+    from megatron.core.models.gpt.gpt_model import GPTModel
 
     # strict = StrictHandling.IGNORE_ALL if is_value_model else StrictHandling.ASSUME_OK_UNEXPECTED
     strict = StrictHandling.ASSUME_OK_UNEXPECTED
     for model in parallel_model:
-        ssd = model.module.module.sharded_state_dict()
+        if isinstance(model.module, GPTModel):
+            ssd = model.module.sharded_state_dict()
+        else:
+            ssd = model.module.module.sharded_state_dict()
         if is_value_model:
             for k in list(ssd.keys()):
                 if "output_layer" in k:
@@ -434,7 +439,8 @@ def get_parallel_gptmodel_from_config(tfconfig, hf_config, pre_process=None, pos
         rotary_base=hf_config.rope_theta,
         **rope_scaling_args,
     )
-    # # for layer in parallel_model.decoder.layers: layer.self_attention.core_attention.flash_attention.softmax_scale = None
+    # # for layer in parallel_model.decoder.layers:
+    # layer.self_attention.core_attention.flash_attention.softmax_scale = None
     if post_process and value:
         from verl.models.llama.megatron.layers.parallel_linear import LinearForLastLayer
 

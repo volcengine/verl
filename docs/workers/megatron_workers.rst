@@ -77,7 +77,7 @@ MegatronWorker
 
 ``MegatronWorker`` is the base class of different megatron worker
 classes. In this class, ``get_megatron_global_info`` and
-``get_megatron_rank_info`` function to retrive the 3D parallel world
+``get_megatron_rank_info`` function to retrieve the 3D parallel world
 size and rank of each ``Worker`` running on specific GPU. These information
 will be used in transfer protocol for Megatron Backend.
 
@@ -171,7 +171,7 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/mega
   TP dimension. Therefore, the corresponding data should be dispatched
   and collected through the 3D parallel group of the rollout model,
   rather than the actor model. However, the world_size and rank
-  information can only be retrived from ``get_megatron_global_info`` and
+  information can only be retrieved from ``get_megatron_global_info`` and
   ``get_megatron_rank_info``, which records the 3D information for the
   actor model. Moreover, the data resharding inside TP dimension will be
   processed within the HybridEngine.
@@ -192,6 +192,13 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/mega
   same dp group, and ultimately only collects output data from tp=0 and
   the last pp.
 - Update the actor model weight using PPO & entropy loss.
+
+
+..note:: 
+
+   Currently, training Tensor Parallel Size can be different from inference
+   Tensor Parallel Size.
+
 
 ReferenceModel
 ''''''''''''''
@@ -294,3 +301,10 @@ specific rank, you can set the profile_ranks, by default, it will be [0].
    actor_rollout_ref.actor.profile.begin_step=0 \
    actor_rollout_ref.actor.profile.end_step=1 \
    actor_rollout_ref.actor.profile.save_path="./profile"
+
+
+Related MCore Document
+----------------------
+
+There is also a detailed document of using MCore to train different
+kinds of models, please refer to `MCore Document <https://github.com/volcengine/verl/blob/main/verl/models/mcore/readme.md>`_.
