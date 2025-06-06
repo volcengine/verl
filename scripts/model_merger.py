@@ -477,8 +477,10 @@ class MegatronModelMerger(BaseModelMerger):
 
         Now the model merger only supports keys that start with "decoder" in TransformerLayer.
         """
-        if key in ["embedding.word_embeddings.weight", "output_layer.weight"]:
-            return
+        skip_checking_keys = ["embedding.word_embeddings", "output_layer"]
+        for skip_key in skip_checking_keys:
+            if skip_key in key:
+                return
 
         # Exclude extra state keys
         if not key.startswith("decoder"):
