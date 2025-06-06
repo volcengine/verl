@@ -6,7 +6,7 @@ The migration has been successful with the help of the mcore team and the commun
 2. migrate `LlamaForCausalLM` and `Qwen2ForCausalLM` to mcore `GPTModel`
 3. support sequence packing/thd format.
 4. support `tensor parallel`, `pipeline parallel`, `sequence parallel`, `virtual pipeline parallel`, `context parallel`.
-5. support the mcore `dist_checkpointing` feature and a basic offline weighs conversion scipt from huggingface to mcore `dist_checkpointing` format.
+5. support the mcore `dist_checkpointing` feature and a basic offline weighs conversion script from huggingface to mcore `dist_checkpointing` format.
 
 We are working on the following features:
 - support `Qwen2MoeForCausalLM`
@@ -15,7 +15,7 @@ We are working on the following features:
 - support `expert parallel`
 
 Features we invite the community to contribute:
-- better scipts for offline weights conversion from huggingface to mcore `dist_checkpointing` format.
+- better scripts for offline weights conversion from huggingface to mcore `dist_checkpointing` format.
     - conversion of large models with multiple GPUs
     - conversion of large models with single GPU
 - refactor the `megatron_checkpoint_manager.py` by `dist_checkpointing` format.
@@ -33,7 +33,7 @@ main steps:
     - a. convert the huggingface config to mcore `TransformerConfig`
     - b. init the mcore `GPTModel` with the converted config
     - c. load the huggingface model weights to the `GPTModel`
-2. online weight conversion from mcore to huggingface (due the the rollout engine `vLLM` is using huggingface format)
+2. online weight conversion from mcore to huggingface (due to the rollout engine `vLLM` is using huggingface format)
     - a. bridge the gap between mcore and huggingface weights format and name mapping
     - b. online resharding the mcore weights to rollout engine
         - this part is very complicated with multiple parallel strategies composition between mcore and rollout engine
@@ -70,7 +70,7 @@ Features about parallel strategies should be supported with changes about the on
 ### checkpointing
 The existing checkpointing code is in `verl/utils/checkpoint/megatron_checkpoint_manager.py`. And the script to convert checkpoint to huggingface format is in `verl/scripts/model_merger.py`.
 
-The existing checkpoint format is simplely save every rank's weights and optimizer states. It should be refactored by `dist_checkpointing` format.
+The existing checkpoint format simply saves every rank's weights and optimizer states. It should be refactored by `dist_checkpointing` format.
 
 
 ## How to support new models
@@ -82,7 +82,7 @@ The existing checkpoint format is simplely save every rank's weights and optimiz
     - d. for VLM the interface might be different, it is ok to add a new model class with GPTModel as its module.
 3. offline weights conversion from huggingface to mcore `dist_checkpointing` format
 4. support online weights conversion from mcore to huggingface
-    - it is recommended to initilize a vLLM model with the converted mcore weights, and then test if the generating sequence is correct.
+    - it is recommended to initialize a vLLM model with the converted mcore weights, and then test if the generating sequence is correct.
 
 
 ## How to scale up to larger models like deepseek-v3 or other 100B+ models
@@ -96,4 +96,4 @@ The necessary features under development for scaling up are
     - expert parallel
     - more efficient and general weight resharding and loading
 3. Offline weights conversion
-    - support weights larger then single GPU memory
+    - support weights larger than single GPU memory

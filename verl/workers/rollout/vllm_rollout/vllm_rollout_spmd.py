@@ -386,7 +386,7 @@ class vLLMAsyncRollout:
     def load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
 
-        # inference engine is intialized now, update sharding manager
+        # inference engine is initialized now, update sharding manager
         self.sharding_manager.inference_engine = self.inference_engine
         self.sharding_manager.model_runner = self.inference_engine.worker.model_runner
 

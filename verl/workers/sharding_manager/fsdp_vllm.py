@@ -52,7 +52,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
     @check_cuda_is_available()
     def __init__(self, module: FSDP, inference_engine: LLM, model_config, full_params: bool = False, device_mesh: DeviceMesh = None, offload_param: bool = False, load_format: str = "dummy_hf", layered_summon: bool = True):
         self.module = module
-        # For AsyncLLM, inference_engine and model_runner are defer intialized in vLLMAsyncRollout.load_model
+        # For AsyncLLM, inference_engine and model_runner are defer initialized in vLLMAsyncRollout.load_model
         self.inference_engine = inference_engine
         # self.model_runner = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner if inference_engine else None
 

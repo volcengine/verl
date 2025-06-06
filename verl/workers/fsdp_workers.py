@@ -1438,10 +1438,19 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
             print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
         return self.rollout.execute_method(method, *args, **kwargs)
 
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def resume(self):
-        return self.rollout.resume()
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def offload(self):
-        return self.rollout.offload()
+    async def wake_up(self):
+        await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        await self.rollout.sleep()
+        # return something to block the caller
+        return True
