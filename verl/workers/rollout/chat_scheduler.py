@@ -99,7 +99,10 @@ class ToolCompletionCallback(CompletionCallback):
         # TODO: add reward manager to calculate reward score once a sample finish
 
     async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
-        messages.append(completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True))
+        message = completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True)
+        if "content" not in message:
+            message["content"] = ""
+        messages.append(message)
         finish_reason = completions.choices[0].finish_reason
 
         # STEP 0: check if we reach max turns
@@ -157,11 +160,11 @@ class ToolCompletionCallback(CompletionCallback):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
 
         # prompts: [prompt] from input dataset
-        prompts = [self.tokenizer.apply_chat_template(prompt, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
+        prompts = [self.tokenizer.apply_chat_template(prompt, tools=self.tool_schemas, add_generation_prompt=True, tokenize=False) for prompt in batch.non_tensor_batch["raw_prompt"]]
         assert len(batch_conversations) == len(prompts) * n
 
         # sequences: [prompt + response]
-        sequences = [self.tokenizer.apply_chat_template(conversation, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
+        sequences = [self.tokenizer.apply_chat_template(conversation, tools=self.tool_schemas, add_generation_prompt=False, tokenize=False) for conversation in batch_conversations]
 
         # responses: [response]
         responses = [sequence[len(prompts[i // n]) :] for i, sequence in enumerate(sequences)]
