@@ -154,7 +154,7 @@ class ChatCompletionScheduler:
                 - exception: exception raise from OpenAI client if request failed, otherwise None.
 
                 **CAUTION**: the callback function must be async and non-blocking, if you have any blocking operation,
-                please move to seperate thread or process pool to avoid blocking the event loop.
+                please move to separate thread or process pool to avoid blocking the event loop.
 
             callback_additional_info: Dict[str, Any], additional info to pass to the callback function.
 
