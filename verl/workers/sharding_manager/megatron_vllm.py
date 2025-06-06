@@ -44,7 +44,7 @@ from verl.utils.memory_buffer import (
     build_memory_reference_from_module,
     get_weight_buffer_meta_from_module,
 )
-from verl.utils.torch_functional import check_cuda_is_available
+from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import patch_vllm_moe_model_weight_loader
 
 from .base import BaseShardingManager
@@ -264,7 +264,7 @@ _MICRO_DATA_PARALLEL_GROUP = None
 
 
 class MegatronVLLMShardingManager(BaseShardingManager):
-    @check_cuda_is_available()
+    @check_device_is_available()
     def __init__(
         self,
         actor_module: nn.ModuleList,
