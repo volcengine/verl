@@ -77,7 +77,7 @@ MegatronWorker
 
 ``MegatronWorker`` is the base class of different megatron worker
 classes. In this class, ``get_megatron_global_info`` and
-``get_megatron_rank_info`` function to retrive the 3D parallel world
+``get_megatron_rank_info`` function to retrieve the 3D parallel world
 size and rank of each ``Worker`` running on specific GPU. These information
 will be used in transfer protocol for Megatron Backend.
 
@@ -171,7 +171,7 @@ See `source code <https://github.com/volcengine/verl/blob/main/verl/workers/mega
   TP dimension. Therefore, the corresponding data should be dispatched
   and collected through the 3D parallel group of the rollout model,
   rather than the actor model. However, the world_size and rank
-  information can only be retrived from ``get_megatron_global_info`` and
+  information can only be retrieved from ``get_megatron_global_info`` and
   ``get_megatron_rank_info``, which records the 3D information for the
   actor model. Moreover, the data resharding inside TP dimension will be
   processed within the HybridEngine.
