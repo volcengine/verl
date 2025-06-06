@@ -4,11 +4,11 @@ ENGINE=${1:-vllm}
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-TRAIN_FILES=$HOME/data/subtask_direct_distill/mix/train/executor.parquet # "[\"$HOME/data/subtask_direct_distill/mix/train/executor.parquet\", \"$HOME/data/subtask_direct_distill/mix/train/reward_model.parquet\"]"
-VAL_FILES=$HOME/data/subtask_direct_distill/mix/test/executor.parquet # "[\"$HOME/data/subtask_direct_distill/mix/test/executor.parquet\", \"$HOME/data/subtask_direct_distill/mix/test/reward_model.parquet\"]"
+TRAIN_FILES=$HOME/data/subtask_direct_distill/mix/train/combined.parquet
+VAL_FILES=$HOME/data/subtask_direct_distill/mix/test/combined.parquet
 
 REWARD_FILE=orby/reward/subtask.py
-REWARD_FN=reward_func
+REWARD_FN=training_reward_func
 
 echo "If you encounter OOM, try tweaking the following parameters:"
 echo "data.train_batch_size"
@@ -18,14 +18,14 @@ echo "actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu"
 echo "actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu"
 echo "actor_rollout_ref.rollout.n"
 
-python3 -m orby.trainer.main_ppo \
+python3 -m verl.trainer.main_ppo \
     custom_reward_function.path=$REWARD_FILE \
     custom_reward_function.name=$REWARD_FN \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_FILES \
     data.val_files=$VAL_FILES \
     data.train_batch_size=32 \
-    +data.max_prompt_length=7680 \
+    data.max_prompt_length=7680 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \

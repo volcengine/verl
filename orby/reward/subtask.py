@@ -8,6 +8,10 @@ import numpy as np
 
 from orby.utils.action_utils import get_action_info, extract_content_by_tags
 
+# TODO: if we can get the bounding box information, investigate which reward is better
+# TODO: explore other sigma values and distance metrics that gives more signals when far away
+GAUSSIAN_DISTANCE_SIGMA = 70
+
 
 class UISubtaskRewardScorer:
     """Reward scorer for UI Subtask task."""
@@ -47,7 +51,7 @@ class UISubtaskRewardScorer:
         ).ratio()
         return similarity >= threshold
 
-    def _score_reward_model(self, prediction: str, ground_truth: dict) -> dict:
+    def _score_reward_model(self, prediction: str, ground_truth: dict, detailed: bool) -> dict:
         """
         Score the prediction against ground truth for reward model.
 
@@ -110,13 +114,28 @@ class UISubtaskRewardScorer:
             + goal_achieved_score * self.reward_model_weights["goal_achieved"]
             + answer_score * self.reward_model_weights["answer"]
         )
-        details = {
-            "score": score,
-            "format": format_score,
-            "should_end": should_end_score,
-            "goal_achieved": goal_achieved_score,
-            "answer": answer_score,
-        }
+
+        if detailed:
+            details = {
+                "score": score,
+                "format": format_score,
+                "reward_model/reward": score,
+                "reward_model/format": format_score,
+                "reward_model/should_end": should_end_score,
+                "reward_model/goal_achieved": goal_achieved_score,
+                "reward_model/answer": answer_score,
+            }
+        else:
+            details = {
+                "score": score,
+                "format": format_score,
+                "executor/action_type": 0,
+                "executor/coordinates": 0,
+                "executor/action_args": 0,
+                "reward_model/should_end": should_end_score,
+                "reward_model/goal_achieved": goal_achieved_score,
+                "reward_model/answer": answer_score,
+            }
 
         return details
 
@@ -151,9 +170,9 @@ class UISubtaskRewardScorer:
 
         scores = []
         for pred_coord, gt_coord in zip(pred_coordinates, gt_coordinates):
-            # Use a Gaussian similarity score with a sigma of 2
             # TODO: if we can get the bounding box information, investigate which reward is better
-            sigma = 2
+            # TODO: explore other sigma values and distance metrics that gives more signals when far away
+            sigma = GAUSSIAN_DISTANCE_SIGMA
             pred = np.asarray(pred_coord)
             truth = np.asarray(gt_coord)
             d2 = np.sum((pred - truth) ** 2)
@@ -193,7 +212,9 @@ class UISubtaskRewardScorer:
 
         return np.mean(scores)
 
-    def _score_executor(self, prediction: str, ground_truth: dict) -> dict:
+    def _score_executor(
+        self, prediction: str, ground_truth: dict, detailed: bool
+    ) -> dict:
         """
         Score the prediction against ground truth for executor.
 
@@ -252,23 +273,44 @@ class UISubtaskRewardScorer:
             + coordinates_score * self.executor_weights["coordinates"]
             + action_args_score * self.executor_weights["action_args"]
         )
-        details = {
-            "score": score,
-            "format": format_score,
-            "action_type": action_type_score,
-            "coordinates": coordinates_score,
-            "action_args": action_args_score,
-            "in_action_space": not action_type_parser_error,
-        }
 
-        # Aggregate action-type-wise scores
-        if not action_type_parser_error:
-            details[f"{gt_action_info['action_type']}/coordinates"] = coordinates_score
-            details[f"{gt_action_info['action_type']}/action_args"] = action_args_score
+        if detailed:
+            details = {
+                "score": score,
+                "format": format_score,
+                "executor/score": score,
+                "executor/format": format_score,
+                "executor/action_type": action_type_score,
+                "executor/coordinates": coordinates_score,
+                "executor/action_args": action_args_score,
+                "executor/in_action_space": not action_type_parser_error,
+            }
+
+            # Aggregate action-type-wise scores
+            if not action_type_parser_error:
+                details[f"executor/coordinates/{gt_action_info['action_type']}"] = (
+                    coordinates_score
+                )
+                details[f"executor/action_args/{gt_action_info['action_type']}"] = (
+                    action_args_score
+                )
+        else:
+            details = {
+                "score": score,
+                "format": format_score,
+                "executor/action_type": action_type_score,
+                "executor/coordinates": coordinates_score,
+                "executor/action_args": action_args_score,
+                "reward_model/should_end": 0,
+                "reward_model/goal_achieved": 0,
+                "reward_model/answer": 0,
+            }
 
         return details
 
-    def score(self, prediction: str, ground_truth: dict) -> dict:
+    def score(
+        self, prediction: str, ground_truth: dict, detailed: bool = True
+    ) -> dict:
         """Score the prediction against ground truth.
 
         Args:
@@ -295,17 +337,26 @@ class UISubtaskRewardScorer:
             and "should_end" in gt_keys
             and "goal_achieved" in gt_keys
             and "answer" in gt_keys
+            and ("action" not in gt_keys or not ground_truth["action"])
+            and ("thinking" not in gt_keys or not ground_truth["thinking"])
         ):
-            result = self._score_reward_model(prediction, ground_truth)
-        elif "thinking" in gt_keys and "action" in gt_keys:
-            result = self._score_executor(prediction, ground_truth)
+            result = self._score_reward_model(prediction, ground_truth, detailed)
+        elif (
+            "thinking" in gt_keys
+            and "action" in gt_keys
+            and ("reasoning" not in gt_keys or not ground_truth["reasoning"])
+            and ("should_end" not in gt_keys or not ground_truth["should_end"])
+            and ("goal_achieved" not in gt_keys or not ground_truth["goal_achieved"])
+            and ("answer" not in gt_keys or not ground_truth["answer"])
+        ):
+            result = self._score_executor(prediction, ground_truth, detailed)
         else:
             raise ValueError("Invalid ground truth type")
 
         return result
 
 
-def compute_score(prediction: str, ground_truth: dict) -> dict:
+def compute_score(prediction: str, ground_truth: dict, detailed: bool = True) -> dict:
     """Compute score for a single prediction.
 
     Args:
@@ -313,14 +364,23 @@ def compute_score(prediction: str, ground_truth: dict) -> dict:
         ground_truth: Dictionary containing ground truth information
     """
     scorer = UISubtaskRewardScorer()
-    result = scorer.score(prediction, ground_truth)
+    result = scorer.score(prediction, ground_truth, detailed=detailed)
     return result
 
 
-def reward_func(data_source, solution_str, ground_truth, extra_info=None):
+def training_reward_func(data_source, solution_str, ground_truth, extra_info=None):
     if data_source == "subtask_direct_distill":
         from orby.reward import subtask
 
-        return subtask.compute_score(solution_str, ground_truth)
+        return subtask.compute_score(solution_str, ground_truth, detailed=False)
+    else:
+        raise NotImplementedError
+
+
+def eval_reward_func(data_source, solution_str, ground_truth, extra_info=None):
+    if data_source == "subtask_direct_distill":
+        from orby.reward import subtask
+
+        return subtask.compute_score(solution_str, ground_truth, detailed=True)
     else:
         raise NotImplementedError
