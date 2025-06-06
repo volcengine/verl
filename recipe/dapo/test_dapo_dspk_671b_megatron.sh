@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-# Note that we set the response length to 4k. This results in many truncations at the beginning.
-# So the training dynamic acts as using RL to compress the math capabilities of QWen3 236b into 4k response instead of verbose thinking.
-# We can achieve 0.5 on AIME'24 after 30 steps.
+# 0. download the config
+# only need to download the configuration_deepseek.py and config.json
+# remove the `quantization_config` in the `config.json`
+# set `num_nextn_predict_layers=0` to disable MTP, which is not currently supported
+huggingface-cli download deepseek-ai/DeepSeek-V3-0324 configuration_deepseek.py config.json
 
 project_name='DAPO'
-exp_name='DAPO-Qwen3-236b-megatron-0531a1'
+exp_name='DAPO-DeepSeek-671b-megatron'
 
 adv_estimator=grpo
 
@@ -26,25 +28,24 @@ overlong_penalty_factor=0.1
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=256
-n_resp_per_prompt=4
-train_prompt_mini_bsz=16
+train_prompt_bsz=512 # must be > n_gpus. need to fix
+n_resp_per_prompt=2
+train_prompt_mini_bsz=16  # mini_bsz * n >= micro_bsz * pp * dp
 
-# H20 GPUs
-NNODES=${NNODES:-32}
+NNODES=${NNODES:-64}
 
+# 1. download the dist_ckpt format model from https://huggingface.co/BearBiscuit05/dpsk-v3-671B-BF16-dist_ckpt/tree/main
+# change the MODEL_PATH and MCORE_MODEL_PATH to your own path
 # Paths
-
+MODEL_PATH="<path_to_dsv3_config>"
+MCORE_MODEL_PATH="<path_to_dpsk-v3-671B-BF16-dist_ckpt>"
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+aime24_test_path=${RAY_DATA_HOME}/data/aime-2024.parquet
+# TEST_FILE="['$math500_test_path', '$aime24_test_path']"
 
-MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-235B-A22B
-MCORE_MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-235B-A22B_dist_ckpt_mcore/
-
-# convert QWen3-235b-A22b to dist ckpt of mcore. Conversion process will take about 4 hours
-# python scripts/converter_hf_to_mcore.py --hf_model_path $MODEL_PATH --output_path $MCORE_MODEL_PATH --use_cpu_initialization
-CKPTS_DIR=$RAY_DATA_HOME/ckpt/${project_name}/${exp_name}
-TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet
-TEST_FILE=$RAY_DATA_HOME/dataset/aime-2024.parquet
+TEST_FILE="['$aime24_test_path']"
 
 # Algorithm
 temperature=1.0
@@ -53,11 +54,14 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
+use_dynamic_bsz=True
+actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
+infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
-gen_tp=8
-train_tp=4
-train_ep=4
-train_pp=8
+gen_tp=32
+train_tp=1
+train_ep=32
+train_pp=16
 
 python3 -m verl.trainer.main_ppo \
     --config-path=config \
@@ -78,9 +82,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -95,12 +99,12 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.megatron.expert_model_parallel_size=${train_ep} \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=${MCORE_MODEL_PATH} \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=5 \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=5 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_first_pipeline_stage=3 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=2 \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.optim.clip_grad=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
@@ -130,10 +134,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=False \
-    trainer.test_freq=10 \
-    trainer.save_freq=20 \
+    trainer.test_freq=5 \
+    trainer.save_freq=5 \
     trainer.total_epochs=10 \
-    trainer.total_training_steps=100 \
+    trainer.total_training_steps=10 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
     trainer.log_val_generations=10
