@@ -19,6 +19,7 @@ import logging
 import os
 import time
 import warnings
+from typing import Union
 
 import torch
 import torch.distributed
@@ -308,7 +309,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
-
+        print(f"rollout and sharding manager init done sharding_manager: {sharding_manager}")
         return rollout, sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -362,6 +363,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         if self._is_rollout:
             self.rollout, self.sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+            # used for sleep/wake_up
+            self.rollout.sharding_manager = self.sharding_manager
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
@@ -546,6 +549,47 @@ class ActorRolloutRefWorker(MegatronWorker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+
+
+class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
+    def _build_rollout(self, trust_remote_code=False):
+        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
+
+        # NOTE: rollout is not actually initialized here, it's deferred
+        # to be initialized by AsyncvLLMServer.
+
+        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
+        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
+        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
+
+        # used for sleep/wake_up
+        rollout.sharding_manager = rollout_sharding_manager
+
+        return rollout, rollout_sharding_manager
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        """Called by ExternalRayDistributedExecutor collective_rpc."""
+        if self.vllm_tp_rank == 0 and method != "execute_model":
+            print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
+        return self.rollout.execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        await self.rollout.sleep()
+        # return something to block the caller
+        return True
 
 
 class CriticWorker(MegatronWorker):
