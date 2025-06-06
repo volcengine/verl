@@ -22,6 +22,7 @@ import warnings
 from dataclasses import asdict
 from typing import Union
 
+from pprint import pprint
 import psutil
 import torch
 import torch.distributed
@@ -98,7 +99,17 @@ class ActorRolloutRefWorker(Worker):
     """
 
     def __init__(self, config: DictConfig, role: str):
-        super().__init__()
+        self.profile_discrete = (config.actor.get("profile_discrete", False)
+                            or config.rollout.get("profile_discrete", False)
+                            or config.ref.get("profile_discrete", False))
+        profile_ranks_all = (config.actor.get("profile_ranks_all", False)
+                            or config.rollout.get("profile_ranks_all", False)
+                            or config.ref.get("profile_ranks_all", False))
+        profile_ranks = ([] if config.actor.profile_ranks is None else config.actor.profile_ranks
+                        ) + ([] if config.rollout.profile_ranks is None else config.rollout.profile_ranks
+                        ) + ([] if config.ref.profile_ranks is None else config.ref.profile_ranks)
+
+        super().__init__(profile_discrete=self.profile_discrete, profile_ranks=profile_ranks, profile_ranks_all=profile_ranks_all)
         self.config = config
         import torch.distributed
 
@@ -129,6 +140,10 @@ class ActorRolloutRefWorker(Worker):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+
+        self.profile_actor = self._is_actor and (self.config.actor.profile_ranks is not None)
+        self.profile_rollout = self._is_rollout and (self.config.rollout.profile_ranks is not None)
+        self.profile_ref = self._is_ref and (self.config.ref.profile_ranks is not None)
 
         self._is_offload_param = False
         self._is_offload_optimizer = False
@@ -566,6 +581,7 @@ class ActorRolloutRefWorker(Worker):
             )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="red")
     def update_actor(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
@@ -609,6 +625,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="red")
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(get_torch_device().current_device())
@@ -637,6 +654,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="blue")
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -680,6 +698,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="olive")
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -770,7 +789,9 @@ class ActorRolloutRefWorker(Worker):
 
 class CriticWorker(Worker):
     def __init__(self, config):
-        super().__init__()
+        profile_discrete = config.get("profile_discrete", False)
+        profile_ranks = config.profile_ranks
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -795,6 +816,8 @@ class CriticWorker(Worker):
         # set FSDP offload params
         self._is_offload_param = self.config.model.fsdp_config.param_offload
         self._is_offload_optimizer = self.config.model.fsdp_config.optimizer_offload
+
+        self.profile_critic = self.config.profile_ranks is not None
 
         # normalize config
         self.config.ppo_mini_batch_size *= self.config.rollout_n
@@ -1013,6 +1036,7 @@ class CriticWorker(Worker):
         )
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="cyan")
     def compute_values(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
@@ -1036,6 +1060,7 @@ class CriticWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="pink")
     def update_critic(self, data: DataProto):
         # Support all hardwares
         data = data.to(get_torch_device().current_device())
@@ -1108,7 +1133,9 @@ class RewardModelWorker(Worker):
     """
 
     def __init__(self, config):
-        super().__init__()
+        profile_discrete = config.get("profile_discrete", False)
+        profile_ranks = config.profile_ranks
+        super().__init__(profile_discrete=profile_discrete, profile_ranks=profile_ranks)
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -1131,6 +1158,8 @@ class RewardModelWorker(Worker):
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.use_remove_padding = self.config.model.get("use_remove_padding", False)
+
+        self.profile_reward = self.config.profile_ranks is not None
 
         # normalize config
         if self.config.micro_batch_size is not None:
@@ -1342,6 +1371,7 @@ class RewardModelWorker(Worker):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    @Worker.profile_annotate(color="brown")
     def compute_rm_score(self, data: DataProto):
         import itertools
 

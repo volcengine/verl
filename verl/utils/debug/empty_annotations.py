@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .performance import GPUMemoryLogger, log_gpu_memory_usage, log_print
-from ..import_utils import is_nvtx_available
+from typing import Optional
 
-if is_nvtx_available():
-    from .nvtx_annotations import mark_start_range, mark_end_range, mark_annotate
-else:
-    from .empty_annotations import mark_start_range, mark_end_range, mark_annotate
+def mark_start_range(message=None, color=None, domain=None, category=None):
+    pass
 
-__all__ = ["GPUMemoryLogger", "log_gpu_memory_usage", "mark_start_range", "mark_end_range", "mark_annotate"]
+def mark_end_range(range_id):
+    pass
+
+def mark_annotate(message=None, color=None, domain=None, category=None):
+    def decorator(func):
+        return func
+    return decorator
