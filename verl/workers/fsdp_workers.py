@@ -28,7 +28,7 @@ import torch.distributed
 import torch.distributed as dist
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict
-from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -178,7 +178,6 @@ class ActorRolloutRefWorker(Worker):
     ):
         from torch import optim
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
 
         from verl.utils.model import get_generation_config, print_model_size, update_model_config
@@ -726,17 +725,18 @@ class ActorRolloutRefWorker(Worker):
         self.checkpoint_manager.save_checkpoint(local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
         dist.barrier()
 
-        if self._is_lora and isinstance(self.actor_module, PeftModel):
+        if self._is_lora and hasattr(getattr(self, "actor_module", self.actor_module_fsdp), "peft_config"):
             lora_save_path = os.path.join(local_path, "lora_adapter")
+            peft_model = getattr(self, "actor_module", self.actor_module_fsdp)
             peft_config = {}
             if dist.get_rank() == 0:
                 os.makedirs(lora_save_path, exist_ok=True)
-                peft_config = asdict(self.actor_module.peft_config.get("default", {}))
+                peft_config = asdict(peft_model.peft_config.get("default", {}))
                 peft_config["task_type"] = peft_config["task_type"].value
                 peft_config["peft_type"] = peft_config["peft_type"].value
                 peft_config["target_modules"] = list(peft_config["target_modules"])
             try:
-                if isinstance(self.actor_module_fsdp, FSDP):
+                if fsdp_version(self.actor_module_fsdp) > 0:
                     self.actor_module_fsdp = self.actor_module_fsdp.cuda()
                     lora_params = layered_summon_lora_params(self.actor_module_fsdp)
                     if dist.get_rank() == 0:
@@ -813,7 +813,6 @@ class CriticWorker(Worker):
     def _build_critic_model_optimizer(self, config):
         # the following line is necessary
         from torch import optim
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         from torch.distributed.fsdp import MixedPrecision
 
         from verl.utils.model import print_model_size
@@ -1141,7 +1140,6 @@ class RewardModelWorker(Worker):
     def _build_model(self, config):
         # the following line is necessary
         from torch.distributed.fsdp import CPUOffload
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         from transformers import AutoConfig, AutoModelForTokenClassification
 
         use_shm = config.model.get("use_shm", False)
