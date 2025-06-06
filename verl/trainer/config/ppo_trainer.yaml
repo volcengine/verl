@@ -205,8 +205,6 @@ reward_model:
     use_shm: False
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: False
-    fused_kernel_options:
-      impl_backend: ${actor_rollout_ref.model.fused_kernel_options.impl_backend} # triton, torch
     trust_remote_code: False
     fsdp_config:
       wrap_policy:
