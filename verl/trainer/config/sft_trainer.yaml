@@ -13,6 +13,7 @@ data:
   multiturn:
     enable: false  # Set to true to use multi-turn dataset
     messages_key: messages  # Key for messages list in multi-turn mode
+    tools_key: tools # Key for tool list in multi-turn mode
   max_length: 1024
   truncation: error
   balance_dp_token: False
