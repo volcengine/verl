@@ -17,6 +17,7 @@
 This file contains a Megatron style Hybrid Engine that shares the weights of the actor with the inference engine.
 """
 
+import asyncio
 import logging
 import os
 
@@ -27,6 +28,7 @@ from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.debug.performance import _timer
 from verl.utils.megatron_utils import per_tensor_generator
 
 from .base import BaseShardingManager
@@ -82,24 +84,27 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
-        per_tensor_param = per_tensor_generator(
-            self.actor_module,
-            self.model_config,
-            self.weight_converter,
-            self.transformer_config,
-            self.layer_name_mapping,
-        )
-        self.update_weights(per_tensor_param)
-
-        # important: need to manually set the random states of each tp to be identical.
-        if self.device_mesh is not None:
-            self.torch_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.gen_random_states)
+        self.timing = {}
+        with _timer("reshard", self.timing):
+            per_tensor_param = per_tensor_generator(
+                self.actor_module,
+                self.model_config,
+                self.weight_converter,
+                self.transformer_config,
+                self.layer_name_mapping,
+            )
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.update_weights(per_tensor_param))
+            # important: need to manually set the random states of each tp to be identical.
+            if self.device_mesh is not None:
+                self.torch_random_states = torch.cuda.get_rng_state()
+                torch.cuda.set_rng_state(self.gen_random_states)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
         log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
-        self.release_memory()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self.release_memory())
         log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
 
         for model in self.actor_module:
@@ -112,9 +117,9 @@ class MegatronSGLangShardingManager(BaseShardingManager):
             self.gen_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.torch_random_states)
 
-    def update_weights(self, params):
+    async def update_weights(self, params):
         if self.device_mesh["tp"].get_local_rank() == 0:
-            self.inference_engine.resume_memory_occupation()
+            await self.inference_engine.resume_memory_occupation()
 
         # Most naive implementation, can optimize a lot if it is bottleneck from sglang Engine weight update
         # named_tensors = [(k, v) for k, v in params.items()]
@@ -122,7 +127,7 @@ class MegatronSGLangShardingManager(BaseShardingManager):
         load_format = None
         for tensor_index, (name, tensor) in enumerate(named_tensors):
             if self.device_mesh["tp"].get_local_rank() == 0:
-                self.inference_engine.update_weights_from_tensor(
+                await self.inference_engine.update_weights_from_tensor(
                     named_tensors=[
                         (
                             name,
@@ -134,11 +139,42 @@ class MegatronSGLangShardingManager(BaseShardingManager):
                 )
 
             if self.device_mesh["tp"].get_local_rank() == 0:
-                self.inference_engine.flush_cache()
+                await self.inference_engine.flush_cache()
 
-    def release_memory(self):
+    async def release_memory(self):
         if self.device_mesh["tp"].get_local_rank() == 0:
-            self.inference_engine.release_memory_occupation()
+            await self.inference_engine.release_memory_occupation()
+
+    @GPUMemoryLogger(role="FSDPSGLangShardingManager enter", logger=logger)
+    async def wake_up(self):
+        per_tensor_param = per_tensor_generator(
+            self.actor_module,
+            self.model_config,
+            self.weight_converter,
+            self.transformer_config,
+            self.layer_name_mapping,
+        )
+        await self.update_weights(per_tensor_param)
+        # important: need to manually set the random states of each tp to be identical.
+        if self.device_mesh is not None:
+            self.torch_random_states = torch.cuda.get_rng_state()
+            torch.cuda.set_rng_state(self.gen_random_states)
+
+    @GPUMemoryLogger(role="FSDPSGLangShardingManager exit", logger=logger)
+    async def sleep(self):
+        log_gpu_memory_usage("Before SGLang offload in sharding manager", logger=logger)
+        await self.release_memory()
+        log_gpu_memory_usage("After SGLang offload in sharding manager", logger=logger)
+
+        for model in self.actor_module:
+            model.train()
+        # add empty cache after each compute
+        torch.cuda.empty_cache()
+
+        # restore random states
+        if self.device_mesh is not None:
+            self.gen_random_states = torch.cuda.get_rng_state()
+            torch.cuda.set_rng_state(self.torch_random_states)
 
     @GPUMemoryLogger(role="megatron sglang sharding_manager", logger=logger)
     def preprocess_data(self, data: DataProto) -> DataProto:

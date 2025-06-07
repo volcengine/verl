@@ -15,13 +15,11 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
-import os
 
 import hydra
 import ray
 
 from verl.trainer.ppo.reward import get_custom_reward_fn
-from verl.utils.device import is_cuda_available
 
 from .dapo_ray_trainer import RayDAPOTrainer
 
@@ -166,6 +164,7 @@ class TaskRunner:
             ray_worker_group_cls=ray_worker_group_cls,
             reward_fn=reward_fn,
             val_reward_fn=val_reward_fn,
+            device_name=config.trainer.device,
         )
         trainer.init_workers()
         trainer.fit()
