@@ -211,7 +211,7 @@ def get_tool_call_parser_type(tokenizer: PreTrainedTokenizer) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     for parser_type, parser_cls in items:
         parser = parser_cls()
-        if parser.bot_token in tokenizer.get_vocab() and (parser.eot_token == "" or parser.eot_token in tokenizer.get_vocab()):
+        if parser.bot_token.strip() in tokenizer.get_vocab() and (parser.eot_token == "" or parser.eot_token.strip() in tokenizer.get_vocab()):
             return parser_type
     else:
         raise ValueError(f"No tool call parser found for tokenizer {tokenizer}")
