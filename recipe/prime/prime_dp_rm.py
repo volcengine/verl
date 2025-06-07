@@ -77,6 +77,7 @@ class DataParallelPRIMERewardModel:
                 attention_mask=None,
                 position_ids=position_ids_rmpad,
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:
@@ -100,6 +101,7 @@ class DataParallelPRIMERewardModel:
                 attention_mask=micro_batch["attention_mask"],
                 position_ids=micro_batch["position_ids"],
                 use_cache=False,
+                return_dict=self.use_fused_kernels,
             )
 
             if self.use_fused_kernels:

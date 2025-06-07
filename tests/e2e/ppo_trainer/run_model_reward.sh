@@ -11,6 +11,8 @@ TRAIN_FILES=${TRAIN_FILES:-$HOME/data/gsm8k/train.parquet}
 VAL_FILES=${VAL_FILES:-$HOME/data/gsm8k/test.parquet}
 
 RM_PAD=${RM_PAD:-True}
+FUSED_KERNELS=${FUSED_KERNELS:-False}
+FUSED_KERNEL_BACKEND=${FUSED_KERNEL_BACKEND:-torch} # or 'triton' for triton backend
 SP_SIZE=${SP_SIZE:-1}
 SEQ_BALANCE=${SEQ_BALANCE:-False}
 LIGER=${LIGER:-False}
@@ -47,6 +49,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_liger="${LIGER}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding="${RM_PAD}" \
+    actor_rollout_ref.model.use_fused_kernels=${FUSED_KERNELS} \
+    actor_rollout_ref.model.fused_kernel_options.impl_backend=${FUSED_KERNEL_BACKEND} \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.use_dynamic_bsz="${SEQ_BALANCE}" \
