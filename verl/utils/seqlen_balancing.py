@@ -18,6 +18,7 @@ from typing import List, Tuple
 
 import torch
 from torch import distributed as dist
+from verl.utils.device import get_device_name
 
 
 def karmarkar_karp(seqlen_list: List[int], k_partitions: int, equal_size: bool):
@@ -253,7 +254,7 @@ def rearrange_micro_batches(batch, max_token_len, dp_group=None, num_batches_div
         # used to support pp
         num_micro_batches = max(min_num_micro_batch, num_micro_batches)
     if dist.is_initialized() and same_micro_num_in_dp:
-        num_micro_batches = torch.tensor([num_micro_batches], device="cuda")
+        num_micro_batches = torch.tensor([num_micro_batches], device=get_device_name())
         dist.all_reduce(num_micro_batches, op=dist.ReduceOp.MAX, group=dp_group)
         num_micro_batches = num_micro_batches.cpu().item()
     if num_batches_divided_by is not None:
