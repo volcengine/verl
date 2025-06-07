@@ -83,7 +83,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
         # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
+        # To utilize different parallel strategy in different models:
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
@@ -616,7 +616,7 @@ class CriticWorker(MegatronWorker):
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
         # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
+        # To utilize different parallel strategy in different models:
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
@@ -830,7 +830,7 @@ class RewardModelWorker(MegatronWorker):
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
         # Therefore, we only require one distribute initialization.
-        # To utilize different parallel startegy in different models:
+        # To utilize different parallel strategy in different models:
         # 1, users should disable WorkerDict; 2.assign different ResourcePool to different models,
         # 3. and apply the following patch in ray==2.10, https://github.com/ray-project/ray/pull/44385
         if not torch.distributed.is_initialized():
