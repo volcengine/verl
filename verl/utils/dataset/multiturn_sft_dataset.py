@@ -16,6 +16,7 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
+import json
 from typing import List, Union
 
 import numpy as np
@@ -56,7 +57,6 @@ class MultiTurnSFTDataset(Dataset):
         self.messages_key = multiturn_config.get("messages_key", "messages")
         self.tools_key = multiturn_config.get("tools_key", "tools")
         self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
-
         assert self.truncation in ["error", "left", "right"]
 
         if not isinstance(parquet_files, List):
@@ -91,6 +91,7 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
+        
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
             self.tools = self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive).tolist()
@@ -111,6 +112,12 @@ class MultiTurnSFTDataset(Dataset):
         tools = self.tools[item] if self.tools is not None else None
         enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
+        if self.tools is not None:
+            tools = self.tools[item]
+            tools = json.loads(tools)
+        else:
+            tools = None
+
         # First, get the full conversation tokens
         try:
             full_tokens = tokenizer.apply_chat_template(
@@ -127,6 +134,7 @@ class MultiTurnSFTDataset(Dataset):
             print(f"Tools: {tools}")
             print(f"Enable thinking: {enable_thinking}")
             raise e
+
         input_ids = full_tokens[0]  # The output is already a tensor
         attention_mask = torch.ones_like(input_ids)
 

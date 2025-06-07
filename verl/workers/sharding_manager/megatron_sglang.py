@@ -28,6 +28,7 @@ from torch.distributed.device_mesh import DeviceMesh
 
 from verl.protocol import DataProto, all_gather_data_proto
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.debug.performance import _timer
 from verl.utils.megatron_utils import per_tensor_generator
 
 from .base import BaseShardingManager
@@ -83,19 +84,21 @@ class MegatronSGLangShardingManager(BaseShardingManager):
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager enter", logger=logger)
     def __enter__(self):
-        per_tensor_param = per_tensor_generator(
-            self.actor_module,
-            self.model_config,
-            self.weight_converter,
-            self.transformer_config,
-            self.layer_name_mapping,
-        )
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.update_weights(per_tensor_param))
-        # important: need to manually set the random states of each tp to be identical.
-        if self.device_mesh is not None:
-            self.torch_random_states = torch.cuda.get_rng_state()
-            torch.cuda.set_rng_state(self.gen_random_states)
+        self.timing = {}
+        with _timer("reshard", self.timing):
+            per_tensor_param = per_tensor_generator(
+                self.actor_module,
+                self.model_config,
+                self.weight_converter,
+                self.transformer_config,
+                self.layer_name_mapping,
+            )
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.update_weights(per_tensor_param))
+            # important: need to manually set the random states of each tp to be identical.
+            if self.device_mesh is not None:
+                self.torch_random_states = torch.cuda.get_rng_state()
+                torch.cuda.set_rng_state(self.gen_random_states)
 
     @GPUMemoryLogger(role="MegatronSGLangShardingManager exit", logger=logger)
     def __exit__(self, exc_type, exc_value, traceback):
