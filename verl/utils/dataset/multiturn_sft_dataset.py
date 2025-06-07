@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 ModelBest Inc. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +19,7 @@ Multi-turn SFT dataset that supports training on conversation data with multiple
 import json
 from typing import List, Union
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -25,6 +27,19 @@ from transformers import PreTrainedTokenizer
 
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
+
+
+def convert_nested_value_to_list_recursive(data_item):
+    if isinstance(data_item, dict):
+        return {k: convert_nested_value_to_list_recursive(v) for k, v in data_item.items()}
+    elif isinstance(data_item, list):
+        return [convert_nested_value_to_list_recursive(elem) for elem in data_item]
+    elif isinstance(data_item, np.ndarray):
+        # Convert to list, then recursively process the elements of the new list
+        return convert_nested_value_to_list_recursive(data_item.tolist())
+    else:
+        # Base case: item is already a primitive type (int, str, float, bool, etc.)
+        return data_item
 
 
 class MultiTurnSFTDataset(Dataset):
@@ -40,8 +55,8 @@ class MultiTurnSFTDataset(Dataset):
         # Get messages_key from the new multiturn config structure
         multiturn_config = config.get("multiturn", {})
         self.messages_key = multiturn_config.get("messages_key", "messages")
-        self.tools_key = multiturn_config.get("tools_key", None)
-
+        self.tools_key = multiturn_config.get("tools_key", "tools")
+        self.enable_thinking_key = multiturn_config.get("enable_thinking_key", "enable_thinking")
         assert self.truncation in ["error", "left", "right"]
 
         if not isinstance(parquet_files, List):
@@ -76,10 +91,17 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(series_to_item).tolist()
-        if self.tools_key is not None:
-            self.tools = self.dataframe[self.tools_key].apply(series_to_item).tolist()
+        
+        # Extract tools list from dataframe
+        if self.tools_key in self.dataframe.columns:
+            self.tools = self.dataframe[self.tools_key].apply(convert_nested_value_to_list_recursive).tolist()
         else:
             self.tools = None
+        # Extract enable_thinking list from dataframe
+        if self.enable_thinking_key in self.dataframe.columns:
+            self.enable_thinking = self.dataframe[self.enable_thinking_key].tolist()
+        else:
+            self.enable_thinking = None
 
     def __len__(self):
         return len(self.messages)
@@ -87,6 +109,8 @@ class MultiTurnSFTDataset(Dataset):
     def __getitem__(self, item):
         tokenizer = self.tokenizer
         messages = self.messages[item]
+        tools = self.tools[item] if self.tools is not None else None
+        enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
 
         if self.tools is not None:
             tools = self.tools[item]
@@ -95,29 +119,67 @@ class MultiTurnSFTDataset(Dataset):
             tools = None
 
         # First, get the full conversation tokens
-        full_tokens = tokenizer.apply_chat_template(messages, tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False)
+        try:
+            full_tokens = tokenizer.apply_chat_template(
+                messages,
+                tools=tools,
+                tokenize=True,
+                return_tensors="pt",
+                add_generation_prompt=False,
+                enable_thinking=enable_thinking,
+            )
+        except Exception as e:
+            print(f"Error applying chat template: {e}")
+            print(f"Messages: {messages}")
+            print(f"Tools: {tools}")
+            print(f"Enable thinking: {enable_thinking}")
+            raise e
+
         input_ids = full_tokens[0]  # The output is already a tensor
         attention_mask = torch.ones_like(input_ids)
 
         # Create loss mask by identifying assistant responses
         loss_mask = torch.zeros_like(input_ids, dtype=torch.long)
 
-        # Process each message to find assistant responses
-        for i, msg in enumerate(messages):
-            # Get tokens for messages up to this point to find the start position
-            prefix_messages = messages[: i + 1]
-            prefix_tokens = tokenizer.apply_chat_template(prefix_messages, tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False)
-
-            # Get tokens for messages up to previous point
-            prev_tokens = tokenizer.apply_chat_template(messages[:i], tools=tools, tokenize=True, return_tensors="pt", add_generation_prompt=False) if i > 0 else None
-
-            # Calculate start and end positions
-            start_pos = prev_tokens[0].shape[0] if prev_tokens is not None else 0
-            end_pos = prefix_tokens[0].shape[0]
-
-            # If this is an assistant message, set loss mask
-            if msg["role"] == "assistant":
+        i = 0
+        while i < len(messages):
+            cur_messages = messages[i]
+            if cur_messages["role"] == "assistant":
+                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                
+                # Get token positions for the assistant response
+                prev_tokens = tokenizer.encode(prev_applied_text, add_special_tokens=False)
+                cur_tokens = tokenizer.encode(cur_applied_text, add_special_tokens=False)
+                start_pos = len(prev_tokens)
+                end_pos = len(cur_tokens)
+                
+                # Set loss mask for assistant response
                 loss_mask[start_pos:end_pos] = 1
+                i += 1
+            elif cur_messages["role"] == "tool":
+                st = i
+                ed = i + 1
+                while ed < len(messages) and messages[ed]["role"] == "tool":
+                    ed += 1
+                prev_applied_text = tokenizer.apply_chat_template(messages[st:ed], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[st:ed+1], tokenize=False, add_generation_prompt=False)
+                
+                i = ed
+            elif cur_messages["role"] == "user":
+                prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                i += 1
+            elif cur_messages["role"] == "system":
+                if i == 0:
+                    prev_applied_text = ""
+                else:
+                    raise ValueError("System message should be the first message")
+                    # prev_applied_text = tokenizer.apply_chat_template(messages[:i], tokenize=False, add_generation_prompt=False)
+                cur_applied_text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False, add_generation_prompt=False)
+                i += 1
+            else:
+                raise ValueError(f"Unknown role: {cur_messages['role']}")
 
         # Handle sequence length
         sequence_length = input_ids.shape[0]
