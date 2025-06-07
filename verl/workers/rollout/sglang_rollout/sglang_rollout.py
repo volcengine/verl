@@ -326,7 +326,26 @@ class SGLangRollout(BaseRollout):
             self.config.max_model_len = self.config.prompt_length + self.config.response_length
         assert self.config.max_model_len >= self.config.prompt_length + self.config.response_length, f"""max_model_len should be greater than total sequence length (prompt_length + response_length): 
             {self.config.max_model_len} >= {self.config.prompt_length} + {self.config.response_length}"""
-        assert model_hf_config.max_position_embeddings >= self.config.max_model_len, "model context length should be greater than total sequence length"
+        if not model_hf_config.rope_scaling:
+            max_position_embeddings = None
+            if hasattr(model_hf_config, "max_position_embeddings"):
+                max_position_embeddings = model_hf_config.max_position_embeddings
+            elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
+                max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
+            elif hasattr(model_hf_config, "text_config") and hasattr(model_hf_config.text_config, "max_position_embeddings"):
+                max_position_embeddings = model_hf_config.text_config.max_position_embeddings
+            if max_position_embeddings is None:
+                raise ValueError("max_position_embeddings not found in model_hf_config")
+            assert max_position_embeddings >= self.config.prompt_length + self.config.response_length, "model context length should be greater than total sequence length"
+        else:
+            # handle type where there's a length extend factor
+            # see https://qwen.readthedocs.io/en/latest/deployment/vllm.html#extended-context-support for using yarn as an example
+            rope_scaling_factor = model_hf_config.rope_scaling.get("factor", 1.0)
+
+            assert model_hf_config.max_position_embeddings * rope_scaling_factor >= self.config.prompt_length + self.config.response_length, (
+                f"model context length should be greater than total sequence length, got rope_scaling_factor={rope_scaling_factor} and max_position_embeddings={model_hf_config.max_position_embeddings}"
+            )
+
         # currently max_turns stand for max number of tool calls
         if self.config.multi_turn.max_turns is None:
             self.config.multi_turn.max_turns = self.config.max_model_len // 3
