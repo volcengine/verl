@@ -8,7 +8,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=$HOME/data/char_count/rl/test.parquet \
     data.train_batch_size=128 \
     data.max_prompt_length=128 \
-    data.max_response_length=256 \
+    data.max_response_length=128 \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
     actor_rollout_ref.model.path=./models/sft/global_step_105 \
@@ -31,14 +31,14 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console'] \
-    trainer.project_name='verl_grpo_example_char_count' \
-    trainer.experiment_name='qwen2_7b_function_rm_kl1e-3' \
+    trainer.logger=['console','tensorboard'] \
+    trainer.project_name='verl_example' \
+    trainer.experiment_name='smol135m_grpo' \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=1 \
+    trainer.total_epochs=10 \
     custom_reward_function.path=/home/chi/Developer/verl/recipe/char_count/reward_function.py \
     custom_reward_function.name=char_count_reward_function

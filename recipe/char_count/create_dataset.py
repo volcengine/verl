@@ -6,13 +6,16 @@ Create CoT dataset that split the word into separate char. Then list the char an
 
 The word set comes from shakespeare
 """
+
 import os.path
 import random
 
-prompt_template = 'How many {} are there in word {}?'
+prompt_template = "How many {} are there in word {}?"
+
 
 def generate_random_char():
     return chr(97 + random.randint(0, 25))
+
 
 def create_prompt_response(min_length=3, max_length=5):
     # randomly generate a length
@@ -39,8 +42,7 @@ def create_prompt_response(min_length=3, max_length=5):
     # step 3: random permute char_lst
     random.shuffle(char_lst)
 
-
-    word = '-'.join(char_lst)
+    word = "-".join(char_lst)
 
     prompt = prompt_template.format(target_char, word)
     final_answer = []
@@ -48,39 +50,40 @@ def create_prompt_response(min_length=3, max_length=5):
     # cot
     number = 0
     for i, char in enumerate(char_lst):
-        cot = f'{char}'
+        cot = f"{char}"
         if char != target_char:
-            cot += ' != '
+            cot += " != "
         else:
-            cot += ' = '
+            cot += " = "
             number += 1
-        cot += f'{target_char}.'
+        cot += f"{target_char}."
 
         final_answer.append(cot)
 
-    conclusion = f'\\boxed{{{number}}} {target_char} in {word}.'
+    conclusion = f"\\boxed{{{number}}} {target_char} in {word}."
 
     final_answer.append(conclusion)
 
-    final_answer = '\n'.join(final_answer)
+    final_answer = "\n".join(final_answer)
 
     return prompt, final_answer
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--total_number', type=int, default=10000)
-    parser.add_argument('--min_length', type=int, default=5)
-    parser.add_argument('--max_length', type=int, default=20)
-    parser.add_argument('--data_path', type=str,  default='~/data/char_count')
+    parser.add_argument("--total_number", type=int, default=10000)
+    parser.add_argument("--min_length", type=int, default=5)
+    parser.add_argument("--max_length", type=int, default=20)
+    parser.add_argument("--data_path", type=str, default="~/data/char_count")
 
     args = vars(parser.parse_args())
 
-    total_number = args['total_number']
-    min_length = args['min_length']
-    max_length = args['max_length']
-    data_path = args['data_path']
+    total_number = args["total_number"]
+    min_length = args["min_length"]
+    max_length = args["max_length"]
+    data_path = args["data_path"]
     data_path = os.path.expanduser(data_path)
 
     full_output = []
@@ -96,99 +99,75 @@ if __name__ == '__main__':
     train_outputs = full_output[:train_split_len]
     test_output = full_output[train_split_len:]
 
-    sft_train_dataset = {
-        'prompt': [],
-        'response': []
-    }
+    sft_train_dataset = {"prompt": [], "response": []}
 
     for o in train_outputs:
-        sft_train_dataset['prompt'].append(o[0])
-        sft_train_dataset['response'].append(o[1])
+        sft_train_dataset["prompt"].append(o[0])
+        sft_train_dataset["response"].append(o[1])
 
-    sft_test_dataset = {
-        'prompt': [],
-        'response': []
-    }
+    sft_test_dataset = {"prompt": [], "response": []}
 
     for o in test_output:
-        sft_test_dataset['prompt'].append(o[0])
-        sft_test_dataset['response'].append(o[1])
+        sft_test_dataset["prompt"].append(o[0])
+        sft_test_dataset["response"].append(o[1])
 
     import pandas as pd
 
     sft_train_dataset = pd.DataFrame(data=sft_train_dataset)
     sft_test_dataset = pd.DataFrame(data=sft_test_dataset)
 
-    folder = os.path.join(data_path, 'sft')
+    folder = os.path.join(data_path, "sft")
 
     os.makedirs(folder, exist_ok=True)
 
-    sft_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
-    sft_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))
+    sft_train_dataset.to_parquet(os.path.join(folder, "train.parquet"))
+    sft_test_dataset.to_parquet(os.path.join(folder, "test.parquet"))
 
     # build RL dataset
-    rl_train_dataset = {
-        'prompt': [],
-        'data_source': [],
-        'ability': [],
-        'reward_model': [],
-        'extra_info': []
-    }
+    rl_train_dataset = {"prompt": [], "data_source": [], "ability": [], "reward_model": [], "extra_info": []}
 
-    rl_test_dataset = {
-        'prompt': [],
-        'data_source': [],
-        'ability': [],
-        'reward_model': [],
-        'extra_info': []
-    }
+    rl_test_dataset = {"prompt": [], "data_source": [], "ability": [], "reward_model": [], "extra_info": []}
 
     from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
     for o in train_outputs:
         prompt = o[0]
         response = o[1]
-        prompt_with_template = [{
-            "role": "user",
-            "content": prompt,
-        }]
+        prompt_with_template = [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ]
 
-        rl_train_dataset['prompt'].append(prompt_with_template)
-        rl_train_dataset['data_source'].append('char_count')
-        rl_train_dataset['ability'].append('other')
-        rl_train_dataset['reward_model'].append({
-            'style': 'rule',
-            'ground_truth': remove_boxed(last_boxed_only_string(response))
-        })
-        rl_train_dataset['extra_info'].append({
-            'response': response
-        })
+        rl_train_dataset["prompt"].append(prompt_with_template)
+        rl_train_dataset["data_source"].append("char_count")
+        rl_train_dataset["ability"].append("other")
+        rl_train_dataset["reward_model"].append({"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))})
+        rl_train_dataset["extra_info"].append({"response": response})
 
     for o in test_output:
         prompt = o[0]
         response = o[1]
-        prompt_with_template = [{
-            "role": "user",
-            "content": prompt,
-        }]
+        prompt_with_template = [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ]
 
-        rl_test_dataset['prompt'].append(prompt_with_template)
-        rl_test_dataset['data_source'].append('char_count')
-        rl_test_dataset['ability'].append('other')
-        rl_test_dataset['reward_model'].append({
-            'style': 'rule',
-            'ground_truth': remove_boxed(last_boxed_only_string(response))
-        })
-        rl_test_dataset['extra_info'].append({
-            'response': response
-        })
+        rl_test_dataset["prompt"].append(prompt_with_template)
+        rl_test_dataset["data_source"].append("char_count")
+        rl_test_dataset["ability"].append("other")
+        rl_test_dataset["reward_model"].append({"style": "rule", "ground_truth": remove_boxed(last_boxed_only_string(response))})
+        rl_test_dataset["extra_info"].append({"response": response})
 
     rl_train_dataset = pd.DataFrame(data=rl_train_dataset)
     rl_test_dataset = pd.DataFrame(data=rl_test_dataset)
 
-    folder = os.path.join(folder, 'rl')
+    folder = os.path.join(data_path, "rl")
 
     os.makedirs(folder, exist_ok=True)
 
-    rl_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
-    rl_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))
+    rl_train_dataset.to_parquet(os.path.join(folder, "train.parquet"))
+    rl_test_dataset.to_parquet(os.path.join(folder, "test.parquet"))
