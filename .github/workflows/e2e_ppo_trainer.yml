@@ -177,7 +177,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,geo,vllm,gpu]
+          pip3 install -e .[test,gpu,vllm,geo,trl]
       # Geo3k
       - name: Prepare Geo3k dataset
         run: |
