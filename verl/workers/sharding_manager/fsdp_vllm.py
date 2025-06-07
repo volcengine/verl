@@ -121,7 +121,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                             lora_params = {name: param.full_tensor().detach().cpu() if hasattr(param, "full_tensor") else param.detach().cpu() for name, param in lora_params.items()}
                         else:
                             model = peft_model.base_model.model
-                            orig_dev = "cpu" if "cpu" in next(model.parameters()).device else "cuda"
+                            orig_dev = "cpu" if "cpu" in str(next(model.parameters()).device) else "cuda"
                             model = model.to("cpu")
                             for name, param in model.state_dict().items():
                                 if any(x in name for x in ["_flat_param", "lora_"]):
