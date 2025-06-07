@@ -134,11 +134,7 @@ class vLLMRollout(BaseRollout):
         trust_remote_code = kwargs.get("trust_remote_code", False)
         load_format = "dummy" if config.load_format.startswith("dummy") else config.load_format
 
-        limit_mm_per_prompt = None
-        if config.get("limit_images", None):  # support for multi-image data
-            limit_mm_per_prompt = {"image": config.get("limit_images")}
-
-        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         # copy it to avoid secretly modifying the engine config
         engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
@@ -147,6 +143,9 @@ class vLLMRollout(BaseRollout):
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
+        if config.get("limit_images", None):  # support for multi-image data
+            engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=True,
@@ -157,7 +156,6 @@ class vLLMRollout(BaseRollout):
             gpu_memory_utilization=config.gpu_memory_utilization,
             disable_custom_all_reduce=True,
             disable_mm_preprocessor_cache=True,
-            limit_mm_per_prompt=limit_mm_per_prompt,
             skip_tokenizer_init=False,
             max_model_len=max_model_len,
             load_format=load_format,
@@ -280,8 +278,8 @@ class vLLMRollout(BaseRollout):
         if self.lora_kwargs:
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
-                lora_int_id=lora_int_ids[0]
-                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
+                lora_int_id = lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -342,7 +340,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': rollout_log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": rollout_log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },

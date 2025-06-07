@@ -39,6 +39,7 @@ from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
 from verl.utils.debug.performance import _timer
 from verl.utils.device import get_torch_device
 from verl.utils.fsdp_utils import fsdp_version, layered_summon_lora_params, load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+from verl.utils.model import convert_weight_keys
 from verl.utils.torch_functional import check_device_is_available
 from verl.utils.vllm_utils import TensorLoRARequest, VLLMHijack, is_version_ge, patch_vllm_moe_model_weight_loader
 
@@ -167,6 +168,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                 params = __collect_lora_params()
             else:
                 params = self.module.state_dict()
+            params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
             log_gpu_memory_usage("After state_dict() in sharding manager memory", logger=logger)
 
             # Copy, not share memory
