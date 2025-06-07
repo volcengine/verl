@@ -91,13 +91,24 @@ def load_reward_manager(config, tokenizer, num_examine, **reward_kwargs):
         else:
             final_compute_score = default_compute_score
 
-    return reward_manager_cls(
-        tokenizer=tokenizer,
-        num_examine=num_examine,
-        compute_score=final_compute_score,
-        reward_fn_key=config.data.reward_fn_key,
-        **reward_kwargs,
-    )
+    if reward_manager_name != "dapo":
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score=final_compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            **reward_kwargs,
+        )
+    else:
+        return reward_manager_cls(
+            tokenizer=tokenizer,
+            num_examine=num_examine,
+            compute_score=final_compute_score,
+            reward_fn_key=config.data.reward_fn_key,
+            max_resp_len=config.data.max_response_length,
+            overlong_buffer_cfg=config.reward_model.overlong_buffer,
+        )
+
 
 
 def compute_reward(data: DataProto, reward_fn):
