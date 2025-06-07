@@ -66,6 +66,7 @@ jobs:
       - name: Download Model to Use
         run: |
           huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct
+          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct
           huggingface-cli download 'Qwen/Qwen2-7B-Instruct'
           huggingface-cli download 'deepseek-ai/deepseek-llm-7b-chat'
           export HF_HUB_OFFLINE=1
@@ -94,4 +95,4 @@ jobs:
       - name: Running multi-turn rollout tests on 8 L20 GPUs
         run: |
           pip3 install --upgrade vllm==0.8.3 tensordict==0.7.2
-          python3 tests/workers/rollout/test_vllm_multi_turn.py
+          pytest -svvv tests/workers/rollout/test_vllm_chat_scheduler.py
