@@ -412,34 +412,43 @@ class SGLangRollout(BaseRollout):
         interaction = interaction_cls(config=OmegaConf.to_container(interaction_config.config, resolve=True))
         return interaction
 
-    @contextmanager
-    def update_sampling_params(self, **kwargs):
-        """
-        Temporarily updates the model's sampling parameters for the
-        duration of a `with` block. Parameters are automatically fall
-          back to their original values upon exiting the block.
+    def get_update_sampling_params_kwargs(self, **kwargs):
+        update_kwargs = {}
+        for key in self.sampling_params:
+            if key in kwargs:
+                update_kwargs[key] = kwargs[key]
+            else:
+                update_kwargs[key] = self.sampling_params[key]
+        return update_kwargs
+    
+    # @contextmanager
+    # def update_sampling_params(self, **kwargs):
+    #     """
+    #     Temporarily updates the model's sampling parameters for the
+    #     duration of a `with` block. Parameters are automatically fall
+    #       back to their original values upon exiting the block.
 
-        Args:
-            **kwargs: Keyword arguments representing sampling parameters
-                    to be updated. Only parameters that already exist in
-                    `self.sampling_params` will be updated.
-        """
-        # Store original values of parameters that will be updated
-        old_sampling_params_args = {key: self.sampling_params[key] for key in kwargs if key in self.sampling_params}
+    #     Args:
+    #         **kwargs: Keyword arguments representing sampling parameters
+    #                 to be updated. Only parameters that already exist in
+    #                 `self.sampling_params` will be updated.
+    #     """
+    #     # Store original values of parameters that will be updated
+    #     old_sampling_params_args = {key: self.sampling_params[key] for key in kwargs if key in self.sampling_params}
 
-        # Update sampling parameters with new values
-        for key, value in kwargs.items():
-            if key in self.sampling_params:
-                self.sampling_params[key] = value
+    #     # Update sampling parameters with new values
+    #     for key, value in kwargs.items():
+    #         if key in self.sampling_params:
+    #             self.sampling_params[key] = value
 
-        try:
-            yield
-            # Yield and execute the code within the 'with' block
-        finally:
-            # Always restore original values, even if an error
-            # occurred in the `with` block
-            for key, value in old_sampling_params_args.items():
-                self.sampling_params[key] = value
+    #     try:
+    #         yield
+    #         # Yield and execute the code within the 'with' block
+    #     finally:
+    #         # Always restore original values, even if an error
+    #         # occurred in the `with` block
+    #         for key, value in old_sampling_params_args.items():
+    #             self.sampling_params[key] = value
 
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
@@ -568,52 +577,51 @@ class SGLangRollout(BaseRollout):
             )
 
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            # print(f"{self.sampling_params=}")
-            if self._tp_rank == 0:
-                loop = asyncio.get_event_loop()
-                output = loop.run_until_complete(
-                    self._engine.async_generate(
-                        prompt=None,  # because we have already convert it to prompt token id
-                        sampling_params=self.sampling_params,
-                        return_logprob=True,
-                        input_ids=idx_list,
-                        image_data=image_list,
-                    )
+        update_sampling_params = self.get_update_sampling_params_kwargs(**kwargs)
+        if self._tp_rank == 0:
+            loop = asyncio.get_event_loop()
+            output = loop.run_until_complete(
+                self._engine.async_generate(
+                    prompt=None,  # because we have already convert it to prompt token id
+                    sampling_params=update_sampling_params,
+                    return_logprob=True,
+                    input_ids=idx_list,
+                    image_data=image_list,
                 )
-            else:
-                output = None
-
-            # Most naive implementation, can extract tensor and send via gloo if too slow
-            dist.barrier()
-            [output] = broadcast_pyobj(
-                data=[output],
-                rank=self._rank,
-                dist_group=self._device_mesh_cpu["tp"].get_group(),
-                src=self._device_mesh_cpu["tp"].mesh[0].item(),
-                force_cpu_device=False,
             )
-            out = _post_process_outputs(self.tokenizer, output)
+        else:
+            output = None
 
-            response = out[0].to(idx.device)
-            rollout_log_probs = out[1].to(idx.device)
+        # Most naive implementation, can extract tensor and send via gloo if too slow
+        dist.barrier()
+        [output] = broadcast_pyobj(
+            data=[output],
+            rank=self._rank,
+            dist_group=self._device_mesh_cpu["tp"].get_group(),
+            src=self._device_mesh_cpu["tp"].mesh[0].item(),
+            force_cpu_device=False,
+        )
+        out = _post_process_outputs(self.tokenizer, output)
 
-            if response.shape[1] < self.config.response_length:
-                response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
-                rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
+        response = out[0].to(idx.device)
+        rollout_log_probs = out[1].to(idx.device)
 
-            # utilize current sampling params
-            if self.sampling_params.get("n", 1) > 1 and do_sample:
-                idx = idx.repeat_interleave(self.sampling_params["n"], dim=0)
-                attention_mask = attention_mask.repeat_interleave(self.sampling_params["n"], dim=0)
-                position_ids = position_ids.repeat_interleave(self.sampling_params["n"], dim=0)
-                batch_size = batch_size * self.sampling_params["n"]
-                _non_tensor_batch = {}
-                for key, val in non_tensor_batch.items():
-                    _non_tensor_batch[key] = np.repeat(val, self.sampling_params["n"], axis=0)
-            else:
-                _non_tensor_batch = non_tensor_batch
-            seq = torch.cat([idx, response], dim=-1)
+        if response.shape[1] < self.config.response_length:
+            response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
+            rollout_log_probs = pad_sequence_to_length(rollout_log_probs, self.config.response_length, self.pad_token_id)
+
+        # utilize current sampling params
+        if update_sampling_params.get("n", 1) > 1 and do_sample:
+            idx = idx.repeat_interleave(update_sampling_params["n"], dim=0)
+            attention_mask = attention_mask.repeat_interleave(update_sampling_params["n"], dim=0)
+            position_ids = position_ids.repeat_interleave(update_sampling_params["n"], dim=0)
+            batch_size = batch_size * update_sampling_params["n"]
+            _non_tensor_batch = {}
+            for key, val in non_tensor_batch.items():
+                _non_tensor_batch[key] = np.repeat(val, update_sampling_params["n"], axis=0)
+        else:
+            _non_tensor_batch = non_tensor_batch
+        seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
@@ -831,12 +839,12 @@ class SGLangRollout(BaseRollout):
         if "n" not in kwargs or kwargs["n"] > 1:  # group size is supported in preprocess
             kwargs["n"] = 1
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
-            output = await self._engine.async_generate(
-                input_ids=generation_prompt_ids,
-                sampling_params=self.sampling_params,
-                return_logprob=False,
-            )
+        update_sampling_params = self.get_update_sampling_params_kwargs(**kwargs)
+        output = await self._engine.async_generate(
+            input_ids=generation_prompt_ids,
+            sampling_params=update_sampling_params,
+            return_logprob=False,
+        )
         return output
 
     async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
