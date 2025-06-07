@@ -66,114 +66,129 @@ def create_prompt_response(min_length=3, max_length=5):
 
     return prompt, final_answer
 
-total_number = 10000
 
-full_output = []
-for _ in range(total_number):
-    output = create_prompt_response(min_length=10, max_length=20)
-    full_output.append(output)
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--total_number', type=int, default=10000)
+    parser.add_argument('--min_length', type=int, default=5)
+    parser.add_argument('--max_length', type=int, default=20)
+    parser.add_argument('--data_path', type=str,  default='~/data/char_count')
 
-# random reorder
-random.shuffle(full_output)
+    args = vars(parser.parse_args())
 
-# split for train and test
-train_split_len = int(0.9 * len(full_output))
-train_outputs = full_output[:train_split_len]
-test_output = full_output[train_split_len:]
+    total_number = args['total_number']
+    min_length = args['min_length']
+    max_length = args['max_length']
+    data_path = args['data_path']
+    data_path = os.path.expanduser(data_path)
 
-sft_train_dataset = {
-    'prompt': [],
-    'response': []
-}
+    full_output = []
+    for _ in range(total_number):
+        output = create_prompt_response(min_length=min_length, max_length=max_length)
+        full_output.append(output)
 
-for o in train_outputs:
-    sft_train_dataset['prompt'].append(o[0])
-    sft_train_dataset['response'].append(o[1])
+    # random reorder
+    random.shuffle(full_output)
 
-sft_test_dataset = {
-    'prompt': [],
-    'response': []
-}
+    # split for train and test
+    train_split_len = int(0.9 * len(full_output))
+    train_outputs = full_output[:train_split_len]
+    test_output = full_output[train_split_len:]
 
-for o in test_output:
-    sft_test_dataset['prompt'].append(o[0])
-    sft_test_dataset['response'].append(o[1])
+    sft_train_dataset = {
+        'prompt': [],
+        'response': []
+    }
 
-import pandas as pd
+    for o in train_outputs:
+        sft_train_dataset['prompt'].append(o[0])
+        sft_train_dataset['response'].append(o[1])
 
-sft_train_dataset = pd.DataFrame(data=sft_train_dataset)
-sft_test_dataset = pd.DataFrame(data=sft_test_dataset)
+    sft_test_dataset = {
+        'prompt': [],
+        'response': []
+    }
 
-folder = os.path.expanduser('~/data/char_count/sft')
+    for o in test_output:
+        sft_test_dataset['prompt'].append(o[0])
+        sft_test_dataset['response'].append(o[1])
 
-os.makedirs(folder, exist_ok=True)
+    import pandas as pd
 
-sft_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
-sft_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))
+    sft_train_dataset = pd.DataFrame(data=sft_train_dataset)
+    sft_test_dataset = pd.DataFrame(data=sft_test_dataset)
 
-# build RL dataset
-rl_train_dataset = {
-    'prompt': [],
-    'data_source': [],
-    'ability': [],
-    'reward_model': [],
-    'extra_info': []
-}
+    folder = os.path.join(data_path, 'sft')
 
-rl_test_dataset = {
-    'prompt': [],
-    'data_source': [],
-    'ability': [],
-    'reward_model': [],
-    'extra_info': []
-}
+    os.makedirs(folder, exist_ok=True)
 
-from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
+    sft_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
+    sft_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))
 
-for o in train_outputs:
-    prompt = o[0]
-    response = o[1]
-    prompt_with_template = [{
-        "role": "user",
-        "content": prompt,
-    }]
+    # build RL dataset
+    rl_train_dataset = {
+        'prompt': [],
+        'data_source': [],
+        'ability': [],
+        'reward_model': [],
+        'extra_info': []
+    }
 
-    rl_train_dataset['prompt'].append(prompt_with_template)
-    rl_train_dataset['data_source'].append('char_count')
-    rl_train_dataset['ability'].append('other')
-    rl_train_dataset['reward_model'].append({
-        'style': 'rule',
-        'ground_truth': remove_boxed(last_boxed_only_string(response))
-    })
-    rl_train_dataset['extra_info'].append({
-        'response': response
-    })
+    rl_test_dataset = {
+        'prompt': [],
+        'data_source': [],
+        'ability': [],
+        'reward_model': [],
+        'extra_info': []
+    }
 
-for o in test_output:
-    prompt = o[0]
-    response = o[1]
-    prompt_with_template = [{
-        "role": "user",
-        "content": prompt,
-    }]
+    from verl.utils.reward_score.math import last_boxed_only_string, remove_boxed
 
-    rl_test_dataset['prompt'].append(prompt_with_template)
-    rl_test_dataset['data_source'].append('char_count')
-    rl_test_dataset['ability'].append('other')
-    rl_test_dataset['reward_model'].append({
-        'style': 'rule',
-        'ground_truth': remove_boxed(last_boxed_only_string(response))
-    })
-    rl_test_dataset['extra_info'].append({
-        'response': response
-    })
+    for o in train_outputs:
+        prompt = o[0]
+        response = o[1]
+        prompt_with_template = [{
+            "role": "user",
+            "content": prompt,
+        }]
 
-rl_train_dataset = pd.DataFrame(data=rl_train_dataset)
-rl_test_dataset = pd.DataFrame(data=rl_test_dataset)
+        rl_train_dataset['prompt'].append(prompt_with_template)
+        rl_train_dataset['data_source'].append('char_count')
+        rl_train_dataset['ability'].append('other')
+        rl_train_dataset['reward_model'].append({
+            'style': 'rule',
+            'ground_truth': remove_boxed(last_boxed_only_string(response))
+        })
+        rl_train_dataset['extra_info'].append({
+            'response': response
+        })
 
-folder = os.path.expanduser('~/data/char_count/rl')
+    for o in test_output:
+        prompt = o[0]
+        response = o[1]
+        prompt_with_template = [{
+            "role": "user",
+            "content": prompt,
+        }]
 
-os.makedirs(folder, exist_ok=True)
+        rl_test_dataset['prompt'].append(prompt_with_template)
+        rl_test_dataset['data_source'].append('char_count')
+        rl_test_dataset['ability'].append('other')
+        rl_test_dataset['reward_model'].append({
+            'style': 'rule',
+            'ground_truth': remove_boxed(last_boxed_only_string(response))
+        })
+        rl_test_dataset['extra_info'].append({
+            'response': response
+        })
 
-rl_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
-rl_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))
+    rl_train_dataset = pd.DataFrame(data=rl_train_dataset)
+    rl_test_dataset = pd.DataFrame(data=rl_test_dataset)
+
+    folder = os.path.join(folder, 'rl')
+
+    os.makedirs(folder, exist_ok=True)
+
+    rl_train_dataset.to_parquet(os.path.join(folder, 'train.parquet'))
+    rl_test_dataset.to_parquet(os.path.join(folder, 'test.parquet'))

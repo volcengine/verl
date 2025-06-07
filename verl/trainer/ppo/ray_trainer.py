@@ -698,8 +698,6 @@ class RayPPOTrainer:
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
 
-            print(np.mean(scores))
-
             sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
