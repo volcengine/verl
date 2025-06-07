@@ -1,6 +1,7 @@
 data:
   tokenizer: null
   use_shm: False
+  train_weights: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
