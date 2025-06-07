@@ -679,7 +679,7 @@ def broadcast_str_from_megatron_pp(obj: Any):
     return obj_output[0]
 
 
-def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, convert_qkv_gate_up_by_simple_split=False):
+def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, model_config, hf_config=None, convert_qkv_gate_up_by_simple_split=False):
     """
     name: name of the parameter
     train_params: training parameters
@@ -691,21 +691,31 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
     """
     from megatron.core import mpu
 
+    train_tp_size = mpu.get_tensor_model_parallel_world_size()
     if layer_name_mapping.get("qkv_layer_name") in name and "layer_norm" not in name:
         # if the tensor is qkv, for each param on tp, split into q, k, v
         # concat q, k, v separately.
         q_lst = []
         k_lst = []
         v_lst = []
-        assert model_config.num_attention_heads % model_config.num_key_value_heads == 0
-        num_q_per_kv = model_config.num_attention_heads // model_config.num_key_value_heads
+        num_attention_heads = model_config.num_attention_heads
+        num_key_value_heads = model_config.num_key_value_heads
+        if "vision_model" in name:
+            num_attention_heads = hf_config.vision_config.num_heads
+            num_key_value_heads = hf_config.vision_config.num_heads
+        assert num_attention_heads % num_key_value_heads == 0
+        num_q_per_kv = num_attention_heads // num_key_value_heads
         assert infer_params[0].shape[0] % (num_q_per_kv + 2) == 0, f"param '{name}' shape '{infer_params[0].shape}' dim0 is not divisible by {num_q_per_kv + 2}"
         kv_size_per_tp = infer_params[0].shape[0] // (num_q_per_kv + 2)
         split_size = [kv_size_per_tp * num_q_per_kv, kv_size_per_tp, kv_size_per_tp]
         for infer_param in infer_params:
-            num_query_groups_per_partition = model_config.num_key_value_heads // mpu.get_tensor_model_parallel_world_size()
+            num_query_groups_per_partition = num_key_value_heads // train_tp_size
             for chunk in infer_param.chunk(num_query_groups_per_partition):
-                split_size = [kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition, kv_size_per_tp // num_query_groups_per_partition]
+                split_size = [
+                    kv_size_per_tp * num_q_per_kv // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition,
+                    kv_size_per_tp // num_query_groups_per_partition,
+                ]
                 q, k, v = chunk.split(split_size)
                 q_lst.append(q)
                 k_lst.append(k)
@@ -715,7 +725,7 @@ def default_tp_concat_fn(layer_name_mapping, name, train_params, infer_params, m
         v = torch.cat(v_lst, dim=0)
         infer_params = torch.cat((q, k, v), dim=0) if not convert_qkv_gate_up_by_simple_split else [q, k, v]
 
-    elif layer_name_mapping.get("gate_proj_layer_name") in name:
+    elif layer_name_mapping.get("gate_proj_layer_name") in name and "layer_norm" not in name and "vision_model.projection" not in name:
         # if the tensor is gate and proj
         gate_lst = []
         up_lst = []
@@ -828,7 +838,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
                 else:
                     params = [param]
 
-                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, convert_qkv_gate_up_by_simple_split)
+                merge_params = default_tp_concat_fn(layer_name_mapping, name, broad_pp_tensor, params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
                 if not isinstance(merge_params, list):
                     merge_params = [merge_params]
                 converted_names, converted_params = weight_converter.convert_param(name, merge_params)
@@ -844,7 +854,7 @@ def per_tensor_generator(actor_module, model_config, weight_converter, transform
             else:
                 infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(all_gather_group_size)]
                 torch.distributed.all_gather(infer_params, broad_pp_tensor, group=mpu.get_tensor_model_parallel_group())
-            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, convert_qkv_gate_up_by_simple_split)
+            infer_params = default_tp_concat_fn(layer_name_mapping, cur_name, broad_pp_tensor, infer_params, model_config, weight_converter.hf_config, convert_qkv_gate_up_by_simple_split)
         else:
             infer_params = broad_pp_tensor
 
