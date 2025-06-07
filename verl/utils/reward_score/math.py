@@ -15,13 +15,13 @@
 
 
 def compute_score(solution_str, ground_truth) -> float:
-    retval = 0.
+    retval = 0.0
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
         if string_in_last_boxed is not None:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
-                retval = 1.
+                retval = 1.0
     except Exception as e:
         print(e)
 
@@ -49,15 +49,15 @@ def is_equiv(str1, str2, verbose=False):
 def remove_boxed(s):
     if "\\boxed " in s:
         left = "\\boxed "
-        assert s[:len(left)] == left
-        return s[len(left):]
+        assert s[: len(left)] == left
+        return s[len(left) :]
 
     left = "\\boxed{"
 
-    assert s[:len(left)] == left
+    assert s[: len(left)] == left
     assert s[-1] == "}"
 
-    return s[len(left):-1]
+    return s[len(left) : -1]
 
 
 def last_boxed_only_string(string):
@@ -82,10 +82,7 @@ def last_boxed_only_string(string):
                 break
         i += 1
 
-    if right_brace_idx is None:
-        retval = None
-    else:
-        retval = string[idx:right_brace_idx + 1]
+    retval = None if right_brace_idx is None else string[idx : right_brace_idx + 1]
 
     return retval
 
@@ -102,7 +99,7 @@ def fix_fracs(string):
             else:
                 try:
                     assert len(substr) >= 2
-                except AssertionError:
+                except:  # noqa: E722
                     return string
                 a = substr[0]
                 b = substr[1]
@@ -133,7 +130,7 @@ def fix_a_slash_b(string):
         assert string == "{}/{}".format(a, b)
         new_string = "\\frac{" + str(a) + "}{" + str(b) + "}"
         return new_string
-    except AssertionError:
+    except:  # noqa: E722
         return string
 
 
@@ -204,9 +201,8 @@ def strip_string(string):
         string = "0" + string
 
     # to consider: get rid of e.g. "k = " or "q = " at beginning
-    if len(string.split("=")) == 2:
-        if len(string.split("=")[0]) <= 2:
-            string = string.split("=")[1]
+    if len(string.split("=")) == 2 and len(string.split("=")[0]) <= 2:
+        string = string.split("=")[1]
 
     # fix sqrt3 --> sqrt{3}
     string = fix_sqrt(string)

@@ -14,6 +14,7 @@ model:
   external_lib: null
 rollout:
   name: vllm
+  mode: sync # sync: LLM, async: AsyncLLM
   temperature: 1.0
   top_k: 50 # 0 for hf rollout, -1 for vllm rollout
   top_p: 0.7
@@ -44,3 +45,7 @@ actor:
   ulysses_sequence_parallel_size: 1 # sp size
   fsdp_config:
     fsdp_size: -1
+
+ray_init:
+  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+  timeline_json_file: null

@@ -24,25 +24,24 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-from typing import List
+
 from contextlib import contextmanager
-from omegaconf import DictConfig
+from typing import List
+
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch import nn
+from vllm import SamplingParams
 
 from verl import DataProto
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
-from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMRollout
-from verl.third_party.vllm import LLM, vllm_version
-from verl.third_party.vllm import parallel_state as vllm_ps
-from vllm import SamplingParams
 
 # TODO
 # 1. support pp in vllm
-# 2. passing tokenizer is not necessary? no encoding/decoding is happending here
+# 2. passing tokenizer is not necessary? no encoding/decoding is happening here
 # 3. simplify init logics
 
 
@@ -56,7 +55,6 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
 
 
 class FIREvLLMRollout(vLLMRollout):
-
     def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
@@ -64,18 +62,18 @@ class FIREvLLMRollout(vLLMRollout):
             module: module here follows huggingface APIs
             config: DictConfig
             tokenizer: the task/model tokenizer
-            model_hf_config: the huggingface config to initiallize the generating model in vllm
+            model_hf_config: the huggingface config to initialize the generating model in vllm
             **kwargs: train_tp, for Megatron Backend to initialize hybrid engine (zero redundancy) process group
         """
         super().__init__(actor_module, config, tokenizer, model_hf_config, **kwargs)
 
-        self.use_fire_sampling = config.get('use_fire_sampling', False)
+        self.use_fire_sampling = config.get("use_fire_sampling", False)
         if self.use_fire_sampling:
             kwargs_0 = kwargs.copy()
-            kwargs_0['temperature'] = 30
-            kwargs_0['max_tokens'] = 1
-            if 'top_k' not in kwargs_0 or kwargs_0['top_k'] <= 0:
-                kwargs_0['top_k'] = 16
+            kwargs_0["temperature"] = 30
+            kwargs_0["max_tokens"] = 1
+            if "top_k" not in kwargs_0 or kwargs_0["top_k"] <= 0:
+                kwargs_0["top_k"] = 16
             self.sampling_params.max_tokens = config.response_length - 1
             for k in config.keys():
                 if hasattr(SamplingParams(), str(k)):
@@ -115,13 +113,13 @@ class FIREvLLMRollout(vLLMRollout):
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
-        idx = prompts.batch['input_ids']  # (bs, prompt_length)
+        idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
-        attention_mask = prompts.batch['attention_mask']
-        position_ids = prompts.batch['position_ids']
+        attention_mask = prompts.batch["attention_mask"]
+        position_ids = prompts.batch["position_ids"]
 
         # used to construct attention_mask
-        eos_token_id = prompts.meta_info['eos_token_id']
+        eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
 
@@ -130,15 +128,15 @@ class FIREvLLMRollout(vLLMRollout):
         for i in range(batch_size):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
-        do_sample = prompts.meta_info.get('do_sample', True)
+        do_sample = prompts.meta_info.get("do_sample", True)
         if not do_sample:
             kwargs = {
-                'best_of': 1,
-                'top_p': 1.0,
-                'top_k': -1,
-                'min_p': 0.0,
-                'temperature': 0,
-                'n': 1  # if greedy, only 1 response
+                "best_of": 1,
+                "top_p": 1.0,
+                "top_k": -1,
+                "min_p": 0.0,
+                "temperature": 0,
+                "n": 1,  # if greedy, only 1 response
             }
 
         if not self.use_fire_sampling:
@@ -148,17 +146,18 @@ class FIREvLLMRollout(vLLMRollout):
                     prompts=None,  # because we have already convert it to prompt token id
                     sampling_params=self.sampling_params,
                     prompt_token_ids=idx_list,
-                    use_tqdm=False)
+                    use_tqdm=False,
+                )
 
             response = output[0].to(idx.device)  # (bs, response_length)
-            log_probs = output[1].to(idx.device)  # (bs, response_length)
         else:
             with self.update_sampling_params(**kwargs):
                 output_0 = self.inference_engine.generate(
                     prompts=None,  # because we have already convert it to prompt token id
                     sampling_params=self.sampling_params_0,
                     prompt_token_ids=idx_list,
-                    use_tqdm=False)
+                    use_tqdm=False,
+                )
                 new_idx_list = []
                 for i in range(batch_size):
                     new_idx_list.append(idx_list[i] + output_0[0][i].tolist())
@@ -166,7 +165,8 @@ class FIREvLLMRollout(vLLMRollout):
                     prompts=None,  # because we have already convert it to prompt token id
                     sampling_params=self.sampling_params,
                     prompt_token_ids=new_idx_list,
-                    use_tqdm=False)
+                    use_tqdm=False,
+                )
 
             response = torch.cat([output_0[0], output[0]], dim=1).to(idx.device)  # (bs, response_length)
             # log_probs = torch.cat([output_0[1], output[1]], dim=1).to(idx.device)  # (bs, response_length)
@@ -192,22 +192,21 @@ class FIREvLLMRollout(vLLMRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(response_id=response,
-                                                    eos_token=eos_token_id,
-                                                    dtype=attention_mask.dtype)
+        response_attention_mask = get_response_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
             {
-                'prompts': idx,
-                'responses': response,
-                'input_ids': seq,  # here input_ids become the whole sentences
+                "prompts": idx,
+                "responses": response,
+                "input_ids": seq,  # here input_ids become the whole sentences
                 # 'old_log_probs': log_probs, # we will recompute old log prob with actor
-                'attention_mask': attention_mask,
-                'position_ids': position_ids
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
             },
-            batch_size=batch_size)
+            batch_size=batch_size,
+        )
 
         # free vllm cache engine
         if self.config.free_cache_engine:

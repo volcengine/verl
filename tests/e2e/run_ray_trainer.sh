@@ -17,14 +17,15 @@ python3 tests/e2e/arithmetic_sequence/rl/main_trainer.py \
     data.return_raw_input_ids=True \
     actor_rollout_ref.model.path=tests/e2e/arithmetic_sequence/model \
     actor_rollout_ref.model.external_lib=tests.e2e.envs.digit_completion \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=200 \
+    actor_rollout_ref.model.use_fused_kernels=True \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=128 \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.optim.lr=1e-4 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=200 \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    critic.ppo_micro_batch_size_per_gpu=200 \
+    critic.ppo_micro_batch_size_per_gpu=128 \
     critic.model.path=tests/e2e/arithmetic_sequence/model \
     critic.optim.lr=1e-3 \
     algorithm.use_kl_in_reward=False \
