@@ -1,0 +1,23 @@
+# .github/workflows/check-pr-title.yml
+name: Check PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run PR title checker
+        run: python3 tests/sanity/check_pr_title.py
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
