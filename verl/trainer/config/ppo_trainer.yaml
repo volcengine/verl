@@ -251,69 +251,186 @@ actor_rollout_ref:
       # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
 
+  # Reference model config.
+  # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
+
+    # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
     strategy: fsdp
+
+    # config for FSDP strategy
     fsdp_config:
+
+      # whether to offload parameters in FSDP
       param_offload: False
-      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
+
+      # whether to perform reshard after model forward to save memory.
+      # only for fsdp2, [True, False, int between 1 and fsdp_size]
+      reshard_after_forward: True
+
+      # the wrap policy for FSDP model
       wrap_policy:
-        # transformer_layer_cls_to_wrap: None
+
+        # minimum number of params in a wrapped module
         min_num_params: 0
+
+    # whether to enable torch.compile
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
-    log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+
+    # [Will be deprecated, use log_prob_micro_batch_size_per_gpu]
+    # The batch size for one forward pass in the computation of log_prob. Global batch size.
+    log_prob_micro_batch_size: null
+
+    # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
     log_prob_micro_batch_size_per_gpu: null
+
+    # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+
+    # the max token length per GPU
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
-    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
+
+    # sequence parallel size
+    ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+
+  # Rollout model config.
   rollout:
+
+    # actor_rollout_ref.rollout.name: hf/vllm/sglang.
     name: vllm
-    mode: sync # sync: LLM, async: AsyncLLM
+
+    # sync: LLM, async: AsyncLLM
+    mode: sync
+
+    # Sampling temperature for rollout.
     temperature: 1.0
-    top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+
+    # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
+    top_k: -1
+
+    # Top-p sampling parameter. Default 1.0.
     top_p: 1
-    use_fire_sampling: False # https://arxiv.org/abs/2410.21236
-    prompt_length: ${data.max_prompt_length}  # not use for opensource
+
+    # https://arxiv.org/abs/2410.21236
+    use_fire_sampling: False
+
+    # typically the same as data max prompt length
+    prompt_length: ${data.max_prompt_length}
+    
+    # typically the same as data max response length
     response_length: ${data.max_response_length}
+
     # for vllm rollout
-    dtype: bfloat16 # should align with FSDP
+    # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
+    dtype: bfloat16
+
+    # Fraction of GPU memory used by vLLM/SGLang for KV cache.
     gpu_memory_utilization: 0.5
+
+    # Whether to ignore EOS and continue generating after EOS is hit.
     ignore_eos: False
+
+    # Whether to disable CUDA graph. Default True to allow cache freeing.
     enforce_eager: True
+
+    # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
     free_cache_engine: True
-    load_format: dummy_dtensor  # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    layered_summon: False # for huge model, layered summon can save memory (prevent OOM) but make it slower
+
+    # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
+    # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
+    load_format: dummy_dtensor
+
+    # for huge model, layered summon can save memory (prevent OOM) but make it slower
+    layered_summon: False
+
+    # TP size for rollout. Only effective for vLLM.
     tensor_model_parallel_size: 2
+
+    # max number of tokens in a batch
     max_num_batched_tokens: 8192
+
+    # max length for rollout
     max_model_len: null
+
+    # max length of sequences
     max_num_seqs: 1024
-    log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+
+    # [Will be deprecated, use log_prob_micro_batch_size_per_gpu] The batch size for one forward pass in the computation of log_prob. Global batch size.
+    log_prob_micro_batch_size: null
+
+    # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
     log_prob_micro_batch_size_per_gpu: null
+
+    # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+
+    # max token length for log_prob computation
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+
+    # disable logging statistics
     disable_log_stats: True
-    enable_chunked_prefill: True # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+
+    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+    enable_chunked_prefill: True
+
     # for hf rollout
+    # Whether to sample during training rollout. False uses greedy sampling.
     do_sample: True
-    # number of responses (i.e. num sample times)
-    n: 1 # > 1 for grpo
-    engine_kwargs: # inference engine parameters
+
+    # number of responses (i.e. num sample times). > 1 for grpo
+    n: 1
+
+    # Extra inference engine arguments (vllm, sglang).
+    engine_kwargs:
+
+      # for vllm 
       vllm:
-        swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+
+        # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
+        swap_space: null
+
+      # for sglang
       sglang:
-        attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+
+        # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
+        attention_backend: null
+
+    # Sampling parameters used during validation.
     val_kwargs:
+
       # sampling parameters for validation
-      top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+      # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
+      top_k: -1
+
+      # Top-p sampling parameter. Default 1.0.
       top_p: 1.0
+
+      # Sampling temperature for rollout.
       temperature: 0
+
+      # whether to repeat n times for validation
       n: 1
-      do_sample: False # default eager for validation
+
+      # Whether to sample during training rollout. False uses greedy sampling.
+      do_sample: False
+
+    # Multi-turn interaction config for tools or chat.
     multi_turn:
-      enable: False  # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
-      max_turns: null  # null for no limit (default max_length // 3)
-      tool_config_path: null  # null for no tool
-      format: chatml  # chatml, more formats will be supported in the future
-      completion_callback: null # null for default callback
+
+      # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
+      enable: False
+
+      # null for no limit (default max_length // 3)
+      max_turns: null
+
+      # null for no tool
+      tool_config_path: null
+
+      # chatml, more formats will be supported in the future
+      format: chatml 
+
+      # null for default callback
+      completion_callback: null
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
