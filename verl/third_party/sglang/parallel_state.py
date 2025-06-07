@@ -59,7 +59,7 @@ def initialize_parallel_state(
     assert world_size != -1, "The world_size is set to -1, not initialized by TORCHRUN"
     init_distributed_environment(world_size, rank, distributed_init_method, local_rank, backend)
     if torch.distributed.get_world_size() > 1:
-        # NOTE: build a sepearate inference group with infer tp & micro dp
+        # NOTE: build a separate inference group with infer tp & micro dp
         initialize_model_parallel_for_sglang(
             tensor_model_parallel_size=tensor_model_parallel_size,
             num_tensor_model_parallel_groups_per_train_tp=num_tp_per_train_tp,

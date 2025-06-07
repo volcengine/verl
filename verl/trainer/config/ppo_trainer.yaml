@@ -13,6 +13,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  validation_shuffle: False
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
@@ -98,7 +99,6 @@ actor_rollout_ref:
   rollout:
     name: vllm
     mode: sync # sync: LLM, async: AsyncLLM
-    chat_scheduler: null # async chat scheduler, e.g examples.ppo_trainer.naive_chat_scheduler.NaiveChatCompletionScheduler
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
@@ -144,6 +144,7 @@ actor_rollout_ref:
       max_turns: null  # null for no limit (default max_length // 3)
       tool_config_path: null  # null for no tool
       format: chatml  # chatml, more formats will be supported in the future
+      completion_callback: null # null for default callback
 
 critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
