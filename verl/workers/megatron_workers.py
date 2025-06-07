@@ -19,6 +19,7 @@ import logging
 import os
 import time
 import warnings
+from typing import Union
 
 import torch
 import torch.distributed
@@ -32,6 +33,7 @@ from verl.single_controller.base.megatron.worker import MegatronWorker
 from verl.utils import hf_tokenizer
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.debug import GPUMemoryLogger, log_gpu_memory_usage
+from verl.utils.debug.performance import _timer, reduce_timing
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron_utils import (
@@ -142,7 +144,7 @@ class ActorRolloutRefWorker(MegatronWorker):
     def _build_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
-        from verl.utils.megatron.optimizer import get_megatron_optimizer
+        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import get_generation_config, print_model_size
 
@@ -195,15 +197,17 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         # TODO: add more optimizer args into config
         if self._is_actor:
-            optim_config = init_megatron_optim_config(optim_config)
-            actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config)
+            optim_config_megatron = init_megatron_optim_config(optim_config)
+            actor_optimizer = get_megatron_optimizer(model=actor_module, config=optim_config_megatron)
+            actor_optimizer_scheduler = get_megatron_optimizer_param_scheduler(optimizer=actor_optimizer, config=optim_config)
         else:
             optim_config = None
             actor_optimizer = None
+            actor_optimizer_scheduler = None
 
         log_gpu_memory_usage("After actor optimizer init", logger=logger)
 
-        return actor_module, actor_optimizer, self.hf_config, optim_config
+        return actor_module, actor_optimizer, actor_optimizer_scheduler, self.hf_config, optim_config
 
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
@@ -308,7 +312,7 @@ class ActorRolloutRefWorker(MegatronWorker):
             log_gpu_memory_usage("After building sharding manager", logger=logger)
         else:
             raise NotImplementedError("Only vllmRollout is supported with Megatron now")
-
+        print(f"rollout and sharding manager init done sharding_manager: {sharding_manager}")
         return rollout, sharding_manager
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -336,7 +340,7 @@ class ActorRolloutRefWorker(MegatronWorker):
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             optim_config = self.config.actor.optim if self._is_actor else None
-            self.actor_module, self.actor_optimizer, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
+            self.actor_module, self.actor_optimizer, self.actor_optimizer_scheduler, self.actor_model_config, self.actor_optim_config = self._build_model_optimizer(
                 model_path=self.config.model.path,
                 optim_config=optim_config,
                 override_model_config=override_model_config,
@@ -362,6 +366,8 @@ class ActorRolloutRefWorker(MegatronWorker):
 
         if self._is_rollout:
             self.rollout, self.sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+            # used for sleep/wake_up
+            self.rollout.sharding_manager = self.sharding_manager
             log_gpu_memory_usage("After rollout init", logger=logger)
 
         if self._is_ref:
@@ -397,7 +403,9 @@ class ActorRolloutRefWorker(MegatronWorker):
                 share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
                 tokenizer=self.tokenizer,
                 optimizer=self.actor_optimizer,
+                optimizer_scheduler=self.actor_optimizer_scheduler,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
+                use_checkpoint_opt_param_scheduler=self.config.actor.optim.use_checkpoint_opt_param_scheduler,
                 checkpoint_contents=self.config.actor.checkpoint.contents,
             )
         torch.cuda.empty_cache()
@@ -424,6 +432,10 @@ class ActorRolloutRefWorker(MegatronWorker):
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+        from verl.utils.megatron.optimizer import get_megatron_last_lr
+
+        metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
+        self.actor_optimizer_scheduler.step(1)
 
         # TODO: here, we should return all metrics
         output = DataProto(meta_info={"metrics": metrics})
@@ -452,11 +464,13 @@ class ActorRolloutRefWorker(MegatronWorker):
             "pad_token_id": self.generation_config.pad_token_id if self.generation_config is not None else self.tokenizer.pad_token_id,
         }
         prompts.meta_info.update(meta_info)
+        if self._is_offload_optimizer:
+            offload_megatron_optimizer(self.actor_optimizer)
+
+        timing_generate = {}
         with self.sharding_manager:
             if self._is_offload_param:
                 offload_megatron_model_to_cpu(self.actor_module)
-            if self._is_offload_optimizer:
-                offload_megatron_optimizer(self.actor_optimizer)
             log_gpu_memory_usage("After entering sharding manager", logger=logger)
 
             # (zhangchi.usc1992) wake up kv cache here. Currently only support vllm.
@@ -470,9 +484,15 @@ class ActorRolloutRefWorker(MegatronWorker):
                     self.rollout.inference_engine.wake_up(tags=["kv_cache"])
 
             prompts = self.sharding_manager.preprocess_data(prompts)
-            output = self.rollout.generate_sequences(prompts=prompts)
+            with _timer("generate_sequences", timing_generate):
+                output = self.rollout.generate_sequences(prompts=prompts)
             output = self.sharding_manager.postprocess_data(output)
 
+        timing_generate.update(self.sharding_manager.timing)
+        # We calculate the average timing across all ranks
+        # to make sure meta_info["timing"] is the same
+        timing_generate = reduce_timing(timing_generate)
+        output.meta_info["timing"] = timing_generate
         output = output.to("cpu")
         # clear kv cache
         torch.cuda.empty_cache()
@@ -547,6 +567,47 @@ class ActorRolloutRefWorker(MegatronWorker):
             offload_megatron_model_to_cpu(self.actor_module)
 
 
+class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
+    def _build_rollout(self, trust_remote_code=False):
+        rollout, rollout_sharding_manager = super()._build_rollout(trust_remote_code)
+
+        # NOTE: rollout is not actually initialized here, it's deferred
+        # to be initialized by AsyncvLLMServer.
+
+        self.vllm_tp_size = self.config.rollout.tensor_model_parallel_size
+        self.vllm_dp_rank = int(os.environ["RANK"]) // self.vllm_tp_size
+        self.vllm_tp_rank = int(os.environ["RANK"]) % self.vllm_tp_size
+
+        # used for sleep/wake_up
+        rollout.sharding_manager = rollout_sharding_manager
+
+        return rollout, rollout_sharding_manager
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        """Called by ExternalRayDistributedExecutor collective_rpc."""
+        if self.vllm_tp_rank == 0 and method != "execute_model":
+            print(f"[DP={self.vllm_dp_rank},TP={self.vllm_tp_rank}] execute_method: {method if isinstance(method, str) else 'Callable'}")
+        return self.rollout.execute_method(method, *args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
+    async def chat_completion(self, json_request):
+        ret = await self.rollout.chat_completion(json_request)
+        return ret
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def wake_up(self):
+        await self.rollout.wake_up()
+        # return something to block the caller
+        return True
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    async def sleep(self):
+        await self.rollout.sleep()
+        # return something to block the caller
+        return True
+
+
 class CriticWorker(MegatronWorker):
     def __init__(self, config):
         super().__init__()
@@ -595,7 +656,7 @@ class CriticWorker(MegatronWorker):
     def _build_critic_model_optimizer(self, model_path, optim_config, override_model_config, override_transformer_config):
         from megatron.core.models.gpt.gpt_model import ModelType
 
-        from verl.utils.megatron.optimizer import get_megatron_optimizer
+        from verl.utils.megatron.optimizer import get_megatron_optimizer, get_megatron_optimizer_param_scheduler
         from verl.utils.megatron_utils import get_model, init_megatron_optim_config
         from verl.utils.model import print_model_size
 
@@ -632,10 +693,11 @@ class CriticWorker(MegatronWorker):
             print_model_size(critic_module[0])
 
         # TODO: add more optimizer args into config
-        optim_config = init_megatron_optim_config(optim_config)
-        critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config)
+        optim_config_megatron = init_megatron_optim_config(optim_config)
+        critic_optimizer = get_megatron_optimizer(model=critic_module, config=optim_config_megatron)
+        critic_optimizer_scheduler = get_megatron_optimizer_param_scheduler(optimizer=critic_optimizer, config=optim_config)
         torch.cuda.empty_cache()
-        return critic_module, critic_optimizer, self.hf_config, optim_config
+        return critic_module, critic_optimizer, critic_optimizer_scheduler, self.hf_config, optim_config
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -653,7 +715,7 @@ class CriticWorker(MegatronWorker):
         override_transformer_config = OmegaConf.to_container(self.config.megatron.get("override_transformer_config", OmegaConf.create()), resolve=True)
         self.param_dtype = torch.bfloat16
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
-        self.critic_module, self.critic_optimizer, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
+        self.critic_module, self.critic_optimizer, self.critic_optimizer_scheduler, self.critic_model_config, critic_optimizer_config = self._build_critic_model_optimizer(
             model_path=self.config.model.path,
             optim_config=self.config.optim,
             override_model_config=override_model_config,
@@ -685,7 +747,9 @@ class CriticWorker(MegatronWorker):
             share_embeddings_and_output_weights=False,
             tokenizer=self.tokenizer,
             optimizer=self.critic_optimizer,
+            optimizer_scheduler=self.critic_optimizer_scheduler,
             use_distributed_optimizer=self.config.megatron.use_distributed_optimizer,
+            use_checkpoint_opt_param_scheduler=self.config.optim.use_checkpoint_opt_param_scheduler,
             checkpoint_contents=self.config.checkpoint.contents,
         )
 
@@ -721,6 +785,11 @@ class CriticWorker(MegatronWorker):
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
+        from verl.utils.megatron.optimizer import get_megatron_last_lr
+
+        metrics["critic/lr"] = get_megatron_last_lr(self.critic_optimizer)
+        self.critic_optimizer_scheduler.step(1)
+
         output = DataProto(batch=None, meta_info={"metrics": metrics})
 
         if self._is_offload_param:

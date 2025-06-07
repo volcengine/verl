@@ -22,17 +22,15 @@ import json
 import os
 import uuid
 from collections import defaultdict
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Dict, Optional, Type
+from typing import Optional, Type
 
 import numpy as np
 import ray
 import torch
-from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -52,7 +50,8 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
+from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, find_latest_ckpt_path
+from verl.utils.debug.performance import _timer
 from verl.utils.metric import (
     reduce_metrics,
 )
@@ -232,7 +231,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         DataProto: The updated data with computed advantages and returns.
     """
     # Back-compatible with trainers that do not compute response mask in fit
-    if "response_mask" not in data.batch:
+    if "response_mask" not in data.batch.keys():
         data.batch["response_mask"] = compute_response_mask(data)
     # prepare response group
     # TODO: add other ways to estimate advantages
@@ -323,27 +322,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     return data
 
 
-@contextmanager
-def _timer(name: str, timing_raw: Dict[str, float]):
-    """Context manager for timing code execution.
-
-    This utility function measures the execution time of code within its context
-    and accumulates the timing information in the provided dictionary.
-
-    Args:
-        name (str): The name/identifier for this timing measurement.
-        timing_raw (Dict[str, float]): Dictionary to store timing information.
-
-    Yields:
-        None: This is a context manager that yields control back to the code block.
-    """
-    with Timer(name=name, logger=None) as timer:
-        yield
-    if name not in timing_raw:
-        timing_raw[name] = 0
-    timing_raw[name] += timer.last
-
-
 class RayPPOTrainer:
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
@@ -419,10 +397,17 @@ class RayPPOTrainer:
         config = self.config
         # number of GPUs total
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+        if config.actor_rollout_ref.actor.strategy == "megatron":
+            model_parallel_size = config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
+            assert n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0, f"n_gpus ({n_gpus}) must be divisible by model_parallel_size ({model_parallel_size}) times context_parallel_size ({config.actor_rollout_ref.actor.megatron.context_parallel_size})"
+            megatron_dp = n_gpus // (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size)
+            minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
+        else:
+            minimal_bsz = n_gpus
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-        assert real_train_batch_size % n_gpus == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+        assert real_train_batch_size % minimal_bsz == 0, f"real_train_batch_size ({real_train_batch_size}) must be divisible by minimal possible batch size ({minimal_bsz})"
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -565,7 +550,7 @@ class RayPPOTrainer:
             dataset=self.val_dataset,
             batch_size=val_batch_size,
             num_workers=self.config.data.get("dataloader_num_workers", 8),
-            shuffle=False,
+            shuffle=self.config.data.get("validation_shuffle", True),
             drop_last=False,
             collate_fn=collate_fn,
         )
@@ -861,6 +846,7 @@ class RayPPOTrainer:
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path, self.global_steps, max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
         # save dataloader
+        BaseCheckpointManager.local_mkdir(local_global_step_folder)
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
@@ -1005,6 +991,8 @@ class RayPPOTrainer:
                             self.async_rollout_manager.wake_up()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
                             self.async_rollout_manager.sleep()
+                        timing_raw.update(gen_batch_output.meta_info["timing"])
+                        gen_batch_output.meta_info.pop("timing", None)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer("gen_max", timing_raw):

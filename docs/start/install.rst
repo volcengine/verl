@@ -38,7 +38,7 @@ Install from docker image
 
 We provide pre-built Docker images for quick setup.
 
-For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3``.
+For vLLM with Megatron or FSDP, please use the stable version of image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseek``, which supports DeepSeek-V3 671B post-training.
 
 For latest vLLM with FSDP, please refer to ``hiyouga/verl:ngc-th2.6.0-cu126-vllm0.8.4-flashinfer0.2.2-cxx11abi0``.
 
@@ -70,17 +70,17 @@ See files under ``docker/`` for NGC-based image or if you want to build your own
 
 .. note::
 
-    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6-mcore0.12.0-te2.3`` is built with the following configurations:
+    The Docker image ``whatcanyousee/verl:ngc-cu124-vllm0.8.5-sglang0.4.6.post5-mcore0.12.1-te2.3-deepseekv3`` is built with the following configurations:
 
     - **PyTorch**: 2.6.0+cu124
     - **CUDA**: 12.4
     - **cuDNN**: 9.8.0
     - **nvidia-cudnn-cu12**: 9.8.0.87, **important for the usage of Megatron FusedAttention with MLA Support**
     - **Flash Attenttion**: 2.7.4.post1
-    - **Flash Infer**: 0.2.2.post1
+    - **Flash Infer**: 0.2.5
     - **vLLM**: 0.8.5
     - **SGLang**: 0.4.6.post5
-    - **Megatron-LM**: core_v0.12.0
+    - **Megatron-LM**: core_v0.12.1
     - **TransformerEngine**: 2.3
     - **Ray**: 2.44.1
 
