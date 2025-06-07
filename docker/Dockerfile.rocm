@@ -31,7 +31,7 @@ RUN pip uninstall -y vllm && \
 COPY . .
 
 # Install dependencies
-RUN pip install "tensordict<0.6" --no-deps && \
+RUN pip install "tensordict==0.6,2" --no-deps && \
     pip install accelerate \
     codetiming \
     datasets \
