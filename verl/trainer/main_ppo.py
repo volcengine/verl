@@ -213,9 +213,7 @@ def create_rl_sampler(data_config, dataset):
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
-    else:
-        sampler = SequentialSampler(data_source=dataset)
-    if data_config.train_weights:
+    elif data_config.train_weights:
         assert (len(data_config.train_weights) == len(data_config.train_files), 
                 "The size of `train_weight` must be the same as the size of `train_files`.")
         train_weights = data_config.train_weights
@@ -226,6 +224,8 @@ def create_rl_sampler(data_config, dataset):
         for prob, length in zip(sample_weight, dataset.data_len_list):
             weights.extend([prob / length] * length)
         sampler = WeightedRandomSampler(weights, num_samples=len(dataset), replacement=True)
+    else:
+        sampler = SequentialSampler(data_source=dataset)
     return sampler
 
 
