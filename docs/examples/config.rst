@@ -175,6 +175,11 @@ Actor/Rollout/Reference Policy
       engine_kwargs: # inference engine parameters
         vllm:
           swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+          enable_sleep_mode: True
+          disable_custom_all_reduce: True
+          disable_mm_preprocessor_cache: True
+          skip_tokenizer_init: False
+          enable_prefix_caching: True
         sglang:
           attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
 
@@ -331,7 +336,12 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
 - ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
 
   - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-
+  - ``enable_sleep_mode``: True default
+  - ``disable_custom_all_reduce``: True default
+  - ``disable_mm_preprocessor_cache``: True default
+  - ``skip_tokenizer_init``: False default
+  - ``enable_prefix_caching``: True default
+  For specific information, please refer to the vllm engine_args page
 - ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
 
   - ``attention_backend``: The attention backend to use for the inference engine.
