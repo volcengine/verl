@@ -823,7 +823,7 @@ class CriticWorker(Worker):
         from torch import optim
         from torch.distributed.fsdp import MixedPrecision
 
-        from verl.utils.model import print_model_size
+        from verl.utils.model import load_valuehead_model, print_model_size
         from verl.utils.torch_dtypes import PrecisionType
 
         use_shm = config.model.get("use_shm", False)
@@ -864,11 +864,13 @@ class CriticWorker(Worker):
             warnings.simplefilter("ignore")
             critic_model_config.classifier_dropout = 0.0
             critic_model_config.hidden_dropout = "0"
-            critic_module = AutoModelForTokenClassification.from_pretrained(
-                pretrained_model_name_or_path=local_path,
-                torch_dtype=torch_dtype,
-                config=critic_model_config,
-                trust_remote_code=config.model.get("trust_remote_code", False),
+            critic_model_config.summary_dropout_prob = 0.0
+
+            critic_module = load_valuehead_model(
+                local_path,
+                torch_dtype,
+                critic_model_config,
+                config.model.get("trust_remote_code", False),
             )
 
             use_remove_padding = config.model.get("use_remove_padding", False)

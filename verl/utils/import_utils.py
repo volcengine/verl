@@ -48,6 +48,15 @@ def is_sglang_available():
     return sglang_spec is not None
 
 
+@cache
+def is_trl_available():
+    try:
+        trl_spec = importlib.util.find_spec("trl")
+    except ModuleNotFoundError:
+        trl_spec = None
+    return trl_spec is not None
+
+
 def import_external_libs(external_libs=None):
     if external_libs is None:
         return

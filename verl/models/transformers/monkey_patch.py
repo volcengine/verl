@@ -25,6 +25,7 @@ from packaging import version
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 from transformers.modeling_utils import PreTrainedModel
 
+from verl.utils.import_utils import is_trl_available
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
@@ -156,6 +157,16 @@ def apply_monkey_patch(
     assert num_key_value_heads % ulysses_sp_size == 0 or ulysses_sp_size % num_key_value_heads == 0, (
         f"num_key_value_heads {num_key_value_heads} must be divisible by ulysses_sp_size {ulysses_sp_size}or vise versa. Upon ulysses_sp_size % num_key_value_heads == 0,kv heads are repeated to ensure correctness."
     )
+
+    if is_trl_available():
+        from trl import AutoModelForCausalLMWithValueHead
+
+        def state_dict(self, *args, **kwargs):
+            return torch.nn.Module.state_dict(self, *args, **kwargs)
+
+        AutoModelForCausalLMWithValueHead.state_dict = state_dict
+        print("Monkey patch state_dict in AutoModelForCausalLMWithValueHead. ")
+
     # TODO: VLM models only, unify monkey patch to LLM models.
     if model.config.model_type == "qwen2_5_vl":
         from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (

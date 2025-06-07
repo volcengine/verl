@@ -55,6 +55,7 @@ SGLANG_REQUIRES = [
     "torch-memory-saver>=0.0.5",
     "torch==2.6.0",
 ]
+TRL_REQUIRES = ["trl<=0.9.6"]
 
 extras_require = {
     "test": TEST_REQUIRES,
@@ -64,6 +65,7 @@ extras_require = {
     "math": MATH_REQUIRES,
     "vllm": VLLM_REQUIRES,
     "sglang": SGLANG_REQUIRES,
+    "trl": TRL_REQUIRES,
 }
 
 
