@@ -37,9 +37,10 @@ from omegaconf import DictConfig, OmegaConf
 from tensordict import TensorDict
 from torch import nn
 from vllm import SamplingParams
+from vllm.lora.request import LoRARequest
 
 from verl import DataProto
-from verl.third_party.vllm import LLM, vllm_version
+from verl.third_party.vllm import LLM, customized_vllm
 from verl.third_party.vllm import parallel_state as vllm_ps
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
@@ -47,7 +48,6 @@ from verl.workers.rollout.base import BaseRollout
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-from vllm.lora.request import LoRARequest
 
 # TODO
 # 1. support pp in vllm
@@ -77,7 +77,8 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
+        if customized_vllm:
+            assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
@@ -91,10 +92,7 @@ class vLLMRollout(BaseRollout):
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
             train_tp = kwargs.get("train_tp")
             num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in (
-                "0.5.4",
-                "0.6.3",
-            ):
+            if customized_vllm:
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
 
         rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
@@ -117,7 +115,7 @@ class vLLMRollout(BaseRollout):
         #    (which can vary across different vLLM versions);
         # - Otherwise it's the desired value we want to explicitly set.
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
-        lora_kwargs = kwargs.pop('lora_kwargs', {})
+        lora_kwargs = kwargs.pop("lora_kwargs", {})
         self.lora_kwargs = lora_kwargs
         self.inference_engine = LLM(
             actor_module,
@@ -147,10 +145,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # we may detokenize the result all together later
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
+        if customized_vllm:
             kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
@@ -183,7 +178,7 @@ class vLLMRollout(BaseRollout):
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
         # rebuild vllm cache engine
-        if self.config.free_cache_engine:
+        if customized_vllm and self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
         idx = prompts.batch["input_ids"]  # (bs, prompt_length)
@@ -226,8 +221,8 @@ class vLLMRollout(BaseRollout):
             # self.inference_engine.llm_engine.list_loras
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
-                lora_int_id=lora_int_ids[0]
-                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}",lora_int_id=lora_int_id,lora_path="/simon-stub-path")] * batch_size
+                lora_int_id = lora_int_ids[0]
+                lora_requests = [LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")] * batch_size
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
             output = self.inference_engine.generate(
@@ -274,7 +269,7 @@ class vLLMRollout(BaseRollout):
                 "prompts": idx,
                 "responses": response,
                 "input_ids": seq,  # here input_ids become the whole sentences
-                'rollout_log_probs': log_probs, # we will recompute old log prob with actor
+                "rollout_log_probs": log_probs,  # we will recompute old log prob with actor
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             },
@@ -282,7 +277,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # free vllm cache engine
-        if self.config.free_cache_engine:
+        if customized_vllm and self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)
