@@ -13,6 +13,7 @@ data:
   return_raw_chat: False
   return_full_prompt: False
   shuffle: True
+  validation_shuffle: False
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You cat set the filter_overlong_prompts_workers to use multiprocessing to speed up.
   filter_overlong_prompts_workers: 1
   truncation: error
