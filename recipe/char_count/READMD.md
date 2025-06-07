@@ -30,8 +30,12 @@ We create a train set and a val set. Both of them are used of SFT and RL. You ca
 
 To run the SFT
 ```bash
+bash train_sft.sh
 ```
+We train SFT for 3 epochs. After 3 epochs, the validation score is around 0.12.
 
 To run GRPO
 ```bash
+bash train_grpo.sh
 ```
+We train GRPO for 2 epochs. After 2 epochs, the validation score is around 0.36.
