@@ -432,54 +432,147 @@ actor_rollout_ref:
       # null for default callback
       completion_callback: null
 
+# configs for the critic
 critic:
+
+  # Number of rollouts per update (mirrors actor rollout_n)
   rollout_n: ${actor_rollout_ref.rollout.n}
-  strategy: fsdp # [fsdp, fsdp2]
+
+  # fsdp or fsdp2 strategy used for critic model training
+  strategy: fsdp
+
+  # optimizer configs
   optim:
+
+    # Learning rate
     lr: 1e-5
-    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
-    min_lr_ratio: null   # only useful for warmup with cosine
-    warmup_style: constant  # select from constant/cosine
-    total_training_steps: -1  # must be override by program
+
+    # Warmup steps ratio; total steps will be injected at runtime
+    lr_warmup_steps_ratio: 0.
+
+    # Minimum LR ratio for cosine schedule
+    min_lr_ratio: null
+
+    # LR warmup style: "constant" or "cosine"
+    warmup_style: constant
+
+    # Total training steps (must be overridden at runtime)
+    total_training_steps: -1
+
+    # Weight decay
     weight_decay: 0.01
+
+  # model config for the critic
   model:
+
+    # Path to pretrained model weights
     path: ~/models/deepseek-llm-7b-chat
+
+    # Whether to use shared memory for loading the model
     use_shm: False
+
+    # Tokenizer path (defaults to actor's model path)
     tokenizer_path: ${actor_rollout_ref.model.path}
+
+    # Hugging Face config override
     override_config: { }
+
+    # External model implementation (optional)
     external_lib: ${actor_rollout_ref.model.external_lib}
+
+    # Enable gradient checkpointing to save memory
     enable_gradient_checkpointing: True
+
+    # Offload activations to CPU to reduce GPU memory usage
     enable_activation_offload: False
+
+    # Use remove padding optimization (saves compute)
     use_remove_padding: False
+
+    # Whether to trust remote code from Hugging Face models
     trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
+
+    # FSDP-specific config
     fsdp_config:
+
+      # Whether to offload model parameters to CPU
       param_offload: False
+
+      # Whether to offload optimizer state to CPU
       optimizer_offload: False
-      offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
-      reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
+
+      # Only for FSDP2: offload param/grad/optimizer during train
+      offload_policy: False
+
+      # Only for FSDP2: Reshard after forward pass to reduce memory footprint
+      reshard_after_forward: True
+
+      # Policy for wrapping layers with FSDP
       wrap_policy:
-        # transformer_layer_cls_to_wrap: None
+
+        # Minimum number of parameters to trigger wrapping
         min_num_params: 0
+
+      # Number of GPUs in each FSDP shard group; -1 means auto
       fsdp_size: -1
-    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
-    lora_alpha: 16  # LoRA scaling factor
-    target_modules: all-linear  # all-linear or [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
+
+    # Set to positive value to enable LoRA (e.g., 32)
+    lora_rank: 0
+
+    # LoRA scaling factor
+    lora_alpha: 16
+
+    # LoRA target modules: "all-linear" or list of linear projection layers
+    target_modules: all-linear
+
+  # PPO mini-batch size per update
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
-  ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
+
+  # [Deprecated] Global micro batch size
+  ppo_micro_batch_size: null
+
+  # Local per-GPU micro batch size
   ppo_micro_batch_size_per_gpu: null
+
+  # Forward-only batch size (global)
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
+
+  # Forward-only batch size (per GPU)
   forward_micro_batch_size_per_gpu: ${critic.ppo_micro_batch_size_per_gpu}
+
+  # Whether to automatically adjust batch size at runtime
   use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
-  ppo_max_token_len_per_gpu: 32768 # (${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}) * 2
+
+  # Max tokens per GPU in one PPO batch (doubled for critic)
+  ppo_max_token_len_per_gpu: 32768
+
+  # Max token length per GPU in forward pass
   forward_max_token_len_per_gpu: ${critic.ppo_max_token_len_per_gpu}
-  ulysses_sequence_parallel_size: 1 # sp size
+
+  # Sequence parallelism size for Ulysses-style model parallelism
+  ulysses_sequence_parallel_size: 1
+
+  # Number of PPO epochs per batch
   ppo_epochs: ${actor_rollout_ref.actor.ppo_epochs}
+
+  # Shuffle training data across PPO epochs
   shuffle: ${actor_rollout_ref.actor.shuffle}
+
+  # Gradient clipping for critic updates
   grad_clip: 1.0
+
+  # PPO value function clipping range
   cliprange_value: 0.5
+
+  # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
   loss_agg_mode: ${actor_rollout_ref.actor.loss_agg_mode}
+
+  # checkpoint configs
   checkpoint:
-    contents: ['model', 'optimizer', 'extra']  # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+
+    # What to include in saved checkpoints
+    # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
+    contents: ['model', 'optimizer', 'extra']
 
 reward_model:
   enable: False
