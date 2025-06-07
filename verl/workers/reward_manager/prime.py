@@ -15,14 +15,13 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from typing import Callable, Optional
 
 import psutil
 import torch
-from transformers import PreTrainedTokenizer
 
 from verl import DataProto
-from verl.utils.reward_score import default_compute_score
+
+from verl.workers.reward_manager.base import BaseRewardManager
 
 
 async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
@@ -95,89 +94,25 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
         loop.close()
 
 
-class PrimeRewardManager:
-    """
-    The Reward Manager used in https://github.com/PRIME-RL/PRIME
-    """
-
-    def __init__(
-        self,
-        tokenizer: PreTrainedTokenizer,
-        num_examine: int,
-        compute_score: Optional[Callable] = None,
-        reward_fn_key: str = "data_source",
-    ) -> None:
-        self.tokenizer = tokenizer
-        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or default_compute_score
-        self.reward_fn_key = reward_fn_key
-
-    def verify(self, data):
-        """
-        verify the batch and save as ``acc`` tensor
-        """
-        # batched scoring
-        prompt_ids = data.batch["prompts"]
-
-        response_ids = data.batch["responses"]
-        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-        ground_truth = [data_item.non_tensor_batch["reward_model"]["ground_truth"] for data_item in data]
-        data_sources = data.non_tensor_batch[self.reward_fn_key]
-        extra_info = data.non_tensor_batch.get("extra_info", None)
-
-        assert len(sequences_str) == len(ground_truth) == len(data_sources)
+class PrimeRewardManager(BaseRewardManager):
+    def compute_scores(self, reward_data: DataProto) -> list[int | float | dict]:
         try:
             scores = run_reward_scoring(
-                self.compute_score,
-                completions=sequences_str,
-                references=ground_truth,
-                tasks=data_sources,
-                extra_info=extra_info,
+                self.user_defined_compute_scores,
+                completions=reward_data.non_tensor_batch["solution_strs"],
+                references=reward_data.non_tensor_batch["ground_truths"],
+                tasks=reward_data.non_tensor_batch["data_sources"],
+                extra_info=reward_data.non_tensor_batch["extra_infos"],
                 num_processes=64,
             )
         except asyncio.TimeoutError:
             print("[Timeout] Global reward scoring timed out. Setting all as 0.")
-            scores = [0.0 for _ in range(len(sequences_str))]
+            scores = [0.0 for _ in range(len(reward_data))]
         except Exception as e:
             print(f"[Error] Unexpected error during scoring. Setting all as 0. {e}")
-            scores = [0.0 for _ in range(len(sequences_str))]
-        data.batch["acc"] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
+            scores = [0.0 for _ in range(len(reward_data))]
         return scores
 
-    def __call__(self, data: DataProto, return_dict: bool = False):
-        """We will expand this function gradually based on the available datasets"""
-
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
-        if "rm_scores" in data.batch.keys():
-            return data.batch["rm_scores"]
-
-        reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
-
-        already_print_data_sources = {}
-
-        # batched scoring
-        prompt_ids = data.batch["prompts"]
-        prompt_length = prompt_ids.shape[-1]
-
-        response_ids = data.batch["responses"]
-        valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=-1)
-        sequences_str = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-        data_sources = data.non_tensor_batch["data_source"]
-
-        scores = self.verify(data)
-
-        for i in range(len(data)):
-            data_source = data_sources[i]
-            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
-
-            if data_source not in already_print_data_sources:
-                already_print_data_sources[data_source] = 0
-
-            if already_print_data_sources[data_source] < self.num_examine:
-                already_print_data_sources[data_source] += 1
-                print(sequences_str)
-
-        if return_dict:
-            return {"reward_tensor": reward_tensor}
-        else:
-            return reward_tensor
+    def postprocess_scores(self, reward_data: DataProto, training_data: DataProto) -> None:
+        training_data.batch["acc"] = torch.tensor(reward_data.batch["scores"], device=training_data.batch["prompts"].device)
+        super().postprocess_scores(reward_data, training_data)
