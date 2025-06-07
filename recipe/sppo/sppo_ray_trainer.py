@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import uuid
+from collections import defaultdict
 from copy import deepcopy
 from pprint import pprint
 from typing import Optional
@@ -231,7 +232,8 @@ class RaySPPOTrainer(RayPPOTrainer):
                         batch = batch.union(reward_tensor)
 
                     if self.config.reward_model.launch_reward_fn_async:
-                        future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                        assert len(batch) % self.config.reward_model.reward_fn_parallel_size == 0
+                        reward_futures = [compute_reward_async.remote(data, self.config, self.tokenizer) for data in batch.chunk(self.config.reward_model.reward_fn_parallel_size)]
                     else:
                         reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
@@ -263,7 +265,14 @@ class RaySPPOTrainer(RayPPOTrainer):
                     # we combine with rule-based rm
                     reward_extra_infos_dict: dict[str, list]
                     if self.config.reward_model.launch_reward_fn_async:
-                        reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        reward_tensor_list = []
+                        reward_extra_infos_dict = defaultdict(list)
+                        reward_results = ray.get(reward_futures)
+                        for reward_t, extra_infos in reward_results:
+                            reward_tensor_list.append(reward_t)
+                            for k, v in extra_infos.items():
+                                reward_extra_infos_dict[k].extend(v)
+                        reward_tensor = torch.cat(reward_tensor_list, dim=0)
                     batch.batch["token_level_scores"] = reward_tensor
 
                     print(f"{list(reward_extra_infos_dict.keys())=}")
