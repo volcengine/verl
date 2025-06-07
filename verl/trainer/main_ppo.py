@@ -32,7 +32,8 @@ def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
+            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", 
+                                      "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -126,6 +127,16 @@ class TaskRunner:
                 raise NotImplementedError
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
+
+        if config.gen_reward_model.enable:
+            if config.gen_reward_model.strategy == "fsdp":
+                from verl.workers.fsdp_workers import GenRewardModelWorker
+            elif config.gen_reward_model.strategy == "megatron":
+                from verl.workers.megatron_workers import GenRewardModelWorker
+            else:
+                raise NotImplementedError
+            role_worker_mapping[Role.GenRewardModel] = ray.remote(GenRewardModelWorker)
+            mapping[Role.GenRewardModel] = global_pool_id
 
         # use reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:

@@ -228,6 +228,57 @@ custom_reward_function:
   path: null
   name: compute_score
 
+gen_reward_model:
+  enable: False
+  strategy: fsdp
+  mode: sync # sync: LLM, async: AsyncLLM
+  name: vllm
+  temperature: 1.0
+  top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+  top_p: 1
+  use_fire_sampling: False # https://arxiv.org/abs/2410.21236
+  prompt_length: ${data.max_prompt_length}  # not use for opensource
+  response_length: ${data.max_response_length}
+  model:
+    path: ~/models/deepseek-llm-7b-chat
+    external_lib: null
+    override_config: { }
+    enable_gradient_checkpointing: True 
+    use_remove_padding: False
+    use_liger: False
+  fsdp_config:
+      wrap_policy:
+        # transformer_layer_cls_to_wrap: None
+        min_num_params: 0
+      param_offload: False
+      optimizer_offload: False
+      fsdp_size: -1
+  # for vllm rollout
+  dtype: bfloat16 # should align with FSDP
+  gpu_memory_utilization: 0.5
+  ignore_eos: False
+  enforce_eager: True
+  free_cache_engine: True
+  load_format: dummy_dtensor
+  tensor_model_parallel_size: 1
+  max_num_batched_tokens: 32768 #8192
+  max_model_len: null
+  max_num_seqs: 1024
+  log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+  log_prob_micro_batch_size_per_gpu: null
+  log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
+  log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+  disable_log_stats: True
+  enable_chunked_prefill: True # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+  # for hf rollout
+  do_sample: True
+  # number of responses (i.e. num sample times)
+  n: 1 # > 1 for grpo
+  engine_kwargs: # inference engine parameters
+    swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
+  truncation: error
+  ulysses_sequence_parallel_size: 1 # sp size
+
 algorithm:
   gamma: 1.0
   lam: 1.0

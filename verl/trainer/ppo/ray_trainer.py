@@ -75,6 +75,7 @@ class Role(Enum):
     RefPolicy = 4
     RewardModel = 5
     ActorRolloutRef = 6
+    GenRewardModel = 7
 
 
 class AdvantageEstimator(str, Enum):
@@ -363,6 +364,8 @@ class RayPPOTrainer:
         self.resource_pool_manager = resource_pool_manager
         self.use_reference_policy = Role.RefPolicy in role_worker_mapping
         self.use_rm = Role.RewardModel in role_worker_mapping
+        self.use_gen_rm = Role.GenRewardModel in role_worker_mapping
+        assert not (self.use_rm and self.use_gen_rm), "RM and GenRM cannot be set together"
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
@@ -693,7 +696,13 @@ class RayPPOTrainer:
 
             test_batch = test_batch.union(test_output_gen_batch)
 
-            # evaluate using reward_function
+            # evaluate using reward_function or model_based reward (e.g. xverify, TinyV)
+            if self.use_gen_rm:
+                assert test_batch.is_padding_enabled(), "Set `VERL_AUTO_PADDING` to 'TRUE' or '1' to avoid `AssertionError: only support equal chunk.`"
+                reward_tensor = self.gen_rm_wg.generate_sequences(test_batch)
+                if len(reward_tensor) != len(test_batch) and test_batch.is_padding_enabled():
+                    test_batch = test_batch.slice(0, len(reward_tensor))
+                test_batch = test_batch.union(reward_tensor)
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -782,6 +791,13 @@ class RayPPOTrainer:
             rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.RewardModel], config=self.config.reward_model)
             self.resource_pool_to_cls[resource_pool]["rm"] = rm_cls
 
+        # create a GenRM to compute reward in GRPO
+        if self.use_gen_rm:
+            # we create a GenRM here
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.GenRewardModel)
+            gen_rm_cls = RayClassWithInitArgs(self.role_worker_mapping[Role.GenRewardModel], config=self.config.gen_reward_model)
+            self.resource_pool_to_cls[resource_pool]["gen_rm"] = gen_rm_cls
+
         # initialize WorkerGroup
         # NOTE: if you want to use a different resource pool for each role, which can support different parallel size,
         # you should not use `create_colocated_worker_cls`.
@@ -809,6 +825,10 @@ class RayPPOTrainer:
         if self.use_rm:
             self.rm_wg = all_wg["rm"]
             self.rm_wg.init_model()
+
+        if self.use_gen_rm:
+            self.gen_rm_wg = all_wg["gen_rm"]
+            self.gen_rm_wg.init_model()
 
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg["actor_rollout"]
@@ -1033,6 +1053,10 @@ class RayPPOTrainer:
                             reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
+                        if self.use_gen_rm:
+                            reward_tensor = self.gen_rm_wg.generate_sequences(batch)
+                            batch = batch.union(reward_tensor)
+                        
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                         else:
