@@ -20,6 +20,7 @@ import ray
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+from torch.utils.data import  ConcatDataset, WeightedRandomSampler
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -31,7 +32,8 @@ def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
-            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
+            runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", 
+                                      "VLLM_LOGGING_LEVEL": "WARN", "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true"}},
             num_cpus=config.ray_init.num_cpus,
         )
 
@@ -126,6 +128,16 @@ class TaskRunner:
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
 
+        if config.gen_reward_model.enable:
+            if config.gen_reward_model.strategy == "fsdp":
+                from verl.workers.fsdp_workers import GenRewardModelWorker
+            elif config.gen_reward_model.strategy == "megatron":
+                from verl.workers.megatron_workers import GenRewardModelWorker
+            else:
+                raise NotImplementedError
+            role_worker_mapping[Role.GenRewardModel] = ray.remote(GenRewardModelWorker)
+            mapping[Role.GenRewardModel] = global_pool_id
+
         # use reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
@@ -214,7 +226,17 @@ def create_rl_sampler(data_config, dataset):
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
     else:
         sampler = SequentialSampler(data_source=dataset)
-
+    if data_config.train_weights:
+        assert (len(data_config.train_weights) == len(data_config.train_files), 
+                "The size of `train_weight` must be the same as the size of `train_files`.")
+        train_weights = data_config.train_weights
+        total_weight = sum(train_weights)
+        sample_weight = [r / total_weight for r in train_weights]
+        # construct the weights list
+        weights = []
+        for prob, length in zip(sample_weight, dataset.data_len_list):
+            weights.extend([prob / length] * length)
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset), replacement=True)
     return sampler
 
 

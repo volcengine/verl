@@ -148,7 +148,7 @@ class vLLMRollout(BaseRollout):
 
         self.inference_engine = LLM(
             model=model_path,
-            enable_sleep_mode=True,
+            enable_sleep_mode=False,
             tensor_parallel_size=tensor_parallel_size,
             distributed_executor_backend="external_launcher",
             dtype=config.dtype,
@@ -231,7 +231,6 @@ class vLLMRollout(BaseRollout):
         eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
-
         non_tensor_batch = prompts.non_tensor_batch
         if "raw_prompt_ids" not in non_tensor_batch:
             non_tensor_batch["raw_prompt_ids"] = np.array([_pre_process_inputs(self.pad_token_id, idx[i]) for i in range(batch_size)], dtype=object)
@@ -314,8 +313,8 @@ class vLLMRollout(BaseRollout):
                 position_ids = _repeat_interleave(position_ids, self.sampling_params.n)
                 batch_size = batch_size * self.sampling_params.n
                 # NOTE(linjunrong): for multi-turn https://github.com/volcengine/verl/pull/1037
-                if "tools_kwargs" in non_tensor_batch.keys():
-                    non_tensor_batch["tools_kwargs"] = _repeat_interleave(non_tensor_batch["tools_kwargs"], self.sampling_params.n)
+                for key in non_tensor_batch.keys():
+                    non_tensor_batch[key] = _repeat_interleave(non_tensor_batch[key], self.sampling_params.n)
 
             seq = torch.cat([idx, response], dim=-1)
 
