@@ -538,7 +538,14 @@ class ActorRolloutRefWorker(Worker):
             self.rollout, self.rollout_sharding_manager = self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
 
         if self._is_ref:
-            local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+            ref_model_path = self.config.model.path
+            ref_model = self.config.ref.get("model", None)
+            if ref_model is not None:
+                ref_model_path = ref_model.get("path", self.config.model.path)
+
+            if self.rank == 0:
+                print("reference model:", ref_model_path)
+            local_path = copy_to_local(ref_model_path, use_shm=use_shm)
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
                 fsdp_config=self.config.ref.fsdp_config,
