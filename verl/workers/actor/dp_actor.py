@@ -66,7 +66,6 @@ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outpus_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
-from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 if is_cuda_available:
     from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
@@ -136,15 +135,6 @@ class DataParallelPPOActor(BasePPOActor):
         world_size = torch.distributed.get_world_size()
         # TODO(sgm): support FSDP hybrid shard for larger model
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.fsdp_config.fsdp_size)
-
-        # build device mesh for Ulysses Sequence Parallel
-        self.ulysses_device_mesh = None
-        self.ulysses_sequence_parallel_size = self.config.get("ulysses_sequence_parallel_size", 1)
-        dp = world_size // self.ulysses_sequence_parallel_size
-        if self.ulysses_sequence_parallel_size > 1:
-            self.ulysses_device_mesh = init_device_mesh(self.device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=("dp", "sp"))
-
-        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
 
         self.tokenizer = tokenizer
         self.processor = processor

@@ -84,6 +84,20 @@ class ActorRolloutRefWorker(Worker):
             world_size = int(os.environ.get("WORLD_SIZE", 1))
             torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl" if is_cuda_available else "cpu:gloo,npu:hccl", rank=rank, world_size=world_size)
 
+        # build device mesh for FSDP
+        world_size = torch.distributed.get_world_size()
+        # TODO(sgm): support FSDP hybrid shard for larger model
+        self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
+
+        # build device mesh for Ulysses Sequence Parallel
+        self.ulysses_device_mesh = None
+        self.ulysses_sequence_parallel_size = self.config.actor.get("ulysses_sequence_parallel_size", 1)
+        dp = world_size // self.ulysses_sequence_parallel_size
+        if self.ulysses_sequence_parallel_size > 1:
+            self.ulysses_device_mesh = init_device_mesh(device_name, mesh_shape=(dp, self.ulysses_sequence_parallel_size), mesh_dim_names=["dp", "sp"])
+
+        self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+
         self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
@@ -101,14 +115,13 @@ class ActorRolloutRefWorker(Worker):
             self._is_offload_param = self.config.ref.fsdp_config.get("param_offload", False)
 
         # normalize config
-        self.ulysses_sequence_parallel_size = self.config.actor.get("ulysses_sequence_parallel_size", 1)
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_mini_batch_size //= self.world_size // self.ulysses_sequence_parallel_size
+            self.config.actor.ppo_mini_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
             assert self.config.actor.ppo_mini_batch_size > 0, f"ppo_mini_batch_size {self.config.actor.ppo_mini_batch_size} should be larger than 0 after normalization"
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
-                self.config.actor.ppo_micro_batch_size //= self.world_size // self.ulysses_sequence_parallel_size
+                self.config.actor.ppo_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
 
             if self.config.actor.ppo_micro_batch_size_per_gpu is not None:
@@ -117,11 +130,11 @@ class ActorRolloutRefWorker(Worker):
 
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
-            self.config.rollout.log_prob_micro_batch_size //= self.world_size // self.ulysses_sequence_parallel_size
+            self.config.rollout.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
         if self._is_ref and self.config.ref.log_prob_micro_batch_size is not None:
-            self.config.ref.log_prob_micro_batch_size //= self.world_size // self.ulysses_sequence_parallel_size
+            self.config.ref.log_prob_micro_batch_size //= self.device_mesh.size() // self.ulysses_sequence_parallel_size
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_rollout(self, trust_remote_code=False):
@@ -258,8 +271,8 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             self.actor.to(tag="optimizer", device="gpu")
 
-        with self.actor.ulysses_sharding_manager:
-            data = self.actor.ulysses_sharding_manager.preprocess_data(data=data)
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
                 metrics = self.actor.update_policy(data=data)
@@ -278,14 +291,14 @@ class ActorRolloutRefWorker(Worker):
             # TODO: here, we should return all metrics
             output = DataProto(meta_info={"metrics": metrics})
 
-            output = self.actor.ulysses_sharding_manager.postprocess_data(data=output)
+            output = self.ulysses_sharding_manager.postprocess_data(data=output)
             output = output.to("cpu")
 
         if self._is_offload_param:
             self.actor.to(tag="model", device="cpu")
             log_gpu_memory_usage("After offload actor model during update_actor", logger=logger)
         if self._is_offload_optimizer:
-            self.actor.to(tag="optimizer", device="gpu")
+            self.actor.to(tag="optimizer", device="cpu")
             log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
         return output
@@ -345,15 +358,15 @@ class ActorRolloutRefWorker(Worker):
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
         # perform recompute log_prob
-        with self.actor.ulysses_sharding_manager:
-            data = self.actor.ulysses_sharding_manager.preprocess_data(data)
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
             with adapter_ctx:
                 output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output, "entropys": entropys},
                 meta_info={"temperature": self.config.rollout.temperature},
             )
-            output = self.actor.ulysses_sharding_manager.postprocess_data(output)
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
 
@@ -388,11 +401,11 @@ class ActorRolloutRefWorker(Worker):
         data.meta_info["temperature"] = self.config.rollout.temperature
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
-        with self.ref_policy.ulysses_sharding_manager:
-            data = self.ref_policy.ulysses_sharding_manager.preprocess_data(data)
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
             output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
             output = DataProto.from_dict(tensors={"ref_log_prob": output})
-            output = self.ref_policy.ulysses_sharding_manager.postprocess_data(output)
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to("cpu")
 
@@ -424,7 +437,7 @@ class ActorRolloutRefWorker(Worker):
             self.actor.to(tag="model", device="cpu")
 
         if self._is_offload_optimizer:
-            self.actor.to(tag="optimizer", device="gpu")
+            self.actor.to(tag="optimizer", device="cpu")
 
 
 class CriticWorker(Worker):
