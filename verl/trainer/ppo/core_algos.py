@@ -225,6 +225,7 @@ def compute_grpo_passk_outcome_advantage(
     index: np.ndarray,
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: bool = True,
+    config = None,
     **kwargs,
 ):
     """
@@ -238,12 +239,15 @@ def compute_grpo_passk_outcome_advantage(
         response_mask: (bs, response_length)
         index: (bs,) → group ID per sample
         epsilon: float for numerical stability
-        norm_adv_by_std_in_grpo: if True, normalize advantage by std within group
+        config: (dict) algorithm settings, which contains "norm_adv_by_std_in_grpo"
 
     Returns:
         advantages: (bs, response_length)
         returns: (bs, response_length)
     """
+    assert config is not None
+    # if True, normalize advantage by std within group
+    norm_adv_by_std_in_grpo = config.get("norm_adv_by_std_in_grpo", True)
     scores = token_level_rewards.sum(dim=-1)  # (bs,)
     advantages = torch.zeros_like(scores)
 
@@ -275,7 +279,7 @@ def compute_grpo_passk_outcome_advantage(
 
 @register(AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE) # or simply: @register("reinforce_plus_plus_baseline")
 def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: torch.Tensor,
-                                                           epsilon: float = 1e-6, **kwargs):
+                                                           epsilon: float = 1e-6, config=None, **kwargs):
     """
     Compute advantage for RF++-baseline (https://arxiv.org/abs/2501.03262), operating only on Outcome reward
     (with only one scalar reward for each response).
@@ -285,6 +289,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        config: (dict) algorithm config
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -319,7 +324,7 @@ def compute_reinforce_plus_plus_baseline_outcome_advantage(token_level_rewards: 
 
 @register(AdvantageEstimator.RLOO) # or simply: @register("rloo")
 def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray,
-                                   epsilon: float = 1e-6, **kwargs):
+                                   epsilon: float = 1e-6, config=None, **kwargs):
     """
     Compute advantage for RLOO based on https://arxiv.org/abs/2402.14740
 
@@ -328,6 +333,7 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_m
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        config: (dict) algorithm config
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -360,7 +366,8 @@ def compute_rloo_outcome_advantage(token_level_rewards: torch.Tensor, response_m
     return scores, scores
 
 @register(AdvantageEstimator.OPO) # or simply: @register("opo")
-def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6, **kwargs):
+def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, index: np.ndarray, epsilon: float = 1e-6,
+                                  config=None, **kwargs):
     """
     Compute advantage for OPO based on https://arxiv.org/pdf/2505.23585
 
@@ -369,6 +376,7 @@ def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_ma
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        config: (dict) algorithm config
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -405,7 +413,7 @@ def compute_opo_outcome_advantage(token_level_rewards: torch.Tensor, response_ma
     return scores, scores
 
 @register(AdvantageEstimator.REINFORCE_PLUS_PLUS) # or simply: @register("reinforce_plus_plus")
-def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, gamma: torch.Tensor, **kwargs):
+def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor, response_mask: torch.Tensor, config=None, **kwargs):
     """
     Compute advantage for REINFORCE++.
     This implementation is based on the paper: https://arxiv.org/abs/2501.03262
@@ -415,6 +423,7 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
             shape: (bs, response_length)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        config: (dict) algorithm config
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -422,7 +431,8 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
         Returns: `(torch.Tensor)`
             shape: (bs, response_length)
     """
-
+    assert config is not None
+    gamma = config.gamma
     with torch.no_grad():
         returns = torch.zeros_like(token_level_rewards)
         running_return = 0
@@ -439,7 +449,7 @@ def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Ten
     return advantages, returns
 
 @register(AdvantageEstimator.REMAX) # or simply: @register("remax")
-def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor, response_mask: torch.Tensor, **kwargs):
+def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_baselines: torch.Tensor, response_mask: torch.Tensor, config=None, **kwargs):
     """
     Compute advantage for ReMax, operating only on Outcome reward
     This implementation is based on the paper: https://arxiv.org/abs/2310.10505
@@ -452,6 +462,7 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
             shape: (bs,)
         response_mask: `(torch.Tensor)`
             shape: (bs, response_length)
+        config: (dict) algorithm config
 
     Returns:
         advantages: `(torch.Tensor)`
